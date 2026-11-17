@@ -127,3 +127,26 @@ class GitSpace:
             last_probe_at=row["last_probe_at"],
             created_at=row["created_at"],
         )
+
+
+@dataclass(frozen=True)
+class SpaceBranch:
+    id: uuid.UUID
+    space_id: uuid.UUID
+    label: str
+    slug: str
+    kind: str
+    git_ref: str
+    created_at: datetime
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> SpaceBranch:
+        return cls(
+            id=row["id"],
+            space_id=row["space_id"],
+            label=row["label"],
+            slug=row["slug"],
+            kind=row["kind"],
+            git_ref=row["git_ref"],
+            created_at=row["created_at"],
+        )

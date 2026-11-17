@@ -122,6 +122,15 @@ un espace est refusé. La sonde est injectable, testée contre des dépôts bare
 locaux ; l'épreuve contre les vraies forges (ou une Gitea jetable) est une
 dépendance humaine (dépôts et jetons fournis hors conversation).
 
+**Branches de travail** : chaque espace a un écran qui gère ses branches. La
+**racine du dépôt reste en lecture seule** ; Ossie Studio n'écrit que dans
+des branches `work/<slug>`. La **base** se tire de la racine (avec une
+arborescence initiale `sources/` + description si absente) ; une **fille** se
+tire de la tête de la base (pointeur, sans commit). Les copies de travail
+sont persistantes, un répertoire par (espace, branche) sur le volume de
+travail, réalignées sur la tête distante à chaque geste, avec un verrou par
+répertoire. La **branche regardée est retenue par compte**.
+
 ## Tests et qualité
 
 ```bash

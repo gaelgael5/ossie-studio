@@ -91,6 +91,7 @@ export function SpacesPage() {
                 <td>{s.last_probe_status === 'valid' ? t('statusValid') : t('statusError')}</td>
                 <td>{formatDate(s.last_probe_at)}</td>
                 <td>
+                  <Link to={`/spaces/${s.id}`}>{t('openSpace')}</Link>{' '}
                   <button type="button" onClick={() => prove.mutate(s.id)}>
                     {t('prove')}
                   </button>

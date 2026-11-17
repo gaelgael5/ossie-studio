@@ -138,3 +138,29 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
   await waitFor(() => expect(screen.getByText(/pousser un commit/)).toBeInTheDocument())
   expect(screen.getByText(/droit d'écriture absent/)).toBeInTheDocument()
 })
+
+test('détail espace : liste les branches et propose la création de fille', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+      },
+    },
+    '/api/spaces/s1/branches': {
+      body: {
+        branches: [{ id: 'b1', label: 'Principale', slug: 'principale', kind: 'base', git_ref: 'work/principale' }],
+        viewed_branch_id: 'b1',
+      },
+    },
+  })
+  renderAt('/spaces/s1')
+  await screen.findByText('Branches de travail')
+  // La base existe → on propose la création d'une fille.
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Créer une branche fille' })).toBeInTheDocument(),
+  )
+  expect(screen.getAllByText('Principale').length).toBeGreaterThan(0)
+})

@@ -9,6 +9,7 @@ import { SecretsPage } from './pages/SecretsPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
 import { ForgesPage } from './pages/ForgesPage'
 import { SpacesPage } from './pages/SpacesPage'
+import { SpaceDetailPage } from './pages/SpaceDetailPage'
 import { StatusPage } from './StatusPage'
 
 export function App() {
@@ -73,6 +74,10 @@ export function App() {
         <Route
           path="/spaces"
           element={isAdmin ? <SpacesPage /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/spaces/:spaceId"
+          element={isAdmin ? <SpaceDetailPage /> : <Navigate to="/login" replace />}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

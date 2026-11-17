@@ -59,7 +59,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S105", "S106"] # mots de passe factices des tests
+# S105/S106 : mots de passe factices ; S603/S607 : appel à git en sous-process
+# pour préparer des dépôts de test.
+"tests/*" = ["S105", "S106", "S603", "S607"]
 
 [tool.mypy]
 python_version = "3.12"

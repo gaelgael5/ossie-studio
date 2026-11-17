@@ -35,6 +35,12 @@ ERROR_CODES: tuple[str, ...] = (
     "space_repo_taken",
     "space_probe_failed",
     "space_not_found",
+    "space_base_required",
+    "branch_slug_taken",
+    "branch_exists",
+    "branch_not_found",
+    "repo_access_lost",
+    "git_failed",
 )
 
 

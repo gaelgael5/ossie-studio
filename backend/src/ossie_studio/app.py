@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
+from ossie_studio.api.branches import router as api_branches_router
 from ossie_studio.api.connections import router as api_connections_router
 from ossie_studio.api.oidc import router as api_oidc_router
 from ossie_studio.api.secrets import router as api_secrets_router
@@ -22,6 +23,7 @@ from ossie_studio.health import resolve_health
 from ossie_studio.logging import setup_logging
 from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.spaces.git_probe import prove_five_rights
+from ossie_studio.spaces.workdir import WorkdirManager
 
 
 def _default_http_client_factory() -> httpx.AsyncClient:
@@ -51,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Injectable : les tests la remplacent par un client branché sur un faux IdP.
     app.state.http_client_factory = _default_http_client_factory
     app.state.git_probe = prove_five_rights
+    app.state.workdir_manager = WorkdirManager(settings.work_volume_path)
 
     @app.get("/api/health")
     async def health(request: Request) -> Response:
@@ -70,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_oidc_router)
     app.include_router(api_connections_router)
     app.include_router(api_spaces_router)
+    app.include_router(api_branches_router)
     # Flux OIDC : navigations du navigateur (redirections), pas de l'API JSON.
     app.include_router(oidc_login_router)
     return app

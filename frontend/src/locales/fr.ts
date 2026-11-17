@@ -119,6 +119,20 @@ export const fr = {
     probeResiduals: 'À supprimer à la main sur la forge : {{names}}.',
     probePosedMain: '« main » a été posée sur le dépôt vide.',
     deleteSpaceConfirm: "Supprimer cet espace ? Le dépôt n'est pas touché.",
+    openSpace: 'Ouvrir',
+    branchesTitle: 'Branches de travail',
+    branchesIntro:
+      "La racine du dépôt reste en lecture seule : on ne travaille que dans des branches « work/… ». La base se tire de la racine ; une fille se tire de la tête de la base.",
+    colKind: 'Type',
+    kindBase: 'base',
+    kindChild: 'fille',
+    createBaseButton: 'Créer la branche de base',
+    createChildButton: 'Créer une branche fille',
+    baseLabelField: 'Libellé de la branche de base',
+    childLabelField: 'Libellé de la branche fille',
+    viewedBranchLabel: 'Branche regardée',
+    noBranches: 'Aucune branche de travail.',
+    noBase: "Aucune branche de base : créez-la d'abord.",
     rights: {
       read_fetch: 'lire et récupérer',
       create_branch: 'créer une branche',
@@ -160,6 +174,7 @@ export const fr = {
       connection_required: 'Une connexion valide est obligatoire.',
       repo_url_required: "L'URL du dépôt est obligatoire.",
       repo_url_invalid: "L'URL du dépôt doit être une URL http(s).",
+      label_invalid: 'Le libellé ne produit pas de slug valide.',
     },
 
     errors: {
@@ -190,6 +205,12 @@ export const fr = {
       space_repo_taken: "Ce dépôt est déjà rattaché à l'espace « {{space}} ».",
       space_probe_failed: "L'épreuve des cinq droits a échoué.",
       space_not_found: 'Espace introuvable.',
+      space_base_required: "Créez d'abord la branche de base de l'espace.",
+      branch_slug_taken: 'Une branche porte déjà ce slug dans cet espace.',
+      branch_exists: 'Une branche « work/… » de ce nom existe déjà dans le dépôt.',
+      branch_not_found: 'Branche introuvable.',
+      repo_access_lost: "L'accès au dépôt est perdu ; réessayez quand il revient.",
+      git_failed: "L'opération git a échoué.",
     },
   },
 }

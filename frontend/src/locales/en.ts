@@ -118,6 +118,20 @@ export const en = {
     probeResiduals: 'To delete by hand on the forge: {{names}}.',
     probePosedMain: '“main” was posed on the empty repository.',
     deleteSpaceConfirm: 'Delete this space? The repository is not touched.',
+    openSpace: 'Open',
+    branchesTitle: 'Working branches',
+    branchesIntro:
+      'The repository root stays read-only: work happens only in “work/…” branches. The base is cut from the root; a child is cut from the base head.',
+    colKind: 'Kind',
+    kindBase: 'base',
+    kindChild: 'child',
+    createBaseButton: 'Create the base branch',
+    createChildButton: 'Create a child branch',
+    baseLabelField: 'Base branch label',
+    childLabelField: 'Child branch label',
+    viewedBranchLabel: 'Viewed branch',
+    noBranches: 'No working branch.',
+    noBase: 'No base branch: create it first.',
     rights: {
       read_fetch: 'read and fetch',
       create_branch: 'create a branch',
@@ -159,6 +173,7 @@ export const en = {
       connection_required: 'A valid connection is required.',
       repo_url_required: 'The repository URL is required.',
       repo_url_invalid: 'The repository URL must be an http(s) URL.',
+      label_invalid: 'The label does not produce a valid slug.',
     },
 
     errors: {
@@ -189,6 +204,12 @@ export const en = {
       space_repo_taken: 'This repository is already attached to space “{{space}}”.',
       space_probe_failed: 'Proving the five rights failed.',
       space_not_found: 'Space not found.',
+      space_base_required: 'Create the space base branch first.',
+      branch_slug_taken: 'A branch already uses this slug in this space.',
+      branch_exists: 'A “work/…” branch with this name already exists in the repository.',
+      branch_not_found: 'Branch not found.',
+      repo_access_lost: 'Repository access is lost; try again when it returns.',
+      git_failed: 'The git operation failed.',
     },
   },
 }

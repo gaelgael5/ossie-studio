@@ -88,6 +88,26 @@ export const api = {
     apiFetch(`/api/connections/${id}`, { method: 'DELETE' }),
 
   listSpaces: () => apiFetch<{ spaces: GitSpace[] }>('/api/spaces'),
+  listBranches: (spaceId: string) =>
+    apiFetch<{
+      branches: { id: string; label: string; slug: string; kind: string; git_ref: string }[]
+      viewed_branch_id: string | null
+    }>(`/api/spaces/${spaceId}/branches`),
+  createBaseBranch: (spaceId: string, label: string) =>
+    apiFetch(`/api/spaces/${spaceId}/branches/base`, {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    }),
+  createChildBranch: (spaceId: string, label: string) =>
+    apiFetch(`/api/spaces/${spaceId}/branches/child`, {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    }),
+  setViewedBranch: (spaceId: string, branchId: string) =>
+    apiFetch(`/api/spaces/${spaceId}/branches/viewed`, {
+      method: 'PUT',
+      body: JSON.stringify({ branch_id: branchId }),
+    }),
   createSpace: (body: { name: string; connection_id: string; repo_url: string }) =>
     apiFetch<GitSpace & { probe: unknown }>('/api/spaces', {
       method: 'POST',
