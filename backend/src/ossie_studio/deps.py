@@ -3,14 +3,16 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import Request
+from fastapi import Depends, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.applications import Starlette
 
 from ossie_studio.auth.service import db_count_users, db_get_user_by_id
-from ossie_studio.models import User
+from ossie_studio.crypto import CryptoService
+from ossie_studio.models import ROLE_ADMIN, User
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 STATIC_DIR = Path(__file__).parent / "static"
@@ -45,3 +47,23 @@ async def get_current_user(request: Request, session: AsyncSession) -> User | No
     except ValueError:
         return None
     return await db_get_user_by_id(session, user_id)
+
+
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+
+def get_crypto(request: Request) -> CryptoService:
+    crypto: CryptoService = request.app.state.crypto
+    return crypto
+
+
+async def require_admin(request: Request, session: SessionDep) -> User:
+    """Réservé à l'administrateur : anonyme → login (GET) ou 403, autre rôle → 403."""
+    user = await get_current_user(request, session)
+    if user is None:
+        if request.method == "GET":
+            raise HTTPException(status_code=303, headers={"Location": "/login"})
+        raise HTTPException(status_code=403)
+    if user.role != ROLE_ADMIN:
+        raise HTTPException(status_code=403)
+    return user

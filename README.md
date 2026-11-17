@@ -16,7 +16,7 @@ docker compose up -d db
 
 ```bash
 cd backend && cp .env.example .env
-# renseigner SESSION_SECRET : openssl rand -hex 32
+# renseigner SESSION_SECRET et SECRETS_MASTER_KEY : openssl rand -hex 32
 ```
 
 ```bash
@@ -30,6 +30,15 @@ cd backend && uv run uvicorn ossie_studio.app:create_app --factory --reload
 Au premier démarrage sur une base vide, l'application présente l'écran de
 création du **premier administrateur** (email + mot de passe locaux). Dès
 que ce compte existe, l'écran disparaît définitivement.
+
+### Secrets
+
+L'administrateur gère les secrets de l'application depuis `/secrets` :
+chaque secret a un slug (identité immuable), un libellé, une catégorie
+(`github` pour l'instant) et une valeur **chiffrée en base** (AES-256-GCM).
+La valeur n'est jamais renvoyée au navigateur ni journalisée ; le reste de
+l'application la récupère côté serveur par son slug, via le type opaque
+`SecretValue` (`.reveal()` au point d'injection uniquement).
 
 ## Tests et qualité
 

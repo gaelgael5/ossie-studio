@@ -11,11 +11,13 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ossie_studio.auth.routes import router as auth_router
 from ossie_studio.config import Settings
+from ossie_studio.crypto import CryptoService
 from ossie_studio.db import create_engine, create_session_factory
 from ossie_studio.deps import STATIC_DIR, bootstrap_is_done
 from ossie_studio.logging import setup_logging
 from ossie_studio.models import Base
 from ossie_studio.pages import router as pages_router
+from ossie_studio.secretstore.routes import router as secrets_router
 
 # Seules routes accessibles tant que la base utilisateurs est vide.
 _PATHS_ALLOWED_WHEN_EMPTY = ("/setup", "/static/", "/healthz")
@@ -51,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.session_factory = create_session_factory(engine)
     app.state.bootstrap_done = False
+    app.state.crypto = CryptoService(settings.master_key_bytes())
 
     app.add_middleware(BootstrapRedirectMiddleware)
     app.add_middleware(
@@ -62,4 +65,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     app.include_router(auth_router)
     app.include_router(pages_router)
+    app.include_router(secrets_router)
     return app

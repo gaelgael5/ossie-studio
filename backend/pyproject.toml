@@ -16,6 +16,7 @@ dependencies = [
     "argon2-cffi>=23.1",
     "structlog>=24.1",
     "itsdangerous>=2.2",
+    "cryptography>=50.0.2",
 ]
 
 [dependency-groups]
@@ -41,6 +42,12 @@ packages = ["src/ossie_studio"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+
+[tool.coverage.run]
+# SQLAlchemy async exécute du code sous greenlet : sans cela, coverage perd
+# ces frames et sous-compte les fonctions db_*.
+concurrency = ["thread", "greenlet"]
+source = ["ossie_studio"]
 
 [tool.ruff]
 line-length = 100

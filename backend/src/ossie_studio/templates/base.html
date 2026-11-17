@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <main class="card">
+  <main class="{% block container_class %}card{% endblock %}">
     {% block content %}{% endblock %}
   </main>
 </body>

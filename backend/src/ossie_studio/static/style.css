@@ -74,3 +74,31 @@ button:hover { background: var(--accent-dark); }
 
 button.secondary { background: #64748b; }
 button.secondary:hover { background: #475569; }
+
+.topnav { margin-bottom: 12px; font-size: 0.9rem; }
+.topnav a { color: var(--accent); text-decoration: none; }
+.topnav a:hover { text-decoration: underline; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+code { background: #eef1f5; padding: 2px 5px; border-radius: 4px; }
+
+.row-actions { display: flex; gap: 6px; }
+.row-actions form { flex-direction: row; margin-top: 0; gap: 6px; }
+.row-actions input { padding: 6px; font-size: 0.85rem; width: 140px; }
+.row-actions button { margin-top: 0; padding: 6px 10px; font-size: 0.85rem; }
+
+button.danger { background: var(--error); }
+button.danger:hover { background: #7f1d1d; }
+
+select {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 1rem;
+  background: #fff;
+}
+
+h2 { font-size: 1.1rem; margin-top: 28px; }
+
+.card.wide { max-width: 900px; }

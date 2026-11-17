@@ -3,6 +3,11 @@
 {% block content %}
 <h1>Ossie Studio</h1>
 <p>Connecté en tant que <strong>{{ user.email }}</strong> ({{ user.role }}).</p>
+{% if user.role == "admin" %}
+<nav class="topnav">
+  <a href="/secrets">Gérer les secrets</a>
+</nav>
+{% endif %}
 <p>
   La construction de la couche sémantique (collecte, curation, relations,
   ontologie) arrive dans les prochains tickets.
