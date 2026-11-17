@@ -54,3 +54,6 @@ class GitHubStrategy:
             if len(batch) < _PER_PAGE:
                 return repos
             page += 1
+
+    def git_username(self) -> str:
+        return "x-access-token"

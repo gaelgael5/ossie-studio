@@ -48,3 +48,6 @@ class GitLabStrategy:
             if len(batch) < _PER_PAGE:
                 return repos
             page += 1
+
+    def git_username(self) -> str:
+        return "oauth2"

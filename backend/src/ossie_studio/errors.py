@@ -30,6 +30,11 @@ ERROR_CODES: tuple[str, ...] = (
     "connection_azure_org_not_found",
     "connection_duplicate",
     "connection_not_found",
+    "connection_in_use",
+    "space_name_taken",
+    "space_repo_taken",
+    "space_probe_failed",
+    "space_not_found",
 )
 
 

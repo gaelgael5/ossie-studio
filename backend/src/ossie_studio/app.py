@@ -12,6 +12,7 @@ from ossie_studio.api.connections import router as api_connections_router
 from ossie_studio.api.oidc import router as api_oidc_router
 from ossie_studio.api.secrets import router as api_secrets_router
 from ossie_studio.api.session import router as api_session_router
+from ossie_studio.api.spaces import router as api_spaces_router
 from ossie_studio.config import Settings
 from ossie_studio.crypto import CryptoService
 from ossie_studio.db import create_pool
@@ -20,6 +21,7 @@ from ossie_studio.errors import ApiError, api_error_handler
 from ossie_studio.health import resolve_health
 from ossie_studio.logging import setup_logging
 from ossie_studio.oidc.login_routes import router as oidc_login_router
+from ossie_studio.spaces.git_probe import prove_five_rights
 
 
 def _default_http_client_factory() -> httpx.AsyncClient:
@@ -48,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Fabrique de client HTTP sortant (découverte OIDC, JWKS, échange de jeton).
     # Injectable : les tests la remplacent par un client branché sur un faux IdP.
     app.state.http_client_factory = _default_http_client_factory
+    app.state.git_probe = prove_five_rights
 
     @app.get("/api/health")
     async def health(request: Request) -> Response:
@@ -66,6 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_secrets_router)
     app.include_router(api_oidc_router)
     app.include_router(api_connections_router)
+    app.include_router(api_spaces_router)
     # Flux OIDC : navigations du navigateur (redirections), pas de l'API JSON.
     app.include_router(oidc_login_router)
     return app

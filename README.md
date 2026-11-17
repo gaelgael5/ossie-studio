@@ -107,6 +107,21 @@ référence. Chaque forge est une **stratégie** derrière un même contrat
 pagination). Ajouter une forge ou un mode OAuth plus tard ne touche ni la
 page ni les consommateurs.
 
+### Espaces Git
+
+Un **espace Git** rattache un dépôt (sous une connexion) où Ossie Studio
+pourra écrire, pousser et taguer. La création **éprouve réellement les cinq
+droits** par un essai git — lire/récupérer, créer une branche, pousser un
+commit, poser un tag, supprimer la branche — avec une branche et un tag de
+vérification `ossie-verify-<aléatoire>`, puis nettoie. Sur un dépôt vide,
+`main` est posée (seul effet durable, annoncé). Un droit en échec nomme le
+droit et sa cause ; un nettoyage raté affiche le nom exact à supprimer à la
+main. Le jeton est remis à git par l'environnement (`GIT_ASKPASS`), jamais
+dans l'URL, un argument ou un fichier. Supprimer une connexion utilisée par
+un espace est refusé. La sonde est injectable, testée contre des dépôts bare
+locaux ; l'épreuve contre les vraies forges (ou une Gitea jetable) est une
+dépendance humaine (dépôts et jetons fournis hors conversation).
+
 ## Tests et qualité
 
 ```bash

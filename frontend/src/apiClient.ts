@@ -39,6 +39,15 @@ export const FORGE_DEFAULT_URL: Record<string, string> = {
   azure_devops: '',
 }
 
+export interface GitSpace {
+  id: string
+  name: string
+  connection_id: string
+  repo_url: string
+  last_probe_status: string | null
+  last_probe_at: string | null
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setup: (email: string, password: string) =>
@@ -77,6 +86,16 @@ export const api = {
     apiFetch<Connection>(`/api/connections/${id}/test`, { method: 'POST' }),
   deleteConnection: (id: string) =>
     apiFetch(`/api/connections/${id}`, { method: 'DELETE' }),
+
+  listSpaces: () => apiFetch<{ spaces: GitSpace[] }>('/api/spaces'),
+  createSpace: (body: { name: string; connection_id: string; repo_url: string }) =>
+    apiFetch<GitSpace & { probe: unknown }>('/api/spaces', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  probeSpace: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/api/spaces/${id}/probe`, { method: 'POST' }),
+  deleteSpace: (id: string) => apiFetch(`/api/spaces/${id}`, { method: 'DELETE' }),
 
   listConnectors: () =>
     apiFetch<{

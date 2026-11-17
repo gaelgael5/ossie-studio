@@ -75,3 +75,6 @@ class AzureDevOpsStrategy:
             continuation = response.headers.get(_CONTINUATION_HEADER)
             if not continuation:
                 return projects
+
+    def git_username(self) -> str:
+        return "pat"

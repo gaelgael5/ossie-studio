@@ -104,3 +104,26 @@ class Connection:
             last_checked_at=row["last_checked_at"],
             created_at=row["created_at"],
         )
+
+
+@dataclass(frozen=True)
+class GitSpace:
+    id: uuid.UUID
+    name: str
+    connection_id: uuid.UUID
+    repo_url: str
+    last_probe_status: str | None
+    last_probe_at: datetime | None
+    created_at: datetime
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> GitSpace:
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            connection_id=row["connection_id"],
+            repo_url=row["repo_url"],
+            last_probe_status=row["last_probe_status"],
+            last_probe_at=row["last_probe_at"],
+            created_at=row["created_at"],
+        )

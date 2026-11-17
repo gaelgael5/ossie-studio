@@ -109,3 +109,32 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
     expect(screen.getByText('Jeton invalide ou expiré.')).toBeInTheDocument(),
   )
 })
+
+test('espaces : un droit en échec affiche le droit et la cause traduits', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+      },
+    },
+    '/api/spaces': { body: { spaces: [] } },
+    '/api/connections': {
+      body: { connections: [{ id: 'c1', label: 'GitHub', forge: 'github', url: 'https://github.com', identity: 'octocat', last_status: 'valid', last_error_code: null, last_checked_at: null }] },
+    },
+    'POST /api/spaces': {
+      status: 400,
+      body: { error: 'space_probe_failed', error_args: { right: 'push_commit', cause: 'write_denied', residuals: [] } },
+    },
+  })
+  renderAt('/spaces')
+  await screen.findByText('Espaces Git')
+  await userEvent.type(screen.getByLabelText("Nom de l'espace"), 'modele')
+  await userEvent.type(screen.getByLabelText('URL du dépôt'), 'https://github.com/acme/app')
+  await userEvent.click(screen.getByRole('button', { name: 'Éprouver les cinq droits et créer' }))
+  // Le message compose le droit et la cause traduits.
+  await waitFor(() => expect(screen.getByText(/pousser un commit/)).toBeInTheDocument())
+  expect(screen.getByText(/droit d'écriture absent/)).toBeInTheDocument()
+})

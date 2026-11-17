@@ -59,10 +59,9 @@ async def test_database() -> AsyncIterator[str]:
         yield f"{base}/{dbname}"
     finally:
         admin = await asyncpg.connect(ADMIN_DSN)
-        await admin.execute(
-            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1", dbname
-        )
-        await admin.execute(f'DROP DATABASE IF EXISTS "{dbname}"')
+        # FORCE déconnecte les sessions restantes au moment du drop, sans avoir
+        # à terminer des backends que le rôle de test ne peut pas tuer.
+        await admin.execute(f'DROP DATABASE IF EXISTS "{dbname}" WITH (FORCE)')
         await admin.close()
 
 
@@ -139,3 +138,12 @@ async def db_fetchval(app: FastAPI, query: str, *args: object) -> object:
     pool: asyncpg.Pool = app.state.pool
     async with pool.acquire() as conn:
         return await conn.fetchval(query, *args)
+
+
+def wire_git_probe(app: FastAPI, result: object) -> None:
+    """Branche une sonde git factice qui rend `result` sans toucher au dépôt."""
+
+    async def _probe(_repo_url: str, *, username: str, token: str | None) -> object:
+        return result
+
+    app.state.git_probe = _probe

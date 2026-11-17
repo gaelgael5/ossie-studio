@@ -26,6 +26,7 @@ from ossie_studio.errors import ApiError
 from ossie_studio.forges.base import ForgeError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import Connection
+from ossie_studio.spaces.service import db_spaces_using_connection
 
 log = structlog.get_logger(__name__)
 
@@ -132,6 +133,11 @@ async def test_connection(
 
 @router.delete("/{connection_id}", status_code=204)
 async def delete_connection(conn: ConnDep, _: AdminApiDep, connection_id: uuid.UUID) -> None:
+    # Une connexion utilisée par un ou plusieurs espaces Git ne se supprime pas :
+    # le refus nomme les espaces.
+    spaces = await db_spaces_using_connection(conn, connection_id)
+    if spaces:
+        raise ApiError("connection_in_use", status_code=409, spaces=spaces)
     deleted = await db_delete_connection_and_secret(conn, connection_id)
     if not deleted:
         raise ApiError("connection_not_found", status_code=404)

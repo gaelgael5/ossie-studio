@@ -50,3 +50,7 @@ class ForgeStrategy(Protocol):
     ) -> list[ForgeRepo]:
         """Liste tous les dépôts lisibles (pagination gérée de bout en bout)."""
         ...
+
+    def git_username(self) -> str:
+        """Identifiant conventionnel passé à git avec le jeton en mot de passe."""
+        ...

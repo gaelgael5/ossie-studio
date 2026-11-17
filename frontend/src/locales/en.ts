@@ -99,6 +99,42 @@ export const en = {
     noConnections: 'No connection declared.',
     deleteConnectionConfirm: 'Delete this connection? Its token (secret) is deleted too.',
 
+    manageSpaces: 'Git spaces',
+    spacesTitle: 'Git spaces',
+    spacesIntro:
+      'A Git space attaches a repository where Ossie Studio can write, push and tag. Creation really proves the five rights before saving.',
+    colRepo: 'Repository',
+    colProbe: 'Last probe',
+    prove: 'Prove',
+    addSpace: 'Create a space',
+    spaceNameLabel: 'Space name',
+    connectionSelectLabel: 'Connection',
+    repoUrlLabel: 'Repository URL',
+    createSpace: 'Prove the five rights and create',
+    noSpaces: 'No space declared.',
+    probeHint:
+      'The probe really writes: a verification branch and tag, then removes them. On an empty repository, “main” is posed (the only durable effect).',
+    probeFailed: 'Probe failed — right “{{right}}”: {{cause}}.',
+    probeResiduals: 'To delete by hand on the forge: {{names}}.',
+    probePosedMain: '“main” was posed on the empty repository.',
+    deleteSpaceConfirm: 'Delete this space? The repository is not touched.',
+    rights: {
+      read_fetch: 'read and fetch',
+      create_branch: 'create a branch',
+      push_commit: 'push a commit',
+      push_tag: 'create a tag',
+      delete_branch: 'delete a branch',
+    },
+    causes: {
+      auth_failed: 'credentials refused',
+      repo_not_found: 'repository not found',
+      branch_protected: 'branch protection',
+      tag_protected: 'tag protection',
+      write_denied: 'no write access',
+      forge_unreachable: 'forge unreachable',
+      git_failed: 'git error',
+    },
+
     fields: {
       email_required: 'The email address is required.',
       email_invalid: 'The email address is not valid.',
@@ -119,6 +155,10 @@ export const en = {
       url_required: 'The URL is required.',
       url_invalid: 'The URL must be an http(s) URL.',
       token_required: 'The token is required.',
+      space_name_required: 'The space name is required.',
+      connection_required: 'A valid connection is required.',
+      repo_url_required: 'The repository URL is required.',
+      repo_url_invalid: 'The repository URL must be an http(s) URL.',
     },
 
     errors: {
@@ -144,6 +184,11 @@ export const en = {
       connection_azure_org_not_found: 'The Azure DevOps organization was not found.',
       connection_duplicate: 'An identical connection already exists (same forge, URL and identity).',
       connection_not_found: 'Connection not found.',
+      connection_in_use: 'Connection used by one or more spaces: {{spaces}}.',
+      space_name_taken: 'This space name is already taken.',
+      space_repo_taken: 'This repository is already attached to space “{{space}}”.',
+      space_probe_failed: 'Proving the five rights failed.',
+      space_not_found: 'Space not found.',
     },
   },
 }

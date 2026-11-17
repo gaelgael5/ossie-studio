@@ -100,6 +100,42 @@ export const fr = {
     noConnections: 'Aucune connexion déclarée.',
     deleteConnectionConfirm: 'Supprimer cette connexion ? Son jeton (secret) est aussi supprimé.',
 
+    manageSpaces: 'Espaces Git',
+    spacesTitle: 'Espaces Git',
+    spacesIntro:
+      "Un espace Git rattache un dépôt où Ossie-studio pourra écrire, pousser et taguer. La création éprouve réellement les cinq droits avant d'enregistrer.",
+    colRepo: 'Dépôt',
+    colProbe: 'Dernière épreuve',
+    prove: 'Éprouver',
+    addSpace: 'Créer un espace',
+    spaceNameLabel: "Nom de l'espace",
+    connectionSelectLabel: 'Connexion',
+    repoUrlLabel: 'URL du dépôt',
+    createSpace: 'Éprouver les cinq droits et créer',
+    noSpaces: 'Aucun espace déclaré.',
+    probeHint:
+      "L'épreuve écrit pour de vrai : une branche et un tag de vérification, puis les retire. Sur un dépôt vide, « main » est posée (seul effet durable).",
+    probeFailed: "Épreuve échouée — droit « {{right}} » : {{cause}}.",
+    probeResiduals: 'À supprimer à la main sur la forge : {{names}}.',
+    probePosedMain: '« main » a été posée sur le dépôt vide.',
+    deleteSpaceConfirm: "Supprimer cet espace ? Le dépôt n'est pas touché.",
+    rights: {
+      read_fetch: 'lire et récupérer',
+      create_branch: 'créer une branche',
+      push_commit: 'pousser un commit',
+      push_tag: 'poser un tag',
+      delete_branch: 'supprimer une branche',
+    },
+    causes: {
+      auth_failed: 'identifiants refusés',
+      repo_not_found: 'dépôt inexistant',
+      branch_protected: 'protection de branche',
+      tag_protected: 'protection de tag',
+      write_denied: "droit d'écriture absent",
+      forge_unreachable: 'forge injoignable',
+      git_failed: 'erreur git',
+    },
+
     fields: {
       email_required: "L'adresse email est obligatoire.",
       email_invalid: "L'adresse email n'est pas valide.",
@@ -120,6 +156,10 @@ export const fr = {
       url_required: "L'URL est obligatoire.",
       url_invalid: "L'URL doit être une URL http(s).",
       token_required: 'Le jeton est obligatoire.',
+      space_name_required: "Le nom de l'espace est obligatoire.",
+      connection_required: 'Une connexion valide est obligatoire.',
+      repo_url_required: "L'URL du dépôt est obligatoire.",
+      repo_url_invalid: "L'URL du dépôt doit être une URL http(s).",
     },
 
     errors: {
@@ -145,6 +185,11 @@ export const fr = {
       connection_azure_org_not_found: "L'organisation Azure DevOps est introuvable.",
       connection_duplicate: 'Une connexion identique existe déjà (même forge, URL et identité).',
       connection_not_found: 'Connexion introuvable.',
+      connection_in_use: 'Connexion utilisée par un ou plusieurs espaces : {{spaces}}.',
+      space_name_taken: "Ce nom d'espace est déjà pris.",
+      space_repo_taken: "Ce dépôt est déjà rattaché à l'espace « {{space}} ».",
+      space_probe_failed: "L'épreuve des cinq droits a échoué.",
+      space_not_found: 'Espace introuvable.',
     },
   },
 }
