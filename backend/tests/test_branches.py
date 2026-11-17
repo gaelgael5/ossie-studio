@@ -196,6 +196,69 @@ async def test_unpublished_branche_inconnue_404(space: tuple[AsyncClient, str, s
     assert response.json()["error"] == "branch_not_found"
 
 
+async def test_enregistrer_et_lister_une_version(space: tuple[AsyncClient, str, str]) -> None:
+    client, space_id, url = space
+    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
+    branch_id = base.json()["id"]
+    created = await client.post(
+        f"/api/spaces/{space_id}/branches/{branch_id}/versions", json={"label": "Première"}
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["number"] == 1
+    assert created.json()["already_exists"] is False
+    assert _ref_sha(url, "refs/tags/version/1") is not None
+
+    listing = await client.get(f"/api/spaces/{space_id}/branches/{branch_id}/versions")
+    assert listing.status_code == 200
+    versions = listing.json()["versions"]
+    assert len(versions) == 1
+    assert versions[0]["number"] == 1
+    assert versions[0]["label"] == "Première"
+
+
+async def test_version_libelle_invalide(space: tuple[AsyncClient, str, str]) -> None:
+    client, space_id, _ = space
+    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
+    branch_id = base.json()["id"]
+    vide = await client.post(
+        f"/api/spaces/{space_id}/branches/{branch_id}/versions", json={"label": "  "}
+    )
+    assert vide.status_code == 400
+    assert "label_required" in vide.json()["error_args"]["fields"]
+    multi = await client.post(
+        f"/api/spaces/{space_id}/branches/{branch_id}/versions", json={"label": "a\nb"}
+    )
+    assert multi.status_code == 400
+    assert "label_single_line" in multi.json()["error_args"]["fields"]
+
+
+async def test_revenir_a_une_version(
+    space: tuple[AsyncClient, str, str], app: FastAPI
+) -> None:
+    client, space_id, url = space
+    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
+    branch_id = base.json()["id"]
+    await client.post(
+        f"/api/spaces/{space_id}/branches/{branch_id}/versions", json={"label": "Première"}
+    )
+    # La tête avance et est publiée, sinon « revenir » serait déjà courant.
+    await app.state.workdir_manager.commit_to_branch(
+        uuid.UUID(space_id), "principale", url, "x", None,
+        "Alice", "a@a", "change", _writer("v2"),
+    )
+    await app.state.workdir_manager.publish(uuid.UUID(space_id), "principale", url, "x", None)
+
+    restore = await client.post(
+        f"/api/spaces/{space_id}/branches/{branch_id}/versions/1/restore"
+    )
+    assert restore.status_code == 200, restore.text
+    assert restore.json()["created"] is True
+    assert restore.json()["already_current"] is False
+    # Le retour est un commit local, à publier.
+    pending = await client.get(f"/api/spaces/{space_id}/branches/{branch_id}/unpublished")
+    assert pending.json()["count"] == 1
+
+
 @pytest.fixture
 async def user_client(
     space: tuple[AsyncClient, str, str], app: FastAPI
@@ -214,3 +277,10 @@ async def test_non_admin_refus_403(
     assert (await user_client.get(f"/api/spaces/{space_id}/branches")).status_code == 403
     creation = await user_client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "X"})
     assert creation.status_code == 403
+    bid = uuid.uuid4()
+    listing = await user_client.get(f"/api/spaces/{space_id}/branches/{bid}/versions")
+    assert listing.status_code == 403
+    tag = await user_client.post(
+        f"/api/spaces/{space_id}/branches/{bid}/versions", json={"label": "X"}
+    )
+    assert tag.status_code == 403

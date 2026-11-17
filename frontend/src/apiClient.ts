@@ -117,6 +117,20 @@ export const api = {
     apiFetch<{ published: number }>(`/api/spaces/${spaceId}/branches/${branchId}/publish`, {
       method: 'POST',
     }),
+  listVersions: (spaceId: string, branchId: string) =>
+    apiFetch<{
+      versions: { number: number; label: string; commit: string; author: string; date: string }[]
+    }>(`/api/spaces/${spaceId}/branches/${branchId}/versions`),
+  createVersion: (spaceId: string, branchId: string, label: string) =>
+    apiFetch<{ number: number; commit: string; already_exists: boolean }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/versions`,
+      { method: 'POST', body: JSON.stringify({ label }) },
+    ),
+  restoreVersion: (spaceId: string, branchId: string, number: number) =>
+    apiFetch<{ number: number; label: string; already_current: boolean; created: boolean }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/versions/${number}/restore`,
+      { method: 'POST' },
+    ),
   createSpace: (body: { name: string; connection_id: string; repo_url: string }) =>
     apiFetch<GitSpace & { probe: unknown }>('/api/spaces', {
       method: 'POST',

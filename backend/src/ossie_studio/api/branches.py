@@ -45,6 +45,11 @@ class ViewedBody(BaseModel):
     branch_id: str = ""
 
 
+class VersionLabelBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = ""
+
+
 def _payload(branch: SpaceBranch) -> dict[str, object]:
     return {
         "id": str(branch.id),
@@ -230,3 +235,127 @@ async def publish(
     except WorkdirError as exc:
         raise _publish_error(exc) from None
     return {"published": count}
+
+
+def _version_error(exc: WorkdirError) -> ApiError:
+    status = {
+        "branch_not_found": 404,
+        "version_not_found": 404,
+        "publish_required": 409,
+        "nothing_to_version": 409,
+        "version_taken": 409,
+        "repo_access_lost": 503,
+    }.get(exc.code, 502)
+    return ApiError(exc.code, status_code=status)
+
+
+def _validate_version_label(label: str) -> None:
+    # Un libellé tient sur une seule ligne, non vide, d'au plus 200 caractères.
+    errors: list[str] = []
+    if not label.strip():
+        errors.append("label_required")
+    if len(label) > 200:
+        errors.append("label_too_long")
+    if "\n" in label or "\r" in label:
+        errors.append("label_single_line")
+    if errors:
+        raise ApiError("invalid_request", status_code=400, fields=errors)
+
+
+@router.get("/{branch_id}/versions")
+async def list_versions(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: AdminApiDep,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    branch = await _branch_in_space(conn, space_id, branch_id)
+    space, username, token = await _space_credentials(conn, crypto, space_id)
+    try:
+        versions = await workdir.list_versions(
+            space_id, branch.slug, space.repo_url, username, token
+        )
+    except WorkdirError as exc:
+        raise _version_error(exc) from None
+    return {
+        "versions": [
+            {
+                "number": v.number,
+                "label": v.label,
+                "commit": v.commit,
+                "author": v.author,
+                "date": v.date,
+            }
+            for v in versions
+        ]
+    }
+
+
+@router.post("/{branch_id}/versions", status_code=201)
+async def create_version(
+    request: Request,
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: VersionLabelBody,
+) -> dict[str, object]:
+    user = await require_admin_api(request, conn)
+    branch = await _branch_in_space(conn, space_id, branch_id)
+    _validate_version_label(body.label)
+    space, username, token = await _space_credentials(conn, crypto, space_id)
+    try:
+        result = await workdir.tag_version(
+            space_id,
+            branch.slug,
+            space.repo_url,
+            username,
+            token,
+            body.label.strip(),
+            user.email,
+            user.email,
+        )
+    except WorkdirError as exc:
+        raise _version_error(exc) from None
+    return {
+        "number": result.number,
+        "commit": result.commit,
+        "already_exists": result.already_exists,
+    }
+
+
+@router.post("/{branch_id}/versions/{number}/restore")
+async def restore_version(
+    request: Request,
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    number: int,
+) -> dict[str, object]:
+    user = await require_admin_api(request, conn)
+    branch = await _branch_in_space(conn, space_id, branch_id)
+    space, username, token = await _space_credentials(conn, crypto, space_id)
+    try:
+        result = await workdir.restore_version(
+            space_id,
+            branch.slug,
+            space.repo_url,
+            username,
+            token,
+            number,
+            user.email,
+            user.email,
+        )
+    except WorkdirError as exc:
+        raise _version_error(exc) from None
+    return {
+        "number": result.number,
+        "label": result.label,
+        "already_current": result.already_current,
+        "created": result.created,
+    }

@@ -200,3 +200,38 @@ test('détail espace : liste les commits non publiés et les publie', async () =
     expect(screen.getByText('1 commit(s) publié(s) sur la forge.')).toBeInTheDocument(),
   )
 })
+
+test('détail espace : enregistre une version et liste les versions', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+      },
+    },
+    '/api/spaces/s1/branches': {
+      body: {
+        branches: [{ id: 'b1', label: 'Principale', slug: 'principale', kind: 'base', git_ref: 'work/principale' }],
+        viewed_branch_id: 'b1',
+      },
+    },
+    '/api/spaces/s1/branches/b1/unpublished': { body: { commits: [], count: 0 } },
+    '/api/spaces/s1/branches/b1/versions': {
+      body: {
+        versions: [
+          { number: 1, label: 'Première', commit: 'abcdef1234', author: 'Alice', date: '2026-01-02T10:00:00Z' },
+        ],
+      },
+    },
+    'POST /api/spaces/s1/branches/b1/versions': { status: 201, body: { number: 2, commit: 'ff00', already_exists: false } },
+  })
+  renderAt('/spaces/s1')
+  await screen.findByText('Versions')
+  // La version existante est listée avec son libellé.
+  await waitFor(() => expect(screen.getByText('Première')).toBeInTheDocument())
+  await userEvent.type(screen.getByLabelText('Libellé de la version'), 'Deuxième')
+  await userEvent.click(screen.getByRole('button', { name: 'Enregistrer une version' }))
+  await waitFor(() => expect(screen.getByText('Version 2 enregistrée.')).toBeInTheDocument())
+})

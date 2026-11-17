@@ -142,6 +142,21 @@ export const en = {
     colMessage: 'Message',
     colAuthor: 'Author',
     colDate: 'Date',
+    versionsTitle: 'Versions',
+    versionsIntro:
+      'A version freezes the published state of the viewed branch: a number, a label, an author, a date. You can return to a version (a new commit restores its tree, to be published).',
+    versionLabelField: 'Version label',
+    createVersionButton: 'Save a version',
+    noVersions: 'No version saved on this branch.',
+    colVersionNumber: 'Version',
+    colCommit: 'Commit',
+    restoreVersion: 'Return to this version',
+    restoreVersionConfirm:
+      'Return to version {{number}}? A new commit restores its tree; nothing is erased, the history and later versions remain. The commit is to be published afterwards.',
+    versionCreated: 'Version {{number}} saved.',
+    versionAlreadyExists: 'Version {{number}}: already saved (same state, same label).',
+    versionRestored: 'Return to version {{number}} prepared: a commit is to be published.',
+    versionAlreadyCurrent: 'Already at version {{number}}.',
     rights: {
       read_fetch: 'read and fetch',
       create_branch: 'create a branch',
@@ -184,6 +199,8 @@ export const en = {
       repo_url_required: 'The repository URL is required.',
       repo_url_invalid: 'The repository URL must be an http(s) URL.',
       label_invalid: 'The label does not produce a valid slug.',
+      label_too_long: 'The label must not exceed 200 characters.',
+      label_single_line: 'The label must fit on a single line.',
     },
 
     errors: {
@@ -220,6 +237,11 @@ export const en = {
       branch_not_found: 'Branch not found.',
       branch_changed:
         'The branch changed on the forge since your last sync; nothing is lost locally, refresh then publish again.',
+      publish_required: 'Publish the pending commits first before saving a version.',
+      nothing_to_version: 'Nothing to freeze: no change since the last version.',
+      version_taken:
+        'This version number was just taken on the forge; try again to get a new one.',
+      version_not_found: 'Version not found on this branch.',
       repo_access_lost: 'Repository access is lost; try again when it returns.',
       git_failed: 'The git operation failed.',
     },

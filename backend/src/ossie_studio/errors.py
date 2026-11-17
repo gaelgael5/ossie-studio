@@ -40,6 +40,10 @@ ERROR_CODES: tuple[str, ...] = (
     "branch_exists",
     "branch_not_found",
     "branch_changed",
+    "publish_required",
+    "nothing_to_version",
+    "version_taken",
+    "version_not_found",
     "repo_access_lost",
     "git_failed",
 )

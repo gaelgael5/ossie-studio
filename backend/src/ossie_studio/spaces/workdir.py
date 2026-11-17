@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -23,6 +24,11 @@ _SPACE_DESCRIPTION = "ossie-space.yaml"
 # Préfixe reconnaissable : distingue dans l'historique ce qu'a fait Ossie-studio.
 _COMMIT_PREFIX = "ossie: "
 _UNIT_SEP = "\x1f"
+# Une version est un tag annoté « version/<n> » posé sur la tête publiée.
+_VERSION_PREFIX = "version/"
+_VERSION_RE = re.compile(r"^version/(\d+)$")
+_VERSION_TAGS = f"{_VERSION_PREFIX}*"
+_VERSION_FETCH_REFSPEC = f"+refs/tags/{_VERSION_PREFIX}*:refs/tags/{_VERSION_PREFIX}*"
 
 
 class WorkdirError(Exception):
@@ -39,6 +45,30 @@ class UnpublishedCommit:
     author: str
     date: str
     message: str
+
+
+@dataclass(frozen=True)
+class Version:
+    number: int
+    label: str
+    commit: str
+    author: str
+    date: str
+
+
+@dataclass(frozen=True)
+class VersionCreated:
+    number: int
+    commit: str
+    already_exists: bool
+
+
+@dataclass(frozen=True)
+class VersionRestored:
+    number: int
+    label: str
+    already_current: bool
+    created: bool
 
 
 def _access_code(cause: str) -> str:
@@ -284,6 +314,220 @@ class WorkdirManager:
                 raise WorkdirError(_access_code(classify(err)))
             log.info("published", space_id=str(space_id), ref=ref, count=ahead)
             return ahead
+
+    async def _remote_version_numbers(self, workdir: Path, env: dict[str, str]) -> list[int]:
+        # La forge fait foi : les numéros sont uniques pour tout le dépôt.
+        code, out, err = await run_git(
+            ["ls-remote", "--tags", "origin", _VERSION_TAGS], workdir, env
+        )
+        if code != 0:
+            raise WorkdirError(_access_code(classify(err)))
+        numbers: set[int] = set()
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 2:
+                continue
+            ref = parts[1].removeprefix("refs/tags/").removesuffix("^{}")
+            match = _VERSION_RE.match(ref)
+            if match:
+                numbers.add(int(match.group(1)))
+        return sorted(numbers)
+
+    async def _reachable_versions(
+        self, workdir: Path, head: str, env: dict[str, str]
+    ) -> list[Version]:
+        # Synchronise les tags de version puis ne garde que les tags annotés bien
+        # formés atteignables depuis la tête (la lignée de la branche).
+        await run_git(["fetch", "-q", "origin", _VERSION_FETCH_REFSPEC], workdir, env)
+        fmt = _UNIT_SEP.join(
+            [
+                "%(refname:strip=2)",
+                "%(*objectname)",
+                "%(taggername)",
+                "%(taggerdate:iso-strict)",
+                "%(contents:subject)",
+            ]
+        )
+        _, out, _ = await run_git(
+            ["for-each-ref", f"--format={fmt}", f"refs/tags/{_VERSION_PREFIX}*"], workdir, env
+        )
+        versions: list[Version] = []
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            fields = line.split(_UNIT_SEP)
+            if len(fields) != 5:
+                continue
+            name, commit, tagger, date, subject = fields
+            match = _VERSION_RE.match(name)
+            # Un tag léger (non annoté) n'a pas de commit déréférencé : ignoré.
+            if not match or not commit:
+                continue
+            reach, _, _ = await run_git(
+                ["merge-base", "--is-ancestor", commit, head], workdir, env
+            )
+            if reach != 0:
+                continue
+            versions.append(Version(int(match.group(1)), subject, commit, tagger, date))
+        versions.sort(key=lambda v: v.number, reverse=True)
+        return versions
+
+    async def list_versions(
+        self, space_id: uuid.UUID, slug: str, repo_url: str, username: str, token: str | None
+    ) -> list[Version]:
+        ref = f"{WORK_PREFIX}{slug}"
+        workdir = self._dir(space_id, slug)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            if not await self._remote_branch_exists(workdir, ref, env):
+                raise WorkdirError("branch_not_found")
+            code, head, err = await run_git(
+                ["rev-parse", f"refs/remotes/origin/{ref}"], workdir, env
+            )
+            if code != 0:
+                raise WorkdirError(_access_code(classify(err)))
+            return await self._reachable_versions(workdir, head.strip(), env)
+
+    async def tag_version(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        label: str,
+        author_name: str,
+        author_email: str,
+    ) -> VersionCreated:
+        """Fige la tête publiée de la branche en un tag annoté « version/<n> ».
+        Refuse si des commits locaux ne sont pas publiés, si rien n'a changé
+        depuis la dernière version, ou si le numéro a été pris entre-temps."""
+        ref = f"{WORK_PREFIX}{slug}"
+        workdir = self._dir(space_id, slug)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            if not await self._remote_branch_exists(workdir, ref, env):
+                raise WorkdirError("branch_not_found")
+            # Une version fige ce que tout le monde voit : pas de commit en attente.
+            code, _, _ = await run_git(
+                ["rev-parse", "--verify", "--quiet", f"refs/heads/{ref}"], workdir, env
+            )
+            if code == 0:
+                await run_git(["checkout", "-q", ref], workdir, env)
+                if await self._count_ahead(workdir, ref, env) > 0:
+                    raise WorkdirError("publish_required")
+            code, head_out, err = await run_git(
+                ["rev-parse", f"refs/remotes/origin/{ref}"], workdir, env
+            )
+            if code != 0:
+                raise WorkdirError(_access_code(classify(err)))
+            head = head_out.strip()
+            reachable = await self._reachable_versions(workdir, head, env)
+            if reachable:
+                latest = reachable[0]
+                _, latest_tree, _ = await run_git(
+                    ["rev-parse", f"{latest.commit}^{{tree}}"], workdir, env
+                )
+                _, head_tree, _ = await run_git(["rev-parse", f"{head}^{{tree}}"], workdir, env)
+                if latest_tree.strip() == head_tree.strip():
+                    if latest.commit == head and latest.label == label:
+                        # Rejeu : même tête, même libellé → sans effet, signalé.
+                        return VersionCreated(latest.number, head, already_exists=True)
+                    raise WorkdirError("nothing_to_version")
+            numbers = await self._remote_version_numbers(workdir, env)
+            next_n = (max(numbers) + 1) if numbers else 1
+            tag = f"{_VERSION_PREFIX}{next_n}"
+            message = f"{label}\n\nBranche : {ref}\n"
+            tag_env = {
+                **env,
+                "GIT_COMMITTER_NAME": author_name,
+                "GIT_COMMITTER_EMAIL": author_email,
+            }
+            # Enlève un éventuel tag local périmé du même nom : la forge tranche.
+            await run_git(["tag", "-d", tag], workdir, env)
+            code, _, err = await run_git(["tag", "-a", tag, "-m", message, head], workdir, tag_env)
+            if code != 0:
+                raise WorkdirError(_access_code(classify(err)))
+            # Push sans force : si le numéro a été pris entre-temps, refus atomique.
+            code, _, err = await run_git(["push", "-q", "origin", f"refs/tags/{tag}"], workdir, env)
+            if code != 0:
+                await run_git(["tag", "-d", tag], workdir, env)
+                low = err.lower()
+                if "already exists" in low or "[rejected]" in low or "exists" in low:
+                    raise WorkdirError("version_taken")
+                raise WorkdirError(_access_code(classify(err)))
+            log.info(
+                "version_tagged",
+                space_id=str(space_id),
+                ref=ref,
+                number=next_n,
+                author=author_name,
+            )
+            return VersionCreated(next_n, head, already_exists=False)
+
+    async def restore_version(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        number: int,
+        author_name: str,
+        author_email: str,
+    ) -> VersionRestored:
+        """Revient à une version en posant un nouveau commit local qui remet son
+        arbre (l'historique n'est pas réécrit) ; le commit se publie ensuite."""
+        ref = f"{WORK_PREFIX}{slug}"
+        workdir = self._dir(space_id, slug)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            if not await self._remote_branch_exists(workdir, ref, env):
+                raise WorkdirError("branch_not_found")
+            await self._checkout_branch(workdir, ref, env)
+            await run_git(["fetch", "-q", "origin", _VERSION_FETCH_REFSPEC], workdir, env)
+            tag = f"{_VERSION_PREFIX}{number}"
+            code, commit_out, _ = await run_git(["rev-list", "-n", "1", tag], workdir, env)
+            if code != 0 or not commit_out.strip():
+                raise WorkdirError("version_not_found")
+            commit = commit_out.strip()
+            # La version doit appartenir à la lignée de la branche.
+            reach, _, _ = await run_git(
+                ["merge-base", "--is-ancestor", commit, "HEAD"], workdir, env
+            )
+            if reach != 0:
+                raise WorkdirError("version_not_found")
+            _, subject, _ = await run_git(
+                ["tag", "-l", "--format=%(contents:subject)", tag], workdir, env
+            )
+            label = subject.strip()
+            _, version_tree, _ = await run_git(["rev-parse", f"{tag}^{{tree}}"], workdir, env)
+            _, head_tree, _ = await run_git(["rev-parse", "HEAD^{tree}"], workdir, env)
+            if version_tree.strip() == head_tree.strip():
+                return VersionRestored(number, label, already_current=True, created=False)
+            await run_git(["read-tree", "--reset", "-u", f"{tag}^{{tree}}"], workdir, env)
+            message = f"{_COMMIT_PREFIX}Retour à la version {number} — {label}"
+            author_env = {
+                **env,
+                "GIT_AUTHOR_NAME": author_name,
+                "GIT_AUTHOR_EMAIL": author_email,
+                "GIT_COMMITTER_NAME": author_name,
+                "GIT_COMMITTER_EMAIL": author_email,
+            }
+            code, _, err = await run_git(["commit", "-q", "-m", message], workdir, author_env)
+            if code != 0:
+                raise WorkdirError(_access_code(classify(err)))
+            log.info(
+                "version_restored",
+                space_id=str(space_id),
+                ref=ref,
+                number=number,
+                author=author_name,
+            )
+            return VersionRestored(number, label, already_current=False, created=True)
 
     def _pose_initial_tree(self, workdir: Path) -> None:
         # Pose l'arborescence attendue si elle manque ; ne touche jamais à

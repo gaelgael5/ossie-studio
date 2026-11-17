@@ -140,6 +140,19 @@ propose de les **publier** (push sans force). Si la branche a avancé sur la
 forge entre-temps, la publication est **refusée (« la branche a changé »)** et
 rien n'est perdu localement : on actualise puis on republie.
 
+**Versions** : une version fige l'état **publié** d'une branche en un **tag
+annoté `version/<n>`** posé sur sa tête (libellé, auteur, date ; aucun commit
+ajouté). Les **numéros sont uniques pour tout le dépôt** ; chaque branche liste
+et restaure les versions de **sa lignée**. L'action est **explicite**, jamais
+automatique : refus s'il reste des commits non publiés (« publication
+requise »), si rien n'a changé depuis la dernière version (« rien à figer »),
+ou si le numéro a été pris entre-temps (**tag poussé sans force**, pose
+atomique). Les tags `version/*` posés à la main sont lus s'ils respectent le
+format, ignorés sinon ; le numéro suivant suit le plus grand du dépôt.
+**Revenir** à une version crée un **nouveau commit** (« Retour à la version N »)
+qui remet son arbre, à publier : l'historique et les versions suivantes
+restent, rien n'est réécrit.
+
 ## Tests et qualité
 
 ```bash

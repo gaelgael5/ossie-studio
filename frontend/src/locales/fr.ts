@@ -143,6 +143,21 @@ export const fr = {
     colMessage: 'Message',
     colAuthor: 'Auteur',
     colDate: 'Date',
+    versionsTitle: 'Versions',
+    versionsIntro:
+      'Une version fige l’état publié de la branche regardée : un numéro, un libellé, un auteur, une date. On peut revenir à une version (un nouveau commit remet son arbre, à publier).',
+    versionLabelField: 'Libellé de la version',
+    createVersionButton: 'Enregistrer une version',
+    noVersions: 'Aucune version enregistrée sur cette branche.',
+    colVersionNumber: 'Version',
+    colCommit: 'Commit',
+    restoreVersion: 'Revenir à cette version',
+    restoreVersionConfirm:
+      'Revenir à la version {{number}} ? Un nouveau commit remet son arbre ; rien n’est effacé, l’historique et les versions suivantes restent. Le commit est à publier ensuite.',
+    versionCreated: 'Version {{number}} enregistrée.',
+    versionAlreadyExists: 'Version {{number}} : déjà enregistrée (même état, même libellé).',
+    versionRestored: 'Retour à la version {{number}} préparé : un commit est à publier.',
+    versionAlreadyCurrent: 'Déjà à la version {{number}}.',
     rights: {
       read_fetch: 'lire et récupérer',
       create_branch: 'créer une branche',
@@ -185,6 +200,8 @@ export const fr = {
       repo_url_required: "L'URL du dépôt est obligatoire.",
       repo_url_invalid: "L'URL du dépôt doit être une URL http(s).",
       label_invalid: 'Le libellé ne produit pas de slug valide.',
+      label_too_long: 'Le libellé ne doit pas dépasser 200 caractères.',
+      label_single_line: 'Le libellé doit tenir sur une seule ligne.',
     },
 
     errors: {
@@ -221,6 +238,11 @@ export const fr = {
       branch_not_found: 'Branche introuvable.',
       branch_changed:
         "La branche a changé sur la forge depuis votre dernière synchronisation ; rien n'est perdu localement, actualisez puis republiez.",
+      publish_required: 'Publiez d’abord les commits en attente avant d’enregistrer une version.',
+      nothing_to_version: 'Rien à figer : aucun changement depuis la dernière version.',
+      version_taken:
+        'Ce numéro de version vient d’être pris sur la forge ; réessayez pour en obtenir un nouveau.',
+      version_not_found: 'Version introuvable sur cette branche.',
       repo_access_lost: "L'accès au dépôt est perdu ; réessayez quand il revient.",
       git_failed: "L'opération git a échoué.",
     },

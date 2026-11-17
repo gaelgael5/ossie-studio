@@ -14,6 +14,7 @@ export function SpaceDetailPage() {
   const [notice, setNotice] = useState('')
   const [baseLabel, setBaseLabel] = useState('')
   const [childLabel, setChildLabel] = useState('')
+  const [versionLabel, setVersionLabel] = useState('')
 
   const branches = useQuery({
     queryKey: ['branches', spaceId],
@@ -68,8 +69,47 @@ export function SpaceDetailPage() {
     onError,
   })
 
+  const versions = useQuery({
+    queryKey: ['versions', spaceId, viewedId],
+    queryFn: () => api.listVersions(spaceId, viewedId as string),
+    enabled: viewedId !== null,
+  })
+  const refreshVersionArea = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['versions', spaceId, viewedId] }),
+      queryClient.invalidateQueries({ queryKey: ['unpublished', spaceId, viewedId] }),
+    ])
+  const createVersion = useMutation({
+    mutationFn: () => api.createVersion(spaceId, viewedId as string, versionLabel),
+    onSuccess: async (res) => {
+      setMessages([])
+      setVersionLabel('')
+      setNotice(
+        res.already_exists
+          ? t('versionAlreadyExists', { number: res.number })
+          : t('versionCreated', { number: res.number }),
+      )
+      await refreshVersionArea()
+    },
+    onError,
+  })
+  const restoreVersion = useMutation({
+    mutationFn: (number: number) => api.restoreVersion(spaceId, viewedId as string, number),
+    onSuccess: async (res) => {
+      setMessages([])
+      setNotice(
+        res.already_current
+          ? t('versionAlreadyCurrent', { number: res.number })
+          : t('versionRestored', { number: res.number }),
+      )
+      await refreshVersionArea()
+    },
+    onError,
+  })
+
   const data = branches.data
   const hasBase = data?.branches.some((b) => b.kind === 'base') ?? false
+  const versionList = versions.data?.versions ?? []
 
   return (
     <main>
@@ -159,6 +199,76 @@ export function SpaceDetailPage() {
                 </>
               ) : (
                 <p>{t('noUnpublished')}</p>
+              )}
+            </section>
+          ) : null}
+
+          {viewedId ? (
+            <section style={{ marginTop: 24 }}>
+              <h2>{t('versionsTitle')}</h2>
+              <p>{t('versionsIntro')}</p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  setMessages([])
+                  createVersion.mutate()
+                }}
+                style={{ display: 'flex', gap: 8, alignItems: 'flex-end', maxWidth: 520 }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <label htmlFor="versionLabel">{t('versionLabelField')}</label>
+                  <input
+                    id="versionLabel"
+                    value={versionLabel}
+                    onChange={(e) => setVersionLabel(e.target.value)}
+                  />
+                </div>
+                <button type="submit" disabled={createVersion.isPending}>
+                  {t('createVersionButton')}
+                </button>
+              </form>
+              {versionList.length > 0 ? (
+                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>{t('colVersionNumber')}</th>
+                      <th>{t('colLabel')}</th>
+                      <th>{t('colCommit')}</th>
+                      <th>{t('colAuthor')}</th>
+                      <th>{t('colDate')}</th>
+                      <th>{t('colActions')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versionList.map((v) => (
+                      <tr key={v.number}>
+                        <td>{v.number}</td>
+                        <td>{v.label}</td>
+                        <td>
+                          <code>{v.commit.slice(0, 8)}</code>
+                        </td>
+                        <td>{v.author}</td>
+                        <td>{formatDate(v.date)}</td>
+                        <td>
+                          <button
+                            type="button"
+                            disabled={restoreVersion.isPending}
+                            onClick={() => {
+                              setMessages([])
+                              if (window.confirm(t('restoreVersionConfirm', { number: v.number }))) {
+                                restoreVersion.mutate(v.number)
+                              }
+                            }}
+                          >
+                            {t('restoreVersion')}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p>{t('noVersions')}</p>
               )}
             </section>
           ) : null}

@@ -211,3 +211,171 @@ async def test_list_unpublished_branche_absente(tmp_path: Path) -> None:
     with pytest.raises(WorkdirError) as exc:
         await manager.list_unpublished(uuid.uuid4(), "absente", url, "x", None)
     assert exc.value.code == "branch_not_found"
+
+
+def _push_tag(tmp_path: Path, url: str, tagname: str, annotated: bool, name: str) -> None:
+    # Pose un tag « à la main » sur la tête de la racine, sur la forge.
+    bare = url.removeprefix("file://")
+    clone = tmp_path / f"tagger_{name}"
+    subprocess.run(["git", "clone", "-q", bare, str(clone)], check=True, capture_output=True)
+    make = (
+        ["-c", "user.email=t@t", "-c", "user.name=t", "tag", "-a", tagname, "-m", "manuel", "HEAD"]
+        if annotated
+        else ["tag", tagname, "HEAD"]
+    )
+    push = ["-c", "protocol.version=0", "push", "-q", "origin", f"refs/tags/{tagname}"]
+    for args in (make, push):
+        subprocess.run(["git", "-C", str(clone), *args], check=True, capture_output=True)
+
+
+async def test_tag_version_cree_un_tag_annote(tmp_path: Path) -> None:
+    url = _seed_bare(tmp_path)
+    manager = WorkdirManager(tmp_path / "vol")
+    space_id = uuid.uuid4()
+    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    created = await manager.tag_version(
+        space_id, "principale", url, "x", None, "Première", "Alice", "alice@example.org"
+    )
+    assert created.number == 1
+    assert created.already_exists is False
+    assert "refs/tags/version/1" in _refs(url)
+
+    listed = await manager.list_versions(space_id, "principale", url, "x", None)
+    assert len(listed) == 1
+    assert listed[0].number == 1
+    assert listed[0].label == "Première"
+    assert listed[0].author == "Alice"
+
+
+async def test_tag_version_publication_requise(tmp_path: Path) -> None:
+    url = _seed_bare(tmp_path)
+    manager = WorkdirManager(tmp_path / "vol")
+    space_id = uuid.uuid4()
+    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.commit_to_branch(
+        space_id, "principale", url, "x", None, "Alice", "a@a", "un", _write("sources/d.txt", "v1")
+    )
+    with pytest.raises(WorkdirError) as exc:
+        await manager.tag_version(space_id, "principale", url, "x", None, "X", "Alice", "a@a")
+    assert exc.value.code == "publish_required"
+
+
+async def test_tag_version_rien_a_figer(tmp_path: Path) -> None:
+    url = _seed_bare(tmp_path)
+    manager = WorkdirManager(tmp_path / "vol")
+    space_id = uuid.uuid4()
+    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.tag_version(space_id, "principale", url, "x", None, "A", "Alice", "a@a")
+    # Même tête, autre libellé : rien de neuf à figer.
+    with pytest.raises(WorkdirError) as exc:
+        await manager.tag_version(space_id, "principale", url, "x", None, "B", "Alice", "a@a")
+    assert exc.value.code == "nothing_to_version"
+
+
+async def test_tag_version_rejeu_signale(tmp_path: Path) -> None:
+    url = _seed_bare(tmp_path)
+    manager = WorkdirManager(tmp_path / "vol")
+    space_id = uuid.uuid4()
+    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.tag_version(space_id, "principale", url, "x", None, "A", "Alice", "a@a")
+    # Même tête, même libellé : sans effet, signalé.
+    again = await manager.tag_version(space_id, "principale", url, "x", None, "A", "Alice", "a@a")
+    assert again.number == 1
+    assert again.already_exists is True
+
+
+async def test_tag_version_numero_suit_le_depot(tmp_path: Path) -> None:
+    url = _seed_bare(tmp_path)
+    # Un tag version/5 posé à la main (léger) : le numéro suivant suit le dépôt,
+    # et le tag léger est ignoré au listage.
+    _push_tag(tmp_path, url, "version/5", annotated=False, name="m5")
+    manager = WorkdirManager(tmp_path / "vol")
+    space_id = uuid.uuid4()
+    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    created = await manager.tag_version(
+        space_id, "principale", url, "x", None, "Six", "Alice", "a@a"
+    )
+    assert created.number == 6
+    listed = await manager.list_versions(space_id, "principale", url, "x", None)
+    assert [v.number for v in listed] == [6]
+
+
+async def test_tag_version_numero_pris_refuse(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = _seed_bare(tmp_path)
+    manager = WorkdirManager(tmp_path / "vol")
+    space_id = uuid.uuid4()
+    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.tag_version(space_id, "principale", url, "x", None, "A", "Alice", "a@a")
+    # La tête avance et est publiée (sinon « rien à figer »).
+    await manager.commit_to_branch(
+        space_id, "principale", url, "x", None, "Alice", "a@a", "un", _write("sources/d.txt", "v1")
+    )
+    await manager.publish(space_id, "principale", url, "x", None)
+
+    async def _stale(*_args: object, **_kwargs: object) -> list[int]:
+        return []  # vue périmée : le manager croit que le numéro 1 est libre
+
+    monkeypatch.setattr(manager, "_remote_version_numbers", _stale)
+    with pytest.raises(WorkdirError) as exc:
+        await manager.tag_version(space_id, "principale", url, "x", None, "B", "Alice", "a@a")
+    assert exc.value.code == "version_taken"
+    # Le tag reste tel quel sur la forge (push sans force, aucune réécriture).
+    assert "refs/tags/version/1" in _refs(url)
+
+
+async def test_restore_version_cree_un_commit(tmp_path: Path) -> None:
+    url = _seed_bare(tmp_path)
+    manager = WorkdirManager(tmp_path / "vol")
+    space_id = uuid.uuid4()
+    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.commit_to_branch(
+        space_id, "principale", url, "x", None, "Alice", "a@a", "un", _write("sources/d.txt", "v1")
+    )
+    await manager.publish(space_id, "principale", url, "x", None)
+    await manager.tag_version(space_id, "principale", url, "x", None, "snap", "Alice", "a@a")
+    # La tête avance : le contenu change et est publié.
+    await manager.commit_to_branch(
+        space_id, "principale", url, "x", None, "Alice", "a@a", "deux",
+        _write("sources/d.txt", "v2"),
+    )
+    await manager.publish(space_id, "principale", url, "x", None)
+
+    restored = await manager.restore_version(
+        space_id, "principale", url, "x", None, 1, "Bob", "b@b"
+    )
+    assert restored.created is True
+    assert restored.already_current is False
+    pending = await manager.list_unpublished(space_id, "principale", url, "x", None)
+    assert len(pending) == 1
+    assert "Retour à la version 1" in pending[0].message
+    await manager.publish(space_id, "principale", url, "x", None)
+    assert _clone_file(tmp_path, url, "work/principale", "sources/d.txt", "r") == "v1"
+
+
+async def test_restore_version_deja_courante(tmp_path: Path) -> None:
+    url = _seed_bare(tmp_path)
+    manager = WorkdirManager(tmp_path / "vol")
+    space_id = uuid.uuid4()
+    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.commit_to_branch(
+        space_id, "principale", url, "x", None, "Alice", "a@a", "un", _write("sources/d.txt", "v1")
+    )
+    await manager.publish(space_id, "principale", url, "x", None)
+    await manager.tag_version(space_id, "principale", url, "x", None, "snap", "Alice", "a@a")
+    restored = await manager.restore_version(
+        space_id, "principale", url, "x", None, 1, "Bob", "b@b"
+    )
+    assert restored.already_current is True
+    assert restored.created is False
+
+
+async def test_restore_version_introuvable(tmp_path: Path) -> None:
+    url = _seed_bare(tmp_path)
+    manager = WorkdirManager(tmp_path / "vol")
+    space_id = uuid.uuid4()
+    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    with pytest.raises(WorkdirError) as exc:
+        await manager.restore_version(space_id, "principale", url, "x", None, 99, "Bob", "b@b")
+    assert exc.value.code == "version_not_found"
