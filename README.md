@@ -131,6 +131,15 @@ sont persistantes, un répertoire par (espace, branche) sur le volume de
 travail, réalignées sur la tête distante à chaque geste, avec un verrou par
 répertoire. La **branche regardée est retenue par compte**.
 
+**Commits et publication** : écrire dans une branche de travail produit un
+**commit local** (auteur = le compte déclencheur, message préfixé `ossie: `) —
+jamais de commit vide, sans pousser. La copie **ne se réaligne sur la forge que
+s'il n'y a aucun commit en attente** : les commits non publiés ne sont jamais
+écrasés. L'écran liste les **commits non publiés** de la branche regardée et
+propose de les **publier** (push sans force). Si la branche a avancé sur la
+forge entre-temps, la publication est **refusée (« la branche a changé »)** et
+rien n'est perdu localement : on actualise puis on republie.
+
 ## Tests et qualité
 
 ```bash

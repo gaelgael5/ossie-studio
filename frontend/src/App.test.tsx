@@ -164,3 +164,39 @@ test('détail espace : liste les branches et propose la création de fille', asy
   )
   expect(screen.getAllByText('Principale').length).toBeGreaterThan(0)
 })
+
+test('détail espace : liste les commits non publiés et les publie', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+      },
+    },
+    '/api/spaces/s1/branches': {
+      body: {
+        branches: [{ id: 'b1', label: 'Principale', slug: 'principale', kind: 'base', git_ref: 'work/principale' }],
+        viewed_branch_id: 'b1',
+      },
+    },
+    '/api/spaces/s1/branches/b1/unpublished': {
+      body: {
+        commits: [
+          { sha: 'abc', author: 'Alice', date: '2026-01-02T10:00:00Z', message: 'ossie: ajoute data' },
+        ],
+        count: 1,
+      },
+    },
+    'POST /api/spaces/s1/branches/b1/publish': { body: { published: 1 } },
+  })
+  renderAt('/spaces/s1')
+  await screen.findByText('Commits non publiés')
+  // Le commit en attente apparaît avec son message préfixé.
+  await waitFor(() => expect(screen.getByText('ossie: ajoute data')).toBeInTheDocument())
+  await userEvent.click(screen.getByRole('button', { name: 'Publier' }))
+  await waitFor(() =>
+    expect(screen.getByText('1 commit(s) publié(s) sur la forge.')).toBeInTheDocument(),
+  )
+})

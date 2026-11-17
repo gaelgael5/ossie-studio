@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
 import pytest
@@ -141,6 +141,59 @@ async def test_espace_inexistant_404(space: tuple[AsyncClient, str, str]) -> Non
     response = await client.post(f"/api/spaces/{uuid.uuid4()}/branches/base", json={"label": "X"})
     assert response.status_code == 404
     assert response.json()["error"] == "space_not_found"
+
+
+def _writer(text: str) -> Callable[[Path], None]:
+    def write(workdir: Path) -> None:
+        (workdir / "sources" / "data.txt").write_text(text)
+
+    return write
+
+
+async def test_lister_puis_publier_les_commits(
+    space: tuple[AsyncClient, str, str], app: FastAPI
+) -> None:
+    client, space_id, url = space
+    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
+    branch_id = base.json()["id"]
+    # Un commit produit par le mécanisme interne (future descente de sources).
+    await app.state.workdir_manager.commit_to_branch(
+        uuid.UUID(space_id), "principale", url, "x", None,
+        "Alice", "alice@example.org", "ajoute data", _writer("v1"),
+    )
+
+    pending = await client.get(f"/api/spaces/{space_id}/branches/{branch_id}/unpublished")
+    assert pending.status_code == 200, pending.text
+    body = pending.json()
+    assert body["count"] == 1
+    assert body["commits"][0]["message"] == "ossie: ajoute data"
+    assert body["commits"][0]["author"] == "Alice"
+
+    published = await client.post(f"/api/spaces/{space_id}/branches/{branch_id}/publish")
+    assert published.status_code == 200, published.text
+    assert published.json()["published"] == 1
+    assert _ref_sha(url, "refs/heads/work/principale") is not None
+
+    after = await client.get(f"/api/spaces/{space_id}/branches/{branch_id}/unpublished")
+    assert after.json()["count"] == 0
+
+
+async def test_publier_rien_en_attente(space: tuple[AsyncClient, str, str]) -> None:
+    client, space_id, _ = space
+    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
+    branch_id = base.json()["id"]
+    published = await client.post(f"/api/spaces/{space_id}/branches/{branch_id}/publish")
+    assert published.status_code == 200
+    assert published.json()["published"] == 0
+
+
+async def test_unpublished_branche_inconnue_404(space: tuple[AsyncClient, str, str]) -> None:
+    client, space_id, _ = space
+    response = await client.get(
+        f"/api/spaces/{space_id}/branches/{uuid.uuid4()}/unpublished"
+    )
+    assert response.status_code == 404
+    assert response.json()["error"] == "branch_not_found"
 
 
 @pytest.fixture

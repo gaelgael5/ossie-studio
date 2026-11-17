@@ -108,6 +108,15 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ branch_id: branchId }),
     }),
+  listUnpublished: (spaceId: string, branchId: string) =>
+    apiFetch<{
+      commits: { sha: string; author: string; date: string; message: string }[]
+      count: number
+    }>(`/api/spaces/${spaceId}/branches/${branchId}/unpublished`),
+  publishBranch: (spaceId: string, branchId: string) =>
+    apiFetch<{ published: number }>(`/api/spaces/${spaceId}/branches/${branchId}/publish`, {
+      method: 'POST',
+    }),
   createSpace: (body: { name: string; connection_id: string; repo_url: string }) =>
     apiFetch<GitSpace & { probe: unknown }>('/api/spaces', {
       method: 'POST',

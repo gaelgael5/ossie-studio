@@ -132,6 +132,16 @@ export const en = {
     viewedBranchLabel: 'Viewed branch',
     noBranches: 'No working branch.',
     noBase: 'No base branch: create it first.',
+    unpublishedTitle: 'Unpublished commits',
+    unpublishedIntro:
+      'Commits made in the viewed branch stay local until you publish them to the forge.',
+    unpublishedCount: '{{count}} commit(s) awaiting publication.',
+    noUnpublished: 'Nothing to publish: the branch is up to date on the forge.',
+    publishButton: 'Publish',
+    published: '{{count}} commit(s) published to the forge.',
+    colMessage: 'Message',
+    colAuthor: 'Author',
+    colDate: 'Date',
     rights: {
       read_fetch: 'read and fetch',
       create_branch: 'create a branch',
@@ -208,6 +218,8 @@ export const en = {
       branch_slug_taken: 'A branch already uses this slug in this space.',
       branch_exists: 'A “work/…” branch with this name already exists in the repository.',
       branch_not_found: 'Branch not found.',
+      branch_changed:
+        'The branch changed on the forge since your last sync; nothing is lost locally, refresh then publish again.',
       repo_access_lost: 'Repository access is lost; try again when it returns.',
       git_failed: 'The git operation failed.',
     },

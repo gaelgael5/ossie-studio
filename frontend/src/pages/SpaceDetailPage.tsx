@@ -7,10 +7,11 @@ import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 
 export function SpaceDetailPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { spaceId = '' } = useParams()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
+  const [notice, setNotice] = useState('')
   const [baseLabel, setBaseLabel] = useState('')
   const [childLabel, setChildLabel] = useState('')
 
@@ -19,7 +20,31 @@ export function SpaceDetailPage() {
     queryFn: () => api.listBranches(spaceId),
   })
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['branches', spaceId] })
-  const onError = (err: unknown) => setMessages(errorMessages(t, err))
+  const onError = (err: unknown) => {
+    setNotice('')
+    setMessages(errorMessages(t, err))
+  }
+
+  const viewedId = branches.data?.viewed_branch_id ?? null
+  const unpublished = useQuery({
+    queryKey: ['unpublished', spaceId, viewedId],
+    queryFn: () => api.listUnpublished(spaceId, viewedId as string),
+    enabled: viewedId !== null,
+  })
+  const publish = useMutation({
+    mutationFn: () => api.publishBranch(spaceId, viewedId as string),
+    onSuccess: async (res) => {
+      setMessages([])
+      setNotice(t('published', { count: res.published }))
+      await queryClient.invalidateQueries({ queryKey: ['unpublished', spaceId, viewedId] })
+    },
+    onError,
+  })
+  const formatDate = (iso: string) =>
+    new Intl.DateTimeFormat(i18n.resolvedLanguage, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(iso))
 
   const createBase = useMutation({
     mutationFn: () => api.createBaseBranch(spaceId, baseLabel),
@@ -55,6 +80,7 @@ export function SpaceDetailPage() {
       <h1>{t('branchesTitle')}</h1>
       <p>{t('branchesIntro')}</p>
       <ErrorList messages={messages} />
+      {notice ? <p role="status">{notice}</p> : null}
 
       {data && data.branches.length > 0 ? (
         <>
@@ -62,7 +88,10 @@ export function SpaceDetailPage() {
           <select
             id="viewed"
             value={data.viewed_branch_id ?? ''}
-            onChange={(e) => setViewed.mutate(e.target.value)}
+            onChange={(e) => {
+              setNotice('')
+              setViewed.mutate(e.target.value)
+            }}
           >
             {data.branches.map((b) => (
               <option key={b.id} value={b.id}>
@@ -90,6 +119,49 @@ export function SpaceDetailPage() {
               ))}
             </tbody>
           </table>
+
+          {viewedId ? (
+            <section style={{ marginTop: 24 }}>
+              <h2>{t('unpublishedTitle')}</h2>
+              <p>{t('unpublishedIntro')}</p>
+              {unpublished.data && unpublished.data.count > 0 ? (
+                <>
+                  <p>{t('unpublishedCount', { count: unpublished.data.count })}</p>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th>{t('colMessage')}</th>
+                        <th>{t('colAuthor')}</th>
+                        <th>{t('colDate')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unpublished.data.commits.map((c) => (
+                        <tr key={c.sha}>
+                          <td>{c.message}</td>
+                          <td>{c.author}</td>
+                          <td>{formatDate(c.date)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <button
+                    type="button"
+                    disabled={publish.isPending}
+                    onClick={() => {
+                      setMessages([])
+                      publish.mutate()
+                    }}
+                    style={{ marginTop: 8 }}
+                  >
+                    {t('publishButton')}
+                  </button>
+                </>
+              ) : (
+                <p>{t('noUnpublished')}</p>
+              )}
+            </section>
+          ) : null}
         </>
       ) : (
         <p>{t('noBranches')}</p>

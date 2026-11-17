@@ -168,3 +168,65 @@ async def set_viewed(
         raise ApiError("branch_not_found", status_code=404)
     await db_set_viewed_branch(conn, user.id, space_id, branch_id)
     return {"ok": True}
+
+
+def _publish_error(exc: WorkdirError) -> ApiError:
+    # L'accès perdu est transitoire (503) ; une branche qui a changé sur la
+    # forge est un conflit (409) ; le reste est une panne git (502).
+    status = {"branch_not_found": 404, "branch_changed": 409, "repo_access_lost": 503}.get(
+        exc.code, 502
+    )
+    return ApiError(exc.code, status_code=status)
+
+
+async def _branch_in_space(
+    conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID
+) -> SpaceBranch:
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    return branch
+
+
+@router.get("/{branch_id}/unpublished")
+async def list_unpublished(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: AdminApiDep,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    branch = await _branch_in_space(conn, space_id, branch_id)
+    space, username, token = await _space_credentials(conn, crypto, space_id)
+    try:
+        commits = await workdir.list_unpublished(
+            space_id, branch.slug, space.repo_url, username, token
+        )
+    except WorkdirError as exc:
+        raise _publish_error(exc) from None
+    return {
+        "commits": [
+            {"sha": c.sha, "author": c.author, "date": c.date, "message": c.message}
+            for c in commits
+        ],
+        "count": len(commits),
+    }
+
+
+@router.post("/{branch_id}/publish")
+async def publish(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: AdminApiDep,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, int]:
+    branch = await _branch_in_space(conn, space_id, branch_id)
+    space, username, token = await _space_credentials(conn, crypto, space_id)
+    try:
+        count = await workdir.publish(space_id, branch.slug, space.repo_url, username, token)
+    except WorkdirError as exc:
+        raise _publish_error(exc) from None
+    return {"published": count}

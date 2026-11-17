@@ -133,6 +133,16 @@ export const fr = {
     viewedBranchLabel: 'Branche regardée',
     noBranches: 'Aucune branche de travail.',
     noBase: "Aucune branche de base : créez-la d'abord.",
+    unpublishedTitle: 'Commits non publiés',
+    unpublishedIntro:
+      'Les commits produits dans la branche regardée restent locaux tant que vous ne les publiez pas sur la forge.',
+    unpublishedCount: '{{count}} commit(s) en attente de publication.',
+    noUnpublished: 'Rien à publier : la branche est à jour sur la forge.',
+    publishButton: 'Publier',
+    published: '{{count}} commit(s) publié(s) sur la forge.',
+    colMessage: 'Message',
+    colAuthor: 'Auteur',
+    colDate: 'Date',
     rights: {
       read_fetch: 'lire et récupérer',
       create_branch: 'créer une branche',
@@ -209,6 +219,8 @@ export const fr = {
       branch_slug_taken: 'Une branche porte déjà ce slug dans cet espace.',
       branch_exists: 'Une branche « work/… » de ce nom existe déjà dans le dépôt.',
       branch_not_found: 'Branche introuvable.',
+      branch_changed:
+        "La branche a changé sur la forge depuis votre dernière synchronisation ; rien n'est perdu localement, actualisez puis republiez.",
       repo_access_lost: "L'accès au dépôt est perdu ; réessayez quand il revient.",
       git_failed: "L'opération git a échoué.",
     },
