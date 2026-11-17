@@ -4,6 +4,8 @@ from __future__ import annotations
 # de la table — on ajoute une entrée ici, le schéma ne bouge pas.
 SECRET_CATEGORIES: dict[str, str] = {
     "github": "GitHub",
+    "gitlab": "GitLab",
+    "azure_devops": "Azure DevOps",
 }
 
 

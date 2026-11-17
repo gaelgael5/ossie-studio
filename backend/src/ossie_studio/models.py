@@ -75,3 +75,32 @@ class OidcConnector:
             scopes=row["scopes"],
             created_at=row["created_at"],
         )
+
+
+@dataclass(frozen=True)
+class Connection:
+    id: uuid.UUID
+    label: str
+    forge: str
+    url: str
+    secret_slug: str
+    identity: str
+    last_status: str
+    last_error_code: str | None
+    last_checked_at: datetime | None
+    created_at: datetime
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> Connection:
+        return cls(
+            id=row["id"],
+            label=row["label"],
+            forge=row["forge"],
+            url=row["url"],
+            secret_slug=row["secret_slug"],
+            identity=row["identity"],
+            last_status=row["last_status"],
+            last_error_code=row["last_error_code"],
+            last_checked_at=row["last_checked_at"],
+            created_at=row["created_at"],
+        )

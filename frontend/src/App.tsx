@@ -7,6 +7,7 @@ import { LoginPage } from './pages/LoginPage'
 import { HomePage } from './pages/HomePage'
 import { SecretsPage } from './pages/SecretsPage'
 import { ConnectorsPage } from './pages/ConnectorsPage'
+import { ForgesPage } from './pages/ForgesPage'
 import { StatusPage } from './StatusPage'
 
 export function App() {
@@ -63,6 +64,10 @@ export function App() {
         <Route
           path="/oidc/connectors"
           element={isAdmin ? <ConnectorsPage /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/forges"
+          element={isAdmin ? <ForgesPage /> : <Navigate to="/login" replace />}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

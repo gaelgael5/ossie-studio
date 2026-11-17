@@ -92,9 +92,20 @@ Le SPA route selon `GET /api/session` (`bootstrap_required`,
 `authenticated`, `user`). Au premier démarrage sur une base vide, il mène à
 l'écran de création du **premier administrateur**. Dès que ce compte existe,
 cet écran n'est plus accessible. L'administrateur gère ensuite les
-**secrets** (chiffrés AES-256-GCM) et les **connecteurs OIDC** depuis
-l'interface. Tous les écrans passent par i18n ; les erreurs viennent de
-l'API sous forme de codes traduits côté interface.
+**secrets** (chiffrés AES-256-GCM), les **connecteurs OIDC** et les
+**forges et connexions** (GitHub, Azure DevOps, GitLab) depuis l'interface.
+Tous les écrans passent par i18n ; les erreurs viennent de l'API sous forme
+de codes traduits côté interface.
+
+### Forges et connexions
+
+Une connexion à une forge Git (par jeton d'accès) est vérifiée **avant**
+d'être enregistrée (appel réel à la forge) ; le jeton est stocké comme
+secret chiffré (catégorie = forge), la connexion n'en garde que la
+référence. Chaque forge est une **stratégie** derrière un même contrat
+(`ForgeStrategy`) : vérifier l'identité, lister les dépôts lisibles (avec
+pagination). Ajouter une forge ou un mode OAuth plus tard ne touche ni la
+page ni les consommateurs.
 
 ## Tests et qualité
 

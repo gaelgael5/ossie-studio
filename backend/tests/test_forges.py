@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import json
+
+import httpx
+import pytest
+
+from ossie_studio.forges.azure import AzureDevOpsStrategy
+from ossie_studio.forges.base import ForgeError
+from ossie_studio.forges.github import GitHubStrategy
+from ossie_studio.forges.gitlab import GitLabStrategy
+
+
+def _client(handler: object) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))  # type: ignore[arg-type]
+
+
+# --- GitHub ---------------------------------------------------------------
+
+
+def _github_handler(request: httpx.Request) -> httpx.Response:
+    if request.headers.get("Authorization") != "Bearer good":
+        return httpx.Response(401)
+    if request.url.path == "/user":
+        return httpx.Response(200, json={"login": "octocat"})
+    if request.url.path == "/user/repos":
+        page = int(request.url.params.get("page", "1"))
+        items = (
+            [{"full_name": f"octocat/repo{i}", "html_url": f"https://x/{i}"} for i in range(100)]
+            if page == 1
+            else [{"full_name": "octocat/last", "html_url": "https://x/last"}]
+        )
+        return httpx.Response(200, json=items)
+    return httpx.Response(404)
+
+
+async def test_github_verify_rend_identite() -> None:
+    async with _client(_github_handler) as client:
+        identity = await GitHubStrategy().verify(client, "https://github.com", "good")
+    assert identity.username == "octocat"
+
+
+async def test_github_jeton_invalide_refuse() -> None:
+    async with _client(_github_handler) as client:
+        with pytest.raises(ForgeError) as exc:
+            await GitHubStrategy().verify(client, "https://github.com", "bad")
+    assert exc.value.code == "connection_token_invalid"
+
+
+async def test_github_liste_gere_la_pagination() -> None:
+    async with _client(_github_handler) as client:
+        repos = await GitHubStrategy().list_repositories(client, "https://github.com", "good")
+    assert len(repos) == 101  # 100 (page 1) + 1 (page 2)
+
+
+async def test_github_url_injoignable() -> None:
+    def boom(_: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    async with _client(boom) as client:
+        with pytest.raises(ForgeError) as exc:
+            await GitHubStrategy().verify(client, "https://ghe.interne", "good")
+    assert exc.value.code == "connection_url_unreachable"
+
+
+# --- GitLab ---------------------------------------------------------------
+
+
+def _gitlab_handler(request: httpx.Request) -> httpx.Response:
+    if request.headers.get("PRIVATE-TOKEN") != "good":
+        return httpx.Response(401)
+    if request.url.path == "/api/v4/user":
+        return httpx.Response(200, json={"username": "gluser"})
+    if request.url.path == "/api/v4/projects":
+        page = int(request.url.params.get("page", "1"))
+        items = (
+            [{"path_with_namespace": f"g/p{i}", "web_url": f"https://g/{i}"} for i in range(100)]
+            if page == 1
+            else []
+        )
+        return httpx.Response(200, json=items)
+    return httpx.Response(404)
+
+
+async def test_gitlab_verify_rend_identite() -> None:
+    async with _client(_gitlab_handler) as client:
+        identity = await GitLabStrategy().verify(client, "https://gitlab.com", "good")
+    assert identity.username == "gluser"
+
+
+async def test_gitlab_liste_paginee() -> None:
+    async with _client(_gitlab_handler) as client:
+        repos = await GitLabStrategy().list_repositories(client, "https://gitlab.com", "good")
+    assert len(repos) == 100
+
+
+# --- Azure DevOps ---------------------------------------------------------
+
+
+def _azure_handler(request: httpx.Request) -> httpx.Response:
+    path = request.url.path
+    if "/orga-absente/" in path:
+        return httpx.Response(404)
+    if request.headers.get("Authorization", "").startswith("Basic ") is False:
+        return httpx.Response(401)
+    if path.endswith("/_apis/connectionData"):
+        return httpx.Response(200, json={"authenticatedUser": {"providerDisplayName": "Az User"}})
+    if path.endswith("/_apis/projects"):
+        return httpx.Response(200, json={"value": [{"name": "Proj"}]})
+    if path.endswith("/_apis/git/repositories"):
+        return httpx.Response(200, json={"value": [{"name": "repo1", "webUrl": "https://az/r1"}]})
+    return httpx.Response(404)
+
+
+async def test_azure_verify_rend_identite() -> None:
+    async with _client(_azure_handler) as client:
+        identity = await AzureDevOpsStrategy().verify(client, "https://dev.azure.com/orga", "good")
+    assert identity.username == "Az User"
+
+
+async def test_azure_organisation_inexistante() -> None:
+    async with _client(_azure_handler) as client:
+        with pytest.raises(ForgeError) as exc:
+            await AzureDevOpsStrategy().verify(client, "https://dev.azure.com/orga-absente", "good")
+    assert exc.value.code == "connection_azure_org_not_found"
+
+
+async def test_azure_liste_projets_puis_depots() -> None:
+    async with _client(_azure_handler) as client:
+        repos = await AzureDevOpsStrategy().list_repositories(
+            client, "https://dev.azure.com/orga", "good"
+        )
+    assert [r.full_name for r in repos] == ["Proj/repo1"]
+
+
+def test_erreurs_de_forge_ne_portent_jamais_le_jeton() -> None:
+    # Le message d'une ForgeError est le code seul, jamais une valeur sensible.
+    err = ForgeError("connection_token_invalid")
+    assert json.dumps(str(err)) == '"connection_token_invalid"'

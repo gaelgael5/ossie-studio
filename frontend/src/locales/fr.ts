@@ -74,6 +74,32 @@ export const fr = {
       'Supprimer ce connecteur ? Les comptes rattachés ne sont pas supprimés, mais ne pourront plus se connecter par ce fournisseur.',
     home: 'Accueil',
 
+    manageForges: 'Forges et connexions',
+    forgesTitle: 'Forges et connexions',
+    forgesIntro:
+      "Connectez l'application aux forges Git par un jeton d'accès. Le jeton est stocké chiffré dans les secrets ; la connexion ne garde que sa référence.",
+    forgesList: 'Connexions',
+    colForge: 'Forge',
+    colUrl: 'URL',
+    colIdentity: 'Identité',
+    colStatus: 'État',
+    colLastCheck: 'Dernière vérification',
+    statusValid: 'valide',
+    statusError: 'en erreur',
+    neverChecked: 'jamais',
+    test: 'Tester',
+    addConnection: 'Ajouter une connexion',
+    forgeLabel: 'Forge',
+    urlLabel: 'URL de la forge ou de l’organisation',
+    tokenLabel: "Jeton d'accès personnel",
+    tokenHint:
+      'Droits de lecture des dépôts (GitHub : lecture du contenu ; GitLab : read_api et read_repository ; Azure DevOps : Code en lecture).',
+    githubName: 'GitHub',
+    gitlabName: 'GitLab',
+    azureName: 'Azure DevOps',
+    noConnections: 'Aucune connexion déclarée.',
+    deleteConnectionConfirm: 'Supprimer cette connexion ? Son jeton (secret) est aussi supprimé.',
+
     fields: {
       email_required: "L'adresse email est obligatoire.",
       email_invalid: "L'adresse email n'est pas valide.",
@@ -90,6 +116,10 @@ export const fr = {
       client_secret_required: 'Le client_secret est obligatoire.',
       issuer_invalid: "L'issuer doit être une URL http(s).",
       scopes_openid_required: 'Les scopes doivent contenir « openid ».',
+      forge_invalid: 'La forge est inconnue.',
+      url_required: "L'URL est obligatoire.",
+      url_invalid: "L'URL doit être une URL http(s).",
+      token_required: 'Le jeton est obligatoire.',
     },
 
     errors: {
@@ -110,6 +140,11 @@ export const fr = {
       oidc_email_ambiguous: 'Plusieurs comptes portent cet email : un administrateur doit trancher.',
       oidc_email_unverified: 'Connexion refusée : email absent ou non vérifié.',
       oidc_flow_invalid: 'Flux de connexion invalide ou expiré.',
+      connection_token_invalid: 'Jeton invalide ou expiré.',
+      connection_url_unreachable: "L'URL de la forge est injoignable.",
+      connection_azure_org_not_found: "L'organisation Azure DevOps est introuvable.",
+      connection_duplicate: 'Une connexion identique existe déjà (même forge, URL et identité).',
+      connection_not_found: 'Connexion introuvable.',
     },
   },
 }

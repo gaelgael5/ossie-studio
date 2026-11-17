@@ -73,6 +73,32 @@ export const en = {
       'Delete this connector? Linked accounts are not deleted, but will no longer be able to sign in through this provider.',
     home: 'Home',
 
+    manageForges: 'Forges and connections',
+    forgesTitle: 'Forges and connections',
+    forgesIntro:
+      'Connect the application to Git forges with an access token. The token is stored encrypted in secrets; the connection only keeps its reference.',
+    forgesList: 'Connections',
+    colForge: 'Forge',
+    colUrl: 'URL',
+    colIdentity: 'Identity',
+    colStatus: 'Status',
+    colLastCheck: 'Last check',
+    statusValid: 'valid',
+    statusError: 'error',
+    neverChecked: 'never',
+    test: 'Test',
+    addConnection: 'Add a connection',
+    forgeLabel: 'Forge',
+    urlLabel: 'Forge or organization URL',
+    tokenLabel: 'Personal access token',
+    tokenHint:
+      'Repository read rights (GitHub: content read; GitLab: read_api and read_repository; Azure DevOps: Code read).',
+    githubName: 'GitHub',
+    gitlabName: 'GitLab',
+    azureName: 'Azure DevOps',
+    noConnections: 'No connection declared.',
+    deleteConnectionConfirm: 'Delete this connection? Its token (secret) is deleted too.',
+
     fields: {
       email_required: 'The email address is required.',
       email_invalid: 'The email address is not valid.',
@@ -89,6 +115,10 @@ export const en = {
       client_secret_required: 'The client_secret is required.',
       issuer_invalid: 'The issuer must be an http(s) URL.',
       scopes_openid_required: 'Scopes must contain “openid”.',
+      forge_invalid: 'Unknown forge.',
+      url_required: 'The URL is required.',
+      url_invalid: 'The URL must be an http(s) URL.',
+      token_required: 'The token is required.',
     },
 
     errors: {
@@ -109,6 +139,11 @@ export const en = {
       oidc_email_ambiguous: 'Several accounts share this email: an administrator must decide.',
       oidc_email_unverified: 'Login refused: email missing or unverified.',
       oidc_flow_invalid: 'Login flow invalid or expired.',
+      connection_token_invalid: 'Invalid or expired token.',
+      connection_url_unreachable: 'The forge URL is unreachable.',
+      connection_azure_org_not_found: 'The Azure DevOps organization was not found.',
+      connection_duplicate: 'An identical connection already exists (same forge, URL and identity).',
+      connection_not_found: 'Connection not found.',
     },
   },
 }

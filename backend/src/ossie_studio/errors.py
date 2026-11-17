@@ -25,6 +25,11 @@ ERROR_CODES: tuple[str, ...] = (
     "oidc_email_ambiguous",
     "oidc_email_unverified",
     "oidc_flow_invalid",
+    "connection_token_invalid",
+    "connection_url_unreachable",
+    "connection_azure_org_not_found",
+    "connection_duplicate",
+    "connection_not_found",
 )
 
 

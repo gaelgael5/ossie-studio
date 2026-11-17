@@ -24,6 +24,7 @@ export function HomePage({ user }: { user: SessionUser }) {
         <nav style={{ display: 'flex', gap: 16 }}>
           <Link to="/secrets">{t('manageSecrets')}</Link>
           <Link to="/oidc/connectors">{t('manageConnectors')}</Link>
+          <Link to="/forges">{t('manageForges')}</Link>
         </nav>
       )}
       <p>{t('semanticSoon')}</p>

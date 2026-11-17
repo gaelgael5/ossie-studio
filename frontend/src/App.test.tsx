@@ -86,3 +86,26 @@ test('login : des identifiants faux affichent le message traduit', async () => {
     expect(screen.getByText('Email ou mot de passe incorrect.')).toBeInTheDocument(),
   )
 })
+
+test('forges : un jeton invalide affiche le message traduit', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+      },
+    },
+    '/api/connections': { body: { connections: [] } },
+    'POST /api/connections': { status: 400, body: { error: 'connection_token_invalid' } },
+  })
+  renderAt('/forges')
+  await screen.findByText('Forges et connexions')
+  await userEvent.type(screen.getByLabelText('Libellé'), 'GitHub perso')
+  await userEvent.type(screen.getByLabelText("Jeton d'accès personnel"), 'mauvais')
+  await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+  await waitFor(() =>
+    expect(screen.getByText('Jeton invalide ou expiré.')).toBeInTheDocument(),
+  )
+})

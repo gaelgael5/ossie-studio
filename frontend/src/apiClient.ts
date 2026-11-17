@@ -22,6 +22,23 @@ export interface SessionState {
   user: SessionUser | null
 }
 
+export interface Connection {
+  id: string
+  label: string
+  forge: string
+  url: string
+  identity: string
+  last_status: string
+  last_error_code: string | null
+  last_checked_at: string | null
+}
+
+export const FORGE_DEFAULT_URL: Record<string, string> = {
+  github: 'https://github.com',
+  gitlab: 'https://gitlab.com',
+  azure_devops: '',
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setup: (email: string, password: string) =>
@@ -51,6 +68,15 @@ export const api = {
     }),
   deleteSecret: (slug: string) =>
     apiFetch(`/api/secrets/${encodeURIComponent(slug)}`, { method: 'DELETE' }),
+
+  listConnections: () =>
+    apiFetch<{ connections: Connection[] }>('/api/connections'),
+  createConnection: (body: { label: string; forge: string; url: string; token: string }) =>
+    apiFetch<Connection>('/api/connections', { method: 'POST', body: JSON.stringify(body) }),
+  testConnection: (id: string) =>
+    apiFetch<Connection>(`/api/connections/${id}/test`, { method: 'POST' }),
+  deleteConnection: (id: string) =>
+    apiFetch(`/api/connections/${id}`, { method: 'DELETE' }),
 
   listConnectors: () =>
     apiFetch<{
