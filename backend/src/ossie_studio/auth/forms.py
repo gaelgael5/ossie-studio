@@ -12,24 +12,25 @@ MAX_PASSWORD_LENGTH = 128
 class CredentialsForm:
     email: str
     password: str
+    # Codes de champ (ex. "email_invalid"), traduits par l'interface.
     errors: list[str] = field(default_factory=list)
 
 
 def parse_credentials(email: str, password: str) -> CredentialsForm:
-    """Valide l'email et le mot de passe AVANT tout usage ; messages en clair."""
+    """Valide l'email et le mot de passe AVANT tout usage ; renvoie des codes."""
     errors: list[str] = []
     email = email.strip()
     if not email:
-        errors.append("L'adresse email est obligatoire.")
+        errors.append("email_required")
     else:
         try:
             email = validate_email(email, check_deliverability=False).normalized
         except EmailNotValidError:
-            errors.append("L'adresse email n'est pas valide.")
+            errors.append("email_invalid")
     if not password:
-        errors.append("Le mot de passe est obligatoire.")
+        errors.append("password_required")
     elif len(password) < MIN_PASSWORD_LENGTH:
-        errors.append(f"Le mot de passe doit faire au moins {MIN_PASSWORD_LENGTH} caractères.")
+        errors.append("password_too_short")
     elif len(password) > MAX_PASSWORD_LENGTH:
-        errors.append(f"Le mot de passe ne peut pas dépasser {MAX_PASSWORD_LENGTH} caractères.")
+        errors.append("password_too_long")
     return CredentialsForm(email=email, password=password, errors=errors)

@@ -7,7 +7,7 @@ from typing import Annotated
 
 import httpx
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse, Response
 
 from ossie_studio.crypto import CryptoService
@@ -39,6 +39,13 @@ def _callback_uri(request: Request, connector_id: uuid.UUID) -> str:
     return str(request.url_for("oidc_callback", connector_id=connector_id))
 
 
+def _login_redirect(error: str | None = None) -> RedirectResponse:
+    """Le flux OIDC est une navigation : on revient au SPA avec, en cas
+    d'échec, un code d'erreur que l'interface traduit."""
+    target = f"/login?error={error}" if error else "/"
+    return RedirectResponse(target, status_code=303)
+
+
 @router.get("/{connector_id}/login", name="oidc_login")
 async def oidc_login(
     request: Request,
@@ -48,12 +55,12 @@ async def oidc_login(
 ) -> Response:
     connector = await db_get_connector(conn, connector_id)
     if connector is None:
-        raise HTTPException(status_code=404, detail="Connecteur introuvable.")
+        return _login_redirect("not_found")
     async with http_client_factory() as client:
         try:
             metadata = await discover(client, connector.issuer)
-        except DiscoveryError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except DiscoveryError:
+            return _login_redirect("oidc_issuer_unreachable")
 
     state = secrets.token_urlsafe(32)
     nonce = secrets.token_urlsafe(32)
@@ -89,10 +96,10 @@ async def oidc_callback(
 ) -> Response:
     flow = request.session.pop(_SESSION_FLOW_KEY, None)
     if not _flow_matches(flow, connector_id, state) or not code:
-        raise HTTPException(status_code=400, detail="Flux OIDC invalide ou expiré.")
+        return _login_redirect("oidc_flow_invalid")
     connector = await db_get_connector(conn, connector_id)
     if connector is None:
-        raise HTTPException(status_code=404, detail="Connecteur introuvable.")
+        return _login_redirect("not_found")
 
     client_secret = crypto.decrypt(connector.client_secret_encrypted).reveal()
     async with http_client_factory() as client:
@@ -114,23 +121,18 @@ async def oidc_callback(
                 client_id=connector.client_id,
                 nonce=flow["nonce"],
             )
-        except (TokenExchangeError, IdTokenInvalidError) as exc:
-            raise HTTPException(status_code=401, detail=str(exc)) from exc
+        except (TokenExchangeError, IdTokenInvalidError):
+            return _login_redirect("oidc_token_rejected")
 
     decision = await resolve_federated_login(conn, connector.issuer, claims)
     if decision.outcome is LinkOutcome.AMBIGUOUS_EMAIL:
-        raise HTTPException(
-            status_code=403,
-            detail="Plusieurs comptes portent cet email : un administrateur doit trancher.",
-        )
+        return _login_redirect("oidc_email_ambiguous")
     if decision.outcome is LinkOutcome.REFUSED_UNVERIFIED:
-        raise HTTPException(
-            status_code=403, detail="Connexion refusée : email absent ou non vérifié."
-        )
+        return _login_redirect("oidc_email_unverified")
     assert decision.user_id is not None
     request.session["user_id"] = str(decision.user_id)
     log.info("oidc_login_succeeded", outcome=decision.outcome.value, issuer=connector.issuer)
-    return RedirectResponse("/", status_code=303)
+    return _login_redirect()
 
 
 def _flow_matches(flow: object, connector_id: uuid.UUID, state: str) -> bool:

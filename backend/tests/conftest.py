@@ -86,9 +86,11 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
 
 
 async def bootstrap_admin(client: AsyncClient) -> None:
-    """Crée le premier administrateur via l'écran de bootstrap."""
-    response = await client.post("/setup", data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
-    assert response.status_code == 303, response.text
+    """Crée le premier administrateur via l'API d'amorçage."""
+    response = await client.post(
+        "/api/setup", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+    )
+    assert response.status_code == 200, response.text
 
 
 async def create_plain_user(app: FastAPI, email: str, password: str) -> None:
@@ -107,8 +109,8 @@ async def create_plain_user(app: FastAPI, email: str, password: str) -> None:
 
 
 async def login(client: AsyncClient, email: str, password: str) -> None:
-    response = await client.post("/login", data={"email": email, "password": password})
-    assert response.status_code == 303, response.text
+    response = await client.post("/api/login", json={"email": email, "password": password})
+    assert response.status_code == 200, response.text
 
 
 def wire_fake_idp(app: FastAPI, idp_asgi: object) -> None:

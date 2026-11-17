@@ -25,8 +25,8 @@ async def ready(
     wire_fake_idp(app, idp.app())
     await bootstrap_admin(client)
     await client.post(
-        "/oidc/connectors",
-        data={
+        "/api/oidc/connectors",
+        json={
             "label": "Mon IdP",
             "issuer": ISSUER,
             "client_id": "client-x",
@@ -35,7 +35,7 @@ async def ready(
         },
     )
     connector_id = await db_fetchval(app, "SELECT id FROM oidc_connectors")
-    await client.post("/logout")
+    await client.post("/api/logout")
     return client, idp, connector_id
 
 
@@ -50,20 +50,21 @@ async def _authz_redirect(idp: FakeIdP, authz_url: str) -> str:
 async def test_id_token_iss_incoherent_refuse(
     ready: tuple[AsyncClient, FakeIdP, uuid.UUID],
 ) -> None:
-    """Un id_token signé avec un iss différent de l'issuer déclaré → 401."""
+    """Un id_token signé avec un iss différent de l'issuer déclaré → rejet."""
     client, idp, connector_id = ready
     idp.sign_issuer = "http://attaquant.test/realms/evil"
     idp.set_next_user(sub="s1", email="x@example.org", email_verified=True)
     start = await client.get(f"/auth/oidc/{connector_id}/login")
     callback_url = await _authz_redirect(idp, start.headers["location"])
     response = await client.get(callback_url)
-    assert response.status_code == 401
+    assert response.status_code == 303
+    assert split_query(response.headers["location"])["error"] == "oidc_token_rejected"
 
 
 async def test_callback_state_invalide_refuse(
     ready: tuple[AsyncClient, FakeIdP, uuid.UUID],
 ) -> None:
-    """Un callback dont le state ne correspond pas au flux en session → 400."""
+    """Un callback dont le state ne correspond pas au flux en session → rejet."""
     client, idp, connector_id = ready
     idp.set_next_user(sub="s1", email="x@example.org", email_verified=True)
     start = await client.get(f"/auth/oidc/{connector_id}/login")
@@ -71,13 +72,15 @@ async def test_callback_state_invalide_refuse(
     params = split_query(callback_url)
     forged = f"/auth/oidc/{connector_id}/callback?code={params['code']}&state=state-force"
     response = await client.get(forged)
-    assert response.status_code == 400
+    assert response.status_code == 303
+    assert split_query(response.headers["location"])["error"] == "oidc_flow_invalid"
 
 
 async def test_callback_sans_flux_en_session_refuse(
     ready: tuple[AsyncClient, FakeIdP, uuid.UUID],
 ) -> None:
-    """Appeler le callback directement, sans avoir initié le login → 400."""
+    """Appeler le callback directement, sans avoir initié le login → rejet."""
     client, _idp, connector_id = ready
     response = await client.get(f"/auth/oidc/{connector_id}/callback?code=abc&state=xyz")
-    assert response.status_code == 400
+    assert response.status_code == 303
+    assert split_query(response.headers["location"])["error"] == "oidc_flow_invalid"

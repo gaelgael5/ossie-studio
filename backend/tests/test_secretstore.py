@@ -68,7 +68,7 @@ async def test_base_copiee_autre_clef_erreur_claire_sans_plantage(
         transport = ASGITransport(app=second_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             await bootstrap_admin(client)
-            assert (await client.get("/secrets")).status_code == 200
+            assert (await client.get("/api/secrets")).status_code == 200
 
 
 async def test_erreur_de_dechiffrement_aucune_valeur_dans_les_logs(

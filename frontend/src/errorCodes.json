@@ -1,7 +1,9 @@
 [
   "forbidden",
+  "unauthenticated",
   "not_found",
   "invalid_request",
+  "invalid_credentials",
   "admin_already_exists",
   "secret_slug_taken",
   "secret_not_found",

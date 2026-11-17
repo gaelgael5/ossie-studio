@@ -19,26 +19,23 @@ from tests.conftest import (
 )
 
 
-@pytest.mark.parametrize("path", ["/", "/login", "/nimporte/quoi"])
-async def test_base_vide_toute_url_redirige_vers_setup(client: AsyncClient, path: str) -> None:
-    response = await client.get(path)
-    assert response.status_code == 302
-    assert response.headers["location"] == "/setup"
-
-
-async def test_base_vide_setup_accessible(client: AsyncClient) -> None:
-    response = await client.get("/setup")
-    assert response.status_code == 200
-    assert "administrateur" in response.text
+async def test_base_vide_session_demande_amorcage(client: AsyncClient) -> None:
+    body = (await client.get("/api/session")).json()
+    assert body["bootstrap_required"] is True
+    assert body["authenticated"] is False
 
 
 async def test_creation_reussie_connecte_et_donne_role_admin(
     client: AsyncClient, app: FastAPI
 ) -> None:
-    await bootstrap_admin(client)
-    home = await client.get("/")
-    assert home.status_code == 200
-    assert ADMIN_EMAIL in home.text
+    response = await client.post(
+        "/api/setup", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+    )
+    assert response.status_code == 200
+    assert response.json()["user"] == {"email": ADMIN_EMAIL, "role": ROLE_ADMIN}
+    session = (await client.get("/api/session")).json()
+    assert session["authenticated"] is True
+    assert session["bootstrap_required"] is False
     row = await db_fetchrow(app, "SELECT role, is_bootstrap FROM users")
     assert row is not None
     assert row["role"] == ROLE_ADMIN
@@ -53,18 +50,18 @@ async def test_mot_de_passe_stocke_hache_jamais_en_clair(client: AsyncClient, ap
     assert ADMIN_PASSWORD not in password_hash
 
 
-async def test_setup_repond_inexistant_apres_creation(client: AsyncClient) -> None:
+async def test_setup_refuse_apres_creation(client: AsyncClient) -> None:
     await bootstrap_admin(client)
-    assert (await client.get("/setup")).status_code == 404
     rejoue = await client.post(
-        "/setup", data={"email": "autre@example.org", "password": "un-autre-mot-de-passe"}
+        "/api/setup", json={"email": "autre@example.org", "password": "un-autre-mot-de-passe"}
     )
-    assert rejoue.status_code == 404
+    assert rejoue.status_code == 409
+    assert rejoue.json()["error"] == "admin_already_exists"
 
 
 async def test_rejeu_apres_succes_aucun_doublon(client: AsyncClient, app: FastAPI) -> None:
     await bootstrap_admin(client)
-    await client.post("/setup", data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    await client.post("/api/setup", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     count = await db_fetchval(app, "SELECT count(*) FROM users")
     assert count == 1
 
@@ -83,27 +80,27 @@ async def test_course_deux_creations_une_seule_reussit(app: FastAPI) -> None:
 
 
 @pytest.mark.parametrize(
-    ("email", "password"),
+    ("email", "password", "field"),
     [
-        ("", ADMIN_PASSWORD),
-        ("pas-un-email", ADMIN_PASSWORD),
-        (ADMIN_EMAIL, ""),
-        (ADMIN_EMAIL, "court"),
+        ("", ADMIN_PASSWORD, "email_required"),
+        ("pas-un-email", ADMIN_PASSWORD, "email_invalid"),
+        (ADMIN_EMAIL, "", "password_required"),
+        (ADMIN_EMAIL, "court", "password_too_short"),
     ],
 )
-async def test_entree_invalide_refusee_aucun_compte_cree(
-    client: AsyncClient, app: FastAPI, email: str, password: str
+async def test_entree_invalide_refusee_code_champ(
+    client: AsyncClient, app: FastAPI, email: str, password: str, field: str
 ) -> None:
-    response = await client.post("/setup", data={"email": email, "password": password})
+    response = await client.post("/api/setup", json={"email": email, "password": password})
     assert response.status_code == 400
-    assert "<li>" in response.text
+    body = response.json()
+    assert body["error"] == "invalid_request"
+    assert field in body["error_args"]["fields"]
     count = await db_fetchval(app, "SELECT count(*) FROM users")
     assert count == 0
 
 
-async def test_redemarrage_compte_persiste_et_setup_ferme(
-    tmp_path: Path, test_database: str
-) -> None:
+async def test_redemarrage_compte_persiste(tmp_path: Path, test_database: str) -> None:
     settings = make_settings(tmp_path, test_database)
 
     first_app = create_app(settings)
@@ -116,12 +113,12 @@ async def test_redemarrage_compte_persiste_et_setup_ferme(
     async with LifespanManager(second_app):
         transport = ASGITransport(app=second_app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            assert (await client.get("/setup")).status_code == 404
+            session = (await client.get("/api/session")).json()
+            assert session["bootstrap_required"] is False
             login = await client.post(
-                "/login", data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+                "/api/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
             )
-            assert login.status_code == 303
-            assert (await client.get("/")).status_code == 200
+            assert login.status_code == 200
 
 
 async def test_course_perdue_rend_409(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,6 +128,8 @@ async def test_course_perdue_rend_409(client: AsyncClient, monkeypatch: pytest.M
     async def _conflit(*_args: object, **_kwargs: object) -> None:
         raise BootstrapConflictError
 
-    monkeypatch.setattr("ossie_studio.auth.routes.resolve_bootstrap_admin", _conflit)
-    response = await client.post("/setup", data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
+    monkeypatch.setattr("ossie_studio.api.session.resolve_bootstrap_admin", _conflit)
+    response = await client.post(
+        "/api/setup", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
+    )
     assert response.status_code == 409

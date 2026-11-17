@@ -78,13 +78,23 @@ les deux volumes : **200** quand tout répond et que les volumes sont
 inscriptibles, **503** sinon, en nommant ce qui manque. Jamais de 200 de
 complaisance.
 
+## Architecture
+
+Le backend est une **API JSON** (`/api/*`) sans rendu de pages ; toute
+l'interface est une **SPA React** (sous `frontend/`) qui la consomme, plus
+les redirections du flux OIDC (`/auth/oidc/*`). Le navigateur ne voit
+qu'une origine : nginx (ou le proxy Vite en dev) relaie `/api` et `/auth`
+vers le backend.
+
 ## Accès et administration
 
-Au premier démarrage sur une base vide, l'application présente l'écran de
-création du **premier administrateur** (email + mot de passe locaux). Dès
-que ce compte existe, l'écran disparaît. L'administrateur gère ensuite les
-**secrets** (`/secrets`, chiffrés AES-256-GCM) et les **connecteurs OIDC**
-(`/oidc/connectors`).
+Le SPA route selon `GET /api/session` (`bootstrap_required`,
+`authenticated`, `user`). Au premier démarrage sur une base vide, il mène à
+l'écran de création du **premier administrateur**. Dès que ce compte existe,
+cet écran n'est plus accessible. L'administrateur gère ensuite les
+**secrets** (chiffrés AES-256-GCM) et les **connecteurs OIDC** depuis
+l'interface. Tous les écrans passent par i18n ; les erreurs viennent de
+l'API sous forme de codes traduits côté interface.
 
 ## Tests et qualité
 

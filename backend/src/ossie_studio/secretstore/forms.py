@@ -5,17 +5,14 @@ from ossie_studio.secretstore.service import SLUG_PATTERN
 
 
 def validate_new_secret(slug: str, label: str, category: str, value: str) -> list[str]:
-    """Valide les champs AVANT tout usage ; messages en clair, en français."""
+    """Valide les champs AVANT tout usage ; renvoie des codes de champ."""
     errors: list[str] = []
     if not slug:
-        errors.append("Le slug est obligatoire.")
+        errors.append("slug_required")
     elif not SLUG_PATTERN.fullmatch(slug):
-        errors.append(
-            "Le slug doit contenir uniquement minuscules, chiffres, tirets et "
-            "tirets bas (64 caractères maximum)."
-        )
+        errors.append("slug_invalid")
     if not label.strip():
-        errors.append("Le libellé est obligatoire.")
+        errors.append("label_required")
     errors.extend(validate_category(category))
     errors.extend(validate_value(value))
     return errors
@@ -23,13 +20,13 @@ def validate_new_secret(slug: str, label: str, category: str, value: str) -> lis
 
 def validate_category(category: str) -> list[str]:
     if not category:
-        return ["La catégorie est obligatoire."]
+        return ["category_required"]
     if not is_known_category(category):
-        return [f"La catégorie « {category} » est inconnue."]
+        return ["secret_category_unknown"]
     return []
 
 
 def validate_value(value: str) -> list[str]:
     if not value:
-        return ["La valeur est obligatoire."]
+        return ["secret_value_required"]
     return []

@@ -10,8 +10,10 @@ from fastapi.responses import JSONResponse
 # un test vérifie qu'elles ne divergent pas.
 ERROR_CODES: tuple[str, ...] = (
     "forbidden",
+    "unauthenticated",
     "not_found",
     "invalid_request",
+    "invalid_credentials",
     "admin_already_exists",
     "secret_slug_taken",
     "secret_not_found",

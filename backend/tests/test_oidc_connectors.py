@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator
 
 import pytest
@@ -32,10 +33,10 @@ async def admin_client(client: AsyncClient, app: FastAPI, idp: FakeIdP) -> Async
     return client
 
 
-async def _add_connector(client: AsyncClient, issuer: str = ISSUER, label: str = "Mon IdP") -> None:
+async def _add(client: AsyncClient, issuer: str = ISSUER, label: str = "Mon IdP") -> AsyncClient:
     response = await client.post(
-        "/oidc/connectors",
-        data={
+        "/api/oidc/connectors",
+        json={
             "label": label,
             "issuer": issuer,
             "client_id": "client-x",
@@ -43,25 +44,24 @@ async def _add_connector(client: AsyncClient, issuer: str = ISSUER, label: str =
             "scopes": "openid email profile",
         },
     )
-    assert response.status_code == 303, response.text
+    assert response.status_code == 201, response.text
+    return client
 
 
-async def test_ajout_interroge_la_decouverte_et_enregistre(
+async def test_ajout_interroge_decouverte_et_enregistre(
     admin_client: AsyncClient, app: FastAPI
 ) -> None:
-    await _add_connector(admin_client)
+    await _add(admin_client)
     row = await db_fetchrow(app, "SELECT issuer, client_secret_encrypted FROM oidc_connectors")
     assert row is not None
     assert row["issuer"] == ISSUER
     assert SECRET.encode() not in row["client_secret_encrypted"]
 
 
-async def test_issuer_injoignable_refuse_rien_enregistre(
-    admin_client: AsyncClient, app: FastAPI
-) -> None:
+async def test_issuer_injoignable_refuse(admin_client: AsyncClient, app: FastAPI) -> None:
     response = await admin_client.post(
-        "/oidc/connectors",
-        data={
+        "/api/oidc/connectors",
+        json={
             "label": "Cassé",
             "issuer": "http://idp.test/realms/inexistant",
             "client_id": "client-x",
@@ -70,15 +70,15 @@ async def test_issuer_injoignable_refuse_rien_enregistre(
         },
     )
     assert response.status_code == 400
-    count = await db_fetchval(app, "SELECT count(*) FROM oidc_connectors")
-    assert count == 0
+    assert response.json()["error"] == "oidc_issuer_unreachable"
+    assert await db_fetchval(app, "SELECT count(*) FROM oidc_connectors") == 0
 
 
 async def test_deux_connecteurs_meme_issuer_refuse(admin_client: AsyncClient, app: FastAPI) -> None:
-    await _add_connector(admin_client)
+    await _add(admin_client)
     response = await admin_client.post(
-        "/oidc/connectors",
-        data={
+        "/api/oidc/connectors",
+        json={
             "label": "Doublon",
             "issuer": ISSUER,
             "client_id": "autre",
@@ -87,13 +87,21 @@ async def test_deux_connecteurs_meme_issuer_refuse(admin_client: AsyncClient, ap
         },
     )
     assert response.status_code == 409
-    count = await db_fetchval(app, "SELECT count(*) FROM oidc_connectors")
-    assert count == 1
+    assert response.json()["error"] == "oidc_issuer_already_declared"
+    assert await db_fetchval(app, "SELECT count(*) FROM oidc_connectors") == 1
 
 
-@pytest.mark.parametrize("missing", ["label", "issuer", "client_id", "client_secret"])
+@pytest.mark.parametrize(
+    ("missing", "field"),
+    [
+        ("label", "label_required"),
+        ("issuer", "issuer_invalid"),
+        ("client_id", "client_id_required"),
+        ("client_secret", "client_secret_required"),
+    ],
+)
 async def test_champ_obligatoire_vide_refuse(
-    admin_client: AsyncClient, app: FastAPI, missing: str
+    admin_client: AsyncClient, app: FastAPI, missing: str, field: str
 ) -> None:
     data = {
         "label": "X",
@@ -103,44 +111,41 @@ async def test_champ_obligatoire_vide_refuse(
         "scopes": "openid email profile",
     }
     data[missing] = ""
-    response = await admin_client.post("/oidc/connectors", data=data)
+    response = await admin_client.post("/api/oidc/connectors", json=data)
     assert response.status_code == 400
-    count = await db_fetchval(app, "SELECT count(*) FROM oidc_connectors")
-    assert count == 0
+    assert field in response.json()["error_args"]["fields"]
+    assert await db_fetchval(app, "SELECT count(*) FROM oidc_connectors") == 0
 
 
-async def test_bouton_apparait_sur_login_sans_redemarrage(admin_client: AsyncClient) -> None:
-    await _add_connector(admin_client, label="Mon IdP")
-    await admin_client.post("/logout")
-    page = await admin_client.get("/login")
-    assert "Se connecter avec Mon IdP" in page.text
+async def test_connecteur_propose_sur_login_public(admin_client: AsyncClient) -> None:
+    await _add(admin_client, label="Mon IdP")
+    await admin_client.post("/api/logout")
+    body = (await admin_client.get("/api/auth/connectors")).json()
+    assert len(body) == 1
+    assert body[0]["label"] == "Mon IdP"
+    assert "client_secret" not in body[0]
 
 
-async def test_secret_absent_de_la_liste(admin_client: AsyncClient) -> None:
-    await _add_connector(admin_client)
-    page = await admin_client.get("/oidc/connectors")
-    assert page.status_code == 200
-    assert SECRET not in page.text
+async def test_secret_absent_de_la_liste_admin(admin_client: AsyncClient) -> None:
+    await _add(admin_client)
+    body = (await admin_client.get("/api/oidc/connectors")).json()
+    assert SECRET not in str(body)
 
 
 async def test_suppression_dernier_connecteur_possible(
     admin_client: AsyncClient, app: FastAPI
 ) -> None:
-    await _add_connector(admin_client)
+    await _add(admin_client)
     connector_id = await db_fetchval(app, "SELECT id FROM oidc_connectors")
-    response = await admin_client.post(f"/oidc/connectors/{connector_id}/delete")
-    assert response.status_code == 303
-    count = await db_fetchval(app, "SELECT count(*) FROM oidc_connectors")
-    assert count == 0
-    # Le login local reste ouvert : la page de connexion répond.
-    assert (await admin_client.get("/login")).status_code == 200
+    response = await admin_client.delete(f"/api/oidc/connectors/{connector_id}")
+    assert response.status_code == 204
+    assert await db_fetchval(app, "SELECT count(*) FROM oidc_connectors") == 0
 
 
 async def test_suppression_connecteur_inexistant_404(admin_client: AsyncClient) -> None:
-    import uuid
-
-    response = await admin_client.post(f"/oidc/connectors/{uuid.uuid4()}/delete")
+    response = await admin_client.delete(f"/api/oidc/connectors/{uuid.uuid4()}")
     assert response.status_code == 404
+    assert response.json()["error"] == "not_found"
 
 
 @pytest.fixture
@@ -153,12 +158,10 @@ async def user_client(admin_client: AsyncClient, app: FastAPI) -> AsyncIterator[
 
 
 async def test_non_admin_refus_403(user_client: AsyncClient) -> None:
-    import uuid
-
-    assert (await user_client.get("/oidc/connectors")).status_code == 403
+    assert (await user_client.get("/api/oidc/connectors")).status_code == 403
     creation = await user_client.post(
-        "/oidc/connectors",
-        data={
+        "/api/oidc/connectors",
+        json={
             "label": "X",
             "issuer": ISSUER,
             "client_id": "c",
@@ -167,4 +170,4 @@ async def test_non_admin_refus_403(user_client: AsyncClient) -> None:
         },
     )
     assert creation.status_code == 403
-    assert (await user_client.post(f"/oidc/connectors/{uuid.uuid4()}/delete")).status_code == 403
+    assert (await user_client.delete(f"/api/oidc/connectors/{uuid.uuid4()}")).status_code == 403

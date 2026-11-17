@@ -13,28 +13,29 @@ class ConnectorForm:
     client_id: str
     client_secret: str
     scopes: str
+    # Codes de champ, traduits par l'interface.
     errors: list[str]
 
 
 def parse_connector(
     label: str, issuer: str, client_id: str, client_secret: str, scopes: str
 ) -> ConnectorForm:
-    """Valide les champs AVANT tout usage réseau ; messages en clair."""
+    """Valide les champs AVANT tout usage réseau ; renvoie des codes."""
     errors: list[str] = []
     label = label.strip()
     issuer = issuer.strip().rstrip("/")
     client_id = client_id.strip()
     scopes = scopes.strip() or DEFAULT_SCOPES
     if not label:
-        errors.append("Le libellé est obligatoire.")
+        errors.append("label_required")
     if not _is_http_url(issuer):
-        errors.append("L'issuer doit être une URL http(s).")
+        errors.append("issuer_invalid")
     if not client_id:
-        errors.append("Le client_id est obligatoire.")
+        errors.append("client_id_required")
     if not client_secret:
-        errors.append("Le client_secret est obligatoire.")
+        errors.append("client_secret_required")
     if "openid" not in scopes.split():
-        errors.append("Les scopes doivent contenir « openid ».")
+        errors.append("scopes_openid_required")
     return ConnectorForm(label, issuer, client_id, client_secret, scopes, errors)
 
 
