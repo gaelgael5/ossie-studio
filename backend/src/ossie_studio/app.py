@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,8 +17,15 @@ from ossie_studio.db import create_engine, create_session_factory
 from ossie_studio.deps import STATIC_DIR, bootstrap_is_done
 from ossie_studio.logging import setup_logging
 from ossie_studio.models import Base
+from ossie_studio.oidc.admin_routes import router as oidc_admin_router
+from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.pages import router as pages_router
 from ossie_studio.secretstore.routes import router as secrets_router
+
+
+def _default_http_client_factory() -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=10.0)
+
 
 # Seules routes accessibles tant que la base utilisateurs est vide.
 _PATHS_ALLOWED_WHEN_EMPTY = ("/setup", "/static/", "/healthz")
@@ -54,6 +62,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = create_session_factory(engine)
     app.state.bootstrap_done = False
     app.state.crypto = CryptoService(settings.master_key_bytes())
+    # Fabrique de client HTTP sortant (découverte OIDC, JWKS, échange de jeton).
+    # Injectable : les tests la remplacent par un client branché sur un faux IdP.
+    app.state.http_client_factory = _default_http_client_factory
 
     app.add_middleware(BootstrapRedirectMiddleware)
     app.add_middleware(
@@ -66,4 +77,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router)
     app.include_router(pages_router)
     app.include_router(secrets_router)
+    app.include_router(oidc_admin_router)
+    app.include_router(oidc_login_router)
     return app

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Annotated
 
+import httpx
 from fastapi import Depends, HTTPException, Request
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +56,11 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 def get_crypto(request: Request) -> CryptoService:
     crypto: CryptoService = request.app.state.crypto
     return crypto
+
+
+def get_http_client_factory(request: Request) -> Callable[[], httpx.AsyncClient]:
+    factory: Callable[[], httpx.AsyncClient] = request.app.state.http_client_factory
+    return factory
 
 
 async def require_admin(request: Request, session: SessionDep) -> User:

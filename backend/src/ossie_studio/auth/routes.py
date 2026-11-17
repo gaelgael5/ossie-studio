@@ -14,6 +14,7 @@ from ossie_studio.auth.service import (
     resolve_login,
 )
 from ossie_studio.deps import bootstrap_is_done, get_session, templates
+from ossie_studio.oidc.service import db_list_connectors
 
 log = structlog.get_logger(__name__)
 
@@ -56,9 +57,15 @@ async def setup_submit(
     return RedirectResponse("/", status_code=303)
 
 
+async def _login_context(session: SessionDep, errors: list[str], email: str) -> dict[str, object]:
+    connectors = await db_list_connectors(session)
+    return {"errors": errors, "email": email, "connectors": connectors}
+
+
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request) -> Response:
-    return templates.TemplateResponse(request, "login.html", {"errors": [], "email": ""})
+async def login_page(request: Request, session: SessionDep) -> Response:
+    context = await _login_context(session, errors=[], email="")
+    return templates.TemplateResponse(request, "login.html", context)
 
 
 @router.post("/login", response_class=HTMLResponse)
@@ -70,7 +77,7 @@ async def login_submit(
 ) -> Response:
     user = await resolve_login(session, email.strip(), password)
     if user is None:
-        context = {"errors": ["Email ou mot de passe incorrect."], "email": email.strip()}
+        context = await _login_context(session, ["Email ou mot de passe incorrect."], email.strip())
         return templates.TemplateResponse(request, "login.html", context, status_code=401)
     request.session["user_id"] = str(user.id)
     log.info("login_succeeded", user_id=str(user.id))

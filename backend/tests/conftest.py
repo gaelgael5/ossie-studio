@@ -65,3 +65,13 @@ async def create_plain_user(app: FastAPI, email: str, password: str) -> None:
 async def login(client: AsyncClient, email: str, password: str) -> None:
     response = await client.post("/login", data={"email": email, "password": password})
     assert response.status_code == 303, response.text
+
+
+def wire_fake_idp(app: FastAPI, idp_asgi: object) -> None:
+    """Branche la fabrique de client HTTP de l'app sur un faux IdP ASGI."""
+    from httpx import ASGITransport, AsyncClient
+
+    def factory() -> AsyncClient:
+        return AsyncClient(transport=ASGITransport(app=idp_asgi), base_url="http://idp.test")
+
+    app.state.http_client_factory = factory

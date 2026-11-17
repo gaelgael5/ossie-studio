@@ -17,6 +17,9 @@ dependencies = [
     "structlog>=24.1",
     "itsdangerous>=2.2",
     "cryptography>=50.0.2",
+    "authlib>=1.9.8",
+    "httpx>=0.28.1",
+    "joserfc>=1.8.0",
 ]
 
 [dependency-groups]
@@ -70,5 +73,5 @@ mypy_path = "src"
 packages = ["ossie_studio"]
 
 [[tool.mypy.overrides]]
-module = ["asyncpg.*"]
+module = ["asyncpg.*", "authlib.*"]
 ignore_missing_imports = true

@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+import uuid
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
+
+from tests.conftest import bootstrap_admin, wire_fake_idp
+from tests.fake_idp import FakeIdP, split_query
+
+ISSUER = "http://idp.test/realms/test"
+SECRET = "client-secret-ultra-confidentiel"
+
+
+@pytest.fixture
+def idp() -> FakeIdP:
+    return FakeIdP()
+
+
+@pytest.fixture
+async def ready(
+    client: AsyncClient, app: FastAPI, idp: FakeIdP
+) -> tuple[AsyncClient, FakeIdP, uuid.UUID]:
+    wire_fake_idp(app, idp.app())
+    await bootstrap_admin(client)
+    await client.post(
+        "/oidc/connectors",
+        data={
+            "label": "Mon IdP",
+            "issuer": ISSUER,
+            "client_id": "client-x",
+            "client_secret": SECRET,
+            "scopes": "openid email profile",
+        },
+    )
+    from ossie_studio.models import OidcConnector
+
+    async with app.state.session_factory() as session:
+        connector_id = (await session.execute(select(OidcConnector))).scalar_one().id
+    await client.post("/logout")
+    return client, idp, connector_id
+
+
+async def _authz_redirect(idp: FakeIdP, authz_url: str) -> str:
+    async with AsyncClient(
+        transport=ASGITransport(app=idp.app()), base_url="http://idp.test"
+    ) as idp_client:
+        redirect = await idp_client.get(authz_url)
+    return redirect.headers["location"]
+
+
+async def test_id_token_iss_incoherent_refuse(
+    ready: tuple[AsyncClient, FakeIdP, uuid.UUID],
+) -> None:
+    """Un id_token signé avec un iss différent de l'issuer déclaré → 401."""
+    client, idp, connector_id = ready
+    idp.sign_issuer = "http://attaquant.test/realms/evil"
+    idp.set_next_user(sub="s1", email="x@example.org", email_verified=True)
+    start = await client.get(f"/auth/oidc/{connector_id}/login")
+    callback_url = await _authz_redirect(idp, start.headers["location"])
+    response = await client.get(callback_url)
+    assert response.status_code == 401
+
+
+async def test_callback_state_invalide_refuse(
+    ready: tuple[AsyncClient, FakeIdP, uuid.UUID],
+) -> None:
+    """Un callback dont le state ne correspond pas au flux en session → 400."""
+    client, idp, connector_id = ready
+    idp.set_next_user(sub="s1", email="x@example.org", email_verified=True)
+    start = await client.get(f"/auth/oidc/{connector_id}/login")
+    callback_url = await _authz_redirect(idp, start.headers["location"])
+    params = split_query(callback_url)
+    forged = f"/auth/oidc/{connector_id}/callback?code={params['code']}&state=state-force"
+    response = await client.get(forged)
+    assert response.status_code == 400
+
+
+async def test_callback_sans_flux_en_session_refuse(
+    ready: tuple[AsyncClient, FakeIdP, uuid.UUID],
+) -> None:
+    """Appeler le callback directement, sans avoir initié le login → 400."""
+    client, _idp, connector_id = ready
+    response = await client.get(f"/auth/oidc/{connector_id}/callback?code=abc&state=xyz")
+    assert response.status_code == 400

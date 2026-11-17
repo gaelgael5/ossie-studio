@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Connecteurs OIDC — Ossie Studio{% endblock %}
+{% block container_class %}card wide{% endblock %}
+{% block content %}
+<nav class="topnav"><a href="/">&larr; Accueil</a></nav>
+<h1>Connecteurs OIDC</h1>
+<p class="notice">
+  Chaque connecteur apparaît comme un bouton sur l'écran de connexion. Le
+  client_secret est chiffré en base et n'est jamais réaffiché.
+</p>
+{% if errors %}
+<ul class="errors">
+  {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+</ul>
+{% endif %}
+
+{% if rows %}
+<table>
+  <thead>
+    <tr><th>Libellé</th><th>Issuer</th><th>Comptes rattachés</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      <td>{{ row.connector.label }}</td>
+      <td><code>{{ row.connector.issuer }}</code></td>
+      <td>{{ row.accounts }}</td>
+      <td class="row-actions">
+        <form method="post" action="/oidc/connectors/{{ row.connector.id }}/delete"
+              onsubmit="return confirm('Supprimer ce connecteur ? {{ row.accounts }} compte(s) rattaché(s) ne pourront plus se connecter par ce fournisseur. Les comptes ne sont pas supprimés.');">
+          <button type="submit" class="danger">Supprimer</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>Aucun connecteur déclaré.</p>
+{% endif %}
+
+<h2>Ajouter un connecteur</h2>
+<form method="post" action="/oidc/connectors">
+  <label for="label">Libellé (affiché sur le bouton)</label>
+  <input type="text" id="label" name="label" required>
+  <label for="issuer">Issuer (URL de découverte OIDC)</label>
+  <input type="url" id="issuer" name="issuer" placeholder="https://idp.example.org/realms/xxx" required>
+  <label for="client_id">client_id</label>
+  <input type="text" id="client_id" name="client_id" required>
+  <label for="client_secret">client_secret</label>
+  <input type="password" id="client_secret" name="client_secret" autocomplete="off" required>
+  <label for="scopes">Scopes</label>
+  <input type="text" id="scopes" name="scopes" value="{{ default_scopes }}" required>
+  <button type="submit">Vérifier et enregistrer</button>
+</form>
+{% endblock %}

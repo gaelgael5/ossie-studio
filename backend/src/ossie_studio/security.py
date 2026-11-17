@@ -15,7 +15,10 @@ def hash_password(password: str) -> str:
     return _hasher.hash(password)
 
 
-def verify_password(password_hash: str, password: str) -> bool:
+def verify_password(password_hash: str | None, password: str) -> bool:
+    # Un compte sans hash (provisionné par OIDC) ne peut pas se connecter en local.
+    if password_hash is None:
+        return False
     try:
         return _hasher.verify(password_hash, password)
     except (VerifyMismatchError, InvalidHashError):

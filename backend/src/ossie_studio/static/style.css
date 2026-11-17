@@ -102,3 +102,17 @@ select {
 h2 { font-size: 1.1rem; margin-top: 28px; }
 
 .card.wide { max-width: 900px; }
+
+.oidc-buttons { margin-top: 16px; }
+.oidc-buttons .sep { text-align: center; color: #94a3b8; font-size: 0.85rem; margin: 12px 0; }
+.oidc-button {
+  display: block;
+  text-align: center;
+  padding: 10px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--accent);
+  text-decoration: none;
+  margin-bottom: 8px;
+}
+.oidc-button:hover { background: #eff6ff; }

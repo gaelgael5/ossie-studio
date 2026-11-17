@@ -14,4 +14,14 @@
   <input type="password" id="password" name="password" autocomplete="current-password" required>
   <button type="submit">Se connecter</button>
 </form>
+{% if connectors %}
+<div class="oidc-buttons">
+  <p class="sep">ou</p>
+  {% for connector in connectors %}
+  <a class="oidc-button" href="/auth/oidc/{{ connector.id }}/login">
+    Se connecter avec {{ connector.label }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 {% endblock %}

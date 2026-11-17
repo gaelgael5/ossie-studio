@@ -40,6 +40,28 @@ La valeur n'est jamais renvoyée au navigateur ni journalisée ; le reste de
 l'application la récupère côté serveur par son slug, via le type opaque
 `SecretValue` (`.reveal()` au point d'injection uniquement).
 
+### Connecteurs OIDC
+
+L'administrateur déclare des fournisseurs d'identité OIDC depuis
+`/oidc/connectors` (ajouter / supprimer). Chaque connecteur apparaît comme
+un bouton sur l'écran de connexion, à côté du formulaire local. Flux
+Authorization Code + PKCE ; l'identité est ancrée sur le couple
+`(issuer, sub)`, jamais sur l'email. Au premier login d'un couple inconnu,
+le compte est retrouvé par **email vérifié** (l'administrateur créé en local
+garde ainsi son rôle en revenant par OIDC) ; email absent ou non vérifié →
+connexion refusée. Le `client_secret` est chiffré via le même service que
+les secrets. Aucun nom de fournisseur n'apparaît dans le code : n'importe
+quel IdP conforme fonctionne.
+
+### État du schéma et migrations
+
+Le schéma reste réconcilié de façon additive au démarrage
+(`metadata.create_all`), source unique de vérité. `password_hash` est
+nullable (un compte provisionné par OIDC n'a pas de mot de passe local).
+Aucune instance n'étant encore déployée, aucune migration numérotée n'est
+nécessaire ; l'outillage Alembic sera introduit au premier changement de
+schéma sur une base **déjà en production**.
+
 ## Tests et qualité
 
 ```bash
