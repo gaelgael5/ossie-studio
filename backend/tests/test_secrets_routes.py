@@ -5,10 +5,8 @@ from collections.abc import AsyncIterator
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
 
-from ossie_studio.models import Secret
-from tests.conftest import bootstrap_admin, create_plain_user, login
+from tests.conftest import bootstrap_admin, create_plain_user, db_fetchrow, db_fetchval, login
 
 VALEUR = "ghp_un-jeton-github-discriminant"
 
@@ -20,8 +18,7 @@ async def admin_client(client: AsyncClient) -> AsyncClient:
 
 
 async def _count_secrets(app: FastAPI) -> int:
-    async with app.state.session_factory() as session:
-        return len(list((await session.execute(select(Secret))).scalars()))
+    return int(await db_fetchval(app, "SELECT count(*) FROM secrets"))  # type: ignore[arg-type]
 
 
 async def _create(client: AsyncClient, slug: str = "github-ci", value: str = VALEUR) -> None:
@@ -36,11 +33,11 @@ async def test_creation_la_base_contient_un_chiffre_jamais_la_valeur(
     admin_client: AsyncClient, app: FastAPI
 ) -> None:
     await _create(admin_client)
-    async with app.state.session_factory() as session:
-        secret = (await session.execute(select(Secret))).scalar_one()
-    assert VALEUR.encode() not in secret.value_encrypted
-    assert secret.slug == "github-ci"
-    assert secret.category == "github"
+    row = await db_fetchrow(app, "SELECT slug, category, value_encrypted FROM secrets")
+    assert row is not None
+    assert VALEUR.encode() not in row["value_encrypted"]
+    assert row["slug"] == "github-ci"
+    assert row["category"] == "github"
 
 
 async def test_liste_ne_renvoie_jamais_la_valeur(admin_client: AsyncClient, app: FastAPI) -> None:
@@ -49,26 +46,25 @@ async def test_liste_ne_renvoie_jamais_la_valeur(admin_client: AsyncClient, app:
     assert page.status_code == 200
     assert "github-ci" in page.text
     assert VALEUR not in page.text
-    async with app.state.session_factory() as session:
-        secret = (await session.execute(select(Secret))).scalar_one()
-    assert secret.value_encrypted.hex() not in page.text
+    blob = await db_fetchval(app, "SELECT value_encrypted FROM secrets")
+    assert isinstance(blob, bytes)
+    assert blob.hex() not in page.text
 
 
 async def test_remplacer_la_valeur_conserve_le_slug(
     admin_client: AsyncClient, app: FastAPI
 ) -> None:
     await _create(admin_client)
-    async with app.state.session_factory() as session:
-        before = (await session.execute(select(Secret))).scalar_one().value_encrypted
+    before = await db_fetchval(app, "SELECT value_encrypted FROM secrets")
     response = await admin_client.post(
         "/secrets/github-ci/value", data={"value": "nouvelle-valeur"}
     )
     assert response.status_code == 303
-    async with app.state.session_factory() as session:
-        secret = (await session.execute(select(Secret))).scalar_one()
-    assert secret.slug == "github-ci"
-    assert secret.value_encrypted != before
-    assert app.state.crypto.decrypt(secret.value_encrypted).reveal() == "nouvelle-valeur"
+    row = await db_fetchrow(app, "SELECT slug, value_encrypted FROM secrets")
+    assert row is not None
+    assert row["slug"] == "github-ci"
+    assert row["value_encrypted"] != before
+    assert app.state.crypto.decrypt(row["value_encrypted"]).reveal() == "nouvelle-valeur"
 
 
 async def test_slug_deja_pris_refuse(admin_client: AsyncClient, app: FastAPI) -> None:
@@ -85,10 +81,10 @@ async def test_slug_deja_pris_refuse(admin_client: AsyncClient, app: FastAPI) ->
 @pytest.mark.parametrize(
     ("slug", "category", "value"),
     [
-        ("github-ci", "", VALEUR),  # catégorie absente
-        ("github-ci", "inconnue", VALEUR),  # catégorie inconnue
-        ("github-ci", "github", ""),  # valeur vide
-        ("Slug Invalide", "github", VALEUR),  # slug mal formé
+        ("github-ci", "", VALEUR),
+        ("github-ci", "inconnue", VALEUR),
+        ("github-ci", "github", ""),
+        ("Slug Invalide", "github", VALEUR),
     ],
 )
 async def test_entree_invalide_rien_enregistre(
@@ -108,9 +104,8 @@ async def test_modifier_le_slug_refuse(admin_client: AsyncClient, app: FastAPI) 
     )
     assert response.status_code == 400
     assert "pas modifiable" in response.text
-    async with app.state.session_factory() as session:
-        secret = (await session.execute(select(Secret))).scalar_one()
-    assert secret.slug == "github-ci"
+    slug = await db_fetchval(app, "SELECT slug FROM secrets")
+    assert slug == "github-ci"
 
 
 async def test_modifier_le_libelle_fonctionne(admin_client: AsyncClient, app: FastAPI) -> None:
@@ -119,9 +114,8 @@ async def test_modifier_le_libelle_fonctionne(admin_client: AsyncClient, app: Fa
         "/secrets/github-ci/label", data={"label": "Nouveau libellé"}
     )
     assert response.status_code == 303
-    async with app.state.session_factory() as session:
-        secret = (await session.execute(select(Secret))).scalar_one()
-    assert secret.label == "Nouveau libellé"
+    label = await db_fetchval(app, "SELECT label FROM secrets")
+    assert label == "Nouveau libellé"
 
 
 async def test_suppression_inexistant_introuvable_sans_erreur_serveur(

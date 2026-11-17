@@ -9,8 +9,13 @@ __pycache__/
 coverage.xml
 .coverage
 
-# Environnement
+# Node / frontend
+node_modules/
+dist/
+
+# Environnement et données locales
 .env
+/data/
 
 # Divers
 .DS_Store

@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import re
 
+import asyncpg
 import structlog
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ossie_studio.crypto import CryptoService, DecryptionFailedError, SecretValue
 from ossie_studio.models import Secret
@@ -25,69 +23,73 @@ class SecretNotFoundError(Exception):
         self.slug = slug
 
 
-async def db_list_secrets(session: AsyncSession) -> list[Secret]:
-    result = await session.execute(select(Secret).order_by(Secret.slug))
-    return list(result.scalars())
+async def db_list_secrets(conn: asyncpg.Connection) -> list[Secret]:
+    rows = await conn.fetch("SELECT * FROM secrets ORDER BY slug")
+    return [Secret.from_row(row) for row in rows]
 
 
-async def db_get_secret(session: AsyncSession, slug: str) -> Secret | None:
-    result = await session.execute(select(Secret).where(Secret.slug == slug))
-    return result.scalar_one_or_none()
+async def db_get_secret(conn: asyncpg.Connection, slug: str) -> Secret | None:
+    row = await conn.fetchrow("SELECT * FROM secrets WHERE slug = $1", slug)
+    return Secret.from_row(row) if row is not None else None
 
 
 async def db_create_secret(
-    session: AsyncSession, slug: str, label: str, category: str, value_encrypted: bytes
+    conn: asyncpg.Connection, slug: str, label: str, category: str, value_encrypted: bytes
 ) -> Secret:
     """Insère le secret ; l'unicité du slug est tranchée par la base."""
-    secret = Secret(slug=slug, label=label, category=category, value_encrypted=value_encrypted)
-    session.add(secret)
     try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
+        row = await conn.fetchrow(
+            "INSERT INTO secrets (slug, label, category, value_encrypted) "
+            "VALUES ($1, $2, $3, $4) RETURNING *",
+            slug,
+            label,
+            category,
+            value_encrypted,
+        )
+    except asyncpg.UniqueViolationError as exc:
         raise SecretSlugTakenError from exc
-    return secret
+    return Secret.from_row(row)
 
 
 async def db_replace_secret_value(
-    session: AsyncSession, slug: str, value_encrypted: bytes
+    conn: asyncpg.Connection, slug: str, value_encrypted: bytes
 ) -> Secret:
-    secret = await db_get_secret(session, slug)
-    if secret is None:
+    row = await conn.fetchrow(
+        "UPDATE secrets SET value_encrypted = $2, updated_at = now() WHERE slug = $1 RETURNING *",
+        slug,
+        value_encrypted,
+    )
+    if row is None:
         raise SecretNotFoundError(slug)
-    secret.value_encrypted = value_encrypted
-    await session.commit()
-    return secret
+    return Secret.from_row(row)
 
 
-async def db_update_secret_label(session: AsyncSession, slug: str, label: str) -> Secret:
-    secret = await db_get_secret(session, slug)
-    if secret is None:
+async def db_update_secret_label(conn: asyncpg.Connection, slug: str, label: str) -> Secret:
+    row = await conn.fetchrow(
+        "UPDATE secrets SET label = $2, updated_at = now() WHERE slug = $1 RETURNING *",
+        slug,
+        label,
+    )
+    if row is None:
         raise SecretNotFoundError(slug)
-    secret.label = label
-    await session.commit()
-    return secret
+    return Secret.from_row(row)
 
 
-async def db_delete_secret(session: AsyncSession, slug: str) -> bool:
+async def db_delete_secret(conn: asyncpg.Connection, slug: str) -> bool:
     """Supprime le secret ; False si aucun secret ne porte ce slug."""
-    secret = await db_get_secret(session, slug)
-    if secret is None:
-        return False
-    await session.delete(secret)
-    await session.commit()
-    return True
+    result: str = await conn.execute("DELETE FROM secrets WHERE slug = $1", slug)
+    return result != "DELETE 0"
 
 
 async def resolve_secret_value(
-    session: AsyncSession, crypto: CryptoService, slug: str
+    conn: asyncpg.Connection, crypto: CryptoService, slug: str
 ) -> SecretValue:
     """Rend la valeur d'un secret, sous le type opaque, pour usage serveur.
 
     Slug inconnu → erreur explicite, jamais une valeur vide. Le déchiffrement
     qui échoue est journalisé sans la moindre donnée chiffrée ni claire.
     """
-    secret = await db_get_secret(session, slug)
+    secret = await db_get_secret(conn, slug)
     if secret is None:
         raise SecretNotFoundError(slug)
     try:

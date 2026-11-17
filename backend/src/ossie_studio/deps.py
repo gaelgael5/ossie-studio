@@ -5,10 +5,10 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Annotated
 
+import asyncpg
 import httpx
 from fastapi import Depends, HTTPException, Request
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.applications import Starlette
 
 from ossie_studio.auth.service import db_count_users, db_get_user_by_id
@@ -21,9 +21,13 @@ STATIC_DIR = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
-async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    async with request.app.state.session_factory() as session:
-        yield session
+async def get_conn(request: Request) -> AsyncIterator[asyncpg.Connection]:
+    pool: asyncpg.Pool = request.app.state.pool
+    async with pool.acquire() as conn:
+        yield conn
+
+
+ConnDep = Annotated[asyncpg.Connection, Depends(get_conn)]
 
 
 async def bootstrap_is_done(app: Starlette) -> bool:
@@ -31,15 +35,16 @@ async def bootstrap_is_done(app: Starlette) -> bool:
     fonctionnement normal, donc le résultat positif est mémorisé."""
     if app.state.bootstrap_done:
         return True
-    async with app.state.session_factory() as session:
-        count = await db_count_users(session)
+    pool: asyncpg.Pool = app.state.pool
+    async with pool.acquire() as conn:
+        count = await db_count_users(conn)
     if count > 0:
         app.state.bootstrap_done = True
         return True
     return False
 
 
-async def get_current_user(request: Request, session: AsyncSession) -> User | None:
+async def get_current_user(request: Request, conn: asyncpg.Connection) -> User | None:
     raw_id = request.session.get("user_id")
     if raw_id is None:
         return None
@@ -47,10 +52,7 @@ async def get_current_user(request: Request, session: AsyncSession) -> User | No
         user_id = uuid.UUID(raw_id)
     except ValueError:
         return None
-    return await db_get_user_by_id(session, user_id)
-
-
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
+    return await db_get_user_by_id(conn, user_id)
 
 
 def get_crypto(request: Request) -> CryptoService:
@@ -63,9 +65,9 @@ def get_http_client_factory(request: Request) -> Callable[[], httpx.AsyncClient]
     return factory
 
 
-async def require_admin(request: Request, session: SessionDep) -> User:
+async def require_admin(request: Request, conn: ConnDep) -> User:
     """Réservé à l'administrateur : anonyme → login (GET) ou 403, autre rôle → 403."""
-    user = await get_current_user(request, session)
+    user = await get_current_user(request, conn)
     if user is None:
         if request.method == "GET":
             raise HTTPException(status_code=303, headers={"Location": "/login"})

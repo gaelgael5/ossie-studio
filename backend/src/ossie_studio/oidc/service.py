@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import uuid
 
+import asyncpg
 import structlog
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from ossie_studio.models import ROLE_USER, OidcConnector, User, UserIdentity
+from ossie_studio.models import ROLE_USER, OidcConnector
 from ossie_studio.oidc.claims import VerifiedClaims
 from ossie_studio.oidc.linking import LinkDecision, LinkOutcome, decide_link
 
@@ -18,106 +16,119 @@ class IssuerAlreadyDeclaredError(Exception):
     """Un connecteur existe déjà sur cet issuer."""
 
 
-async def db_list_connectors(session: AsyncSession) -> list[OidcConnector]:
-    result = await session.execute(select(OidcConnector).order_by(OidcConnector.label))
-    return list(result.scalars())
+async def db_list_connectors(conn: asyncpg.Connection) -> list[OidcConnector]:
+    rows = await conn.fetch("SELECT * FROM oidc_connectors ORDER BY label")
+    return [OidcConnector.from_row(row) for row in rows]
 
 
-async def db_get_connector(session: AsyncSession, connector_id: uuid.UUID) -> OidcConnector | None:
-    return await session.get(OidcConnector, connector_id)
+async def db_get_connector(
+    conn: asyncpg.Connection, connector_id: uuid.UUID
+) -> OidcConnector | None:
+    row = await conn.fetchrow("SELECT * FROM oidc_connectors WHERE id = $1", connector_id)
+    return OidcConnector.from_row(row) if row is not None else None
 
 
 async def db_create_connector(
-    session: AsyncSession,
+    conn: asyncpg.Connection,
     label: str,
     issuer: str,
     client_id: str,
     client_secret_encrypted: bytes,
     scopes: str,
 ) -> OidcConnector:
-    connector = OidcConnector(
-        label=label,
-        issuer=issuer,
-        client_id=client_id,
-        client_secret_encrypted=client_secret_encrypted,
-        scopes=scopes,
-    )
-    session.add(connector)
     try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
+        row = await conn.fetchrow(
+            "INSERT INTO oidc_connectors (label, issuer, client_id, client_secret_encrypted, "
+            "scopes) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            label,
+            issuer,
+            client_id,
+            client_secret_encrypted,
+            scopes,
+        )
+    except asyncpg.UniqueViolationError as exc:
         raise IssuerAlreadyDeclaredError from exc
-    return connector
+    return OidcConnector.from_row(row)
 
 
-async def db_delete_connector(session: AsyncSession, connector: OidcConnector) -> None:
-    await session.delete(connector)
-    await session.commit()
+async def db_delete_connector(conn: asyncpg.Connection, connector_id: uuid.UUID) -> None:
+    await conn.execute("DELETE FROM oidc_connectors WHERE id = $1", connector_id)
 
 
-async def db_count_identities_for_issuer(session: AsyncSession, issuer: str) -> int:
-    result = await session.execute(
-        select(func.count()).select_from(UserIdentity).where(UserIdentity.issuer == issuer)
+async def db_count_identities_for_issuer(conn: asyncpg.Connection, issuer: str) -> int:
+    value = await conn.fetchval("SELECT count(*) FROM user_identities WHERE issuer = $1", issuer)
+    return int(value)
+
+
+async def db_get_identity_user_id(
+    conn: asyncpg.Connection, issuer: str, subject: str
+) -> uuid.UUID | None:
+    user_id: uuid.UUID | None = await conn.fetchval(
+        "SELECT user_id FROM user_identities WHERE issuer = $1 AND subject = $2",
+        issuer,
+        subject,
     )
-    return int(result.scalar_one())
+    return user_id
 
 
-async def db_get_identity(session: AsyncSession, issuer: str, subject: str) -> UserIdentity | None:
-    result = await session.execute(
-        select(UserIdentity).where(UserIdentity.issuer == issuer, UserIdentity.subject == subject)
-    )
-    return result.scalar_one_or_none()
-
-
-async def db_find_user_ids_by_email(session: AsyncSession, email: str) -> list[uuid.UUID]:
-    result = await session.execute(select(User.id).where(User.email == email))
-    return list(result.scalars())
+async def db_find_user_ids_by_email(conn: asyncpg.Connection, email: str) -> list[uuid.UUID]:
+    rows = await conn.fetch("SELECT id FROM users WHERE email = $1", email)
+    return [row["id"] for row in rows]
 
 
 async def resolve_federated_login(
-    session: AsyncSession, issuer: str, claims: VerifiedClaims
+    conn: asyncpg.Connection, issuer: str, claims: VerifiedClaims
 ) -> LinkDecision:
     """Rattache une identité fédérée à un compte et applique l'effet de bord.
 
-    Retourne la décision ; pour LINKED_EXISTING et CREATED_NEW, `user_id` pointe
-    le compte connecté, le couple (issuer, sub) étant désormais épinglé.
+    Pour LINKED_EXISTING et CREATED_NEW, `user_id` pointe le compte connecté,
+    le couple (issuer, sub) étant désormais épinglé.
     """
-    identity = await db_get_identity(session, issuer, claims.subject)
-    pinned_user_id = identity.user_id if identity is not None else None
+    pinned_user_id = await db_get_identity_user_id(conn, issuer, claims.subject)
     matched = (
-        await db_find_user_ids_by_email(session, claims.email)
+        await db_find_user_ids_by_email(conn, claims.email)
         if claims.email and claims.email_verified
         else []
     )
     decision = decide_link(pinned_user_id, matched, claims)
 
-    if decision.outcome is LinkOutcome.LINKED_EXISTING and identity is None:
-        # Pont email réussi : on épingle le couple (issuer, sub) sur le compte.
+    if decision.outcome is LinkOutcome.LINKED_EXISTING and pinned_user_id is None:
         assert decision.user_id is not None
-        await _db_pin_identity(session, decision.user_id, issuer, claims.subject)
+        await _db_pin_identity(conn, decision.user_id, issuer, claims.subject)
     elif decision.outcome is LinkOutcome.CREATED_NEW:
-        new_id = await _db_provision_user(session, issuer, claims)
+        new_id = await _db_provision_user(conn, issuer, claims)
         return LinkDecision(LinkOutcome.CREATED_NEW, new_id)
     return decision
 
 
 async def _db_pin_identity(
-    session: AsyncSession, user_id: uuid.UUID, issuer: str, subject: str
+    conn: asyncpg.Connection, user_id: uuid.UUID, issuer: str, subject: str
 ) -> None:
-    session.add(UserIdentity(user_id=user_id, issuer=issuer, subject=subject))
-    await session.commit()
+    await conn.execute(
+        "INSERT INTO user_identities (user_id, issuer, subject) VALUES ($1, $2, $3)",
+        user_id,
+        issuer,
+        subject,
+    )
     log.info("oidc_identity_pinned", user_id=str(user_id), issuer=issuer)
 
 
 async def _db_provision_user(
-    session: AsyncSession, issuer: str, claims: VerifiedClaims
+    conn: asyncpg.Connection, issuer: str, claims: VerifiedClaims
 ) -> uuid.UUID:
     assert claims.email is not None
-    user = User(email=claims.email, password_hash=None, role=ROLE_USER)
-    session.add(user)
-    await session.flush()
-    session.add(UserIdentity(user_id=user.id, issuer=issuer, subject=claims.subject))
-    await session.commit()
-    log.info("oidc_user_provisioned", user_id=str(user.id), issuer=issuer)
-    return user.id
+    async with conn.transaction():
+        user_id = await conn.fetchval(
+            "INSERT INTO users (email, password_hash, role) VALUES ($1, NULL, $2) RETURNING id",
+            claims.email,
+            ROLE_USER,
+        )
+        await conn.execute(
+            "INSERT INTO user_identities (user_id, issuer, subject) VALUES ($1, $2, $3)",
+            user_id,
+            issuer,
+            claims.subject,
+        )
+    log.info("oidc_user_provisioned", user_id=str(user_id), issuer=issuer)
+    assert isinstance(user_id, uuid.UUID)
+    return user_id

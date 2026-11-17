@@ -5,9 +5,8 @@ import uuid
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
 
-from tests.conftest import bootstrap_admin, wire_fake_idp
+from tests.conftest import bootstrap_admin, db_fetchval, wire_fake_idp
 from tests.fake_idp import FakeIdP, split_query
 
 ISSUER = "http://idp.test/realms/test"
@@ -35,10 +34,7 @@ async def ready(
             "scopes": "openid email profile",
         },
     )
-    from ossie_studio.models import OidcConnector
-
-    async with app.state.session_factory() as session:
-        connector_id = (await session.execute(select(OidcConnector))).scalar_one().id
+    connector_id = await db_fetchval(app, "SELECT id FROM oidc_connectors")
     await client.post("/logout")
     return client, idp, connector_id
 

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 from ossie_studio.crypto import CryptoService, SecretValue
-from ossie_studio.deps import SessionDep, get_crypto, require_admin, templates
+from ossie_studio.deps import ConnDep, get_crypto, require_admin, templates
 from ossie_studio.models import User
 from ossie_studio.secretstore.categories import SECRET_CATEGORIES
 from ossie_studio.secretstore.forms import validate_new_secret, validate_value
@@ -30,22 +30,22 @@ CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 
 
 async def _render_list(
-    request: Request, session: SessionDep, errors: list[str], status_code: int = 200
+    request: Request, conn: ConnDep, errors: list[str], status_code: int = 200
 ) -> Response:
-    secrets = await db_list_secrets(session)
+    secrets = await db_list_secrets(conn)
     context = {"secrets": secrets, "categories": SECRET_CATEGORIES, "errors": errors}
     return templates.TemplateResponse(request, "secrets.html", context, status_code=status_code)
 
 
 @router.get("", response_class=HTMLResponse)
-async def secrets_page(request: Request, session: SessionDep, _: AdminDep) -> Response:
-    return await _render_list(request, session, errors=[])
+async def secrets_page(request: Request, conn: ConnDep, _: AdminDep) -> Response:
+    return await _render_list(request, conn, errors=[])
 
 
 @router.post("", response_class=HTMLResponse)
 async def create_secret(
     request: Request,
-    session: SessionDep,
+    conn: ConnDep,
     crypto: CryptoDep,
     _: AdminDep,
     slug: Annotated[str, Form()] = "",
@@ -56,14 +56,14 @@ async def create_secret(
     slug = slug.strip()
     errors = validate_new_secret(slug, label, category, value)
     if errors:
-        return await _render_list(request, session, errors, status_code=400)
+        return await _render_list(request, conn, errors, status_code=400)
     try:
         await db_create_secret(
-            session, slug, label.strip(), category, crypto.encrypt(SecretValue(value))
+            conn, slug, label.strip(), category, crypto.encrypt(SecretValue(value))
         )
     except SecretSlugTakenError:
         message = f"Le slug « {slug} » est déjà pris."
-        return await _render_list(request, session, [message], status_code=409)
+        return await _render_list(request, conn, [message], status_code=409)
     log.info("secret_created", slug=slug, category=category)
     return RedirectResponse("/secrets", status_code=303)
 
@@ -71,7 +71,7 @@ async def create_secret(
 @router.post("/{slug}/value", response_class=HTMLResponse)
 async def replace_secret_value(
     request: Request,
-    session: SessionDep,
+    conn: ConnDep,
     crypto: CryptoDep,
     _: AdminDep,
     slug: str,
@@ -79,9 +79,9 @@ async def replace_secret_value(
 ) -> Response:
     errors = validate_value(value)
     if errors:
-        return await _render_list(request, session, errors, status_code=400)
+        return await _render_list(request, conn, errors, status_code=400)
     try:
-        await db_replace_secret_value(session, slug, crypto.encrypt(SecretValue(value)))
+        await db_replace_secret_value(conn, slug, crypto.encrypt(SecretValue(value)))
     except SecretNotFoundError:
         raise HTTPException(status_code=404, detail="Secret introuvable.") from None
     log.info("secret_value_replaced", slug=slug)
@@ -91,7 +91,7 @@ async def replace_secret_value(
 @router.post("/{slug}/label", response_class=HTMLResponse)
 async def update_secret_label(
     request: Request,
-    session: SessionDep,
+    conn: ConnDep,
     _: AdminDep,
     slug: str,
     label: Annotated[str, Form()] = "",
@@ -100,20 +100,20 @@ async def update_secret_label(
     # Le slug est l'identité du secret : toute tentative de le modifier est refusée.
     if new_slug and new_slug != slug:
         return await _render_list(
-            request, session, ["Le slug d'un secret n'est pas modifiable."], status_code=400
+            request, conn, ["Le slug d'un secret n'est pas modifiable."], status_code=400
         )
     if not label.strip():
-        return await _render_list(request, session, ["Le libellé est obligatoire."], 400)
+        return await _render_list(request, conn, ["Le libellé est obligatoire."], 400)
     try:
-        await db_update_secret_label(session, slug, label.strip())
+        await db_update_secret_label(conn, slug, label.strip())
     except SecretNotFoundError:
         raise HTTPException(status_code=404, detail="Secret introuvable.") from None
     return RedirectResponse("/secrets", status_code=303)
 
 
 @router.post("/{slug}/delete")
-async def delete_secret(session: SessionDep, _: AdminDep, slug: str) -> Response:
-    deleted = await db_delete_secret(session, slug)
+async def delete_secret(conn: ConnDep, _: AdminDep, slug: str) -> Response:
+    deleted = await db_delete_secret(conn, slug)
     if not deleted:
         # Rejouer la suppression rend la même réponse, sans erreur serveur.
         raise HTTPException(status_code=404, detail="Secret introuvable.")

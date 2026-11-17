@@ -2,13 +2,45 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_USER: ossie
-      POSTGRES_PASSWORD: ossie
-      POSTGRES_DB: ossie_studio
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-ossie}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD manquant — généré par dev-deploy.sh}
+      POSTGRES_DB: ${POSTGRES_DB:-ossie_studio}
     volumes:
       - dbdata:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_DEV_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ossie}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ossie}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ossie_studio}
+      WORK_VOLUME_PATH: /volumes/work
+      SOURCES_VOLUME_PATH: /volumes/sources
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET manquant — généré par dev-deploy.sh}
+      SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:?SECRETS_MASTER_KEY manquant — généré par dev-deploy.sh}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+    volumes:
+      # Les deux volumes mappés : copies de travail des espaces Git, et code
+      # descendu des sources. Distincts, hors de l'image et de la couche conteneur.
+      - ${DATA_ROOT:-./data}/work:/volumes/work
+      - ${DATA_ROOT:-./data}/sources:/volumes/sources
+    ports:
+      - "${BACKEND_DEV_PORT:-8000}:8000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_DEV_PORT:-8080}:80"
 
 volumes:
   dbdata:

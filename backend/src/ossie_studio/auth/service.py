@@ -3,10 +3,8 @@ from __future__ import annotations
 import asyncio
 import uuid
 
+import asyncpg
 import structlog
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ossie_studio.models import ROLE_ADMIN, User
 from ossie_studio.security import (
@@ -17,53 +15,60 @@ from ossie_studio.security import (
 
 log = structlog.get_logger(__name__)
 
+_UNIQUE_VIOLATION = "23505"
+
 
 class BootstrapConflictError(Exception):
     """Un administrateur issu de l'écran de bootstrap existe déjà."""
 
 
-async def db_count_users(session: AsyncSession) -> int:
-    result = await session.execute(select(func.count()).select_from(User))
-    return int(result.scalar_one())
+async def db_count_users(conn: asyncpg.Connection) -> int:
+    value = await conn.fetchval("SELECT count(*) FROM users")
+    return int(value)
 
 
-async def db_get_user_by_email(session: AsyncSession, email: str) -> User | None:
-    result = await session.execute(select(User).where(User.email == email))
-    return result.scalar_one_or_none()
+async def db_get_user_by_email(conn: asyncpg.Connection, email: str) -> User | None:
+    row = await conn.fetchrow("SELECT * FROM users WHERE email = $1", email)
+    return User.from_row(row) if row is not None else None
 
 
-async def db_get_user_by_id(session: AsyncSession, user_id: uuid.UUID) -> User | None:
-    return await session.get(User, user_id)
+async def db_get_user_by_id(conn: asyncpg.Connection, user_id: uuid.UUID) -> User | None:
+    row = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
+    return User.from_row(row) if row is not None else None
 
 
-async def db_create_bootstrap_admin(session: AsyncSession, email: str, password_hash: str) -> User:
+async def db_create_bootstrap_admin(
+    conn: asyncpg.Connection, email: str, password_hash: str
+) -> User:
     """Insère l'administrateur de bootstrap ; la base tranche l'unicité.
 
     Deux créations concurrentes passent toutes les deux une lecture préalable :
     c'est l'index unique partiel sur `is_bootstrap` qui refuse la seconde.
     """
-    user = User(email=email, password_hash=password_hash, role=ROLE_ADMIN, is_bootstrap=True)
-    session.add(user)
     try:
-        await session.commit()
-    except IntegrityError as exc:
-        await session.rollback()
+        row = await conn.fetchrow(
+            "INSERT INTO users (email, password_hash, role, is_bootstrap) "
+            "VALUES ($1, $2, $3, true) RETURNING *",
+            email,
+            password_hash,
+            ROLE_ADMIN,
+        )
+    except asyncpg.UniqueViolationError as exc:
         raise BootstrapConflictError from exc
-    return user
+    return User.from_row(row)
 
 
-async def resolve_bootstrap_admin(session: AsyncSession, email: str, password: str) -> User:
+async def resolve_bootstrap_admin(conn: asyncpg.Connection, email: str, password: str) -> User:
     """Crée le premier administrateur et rend le compte prêt à l'emploi."""
-    # argon2 est un travail CPU volontairement coûteux : hors de la boucle async.
     password_hash = await asyncio.to_thread(hash_password, password)
-    user = await db_create_bootstrap_admin(session, email, password_hash)
+    user = await db_create_bootstrap_admin(conn, email, password_hash)
     log.info("bootstrap_admin_created", user_id=str(user.id))
     return user
 
 
-async def resolve_login(session: AsyncSession, email: str, password: str) -> User | None:
+async def resolve_login(conn: asyncpg.Connection, email: str, password: str) -> User | None:
     """Authentifie en local ; None si email inconnu ou mot de passe faux."""
-    user = await db_get_user_by_email(session, email)
+    user = await db_get_user_by_email(conn, email)
     if user is None:
         await asyncio.to_thread(waste_time_like_a_verification)
         return None

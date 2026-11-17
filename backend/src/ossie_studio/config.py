@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -8,7 +10,12 @@ MASTER_KEY_HEX_LENGTH = 64  # 32 octets
 
 
 class Settings(BaseSettings):
-    """Configuration du service, lue dans l'environnement (et `.env` en dev)."""
+    """Configuration du service, lue dans l'environnement (et `.env` en dev).
+
+    Stricte : une clef inconnue est refusée (`extra="forbid"`), et toute
+    variable obligatoire absente fait échouer le démarrage — jamais de valeur
+    par défaut sur une donnée critique.
+    """
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -16,7 +23,14 @@ class Settings(BaseSettings):
         extra="forbid",
     )
 
-    database_url: str = "postgresql+asyncpg://ossie:ossie@localhost:5432/ossie_studio"
+    # Base — pas de défaut : le service ne démarre pas sans elle.
+    database_url: str
+
+    # Les deux volumes mappés (cf. enabler Socle). Chemins obligatoires :
+    # sans eux, le backend refuse de démarrer.
+    work_volume_path: Path
+    sources_volume_path: Path
+
     session_secret: SecretStr
     session_cookie_secure: bool = False
     # Sans cette clef, le service refuse de démarrer — jamais de clef par défaut.
@@ -46,3 +60,11 @@ class Settings(BaseSettings):
 
     def master_key_bytes(self) -> bytes:
         return bytes.fromhex(self.secrets_master_key.get_secret_value())
+
+    def asyncpg_dsn(self) -> str:
+        """DSN compris par asyncpg : il n'accepte pas le préfixe SQLAlchemy."""
+        dsn = self.database_url
+        for prefix in ("postgresql+asyncpg://", "postgres+asyncpg://"):
+            if dsn.startswith(prefix):
+                return "postgresql://" + dsn[len(prefix) :]
+        return dsn

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -13,10 +13,11 @@ from starlette.middleware.sessions import SessionMiddleware
 from ossie_studio.auth.routes import router as auth_router
 from ossie_studio.config import Settings
 from ossie_studio.crypto import CryptoService
-from ossie_studio.db import create_engine, create_session_factory
+from ossie_studio.db import create_pool
+from ossie_studio.db.migrate import run_migrations
 from ossie_studio.deps import STATIC_DIR, bootstrap_is_done
+from ossie_studio.health import resolve_health
 from ossie_studio.logging import setup_logging
-from ossie_studio.models import Base
 from ossie_studio.oidc.admin_routes import router as oidc_admin_router
 from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.pages import router as pages_router
@@ -28,7 +29,7 @@ def _default_http_client_factory() -> httpx.AsyncClient:
 
 
 # Seules routes accessibles tant que la base utilisateurs est vide.
-_PATHS_ALLOWED_WHEN_EMPTY = ("/setup", "/static/", "/healthz")
+_PATHS_ALLOWED_WHEN_EMPTY = ("/setup", "/static/", "/api/health")
 
 
 class BootstrapRedirectMiddleware(BaseHTTPMiddleware):
@@ -46,25 +47,28 @@ class BootstrapRedirectMiddleware(BaseHTTPMiddleware):
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings if settings is not None else Settings()  # type: ignore[call-arg]
     setup_logging()
-    engine = create_engine(settings.database_url)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        # Réconciliation additive du schéma (pas encore de migration à rejouer).
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        pool = await create_pool(settings.asyncpg_dsn())
+        app.state.pool = pool
+        await run_migrations(pool)
         yield
-        await engine.dispose()
+        await pool.close()
 
     app = FastAPI(title="Ossie Studio", lifespan=lifespan)
     app.state.settings = settings
-    app.state.engine = engine
-    app.state.session_factory = create_session_factory(engine)
     app.state.bootstrap_done = False
     app.state.crypto = CryptoService(settings.master_key_bytes())
     # Fabrique de client HTTP sortant (découverte OIDC, JWKS, échange de jeton).
     # Injectable : les tests la remplacent par un client branché sur un faux IdP.
     app.state.http_client_factory = _default_http_client_factory
+
+    @app.get("/api/health")
+    async def health(request: Request) -> Response:
+        report = await resolve_health(request.app.state.pool, settings)
+        status_code = 200 if report.ok else 503
+        return JSONResponse(report.to_dict(), status_code=status_code)
 
     app.add_middleware(BootstrapRedirectMiddleware)
     app.add_middleware(

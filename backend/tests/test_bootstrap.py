@@ -6,16 +6,17 @@ import pytest
 from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
 
 from ossie_studio.app import create_app
-from ossie_studio.auth.service import (
-    BootstrapConflictError,
-    db_count_users,
-    db_create_bootstrap_admin,
+from ossie_studio.models import ROLE_ADMIN
+from tests.conftest import (
+    ADMIN_EMAIL,
+    ADMIN_PASSWORD,
+    bootstrap_admin,
+    db_fetchrow,
+    db_fetchval,
+    make_settings,
 )
-from ossie_studio.models import ROLE_ADMIN, User
-from tests.conftest import ADMIN_EMAIL, ADMIN_PASSWORD, bootstrap_admin, make_settings
 
 
 @pytest.mark.parametrize("path", ["/", "/login", "/nimporte/quoi"])
@@ -38,18 +39,18 @@ async def test_creation_reussie_connecte_et_donne_role_admin(
     home = await client.get("/")
     assert home.status_code == 200
     assert ADMIN_EMAIL in home.text
-    async with app.state.session_factory() as session:
-        user = (await session.execute(select(User))).scalar_one()
-    assert user.role == ROLE_ADMIN
-    assert user.is_bootstrap is True
+    row = await db_fetchrow(app, "SELECT role, is_bootstrap FROM users")
+    assert row is not None
+    assert row["role"] == ROLE_ADMIN
+    assert row["is_bootstrap"] is True
 
 
 async def test_mot_de_passe_stocke_hache_jamais_en_clair(client: AsyncClient, app: FastAPI) -> None:
     await bootstrap_admin(client)
-    async with app.state.session_factory() as session:
-        user = (await session.execute(select(User))).scalar_one()
-    assert user.password_hash.startswith("$argon2id$")
-    assert ADMIN_PASSWORD not in user.password_hash
+    password_hash = await db_fetchval(app, "SELECT password_hash FROM users")
+    assert isinstance(password_hash, str)
+    assert password_hash.startswith("$argon2id$")
+    assert ADMIN_PASSWORD not in password_hash
 
 
 async def test_setup_repond_inexistant_apres_creation(client: AsyncClient) -> None:
@@ -64,19 +65,21 @@ async def test_setup_repond_inexistant_apres_creation(client: AsyncClient) -> No
 async def test_rejeu_apres_succes_aucun_doublon(client: AsyncClient, app: FastAPI) -> None:
     await bootstrap_admin(client)
     await client.post("/setup", data={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
-    async with app.state.session_factory() as session:
-        assert await db_count_users(session) == 1
+    count = await db_fetchval(app, "SELECT count(*) FROM users")
+    assert count == 1
 
 
 async def test_course_deux_creations_une_seule_reussit(app: FastAPI) -> None:
     """Les deux appels ont passé le contrôle « base vide » : la base tranche."""
-    factory = app.state.session_factory
-    async with factory() as first, factory() as second:
+    from ossie_studio.auth.service import BootstrapConflictError, db_create_bootstrap_admin
+
+    pool = app.state.pool
+    async with pool.acquire() as first, pool.acquire() as second:
         await db_create_bootstrap_admin(first, "a@example.org", "hash-a")
         with pytest.raises(BootstrapConflictError):
             await db_create_bootstrap_admin(second, "b@example.org", "hash-b")
-    async with factory() as session:
-        assert await db_count_users(session) == 1
+    count = await db_fetchval(app, "SELECT count(*) FROM users")
+    assert count == 1
 
 
 @pytest.mark.parametrize(
@@ -93,13 +96,15 @@ async def test_entree_invalide_refusee_aucun_compte_cree(
 ) -> None:
     response = await client.post("/setup", data={"email": email, "password": password})
     assert response.status_code == 400
-    assert "<li>" in response.text  # un message d'erreur est affiché
-    async with app.state.session_factory() as session:
-        assert await db_count_users(session) == 0
+    assert "<li>" in response.text
+    count = await db_fetchval(app, "SELECT count(*) FROM users")
+    assert count == 0
 
 
-async def test_redemarrage_compte_persiste_et_setup_ferme(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path)
+async def test_redemarrage_compte_persiste_et_setup_ferme(
+    tmp_path: Path, test_database: str
+) -> None:
+    settings = make_settings(tmp_path, test_database)
 
     first_app = create_app(settings)
     async with LifespanManager(first_app):
@@ -121,6 +126,7 @@ async def test_redemarrage_compte_persiste_et_setup_ferme(tmp_path: Path) -> Non
 
 async def test_course_perdue_rend_409(client: AsyncClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """La requête a vu une base vide, mais l'insert perd la course : refus 409."""
+    from ossie_studio.auth.service import BootstrapConflictError
 
     async def _conflit(*_args: object, **_kwargs: object) -> None:
         raise BootstrapConflictError

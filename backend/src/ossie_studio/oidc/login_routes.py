@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 
 from ossie_studio.crypto import CryptoService
-from ossie_studio.deps import SessionDep, get_crypto, get_http_client_factory
+from ossie_studio.deps import ConnDep, get_crypto, get_http_client_factory
 from ossie_studio.oidc.linking import LinkOutcome
 from ossie_studio.oidc.provider import (
     DiscoveryError,
@@ -42,11 +42,11 @@ def _callback_uri(request: Request, connector_id: uuid.UUID) -> str:
 @router.get("/{connector_id}/login", name="oidc_login")
 async def oidc_login(
     request: Request,
-    session: SessionDep,
+    conn: ConnDep,
     http_client_factory: HttpFactoryDep,
     connector_id: uuid.UUID,
 ) -> Response:
-    connector = await db_get_connector(session, connector_id)
+    connector = await db_get_connector(conn, connector_id)
     if connector is None:
         raise HTTPException(status_code=404, detail="Connecteur introuvable.")
     async with http_client_factory() as client:
@@ -80,7 +80,7 @@ async def oidc_login(
 @router.get("/{connector_id}/callback", name="oidc_callback")
 async def oidc_callback(
     request: Request,
-    session: SessionDep,
+    conn: ConnDep,
     crypto: CryptoDep,
     http_client_factory: HttpFactoryDep,
     connector_id: uuid.UUID,
@@ -90,7 +90,7 @@ async def oidc_callback(
     flow = request.session.pop(_SESSION_FLOW_KEY, None)
     if not _flow_matches(flow, connector_id, state) or not code:
         raise HTTPException(status_code=400, detail="Flux OIDC invalide ou expiré.")
-    connector = await db_get_connector(session, connector_id)
+    connector = await db_get_connector(conn, connector_id)
     if connector is None:
         raise HTTPException(status_code=404, detail="Connecteur introuvable.")
 
@@ -117,7 +117,7 @@ async def oidc_callback(
         except (TokenExchangeError, IdTokenInvalidError) as exc:
             raise HTTPException(status_code=401, detail=str(exc)) from exc
 
-    decision = await resolve_federated_login(session, connector.issuer, claims)
+    decision = await resolve_federated_login(conn, connector.issuer, claims)
     if decision.outcome is LinkOutcome.AMBIGUOUS_EMAIL:
         raise HTTPException(
             status_code=403,
