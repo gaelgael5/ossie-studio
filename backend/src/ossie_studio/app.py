@@ -16,6 +16,7 @@ from ossie_studio.crypto import CryptoService
 from ossie_studio.db import create_pool
 from ossie_studio.db.migrate import run_migrations
 from ossie_studio.deps import STATIC_DIR, bootstrap_is_done
+from ossie_studio.errors import ApiError, api_error_handler
 from ossie_studio.health import resolve_health
 from ossie_studio.logging import setup_logging
 from ossie_studio.oidc.admin_routes import router as oidc_admin_router
@@ -57,6 +58,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await pool.close()
 
     app = FastAPI(title="Ossie Studio", lifespan=lifespan)
+    # L'API renvoie des codes d'erreur traduits par l'interface, jamais un
+    # message rédigé côté backend.
+    app.add_exception_handler(ApiError, api_error_handler)
     app.state.settings = settings
     app.state.bootstrap_done = False
     app.state.crypto = CryptoService(settings.master_key_bytes())

@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+# Codes d'erreur stables émis par l'API. Le backend ne rédige jamais le message
+# affiché : il renvoie un code et ses paramètres, et l'interface les traduit.
+# Ajouter une langue ne touche donc jamais cette liste. Cette liste est la
+# source de vérité, partagée avec le frontend (frontend/src/errorCodes.json) ;
+# un test vérifie qu'elles ne divergent pas.
+ERROR_CODES: tuple[str, ...] = (
+    "forbidden",
+    "not_found",
+    "invalid_request",
+    "admin_already_exists",
+    "secret_slug_taken",
+    "secret_not_found",
+    "secret_category_unknown",
+    "secret_value_required",
+    "oidc_issuer_unreachable",
+    "oidc_issuer_already_declared",
+    "oidc_token_rejected",
+    "oidc_email_ambiguous",
+    "oidc_email_unverified",
+    "oidc_flow_invalid",
+)
+
+
+class ApiError(Exception):
+    """Erreur applicative portée par un code stable et ses paramètres.
+
+    Le `code` est l'un de ERROR_CODES ; `args` fournit les valeurs
+    d'interpolation que l'interface insérera dans le message traduit.
+    """
+
+    def __init__(self, code: str, *, status_code: int = 400, **args: object) -> None:
+        if code not in ERROR_CODES:
+            msg = f"Code d'erreur inconnu : {code}"
+            raise ValueError(msg)
+        super().__init__(code)
+        self.code = code
+        self.status_code = status_code
+        self.args_dict = args
+
+
+async def api_error_handler(_: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, ApiError)
+    return JSONResponse(
+        {"error": exc.code, "error_args": exc.args_dict}, status_code=exc.status_code
+    )

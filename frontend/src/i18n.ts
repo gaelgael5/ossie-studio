@@ -1,52 +1,29 @@
 import i18n from 'i18next'
+import LanguageDetector from 'i18next-browser-languagedetector'
 import { initReactI18next } from 'react-i18next'
+import { fr } from './locales/fr'
+import { en } from './locales/en'
 
-const resources = {
-  fr: {
-    translation: {
-      title: 'Ossie Studio — état du service',
-      loading: 'Vérification en cours…',
-      error: 'Impossible de joindre le service',
-      healthy: 'Service opérationnel',
-      degraded: 'Service dégradé',
-      database: 'Base de données',
-      schema: 'Schéma',
-      volumes: 'Volumes',
-      reachable: 'joignable',
-      unreachable: 'injoignable',
-      upToDate: 'à jour (version {{version}})',
-      outOfDate: 'non à jour',
-      writable: 'inscriptible',
-      notWritable: 'non inscriptible',
+export const SUPPORTED_LANGUAGES = ['fr', 'en'] as const
+export type Language = (typeof SUPPORTED_LANGUAGES)[number]
+
+// Ordre de résolution de la langue : choix mémorisé (localStorage) >
+// langue du navigateur > anglais (repli). Une langue non supportée (ex.
+// allemand) retombe sur l'anglais.
+void i18n
+  .use(LanguageDetector)
+  .use(initReactI18next)
+  .init({
+    resources: { fr, en },
+    supportedLngs: [...SUPPORTED_LANGUAGES],
+    fallbackLng: 'en',
+    load: 'languageOnly',
+    detection: {
+      order: ['localStorage', 'navigator'],
+      caches: ['localStorage'],
+      lookupLocalStorage: 'ossie.lang',
     },
-  },
-  en: {
-    translation: {
-      title: 'Ossie Studio — service status',
-      loading: 'Checking…',
-      error: 'Cannot reach the service',
-      healthy: 'Service healthy',
-      degraded: 'Service degraded',
-      database: 'Database',
-      schema: 'Schema',
-      volumes: 'Volumes',
-      reachable: 'reachable',
-      unreachable: 'unreachable',
-      upToDate: 'up to date (version {{version}})',
-      outOfDate: 'out of date',
-      writable: 'writable',
-      notWritable: 'not writable',
-    },
-  },
-}
-
-const browserLang = typeof navigator !== 'undefined' ? navigator.language.slice(0, 2) : 'fr'
-
-void i18n.use(initReactI18next).init({
-  resources,
-  lng: browserLang === 'en' ? 'en' : 'fr',
-  fallbackLng: 'fr',
-  interpolation: { escapeValue: false },
-})
+    interpolation: { escapeValue: false },
+  })
 
 export default i18n

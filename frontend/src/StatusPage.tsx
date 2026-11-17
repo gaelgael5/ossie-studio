@@ -1,49 +1,52 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { fetchHealth, type HealthReport } from './api'
+import { fetchHealth, type DbStatus, type HealthReport } from './api'
+import { LanguageSelector } from './LanguageSelector'
+
+function dbLine(t: ReturnType<typeof useTranslation>['t'], db: DbStatus): string {
+  if (!db.reachable) return t('dbUnreachable')
+  if (!db.up_to_date)
+    return t('dbReachableOutdated', { version: db.schema_version, expected: db.expected_version })
+  return t('dbReachableUpToDate', { version: db.schema_version })
+}
 
 export function StatusPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { data, isLoading, isError } = useQuery<HealthReport>({
     queryKey: ['health'],
     queryFn: fetchHealth,
     refetchInterval: 10000,
   })
 
-  if (isLoading) return <p>{t('loading')}</p>
-  if (isError || !data) return <p role="alert">{t('error')}</p>
+  // Date formatée selon la langue courante (jamais une locale codée en dur).
+  const today = new Intl.DateTimeFormat(i18n.resolvedLanguage).format(new Date())
 
-  const db = data.database
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 560, margin: '40px auto' }}>
-      <h1>{t('title')}</h1>
-      <p
-        style={{
-          fontWeight: 600,
-          color: data.ok ? '#15803d' : '#b91c1c',
-        }}
-      >
-        {data.ok ? t('healthy') : t('degraded')}
-      </p>
-      <ul>
-        <li>
-          {t('database')} : {db.reachable ? t('reachable') : t('unreachable')} —{' '}
-          {db.up_to_date
-            ? t('upToDate', { version: db.schema_version })
-            : t('outOfDate')}
-        </li>
-        <li>
-          {t('volumes')} :
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1>{t('statusTitle')}</h1>
+        <LanguageSelector />
+      </header>
+      <p>{t('today', { date: today })}</p>
+      {isLoading && <p>{t('loading')}</p>}
+      {isError && <p role="alert">{t('unreachable')}</p>}
+      {data && (
+        <>
+          <p style={{ fontWeight: 600, color: data.ok ? '#15803d' : '#b91c1c' }}>
+            {data.ok ? t('healthy') : t('degraded')}
+          </p>
           <ul>
+            <li>{dbLine(t, data.database)}</li>
             {data.volumes.map((v) => (
               <li key={v.name}>
-                {v.name} : {v.writable ? t('writable') : t('notWritable')}
-                {v.detail ? ` (${v.detail})` : ''}
+                {v.writable
+                  ? t('volumeWritable', { name: v.name })
+                  : t('volumeNotWritable', { name: v.name, detail: v.detail ?? '' })}
               </li>
             ))}
           </ul>
-        </li>
-      </ul>
+        </>
+      )}
     </main>
   )
 }

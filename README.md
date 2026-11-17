@@ -54,6 +54,23 @@ cd backend && uv run uvicorn ossie_studio.app:create_app --factory --reload
 cd frontend && npm install && npm run dev
 ```
 
+## Internationalisation (i18n)
+
+L'interface s'affiche en **français** ou en **anglais** (i18next +
+react-i18next, traductions embarquées). La langue se résout dans l'ordre :
+choix mémorisé (localStorage) → langue du navigateur → anglais. Un sélecteur
+de langue est présent sur la page, change la langue sans recharger. Les
+dates suivent la langue courante (`Intl`).
+
+Le **backend ne rédige aucun message affiché** : il renvoie des codes
+d'erreur stables (`{"error": "<code>", "error_args": {...}}`) que l'interface
+traduit. La liste des codes est partagée (`frontend/src/errorCodes.json`),
+et des tests garantissent que chaque code a une traduction FR et EN.
+
+Deux garde-fous CI : une chaîne visible écrite en dur dans un composant fait
+échouer `eslint` (`i18next/no-literal-string`), et une clé présente dans une
+langue mais absente de l'autre fait échouer les tests.
+
 ## Contrôle de santé
 
 `GET /api/health` interroge réellement la base (et la version de schéma) et
