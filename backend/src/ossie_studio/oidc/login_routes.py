@@ -13,6 +13,7 @@ from fastapi.responses import RedirectResponse, Response
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_http_client_factory
 from ossie_studio.oidc.linking import LinkOutcome
+from ossie_studio.oidc.mapping import apply_role_mapping
 from ossie_studio.oidc.provider import (
     DiscoveryError,
     IdTokenInvalidError,
@@ -23,6 +24,7 @@ from ossie_studio.oidc.provider import (
     generate_pkce_pair,
     validate_id_token,
 )
+from ossie_studio.oidc.roles import roles_from_claims
 from ossie_studio.oidc.service import db_get_connector, resolve_federated_login
 
 log = structlog.get_logger(__name__)
@@ -130,6 +132,10 @@ async def oidc_callback(
     if decision.outcome is LinkOutcome.REFUSED_UNVERIFIED:
         return _login_redirect("oidc_email_unverified")
     assert decision.user_id is not None
+    # Le profil suit les rôles du jeton (sauf profil fixé à la main) à chaque
+    # connexion ; les capacités restent celles du profil en base.
+    roles = roles_from_claims(claims.raw, connector.roles_claim)
+    await apply_role_mapping(conn, connector.id, roles, decision.user_id)
     request.session["user_id"] = str(decision.user_id)
     log.info("oidc_login_succeeded", outcome=decision.outcome.value, issuer=connector.issuer)
     return _login_redirect()

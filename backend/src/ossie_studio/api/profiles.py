@@ -11,6 +11,7 @@ from ossie_studio.authz.catalog import ALL_CAPABILITIES, catalog_payload, is_kno
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.models import Profile
+from ossie_studio.oidc.mapping import db_count_mappings_for_profile
 from ossie_studio.profiles.service import (
     ProfileNameTakenError,
     ProfileNotFoundError,
@@ -146,6 +147,10 @@ async def delete_profile(conn: ConnDep, user: ProfilesWrite, profile_id: uuid.UU
     count = await db_count_users_with_profile(conn, profile_id)
     if count > 0:
         raise ApiError("profile_in_use", status_code=409, count=count)
+    mappings = await db_count_mappings_for_profile(conn, profile_id)
+    if mappings > 0:
+        # Un profil visé par une correspondance OIDC n'est pas supprimable.
+        raise ApiError("profile_in_mapping", status_code=409, count=mappings)
     await db_delete_profile(conn, profile_id)
     log.info("profile_deleted", profile_id=str(profile_id), author=user.email)
 

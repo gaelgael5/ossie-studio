@@ -126,6 +126,19 @@ Le nom d'affichage et la date de dernière connexion viennent des connexions
 Administrateur au dernier administrateur actif est refusé. Chaque assignation
 est journalisée (auteur, utilisateur, ancien et nouveau profil).
 
+**Rôles OIDC → profil.** Chaque connecteur OIDC peut déclarer le **chemin du
+claim** portant les rôles (`groups`, `realm_access.roles`) et une liste
+**ordonnée** de correspondances *valeur de rôle → profil*. À chaque connexion,
+la **première correspondance qui s'applique** choisit le profil (comparaison
+**exacte** ; les rôles du jeton **choisissent** un profil, ils n'accordent jamais
+une capacité). La lecture du claim est un point d'adaptation isolé qui accepte
+deux formes — **tableau de chaînes** (Keycloak) et **objet à clés** (Zitadel) ;
+toute autre forme ne donne aucun rôle (avertissement journalisé, jamais de
+plantage). Un profil **fixé à la main** depuis la page Utilisateurs n'est plus
+remplacé par les correspondances (la page permet de retirer la marque), et une
+correspondance ne peut jamais retirer l'Administrateur au dernier administrateur
+actif. Supprimer un profil visé par une correspondance est refusé.
+
 **Le serveur fait foi** : chaque route vérifie la capacité qu'elle demande
 (403 sinon), les droits **relus à chaque requête** (un changement de profil vaut
 dès la requête suivante, sans reconnexion). L'écran masque ce qu'on ne peut pas

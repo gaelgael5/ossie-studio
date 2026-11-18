@@ -54,5 +54,8 @@
   "profile_admin_default",
   "profile_default_protected",
   "user_not_found",
-  "admin_lockout"
+  "admin_lockout",
+  "profile_in_mapping",
+  "mapping_duplicate",
+  "mapping_not_found"
 ]

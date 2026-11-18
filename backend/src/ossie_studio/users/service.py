@@ -49,7 +49,8 @@ async def db_search_users(
     term = _like_term(query)
     rows = await conn.fetch(
         "SELECT u.id, u.email, u.display_name, (u.password_hash IS NULL) AS is_oidc, "
-        "u.last_login_at, u.profile_id, p.name AS profile_name, p.is_admin AS profile_is_admin "
+        "u.last_login_at, u.profile_id, u.profile_pinned, "
+        "p.name AS profile_name, p.is_admin AS profile_is_admin "
         "FROM users u LEFT JOIN profiles p ON p.id = u.profile_id "
         "WHERE (NOT $1 OR u.search_key LIKE $2 ESCAPE '\\') "
         "AND ($3::uuid IS NULL OR u.profile_id = $3) "
@@ -99,5 +100,23 @@ async def db_assign_profile(
         # Retirer l'administrateur au dernier administrateur actif : refusé.
         if was_admin and not target["is_admin"] and await db_count_admin_users(conn) <= 1:
             raise AdminLockoutError
-        await conn.execute("UPDATE users SET profile_id = $2 WHERE id = $1", user_id, profile_id)
+        # Une assignation manuelle fixe le profil : les correspondances OIDC ne
+        # le remplacent plus tant que la marque reste.
+        await conn.execute(
+            "UPDATE users SET profile_id = $2, profile_pinned = true WHERE id = $1",
+            user_id,
+            profile_id,
+        )
     return old_profile_id, was_admin
+
+
+async def db_set_pin(conn: asyncpg.Connection, user_id: uuid.UUID, pinned: bool) -> bool:
+    result: str = await conn.execute(
+        "UPDATE users SET profile_pinned = $2 WHERE id = $1", user_id, pinned
+    )
+    return result != "UPDATE 0"
+
+
+async def db_count_pinned_users(conn: asyncpg.Connection) -> int:
+    value = await conn.fetchval("SELECT count(*) FROM users WHERE profile_pinned")
+    return int(value or 0)

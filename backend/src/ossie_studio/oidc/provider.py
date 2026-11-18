@@ -173,4 +173,5 @@ def _extract_claims(raw: dict[str, object]) -> VerifiedClaims:
         email=email if isinstance(email, str) and email else None,
         email_verified=raw.get("email_verified") is True,
         name=name if isinstance(name, str) and name.strip() else None,
+        raw=dict(raw),
     )

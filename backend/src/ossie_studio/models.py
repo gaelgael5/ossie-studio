@@ -94,6 +94,7 @@ class OidcConnector:
     client_secret_encrypted: bytes
     scopes: str
     created_at: datetime
+    roles_claim: str = ""
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> OidcConnector:
@@ -105,6 +106,26 @@ class OidcConnector:
             client_secret_encrypted=row["client_secret_encrypted"],
             scopes=row["scopes"],
             created_at=row["created_at"],
+            roles_claim=row["roles_claim"] if "roles_claim" in row else "",
+        )
+
+
+@dataclass(frozen=True)
+class OidcRoleMapping:
+    id: uuid.UUID
+    connector_id: uuid.UUID
+    position: int
+    role_value: str
+    profile_id: uuid.UUID
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> OidcRoleMapping:
+        return cls(
+            id=row["id"],
+            connector_id=row["connector_id"],
+            position=row["position"],
+            role_value=row["role_value"],
+            profile_id=row["profile_id"],
         )
 
 

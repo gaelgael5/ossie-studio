@@ -246,6 +246,21 @@ export const en = {
     selectScheme: 'Manage',
     colShort: 'Short',
 
+    roleMappingTitle: 'Profile from token roles',
+    rolesClaimLabel: 'Roles claim path (e.g. groups, realm_access.roles)',
+    colOrder: 'Order',
+    colRoleValue: 'Role value',
+    colAssignedProfile: 'Assigned profile',
+    roleValueLabel: 'Role value (exact match)',
+    addMapping: '+ Add a mapping',
+    roleMappingOrderHint:
+      'The first matching mapping wins; order matters. A token role picks a profile, it never grants a capability.',
+    roleMappingPinnedHint:
+      'A profile pinned by hand is never replaced ({{count}} account(s)); the last active administrator never loses their profile.',
+    pinnedBadge: '📌 pinned by hand',
+    pinnedHint: 'OIDC mappings do not replace this profile.',
+    removePin: 'Remove the mark',
+
     manageUsers: 'Users',
     usersTitle: 'Users',
     usersIntro:
@@ -430,6 +445,10 @@ export const en = {
       user_not_found: 'User not found.',
       admin_lockout:
         'Not possible: this would remove the Administrator profile from the last active administrator.',
+      profile_in_mapping:
+        'Profile targeted by {{count}} OIDC mapping(s): remove them first.',
+      mapping_duplicate: 'This mapping already exists (same value, same profile).',
+      mapping_not_found: 'Mapping not found.',
     },
   },
 }

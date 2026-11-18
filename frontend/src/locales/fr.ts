@@ -247,6 +247,21 @@ export const fr = {
     selectScheme: 'Gérer',
     colShort: 'Court',
 
+    roleMappingTitle: 'Profil selon les rôles du jeton',
+    rolesClaimLabel: 'Chemin du claim des rôles (ex. groups, realm_access.roles)',
+    colOrder: 'Ordre',
+    colRoleValue: 'Valeur du rôle',
+    colAssignedProfile: 'Profil attribué',
+    roleValueLabel: 'Valeur du rôle (comparaison exacte)',
+    addMapping: '+ Ajouter une correspondance',
+    roleMappingOrderHint:
+      'La première correspondance qui s’applique l’emporte ; l’ordre compte. Un rôle du jeton choisit un profil, il n’accorde jamais une capacité.',
+    roleMappingPinnedHint:
+      'Un profil fixé à la main n’est jamais remplacé ({{count}} compte(s)) ; le dernier administrateur actif ne perd jamais son profil.',
+    pinnedBadge: '📌 fixé à la main',
+    pinnedHint: 'Les correspondances OIDC ne remplacent pas ce profil.',
+    removePin: 'Retirer la marque',
+
     manageUsers: 'Utilisateurs',
     usersTitle: 'Utilisateurs',
     usersIntro:
@@ -432,6 +447,10 @@ export const fr = {
       user_not_found: 'Utilisateur introuvable.',
       admin_lockout:
         'Impossible : ce serait retirer le profil Administrateur au dernier administrateur actif.',
+      profile_in_mapping:
+        'Profil visé par {{count}} correspondance(s) OIDC : retirez-les d’abord.',
+      mapping_duplicate: 'Cette correspondance existe déjà (même valeur, même profil).',
+      mapping_not_found: 'Correspondance introuvable.',
     },
   },
 }

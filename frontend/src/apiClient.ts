@@ -45,6 +45,22 @@ export interface UserItem {
   last_login_at: string | null
   profile_id: string | null
   profile_name: string | null
+  profile_pinned: boolean
+}
+
+export interface RoleMapping {
+  id: string
+  role_value: string
+  profile_id: string
+  profile_name: string | null
+}
+export interface OidcConnectorItem {
+  id: string
+  label: string
+  issuer: string
+  accounts: number
+  roles_claim: string
+  mappings: RoleMapping[]
 }
 
 export interface Connection {
@@ -392,9 +408,29 @@ export const api = {
 
   listConnectors: () =>
     apiFetch<{
-      connectors: { id: string; label: string; issuer: string; accounts: number }[]
+      connectors: OidcConnectorItem[]
       default_scopes: string
+      pinned_count: number
     }>('/api/oidc/connectors'),
+  setRolesClaim: (connectorId: string, rolesClaim: string) =>
+    apiFetch(`/api/oidc/connectors/${connectorId}/roles-claim`, {
+      method: 'PUT',
+      body: JSON.stringify({ roles_claim: rolesClaim }),
+    }),
+  addRoleMapping: (connectorId: string, roleValue: string, profileId: string) =>
+    apiFetch(`/api/oidc/connectors/${connectorId}/mappings`, {
+      method: 'POST',
+      body: JSON.stringify({ role_value: roleValue, profile_id: profileId }),
+    }),
+  deleteRoleMapping: (connectorId: string, mappingId: string) =>
+    apiFetch(`/api/oidc/connectors/${connectorId}/mappings/${mappingId}`, { method: 'DELETE' }),
+  reorderRoleMappings: (connectorId: string, order: string[]) =>
+    apiFetch(`/api/oidc/connectors/${connectorId}/mappings`, {
+      method: 'PUT',
+      body: JSON.stringify({ order }),
+    }),
+  removeUserPin: (userId: string) =>
+    apiFetch(`/api/users/${userId}/pin`, { method: 'DELETE' }),
   createConnector: (body: {
     label: string
     issuer: string

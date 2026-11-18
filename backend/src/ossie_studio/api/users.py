@@ -16,6 +16,7 @@ from ossie_studio.users.service import (
     UserNotFoundError,
     db_assign_profile,
     db_search_users,
+    db_set_pin,
 )
 
 log = structlog.get_logger(__name__)
@@ -37,6 +38,7 @@ def _user_payload(row: asyncpg.Record) -> dict[str, object]:
         "last_login_at": row["last_login_at"].isoformat() if row["last_login_at"] else None,
         "profile_id": str(row["profile_id"]) if row["profile_id"] else None,
         "profile_name": row["profile_name"],
+        "profile_pinned": row["profile_pinned"],
     }
 
 
@@ -82,4 +84,14 @@ async def assign_profile(
         new_profile=str(profile_id),
         author=user.email,
     )
+    return {"ok": True}
+
+
+@router.delete("/{user_id}/pin")
+async def remove_pin(conn: ConnDep, user: UsersWrite, user_id: uuid.UUID) -> dict[str, bool]:
+    # Retire la marque « fixé à la main » : les correspondances OIDC pourront de
+    # nouveau choisir le profil à la connexion suivante.
+    if not await db_set_pin(conn, user_id, pinned=False):
+        raise ApiError("user_not_found", status_code=404)
+    log.info("profile_pin_removed", user_id=str(user_id), author=user.email)
     return {"ok": True}

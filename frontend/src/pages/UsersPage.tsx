@@ -28,6 +28,11 @@ export function UsersPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
     onError: (err) => setMessages(errorMessages(t, err)),
   })
+  const removePin = useMutation({
+    mutationFn: (userId: string) => api.removeUserPin(userId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
 
   const profileList = profiles.data?.profiles ?? []
   const data = users.data
@@ -110,7 +115,15 @@ export function UsersPage() {
                           {p.name}
                         </option>
                       ))}
-                    </select>
+                    </select>{' '}
+                    {u.profile_pinned ? (
+                      <>
+                        <span title={t('pinnedHint')}>{t('pinnedBadge')}</span>{' '}
+                        <button type="button" onClick={() => removePin.mutate(u.id)}>
+                          {t('removePin')}
+                        </button>
+                      </>
+                    ) : null}
                   </td>
                 </tr>
               ))}

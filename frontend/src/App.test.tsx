@@ -472,3 +472,47 @@ test('utilisateurs : liste, recherche et assignation de profil', async () => {
   // La fiche propose d'assigner un profil (select avec le profil Lecteur).
   expect(screen.getAllByRole('option', { name: 'Lecteur' }).length).toBeGreaterThan(0)
 })
+
+test('connecteurs OIDC : bloc des correspondances rôle → profil', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
+      },
+    },
+    '/api/oidc/connectors': {
+      body: {
+        connectors: [
+          {
+            id: 'c1',
+            label: 'IdP',
+            issuer: 'http://idp.test',
+            accounts: 2,
+            roles_claim: 'realm_access.roles',
+            mappings: [{ id: 'm1', role_value: 'ossie-admins', profile_id: 'p1', profile_name: 'Admins' }],
+          },
+        ],
+        default_scopes: 'openid email profile',
+        pinned_count: 3,
+      },
+    },
+    '/api/profiles': {
+      body: {
+        profiles: [
+          { id: 'p1', name: 'Admins', description: '', capabilities: [], is_admin: false, is_default: false, user_count: 0 },
+        ],
+        catalog: [],
+      },
+    },
+  })
+  renderAt('/oidc/connectors')
+  await screen.findByText('Profil selon les rôles du jeton — IdP')
+  await waitFor(() => expect(screen.getByText('ossie-admins')).toBeInTheDocument())
+  // Les deux rappels (ordre ; profil fixé à la main avec le nombre de comptes).
+  expect(screen.getByText(/première correspondance/)).toBeInTheDocument()
+  expect(screen.getByText(/3 compte\(s\)/)).toBeInTheDocument()
+})

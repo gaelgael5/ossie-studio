@@ -14,6 +14,14 @@ from ossie_studio.crypto import CryptoService, SecretValue
 from ossie_studio.deps import ConnDep, get_crypto, get_http_client_factory
 from ossie_studio.errors import ApiError
 from ossie_studio.oidc.forms import DEFAULT_SCOPES, parse_connector
+from ossie_studio.oidc.mapping import (
+    MappingDuplicateError,
+    db_create_mapping,
+    db_delete_mapping,
+    db_list_mappings,
+    db_reorder_mappings,
+    db_set_roles_claim,
+)
 from ossie_studio.oidc.provider import DiscoveryError, discover
 from ossie_studio.oidc.service import (
     IssuerAlreadyDeclaredError,
@@ -23,6 +31,8 @@ from ossie_studio.oidc.service import (
     db_get_connector,
     db_list_connectors,
 )
+from ossie_studio.profiles.service import db_get_profile, db_list_profiles
+from ossie_studio.users.service import db_count_pinned_users
 
 log = structlog.get_logger(__name__)
 
@@ -41,19 +51,52 @@ class ConnectorCreate(BaseModel):
     scopes: str = DEFAULT_SCOPES
 
 
+class RolesClaimBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    roles_claim: str = ""
+
+
+class MappingBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role_value: str = ""
+    profile_id: str = ""
+
+
+class MappingReorderBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    order: list[str] = []
+
+
 @router.get("")
 async def list_connectors(conn: ConnDep, _: OidcRead) -> dict[str, object]:
     connectors = await db_list_connectors(conn)
-    rows = [
-        {
-            "id": str(c.id),
-            "label": c.label,
-            "issuer": c.issuer,
-            "accounts": await db_count_identities_for_issuer(conn, c.issuer),
-        }
-        for c in connectors
-    ]
-    return {"connectors": rows, "default_scopes": DEFAULT_SCOPES}
+    profile_names = {p.id: p.name for p in await db_list_profiles(conn)}
+    rows = []
+    for c in connectors:
+        mappings = await db_list_mappings(conn, c.id)
+        rows.append(
+            {
+                "id": str(c.id),
+                "label": c.label,
+                "issuer": c.issuer,
+                "accounts": await db_count_identities_for_issuer(conn, c.issuer),
+                "roles_claim": c.roles_claim,
+                "mappings": [
+                    {
+                        "id": str(m.id),
+                        "role_value": m.role_value,
+                        "profile_id": str(m.profile_id),
+                        "profile_name": profile_names.get(m.profile_id),
+                    }
+                    for m in mappings
+                ],
+            }
+        )
+    return {
+        "connectors": rows,
+        "default_scopes": DEFAULT_SCOPES,
+        "pinned_count": await db_count_pinned_users(conn),
+    }
 
 
 @router.post("", status_code=201)
@@ -100,3 +143,64 @@ async def delete_connector(conn: ConnDep, _: OidcWrite, connector_id: uuid.UUID)
     # Les comptes rattachés et leur couple (issuer, sub) sont conservés.
     await db_delete_connector(conn, connector_id)
     log.info("oidc_connector_deleted", issuer=connector.issuer)
+
+
+async def _require_connector(conn: ConnDep, connector_id: uuid.UUID) -> None:
+    if await db_get_connector(conn, connector_id) is None:
+        raise ApiError("not_found", status_code=404)
+
+
+@router.put("/{connector_id}/roles-claim")
+async def set_roles_claim(
+    conn: ConnDep, _: OidcWrite, connector_id: uuid.UUID, body: RolesClaimBody
+) -> dict[str, bool]:
+    await _require_connector(conn, connector_id)
+    await db_set_roles_claim(conn, connector_id, body.roles_claim.strip())
+    log.info("oidc_roles_claim_set", connector_id=str(connector_id))
+    return {"ok": True}
+
+
+@router.post("/{connector_id}/mappings", status_code=201)
+async def add_mapping(
+    conn: ConnDep, _: OidcWrite, connector_id: uuid.UUID, body: MappingBody
+) -> dict[str, object]:
+    await _require_connector(conn, connector_id)
+    role_value = body.role_value.strip()
+    if not role_value:
+        raise ApiError("invalid_request", status_code=400, fields=["role_value_required"])
+    try:
+        profile_id = uuid.UUID(body.profile_id)
+    except ValueError:
+        raise ApiError("profile_not_found", status_code=404) from None
+    if await db_get_profile(conn, profile_id) is None:
+        raise ApiError("profile_not_found", status_code=404)
+    try:
+        mapping = await db_create_mapping(conn, connector_id, role_value, profile_id)
+    except MappingDuplicateError:
+        raise ApiError("mapping_duplicate", status_code=409) from None
+    log.info("oidc_mapping_added", connector_id=str(connector_id), role=role_value)
+    return {"id": str(mapping.id), "role_value": mapping.role_value}
+
+
+@router.delete("/{connector_id}/mappings/{mapping_id}", status_code=204)
+async def delete_mapping(
+    conn: ConnDep, _: OidcWrite, connector_id: uuid.UUID, mapping_id: uuid.UUID
+) -> None:
+    await _require_connector(conn, connector_id)
+    if not await db_delete_mapping(conn, mapping_id):
+        raise ApiError("mapping_not_found", status_code=404)
+    log.info("oidc_mapping_deleted", connector_id=str(connector_id))
+
+
+@router.put("/{connector_id}/mappings")
+async def reorder_mappings(
+    conn: ConnDep, _: OidcWrite, connector_id: uuid.UUID, body: MappingReorderBody
+) -> dict[str, bool]:
+    await _require_connector(conn, connector_id)
+    try:
+        ordered = [uuid.UUID(value) for value in body.order]
+    except ValueError:
+        raise ApiError("invalid_request", status_code=400) from None
+    await db_reorder_mappings(conn, connector_id, ordered)
+    log.info("oidc_mappings_reordered", connector_id=str(connector_id))
+    return {"ok": True}

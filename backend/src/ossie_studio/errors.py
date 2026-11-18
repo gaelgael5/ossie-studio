@@ -65,6 +65,9 @@ ERROR_CODES: tuple[str, ...] = (
     "profile_default_protected",
     "user_not_found",
     "admin_lockout",
+    "profile_in_mapping",
+    "mapping_duplicate",
+    "mapping_not_found",
 )
 
 
