@@ -46,6 +46,9 @@ ERROR_CODES: tuple[str, ...] = (
     "version_not_found",
     "repo_access_lost",
     "git_failed",
+    "tag_id_taken",
+    "tag_not_found",
+    "tag_import_invalid",
 )
 
 

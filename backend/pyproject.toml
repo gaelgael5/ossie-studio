@@ -17,6 +17,7 @@ dependencies = [
     "authlib>=1.9.8",
     "httpx>=0.28.1",
     "joserfc>=1.8.0",
+    "pyyaml>=6.0",
 ]
 
 [dependency-groups]
@@ -30,6 +31,7 @@ dev = [
     "python-multipart>=0.0.9",
     "ruff>=0.5",
     "mypy>=1.10",
+    "types-PyYAML>=6.0",
 ]
 
 [build-system]

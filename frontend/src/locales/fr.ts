@@ -168,6 +168,28 @@ export const fr = {
     loadOlder: 'Plus ancien',
     noVersionsYet: 'Aucune version enregistrée pour l’instant.',
     kindRoot: 'racine',
+
+    manageGovernanceTags: 'Gouvernance : tags',
+    governanceTagsTitle: 'Gouvernance › Tags',
+    governanceTagsIntro:
+      'Un vocabulaire de tags gouvernés, hiérarchique par « / ». L’équipe propriétaire est informative. La pose des tags sur les assets arrivera avec la curation.',
+    tagIdLabel: 'Identifiant (ex. gouvernance/donnees-personnelles)',
+    tagOwnerLabel: 'Équipe propriétaire (informatif)',
+    tagDescriptionLabel: 'Description',
+    tagLinksLabel: 'Liens (une ligne « nom: url »)',
+    tagPropertiesLabel: 'Propriétés (une ligne « clé: valeur »)',
+    createTag: 'Créer le tag',
+    updateTag: 'Enregistrer',
+    cancelEdit: 'Annuler',
+    editTag: 'Modifier',
+    deleteTagConfirm: 'Supprimer ce tag géré ? (le vocabulaire seulement, pas les assets)',
+    noTags: 'Aucun tag géré.',
+    tagFilterLabel: 'Filtrer par préfixe',
+    exportTags: 'Exporter (YAML)',
+    importTags: 'Importer',
+    importTagsLabel: 'Coller un vocabulaire YAML',
+    tagsImported: '{{count}} tag(s) importé(s).',
+    colOwner: 'Équipe',
     rights: {
       read_fetch: 'lire et récupérer',
       create_branch: 'créer une branche',
@@ -212,6 +234,11 @@ export const fr = {
       label_invalid: 'Le libellé ne produit pas de slug valide.',
       label_too_long: 'Le libellé ne doit pas dépasser 200 caractères.',
       label_single_line: 'Le libellé doit tenir sur une seule ligne.',
+      tag_id_required: 'L’identifiant du tag est obligatoire.',
+      tag_id_invalid:
+        'L’identifiant doit être en minuscules : segments « a-z 0-9 - _ » séparés par « / ».',
+      tag_links_invalid: 'Les liens doivent être des paires « nom : URL ».',
+      tag_properties_invalid: 'Les propriétés doivent être des paires « clé : valeur simple ».',
     },
 
     errors: {
@@ -255,6 +282,9 @@ export const fr = {
       version_not_found: 'Version introuvable sur cette branche.',
       repo_access_lost: "L'accès au dépôt est perdu ; réessayez quand il revient.",
       git_failed: "L'opération git a échoué.",
+      tag_id_taken: 'Un tag géré porte déjà cet identifiant.',
+      tag_not_found: 'Tag introuvable.',
+      tag_import_invalid: 'Le vocabulaire YAML est invalide : {{detail}}.',
     },
   },
 }

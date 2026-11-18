@@ -279,3 +279,38 @@ test('détail espace : affiche le diagramme réseau ferroviaire', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Versions seulement' }))
   expect(screen.getByRole('button', { name: 'Tout afficher' })).toBeInTheDocument()
 })
+
+test('gouvernance tags : liste, filtre et création', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+      },
+    },
+    '/api/governance/tags': {
+      body: {
+        tags: [
+          { id: 'gouvernance/pii', owner: 'equipe-data', description: 'PII', links: {}, properties: {}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+        ],
+      },
+    },
+    'POST /api/governance/tags': {
+      status: 201,
+      body: { id: 'gouvernance/rgpd', owner: '', description: '', links: {}, properties: {}, created_at: '2026-01-02T00:00:00Z', updated_at: '2026-01-02T00:00:00Z' },
+    },
+  })
+  renderAt('/governance/tags')
+  await screen.findByText('Gouvernance › Tags')
+  await waitFor(() => expect(screen.getByText('gouvernance/pii')).toBeInTheDocument())
+  // Filtre par préfixe : un préfixe qui ne matche pas vide la liste.
+  await userEvent.type(screen.getByLabelText('Filtrer par préfixe'), 'reseau')
+  await waitFor(() => expect(screen.getByText('Aucun tag géré.')).toBeInTheDocument())
+  // Création : après succès, le champ identifiant se réinitialise.
+  await userEvent.clear(screen.getByLabelText('Filtrer par préfixe'))
+  await userEvent.type(screen.getByLabelText(/Identifiant/), 'Gouvernance/RGPD')
+  await userEvent.click(screen.getByRole('button', { name: 'Créer le tag' }))
+  await waitFor(() => expect(screen.getByLabelText(/Identifiant/)).toHaveValue(''))
+})

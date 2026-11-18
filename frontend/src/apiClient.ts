@@ -90,6 +90,23 @@ export interface RailMapData {
   has_more: boolean
 }
 
+export interface GovernedTag {
+  id: string
+  owner: string
+  description: string
+  links: Record<string, string>
+  properties: Record<string, string | number | boolean>
+  created_at: string
+  updated_at: string
+}
+export interface GovernedTagInput {
+  id?: string
+  owner: string
+  description: string
+  links: Record<string, string>
+  properties: Record<string, string | number | boolean>
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setup: (email: string, password: string) =>
@@ -183,6 +200,23 @@ export const api = {
   probeSpace: (id: string) =>
     apiFetch<{ ok: boolean }>(`/api/spaces/${id}/probe`, { method: 'POST' }),
   deleteSpace: (id: string) => apiFetch(`/api/spaces/${id}`, { method: 'DELETE' }),
+
+  listGovernedTags: () => apiFetch<{ tags: GovernedTag[] }>('/api/governance/tags'),
+  createGovernedTag: (body: GovernedTagInput) =>
+    apiFetch<GovernedTag>('/api/governance/tags', { method: 'POST', body: JSON.stringify(body) }),
+  updateGovernedTag: (id: string, body: GovernedTagInput) =>
+    apiFetch<GovernedTag>(`/api/governance/tags/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteGovernedTag: (id: string) =>
+    apiFetch(`/api/governance/tags/${id}`, { method: 'DELETE' }),
+  exportGovernedTags: () => apiFetch<{ yaml: string }>('/api/governance/tags/export'),
+  importGovernedTags: (yaml: string) =>
+    apiFetch<{ imported: number }>('/api/governance/tags/import', {
+      method: 'POST',
+      body: JSON.stringify({ yaml }),
+    }),
 
   listConnectors: () =>
     apiFetch<{

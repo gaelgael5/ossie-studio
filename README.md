@@ -167,6 +167,28 @@ arrêts non publiés en pointillé, et chargement « plus ancien » (≈ 200 com
 la fois). La liste des versions sert d'équivalent accessible (clavier, lecteur
 d'écran).
 
+## Gouvernance des données
+
+Le principe est repris d'Entropy Data (tags, certifications, classifications).
+
+### Tags — vocabulaire gouverné
+
+La page **Gouvernance › Tags** tient un **vocabulaire de tags gérés** :
+chaque tag a un **id** hiérarchique (séparateur `/`, les niveaux parents n'ont
+pas besoin d'exister), une description, des liens nommés, des propriétés et une
+**équipe propriétaire informative** (elle ne donne aucun droit). L'id est
+**insensible à la casse**, normalisé en minuscules (`Gouvernance/PII` et
+`gouvernance/pii` sont le même tag). Le vocabulaire **s'exporte et s'importe en
+YAML**. Chaque création, modification et suppression est journalisée avec son
+auteur. Les définitions vivent en base de l'installation.
+
+**Pour l'instant**, seule la gestion du **vocabulaire** est livrée, réservée à
+l'administrateur. La **pose des tags sur les assets** (écriture de `x-tags`,
+vue « tags non gérés », usages, refus de suppression d'un tag utilisé) arrivera
+avec les **assets** (epic « Curation »), qui n'existent pas encore ; de même,
+les **capacités** fines (« Gouvernance : modifier ») remplaceront la garde
+administrateur quand l'epic « Profils » sera là.
+
 ## Tests et qualité
 
 ```bash

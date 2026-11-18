@@ -130,6 +130,29 @@ class GitSpace:
 
 
 @dataclass(frozen=True)
+class GovernedTag:
+    id: str
+    owner: str
+    description: str
+    links: dict[str, str]
+    properties: dict[str, object]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> GovernedTag:
+        return cls(
+            id=row["id"],
+            owner=row["owner"],
+            description=row["description"],
+            links=dict(row["links"] or {}),
+            properties=dict(row["properties"] or {}),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+@dataclass(frozen=True)
 class SpaceBranch:
     id: uuid.UUID
     space_id: uuid.UUID
