@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # Sans cette clef, le service refuse de démarrer — jamais de clef par défaut.
     secrets_master_key: SecretStr
 
+    # Adresse publique de l'application (ex. https://studio.exemple.org), pour
+    # calculer l'URL de retour OIDC à déclarer chez le fournisseur. Optionnelle :
+    # si absente, on la déduit de la requête entrante.
+    public_base_url: str = ""
+
     @field_validator("session_secret")
     @classmethod
     def _session_secret_long_enough(cls, value: SecretStr) -> SecretStr:

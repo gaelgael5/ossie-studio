@@ -221,6 +221,31 @@ async def test_suppression_secret_partage_conserve(
     assert await db_fetchval(app, "SELECT count(*) FROM secrets WHERE slug = 'oidc-partage'") == 1
 
 
+async def test_url_de_retour_unique_dans_le_payload(admin_client: AsyncClient) -> None:
+    body = (await admin_client.get("/api/oidc/connectors")).json()
+    assert body["callback_url"].endswith("/auth/oidc/callback")
+
+
+async def test_badge_de_decouverte(admin_client: AsyncClient, app: FastAPI) -> None:
+    from ossie_studio.oidc.discovery_cache import _clear_cache
+
+    _clear_cache()
+    await _add(admin_client)  # issuer servi par le faux IdP → joignable
+    async with app.state.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO secrets (slug, label, category, value_encrypted) "
+            "VALUES ('oidc-bad', 'Bad', 'oidc', '\\x00'::bytea)"
+        )
+        bad_id = await conn.fetchval(
+            "INSERT INTO oidc_connectors (label, issuer, client_id, client_secret_slug) "
+            "VALUES ('Bad', 'http://idp.test/realms/inexistant', 'c', 'oidc-bad') RETURNING id"
+        )
+    good_id = await db_fetchval(app, "SELECT id FROM oidc_connectors WHERE issuer = $1", ISSUER)
+    statuses = (await admin_client.get("/api/oidc/connectors/discovery")).json()
+    assert statuses[str(good_id)] == "ok"
+    assert statuses[str(bad_id)] == "unreachable"
+
+
 async def test_suppression_connecteur_inexistant_404(admin_client: AsyncClient) -> None:
     response = await admin_client.delete(f"/api/oidc/connectors/{uuid.uuid4()}")
     assert response.status_code == 404

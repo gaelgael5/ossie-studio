@@ -74,7 +74,7 @@ async def test_callback_state_invalide_refuse(
     start = await client.get(f"/auth/oidc/{connector_id}/login")
     callback_url = await _authz_redirect(idp, start.headers["location"])
     params = split_query(callback_url)
-    forged = f"/auth/oidc/{connector_id}/callback?code={params['code']}&state=state-force"
+    forged = f"/auth/oidc/callback?code={params['code']}&state=state-force"
     response = await client.get(forged)
     assert response.status_code == 303
     assert split_query(response.headers["location"])["error"] == "oidc_flow_invalid"
@@ -84,7 +84,7 @@ async def test_callback_sans_flux_en_session_refuse(
     ready: tuple[AsyncClient, FakeIdP, uuid.UUID],
 ) -> None:
     """Appeler le callback directement, sans avoir initié le login → rejet."""
-    client, _idp, connector_id = ready
-    response = await client.get(f"/auth/oidc/{connector_id}/callback?code=abc&state=xyz")
+    client, _idp, _connector_id = ready
+    response = await client.get("/auth/oidc/callback?code=abc&state=xyz")
     assert response.status_code == 303
     assert split_query(response.headers["location"])["error"] == "oidc_flow_invalid"

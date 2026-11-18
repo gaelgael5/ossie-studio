@@ -6,12 +6,13 @@ from typing import Annotated
 
 import httpx
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import OidcRead, OidcWrite
 from ossie_studio.deps import ConnDep, get_http_client_factory
 from ossie_studio.errors import ApiError
+from ossie_studio.oidc.discovery_cache import connector_discovery_status
 from ossie_studio.oidc.forms import DEFAULT_SCOPES, parse_connector
 from ossie_studio.oidc.mapping import (
     MappingDuplicateError,
@@ -22,6 +23,7 @@ from ossie_studio.oidc.mapping import (
     db_set_roles_claim,
 )
 from ossie_studio.oidc.provider import DiscoveryError, discover
+from ossie_studio.oidc.redirect import public_callback_url
 from ossie_studio.oidc.service import (
     IssuerAlreadyDeclaredError,
     db_count_identities_for_issuer,
@@ -76,7 +78,7 @@ class MappingReorderBody(BaseModel):
 
 
 @router.get("")
-async def list_connectors(conn: ConnDep, _: OidcRead) -> dict[str, object]:
+async def list_connectors(request: Request, conn: ConnDep, _: OidcRead) -> dict[str, object]:
     connectors = await db_list_connectors(conn)
     profile_names = {p.id: p.name for p in await db_list_profiles(conn)}
     rows = []
@@ -109,6 +111,43 @@ async def list_connectors(conn: ConnDep, _: OidcRead) -> dict[str, object]:
         "connectors": rows,
         "default_scopes": DEFAULT_SCOPES,
         "pinned_count": await db_count_pinned_users(conn),
+        # URL de retour UNIQUE à déclarer chez le fournisseur (tous connecteurs).
+        "callback_url": public_callback_url(request),
+    }
+
+
+class IssuerBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    issuer: str = ""
+
+
+@router.post("/check-discovery")
+async def check_discovery(
+    _: OidcWrite, http_client_factory: HttpFactoryDep, body: IssuerBody
+) -> dict[str, bool]:
+    # Vérification à la demande, sans rien enregistrer : alimente le bouton
+    # « Vérifier la découverte » du dialogue d'ajout.
+    issuer = body.issuer.strip().rstrip("/")
+    if not issuer:
+        return {"ok": False}
+    async with http_client_factory() as client:
+        try:
+            await discover(client, issuer)
+        except DiscoveryError:
+            return {"ok": False}
+    return {"ok": True}
+
+
+@router.get("/discovery")
+async def connectors_discovery(
+    conn: ConnDep, _: OidcRead, http_client_factory: HttpFactoryDep
+) -> dict[str, str]:
+    # Sondé à part de la liste (réseau) : « ok » ou « unreachable » par
+    # connecteur, mis en cache quelques minutes. Jamais bloquant.
+    connectors = await db_list_connectors(conn)
+    return {
+        str(c.id): await connector_discovery_status(http_client_factory, c.issuer)
+        for c in connectors
     }
 
 

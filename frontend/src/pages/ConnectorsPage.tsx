@@ -236,8 +236,14 @@ export function ConnectorsPage() {
   const [newSecretValue, setNewSecretValue] = useState('')
   const [deleting, setDeleting] = useState('')
   const [alsoDeleteSecret, setAlsoDeleteSecret] = useState(false)
+  const [deleteLabel, setDeleteLabel] = useState('')
+  const [checkResult, setCheckResult] = useState<'ok' | 'ko' | null>(null)
 
   const list = useQuery({ queryKey: ['connectors'], queryFn: api.listConnectors })
+  const discovery = useQuery({
+    queryKey: ['connectors', 'discovery'],
+    queryFn: api.connectorsDiscovery,
+  })
   const profiles = useQuery({ queryKey: ['profiles'], queryFn: api.listProfiles })
   const secrets = useQuery({ queryKey: ['secrets', 'oidc'], queryFn: () => api.listSecrets('oidc') })
   const invalidate = async () => {
@@ -292,14 +298,23 @@ export function ConnectorsPage() {
     onSuccess: async () => {
       setDeleting('')
       setAlsoDeleteSecret(false)
+      setDeleteLabel('')
       await invalidate()
     },
     onError,
   })
 
+  const check = useMutation({
+    mutationFn: () => api.checkDiscovery(issuer),
+    onSuccess: (r) => setCheckResult(r.ok ? 'ok' : 'ko'),
+    onError: () => setCheckResult('ko'),
+  })
+
   const profileList = profiles.data?.profiles ?? []
   const pinnedCount = list.data?.pinned_count ?? 0
   const oidcSecrets = secrets.data?.secrets ?? []
+  const callbackUrl = list.data?.callback_url ?? ''
+  const discoveryStatus = discovery.data ?? {}
 
   return (
     <main>
@@ -324,7 +339,29 @@ export function ConnectorsPage() {
             <tbody>
               {list.data.connectors.map((c) => (
                 <tr key={c.id}>
-                  <td>{c.label}</td>
+                  <td>
+                    {c.label}
+                    {discoveryStatus[c.id] ? (
+                      <>
+                        {' '}
+                        <span
+                          style={{
+                            fontSize: '0.75em',
+                            padding: '2px 8px',
+                            borderRadius: 10,
+                            background:
+                              discoveryStatus[c.id] === 'ok'
+                                ? 'var(--ok-bg, #e6f4ea)'
+                                : 'var(--ko-bg, #fde8e8)',
+                          }}
+                        >
+                          {discoveryStatus[c.id] === 'ok'
+                            ? t('discoveryOk')
+                            : t('discoveryUnreachable')}
+                        </span>
+                      </>
+                    ) : null}
+                  </td>
                   <td>
                     <code>{c.issuer}</code>
                   </td>
@@ -346,9 +383,16 @@ export function ConnectorsPage() {
                           />{' '}
                           {t('deleteAlsoSecret')}
                         </label>
+                        <label htmlFor={`del-${c.id}`}>{t('deleteTypeLabel', { label: c.label })}</label>
+                        <input
+                          id={`del-${c.id}`}
+                          value={deleteLabel}
+                          onChange={(e) => setDeleteLabel(e.target.value)}
+                        />
                         <span>
                           <button
                             type="button"
+                            disabled={deleteLabel !== c.label}
                             onClick={() =>
                               remove.mutate({ id: c.id, deleteSecret: alsoDeleteSecret })
                             }
@@ -366,6 +410,7 @@ export function ConnectorsPage() {
                         onClick={() => {
                           setMessages([])
                           setAlsoDeleteSecret(false)
+                          setDeleteLabel('')
                           setDeleting(c.id)
                         }}
                       >
@@ -467,6 +512,31 @@ export function ConnectorsPage() {
         ) : null}
         <label htmlFor="scopes">{t('scopesLabel')}</label>
         <input id="scopes" value={scopes} onChange={(e) => setScopes(e.target.value)} />
+        <div>
+          <button
+            type="button"
+            disabled={check.isPending || !issuer.trim()}
+            onClick={() => {
+              setCheckResult(null)
+              check.mutate()
+            }}
+          >
+            {t('checkDiscovery')}
+          </button>{' '}
+          {checkResult === 'ok' ? (
+            <span style={{ color: 'var(--ok, #137333)' }}>{t('discoveryVerified')}</span>
+          ) : checkResult === 'ko' ? (
+            <span style={{ color: 'var(--ko, #c5221f)' }}>{t('discoveryFailed')}</span>
+          ) : null}
+        </div>
+        {callbackUrl ? (
+          <p style={{ color: 'var(--muted, #666)' }}>
+            {t('callbackUrlHint')} <code>{callbackUrl}</code>{' '}
+            <button type="button" onClick={() => navigator.clipboard?.writeText(callbackUrl)}>
+              {t('copy')}
+            </button>
+          </p>
+        ) : null}
         <button type="submit" disabled={create.isPending}>
           {t('verifyAndSave')}
         </button>

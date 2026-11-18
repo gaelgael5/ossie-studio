@@ -34,6 +34,20 @@ export function LoginPage() {
     <main>
       <h1>{t('loginTitle')}</h1>
       <ErrorList messages={[...messages, ...oidcMessages]} />
+      {connectors.data && connectors.data.length > 0 && (
+        <div style={{ maxWidth: 360 }}>
+          {connectors.data.map((c) => (
+            <a
+              key={c.id}
+              href={`/auth/oidc/${c.id}/login`}
+              style={{ display: 'block', textAlign: 'center', padding: 10, border: '1px solid #2563eb', borderRadius: 8, marginBottom: 8 }}
+            >
+              {t('loginWith', { label: c.label })}
+            </a>
+          ))}
+          <p style={{ textAlign: 'center', color: '#94a3b8' }}>{t('orLocalAccount')}</p>
+        </div>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault()
@@ -55,20 +69,6 @@ export function LoginPage() {
           {t('loginSubmit')}
         </button>
       </form>
-      {connectors.data && connectors.data.length > 0 && (
-        <div style={{ maxWidth: 360, marginTop: 16 }}>
-          <p style={{ textAlign: 'center', color: '#94a3b8' }}>{t('orSeparator')}</p>
-          {connectors.data.map((c) => (
-            <a
-              key={c.id}
-              href={`/auth/oidc/${c.id}/login`}
-              style={{ display: 'block', textAlign: 'center', padding: 10, border: '1px solid #2563eb', borderRadius: 8, marginBottom: 8 }}
-            >
-              {t('loginWith', { label: c.label })}
-            </a>
-          ))}
-        </div>
-      )}
     </main>
   )
 }

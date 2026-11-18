@@ -24,6 +24,7 @@ from ossie_studio.oidc.provider import (
     generate_pkce_pair,
     validate_id_token,
 )
+from ossie_studio.oidc.redirect import public_callback_url
 from ossie_studio.oidc.roles import roles_from_claims
 from ossie_studio.oidc.service import db_get_connector, resolve_federated_login
 from ossie_studio.secretstore.service import resolve_secret_value
@@ -37,10 +38,6 @@ CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 HttpFactoryDep = Annotated[Callable[[], httpx.AsyncClient], Depends(get_http_client_factory)]
 
 _SESSION_FLOW_KEY = "oidc_flow"
-
-
-def _callback_uri(request: Request, connector_id: uuid.UUID) -> str:
-    return str(request.url_for("oidc_callback", connector_id=connector_id))
 
 
 def _login_redirect(error: str | None = None) -> RedirectResponse:
@@ -79,7 +76,7 @@ async def oidc_login(
     url = build_authorization_url(
         metadata,
         client_id=connector.client_id,
-        redirect_uri=_callback_uri(request, connector_id),
+        redirect_uri=public_callback_url(request),
         scopes=connector.scopes,
         state=state,
         nonce=nonce,
@@ -88,20 +85,22 @@ async def oidc_login(
     return RedirectResponse(url, status_code=303)
 
 
-@router.get("/{connector_id}/callback", name="oidc_callback")
+@router.get("/callback", name="oidc_callback")
 async def oidc_callback(
     request: Request,
     conn: ConnDep,
     crypto: CryptoDep,
     http_client_factory: HttpFactoryDep,
-    connector_id: uuid.UUID,
     code: str = "",
     state: str = "",
 ) -> Response:
+    # URL de retour UNIQUE : le connecteur se retrouve dans l'état de session,
+    # pas dans l'URL. L'état (state) protège contre les requêtes forgées.
     flow = request.session.pop(_SESSION_FLOW_KEY, None)
-    if not _flow_matches(flow, connector_id, state) or not code:
+    if not _flow_matches(flow, state) or not code:
         return _login_redirect("oidc_flow_invalid")
-    connector = await db_get_connector(conn, connector_id)
+    assert isinstance(flow, dict)
+    connector = await db_get_connector(conn, uuid.UUID(str(flow["connector_id"])))
     if connector is None:
         return _login_redirect("not_found")
 
@@ -117,7 +116,7 @@ async def oidc_callback(
                 client,
                 metadata,
                 code=code,
-                redirect_uri=_callback_uri(request, connector_id),
+                redirect_uri=public_callback_url(request),
                 client_id=connector.client_id,
                 client_secret=client_secret,
                 code_verifier=flow["verifier"],
@@ -150,10 +149,10 @@ async def oidc_callback(
     return _login_redirect()
 
 
-def _flow_matches(flow: object, connector_id: uuid.UUID, state: str) -> bool:
+def _flow_matches(flow: object, state: str) -> bool:
     return (
         isinstance(flow, dict)
-        and flow.get("connector_id") == str(connector_id)
+        and bool(flow.get("connector_id"))
         and bool(state)
         and secrets.compare_digest(str(flow.get("state", "")), state)
     )

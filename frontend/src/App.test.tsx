@@ -513,7 +513,11 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
         ],
         default_scopes: 'openid email profile',
         pinned_count: 3,
+        callback_url: 'http://test/auth/oidc/callback',
       },
+    },
+    '/api/oidc/connectors/discovery': {
+      body: { c1: 'ok' },
     },
     '/api/secrets?category=oidc': {
       body: {
@@ -548,4 +552,8 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
   await waitFor(() =>
     expect(screen.getByRole('option', { name: /Secret IdP \(oidc-idp\)/ })).toBeInTheDocument(),
   )
+  // Badge de découverte + URL de retour à déclarer.
+  await waitFor(() => expect(screen.getByText('Découverte OK')).toBeInTheDocument())
+  expect(screen.getByText(/URL de retour à déclarer/)).toBeInTheDocument()
+  expect(screen.getByText('http://test/auth/oidc/callback')).toBeInTheDocument()
 })

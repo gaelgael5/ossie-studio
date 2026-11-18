@@ -461,7 +461,15 @@ export const api = {
       connectors: OidcConnectorItem[]
       default_scopes: string
       pinned_count: number
+      callback_url: string
     }>('/api/oidc/connectors'),
+  connectorsDiscovery: () =>
+    apiFetch<Record<string, string>>('/api/oidc/connectors/discovery'),
+  checkDiscovery: (issuer: string) =>
+    apiFetch<{ ok: boolean }>('/api/oidc/connectors/check-discovery', {
+      method: 'POST',
+      body: JSON.stringify({ issuer }),
+    }),
   setRolesClaim: (connectorId: string, rolesClaim: string) =>
     apiFetch(`/api/oidc/connectors/${connectorId}/roles-claim`, {
       method: 'PUT',
