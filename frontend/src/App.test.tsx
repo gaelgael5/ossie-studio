@@ -235,3 +235,47 @@ test('détail espace : enregistre une version et liste les versions', async () =
   await userEvent.click(screen.getByRole('button', { name: 'Enregistrer une version' }))
   await waitFor(() => expect(screen.getByText('Version 2 enregistrée.')).toBeInTheDocument())
 })
+
+test('détail espace : affiche le diagramme réseau ferroviaire', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+      },
+    },
+    '/api/spaces/s1/branches': {
+      body: {
+        branches: [{ id: 'b1', label: 'Principale', slug: 'principale', kind: 'base', git_ref: 'work/principale' }],
+        viewed_branch_id: null,
+      },
+    },
+    '/api/spaces/s1/railmap?limit=200': {
+      body: {
+        lines: [
+          { ref: 'origin/main', name: 'main', slug: '', kind: 'root', lane: 0, shape: 'circle' },
+          { ref: 'work/principale', name: 'principale', slug: 'principale', kind: 'base', lane: 1, shape: 'square' },
+        ],
+        nodes: [
+          { sha: 'h1', short: 'h1', lane: 0, row: 1, kind: 'commit', subject: 'init', author: 'A', date: '2026-01-01T00:00:00Z', is_switch: false, is_merge: false, number: null, label: null, version_author: null },
+          { sha: 'h2', short: 'h2', lane: 1, row: 0, kind: 'version', subject: 'jalon', author: 'A', date: '2026-01-02T00:00:00Z', is_switch: true, is_merge: false, number: 1, label: 'Première', version_author: 'A' },
+        ],
+        edges: [{ child: 'h2', parent: 'h1', from_lane: 1, to_lane: 0, from_row: 0, to_row: 1, kind: 'switch' }],
+        total: 2,
+        offset: 0,
+        limit: 200,
+        has_more: false,
+      },
+    },
+  })
+  renderAt('/spaces/s1')
+  await screen.findByText('Diagramme des versions')
+  // La gare (version 1) et la légende de ligne sont rendues.
+  await waitFor(() => expect(screen.getAllByText(/Première/).length).toBeGreaterThan(0))
+  expect(screen.getByText('principale')).toBeInTheDocument()
+  // Le filtre « versions seulement » bascule.
+  await userEvent.click(screen.getByRole('button', { name: 'Versions seulement' }))
+  expect(screen.getByRole('button', { name: 'Tout afficher' })).toBeInTheDocument()
+})

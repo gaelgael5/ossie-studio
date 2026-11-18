@@ -60,7 +60,7 @@ def _payload(branch: SpaceBranch) -> dict[str, object]:
     }
 
 
-async def _space_credentials(
+async def space_credentials(
     conn: ConnDep, crypto: CryptoService, space_id: uuid.UUID
 ) -> tuple[GitSpace, str, str | None]:
     space = await db_get_space(conn, space_id)
@@ -108,7 +108,7 @@ async def create_base(
     space_id: uuid.UUID,
     body: LabelBody,
 ) -> dict[str, object]:
-    space, username, token = await _space_credentials(conn, crypto, space_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
     existing_base = await db_get_base(conn, space_id)
     if existing_base is not None:
         # Rejeu : la base existe déjà, ni seconde branche ni erreur.
@@ -133,7 +133,7 @@ async def create_child(
     space_id: uuid.UUID,
     body: LabelBody,
 ) -> dict[str, object]:
-    space, username, token = await _space_credentials(conn, crypto, space_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
     base = await db_get_base(conn, space_id)
     if base is None:
         raise ApiError("space_base_required", status_code=409)
@@ -203,7 +203,7 @@ async def list_unpublished(
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
     branch = await _branch_in_space(conn, space_id, branch_id)
-    space, username, token = await _space_credentials(conn, crypto, space_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         commits = await workdir.list_unpublished(
             space_id, branch.slug, space.repo_url, username, token
@@ -229,7 +229,7 @@ async def publish(
     branch_id: uuid.UUID,
 ) -> dict[str, int]:
     branch = await _branch_in_space(conn, space_id, branch_id)
-    space, username, token = await _space_credentials(conn, crypto, space_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         count = await workdir.publish(space_id, branch.slug, space.repo_url, username, token)
     except WorkdirError as exc:
@@ -272,7 +272,7 @@ async def list_versions(
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
     branch = await _branch_in_space(conn, space_id, branch_id)
-    space, username, token = await _space_credentials(conn, crypto, space_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         versions = await workdir.list_versions(
             space_id, branch.slug, space.repo_url, username, token
@@ -306,7 +306,7 @@ async def create_version(
     user = await require_admin_api(request, conn)
     branch = await _branch_in_space(conn, space_id, branch_id)
     _validate_version_label(body.label)
-    space, username, token = await _space_credentials(conn, crypto, space_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         result = await workdir.tag_version(
             space_id,
@@ -339,7 +339,7 @@ async def restore_version(
 ) -> dict[str, object]:
     user = await require_admin_api(request, conn)
     branch = await _branch_in_space(conn, space_id, branch_id)
-    space, username, token = await _space_credentials(conn, crypto, space_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         result = await workdir.restore_version(
             space_id,

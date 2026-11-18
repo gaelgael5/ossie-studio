@@ -4,18 +4,28 @@ import uuid
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 
+from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import AdminApiDep
 from ossie_studio.connections.service import db_get_connection, resolve_connection_token
 from ossie_studio.crypto import CryptoService
-from ossie_studio.deps import ConnDep, GitProbe, get_crypto, get_git_probe
+from ossie_studio.deps import (
+    ConnDep,
+    GitProbe,
+    get_crypto,
+    get_current_user,
+    get_git_probe,
+    get_workdir_manager,
+)
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import GitSpace
+from ossie_studio.spaces.branch_service import db_get_viewed_branch, db_list_branches
 from ossie_studio.spaces.forms import validate_space
 from ossie_studio.spaces.git_probe import ProbeResult
+from ossie_studio.spaces.railmap import RailMap
 from ossie_studio.spaces.service import (
     SpaceNameTakenError,
     SpaceRepoTakenError,
@@ -25,6 +35,7 @@ from ossie_studio.spaces.service import (
     db_list_spaces,
     db_update_space_probe,
 )
+from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
 
 log = structlog.get_logger(__name__)
 
@@ -32,6 +43,9 @@ router = APIRouter(prefix="/api/spaces")
 
 CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 GitProbeDep = Annotated[GitProbe, Depends(get_git_probe)]
+WorkdirDep = Annotated[WorkdirManager, Depends(get_workdir_manager)]
+# Fenêtre maximale d'un appel au diagramme (bornée côté serveur de toute façon).
+_RAILMAP_MAX = 5000
 
 
 class SpaceCreate(BaseModel):
@@ -145,3 +159,84 @@ async def delete_space(conn: ConnDep, _: AdminApiDep, space_id: uuid.UUID) -> No
     deleted = await db_delete_space(conn, space_id)
     if not deleted:
         raise ApiError("space_not_found", status_code=404)
+
+
+def _railmap_payload(rm: RailMap) -> dict[str, object]:
+    return {
+        "lines": [
+            {
+                "ref": ln.ref,
+                "name": ln.name,
+                "slug": ln.slug,
+                "kind": ln.kind,
+                "lane": ln.lane,
+                "shape": ln.shape,
+            }
+            for ln in rm.lines
+        ],
+        "nodes": [
+            {
+                "sha": n.sha,
+                "short": n.short,
+                "lane": n.lane,
+                "row": n.row,
+                "kind": n.kind,
+                "subject": n.subject,
+                "author": n.author,
+                "date": n.date,
+                "is_switch": n.is_switch,
+                "is_merge": n.is_merge,
+                "number": n.number,
+                "label": n.label,
+                "version_author": n.version_author,
+            }
+            for n in rm.nodes
+        ],
+        "edges": [
+            {
+                "child": e.child,
+                "parent": e.parent,
+                "from_lane": e.from_lane,
+                "to_lane": e.to_lane,
+                "from_row": e.from_row,
+                "to_row": e.to_row,
+                "kind": e.kind,
+            }
+            for e in rm.edges
+        ],
+        "total": rm.total,
+        "offset": rm.offset,
+        "limit": rm.limit,
+        "has_more": rm.has_more,
+    }
+
+
+@router.get("/{space_id}/railmap")
+async def get_railmap(
+    request: Request,
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: AdminApiDep,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    limit: int = 200,
+    offset: int = 0,
+) -> dict[str, object]:
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    branch_rows = await db_list_branches(conn, space_id)
+    branches = [(b.slug, b.kind) for b in branch_rows]
+    user = await get_current_user(request, conn)
+    assert user is not None
+    viewed_id = await db_get_viewed_branch(conn, user.id, space_id)
+    viewed_slug = next((b.slug for b in branch_rows if b.id == viewed_id), None)
+    window = max(1, min(limit, _RAILMAP_MAX))
+    start = max(0, offset)
+    try:
+        rm = await workdir.railmap(
+            space_id, space.repo_url, username, token, branches, viewed_slug,
+            offset=start, limit=window,
+        )
+    except WorkdirError as exc:
+        status = 503 if exc.code == "repo_access_lost" else 502
+        raise ApiError(exc.code, status_code=status) from None
+    return _railmap_payload(rm)

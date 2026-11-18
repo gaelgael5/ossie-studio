@@ -259,6 +259,48 @@ async def test_revenir_a_une_version(
     assert pending.json()["count"] == 1
 
 
+async def test_railmap_lignes_gare_et_non_publie(
+    space: tuple[AsyncClient, str, str], app: FastAPI
+) -> None:
+    client, space_id, url = space
+    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
+    base_id = base.json()["id"]
+    await client.post(f"/api/spaces/{space_id}/branches/child", json={"label": "Feature A"})
+    # Une version sur la tête publiée de la base, puis un commit local non publié.
+    await client.post(
+        f"/api/spaces/{space_id}/branches/{base_id}/versions", json={"label": "Première"}
+    )
+    await client.put(
+        f"/api/spaces/{space_id}/branches/viewed", json={"branch_id": base_id}
+    )
+    await app.state.workdir_manager.commit_to_branch(
+        uuid.UUID(space_id), "principale", url, "x", None,
+        "Alice", "a@a", "en cours", _writer("v1"),
+    )
+
+    response = await client.get(f"/api/spaces/{space_id}/railmap")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    # Racine + principale + feature-a : trois lignes au moins.
+    slugs = {ln["slug"] for ln in body["lines"]}
+    assert {"principale", "feature-a"} <= slugs
+    assert any(ln["kind"] == "root" for ln in body["lines"])
+    # Une gare (version 1) et un arrêt non publié.
+    assert any(n["kind"] == "version" and n["number"] == 1 for n in body["nodes"])
+    assert any(n["kind"] == "unpublished" for n in body["nodes"])
+
+
+async def test_railmap_non_admin_refuse(
+    space: tuple[AsyncClient, str, str], app: FastAPI
+) -> None:
+    await create_plain_user(app, "simple2@example.org", "mot-de-passe-simple")
+    _, space_id, _ = space
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as second:
+        await login(second, "simple2@example.org", "mot-de-passe-simple")
+        assert (await second.get(f"/api/spaces/{space_id}/railmap")).status_code == 403
+
+
 @pytest.fixture
 async def user_client(
     space: tuple[AsyncClient, str, str], app: FastAPI

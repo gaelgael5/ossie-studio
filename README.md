@@ -153,6 +153,20 @@ format, ignorés sinon ; le numéro suivant suit le plus grand du dépôt.
 qui remet son arbre, à publier : l'historique et les versions suivantes
 restent, rien n'est réécrit.
 
+**Diagramme « réseau ferroviaire »** : une vue plan-de-métro de l'histoire du
+dépôt — chaque branche est une **ligne** (couleur **et** forme, lisible en
+daltonisme), les commits des **arrêts**, les versions des **gares** (numéro +
+libellé), la création d'une branche un **aiguillage**, une fusion une
+**jonction**. Le **placement des voies est calculé côté serveur** (module pur,
+déterministe, testé sans navigateur) à partir des données git ; le navigateur
+ne fait que dessiner un SVG. Seules les branches de travail de l'espace et la
+racine sont tracées ; une branche supprimée sur la forge n'est plus une ligne,
+mais ses commits restés accessibles demeurent visibles. Survol pour le détail,
+clic sur une gare pour sélectionner la version, filtre « versions seulement »,
+arrêts non publiés en pointillé, et chargement « plus ancien » (≈ 200 commits à
+la fois). La liste des versions sert d'équivalent accessible (clavier, lecteur
+d'écran).
+
 ## Tests et qualité
 
 ```bash

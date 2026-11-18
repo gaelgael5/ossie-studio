@@ -158,6 +158,16 @@ export const fr = {
     versionAlreadyExists: 'Version {{number}} : déjà enregistrée (même état, même libellé).',
     versionRestored: 'Retour à la version {{number}} préparé : un commit est à publier.',
     versionAlreadyCurrent: 'Déjà à la version {{number}}.',
+    railmapTitle: 'Diagramme des versions',
+    railmapIntro:
+      'L’histoire du dépôt façon réseau ferroviaire : chaque branche est une ligne, les commits des arrêts, les versions des gares. Survol pour le détail ; clic sur une gare pour sélectionner la version.',
+    railmapAria: 'Diagramme des branches et versions du dépôt',
+    railStation: 'Version {{number}} — {{label}}',
+    versionsOnly: 'Versions seulement',
+    showAll: 'Tout afficher',
+    loadOlder: 'Plus ancien',
+    noVersionsYet: 'Aucune version enregistrée pour l’instant.',
+    kindRoot: 'racine',
     rights: {
       read_fetch: 'lire et récupérer',
       create_branch: 'créer une branche',

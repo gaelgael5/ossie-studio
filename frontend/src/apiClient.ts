@@ -48,6 +48,48 @@ export interface GitSpace {
   last_probe_at: string | null
 }
 
+export interface RailLine {
+  ref: string
+  name: string
+  slug: string
+  kind: string
+  lane: number
+  shape: string
+}
+export interface RailNode {
+  sha: string
+  short: string
+  lane: number
+  row: number
+  kind: 'commit' | 'version' | 'unpublished'
+  subject: string
+  author: string
+  date: string
+  is_switch: boolean
+  is_merge: boolean
+  number: number | null
+  label: string | null
+  version_author: string | null
+}
+export interface RailEdge {
+  child: string
+  parent: string
+  from_lane: number
+  to_lane: number
+  from_row: number
+  to_row: number | null
+  kind: 'normal' | 'switch' | 'merge'
+}
+export interface RailMapData {
+  lines: RailLine[]
+  nodes: RailNode[]
+  edges: RailEdge[]
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setup: (email: string, password: string) =>
@@ -131,6 +173,8 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/versions/${number}/restore`,
       { method: 'POST' },
     ),
+  getRailmap: (spaceId: string, limit: number) =>
+    apiFetch<RailMapData>(`/api/spaces/${spaceId}/railmap?limit=${limit}`),
   createSpace: (body: { name: string; connection_id: string; repo_url: string }) =>
     apiFetch<GitSpace & { probe: unknown }>('/api/spaces', {
       method: 'POST',

@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { RailMap } from '../components/RailMap'
 
 export function SpaceDetailPage() {
   const { t, i18n } = useTranslation()
@@ -15,6 +16,8 @@ export function SpaceDetailPage() {
   const [baseLabel, setBaseLabel] = useState('')
   const [childLabel, setChildLabel] = useState('')
   const [versionLabel, setVersionLabel] = useState('')
+  const [railLimit, setRailLimit] = useState(200)
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
 
   const branches = useQuery({
     queryKey: ['branches', spaceId],
@@ -105,6 +108,13 @@ export function SpaceDetailPage() {
       await refreshVersionArea()
     },
     onError,
+  })
+
+  const hasBranches = (branches.data?.branches.length ?? 0) > 0
+  const railmap = useQuery({
+    queryKey: ['railmap', spaceId, railLimit],
+    queryFn: () => api.getRailmap(spaceId, railLimit),
+    enabled: hasBranches,
   })
 
   const data = branches.data
@@ -241,7 +251,14 @@ export function SpaceDetailPage() {
                   </thead>
                   <tbody>
                     {versionList.map((v) => (
-                      <tr key={v.number}>
+                      <tr
+                        key={v.number}
+                        style={
+                          selectedVersion === v.number
+                            ? { outline: '2px solid currentColor' }
+                            : undefined
+                        }
+                      >
                         <td>{v.number}</td>
                         <td>{v.label}</td>
                         <td>
@@ -270,6 +287,20 @@ export function SpaceDetailPage() {
               ) : (
                 <p>{t('noVersions')}</p>
               )}
+            </section>
+          ) : null}
+
+          {railmap.data && railmap.data.lines ? (
+            <section style={{ marginTop: 24 }}>
+              <h2>{t('railmapTitle')}</h2>
+              <p>{t('railmapIntro')}</p>
+              <RailMap
+                data={railmap.data}
+                selected={selectedVersion}
+                onSelectVersion={setSelectedVersion}
+                onLoadOlder={() => setRailLimit((n) => n + 200)}
+                formatDate={formatDate}
+              />
             </section>
           ) : null}
         </>

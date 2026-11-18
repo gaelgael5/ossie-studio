@@ -16,8 +16,19 @@ from ossie_studio.spaces.gitcli import (
     run_git,
     write_askpass,
 )
+from ossie_studio.spaces.railmap import (
+    BranchInput,
+    CommitInput,
+    RailMap,
+    VersionAt,
+    build_railmap,
+)
 
 log = structlog.get_logger(__name__)
+
+# Borne de l'historique chargé pour le diagramme : au-delà, on s'arrête (les
+# arêtes vers des parents plus anciens deviennent des amorces « plus bas »).
+_RAILMAP_CAP = 5000
 
 WORK_PREFIX = "work/"
 _SPACE_DESCRIPTION = "ossie-space.yaml"
@@ -528,6 +539,129 @@ class WorkdirManager:
                 author=author_name,
             )
             return VersionRestored(number, label, already_current=False, created=True)
+
+    async def _sha(self, workdir: Path, ref: str, env: dict[str, str]) -> str | None:
+        code, out, _ = await run_git(["rev-parse", "--verify", "--quiet", ref], workdir, env)
+        return out.strip() if code == 0 and out.strip() else None
+
+    async def railmap(
+        self,
+        space_id: uuid.UUID,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        branches: list[tuple[str, str]],
+        viewed_slug: str | None,
+        *,
+        offset: int = 0,
+        limit: int = 200,
+    ) -> RailMap:
+        """Rassemble les données git (commits, têtes, tags de version, commits
+        non publiés de la branche regardée) et délègue le placement au module
+        pur `railmap`. `branches` : (slug, kind) des branches de l'espace, dans
+        un ordre stable."""
+        # La branche regardée fournit ses commits locaux non publiés ; sinon un
+        # répertoire dédié à l'espace suffit.
+        key = viewed_slug or "_map"
+        workdir = self._dir(space_id, key)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            await run_git(["fetch", "-q", "origin", _VERSION_FETCH_REFSPEC], workdir, env)
+            default = await self._default_branch(workdir, env)
+
+            root_sha = await self._sha(workdir, f"refs/remotes/origin/{default}", env)
+            branch_inputs: list[BranchInput] = []
+            if root_sha is not None:
+                branch_inputs.append(
+                    BranchInput(f"origin/{default}", default, "", "root", root_sha)
+                )
+            tips: list[str] = [root_sha] if root_sha else []
+            unpublished: list[str] = []
+            for slug, kind in branches:
+                ref = f"{WORK_PREFIX}{slug}"
+                origin_sha = await self._sha(workdir, f"refs/remotes/origin/{ref}", env)
+                tip = origin_sha
+                if slug == viewed_slug:
+                    local_sha = await self._sha(workdir, f"refs/heads/{ref}", env)
+                    if local_sha is not None:
+                        tip = local_sha
+                        if origin_sha is not None and origin_sha != local_sha:
+                            _, out, _ = await run_git(
+                                ["rev-list", f"origin/{ref}..{ref}"], workdir, env
+                            )
+                            unpublished = [line for line in out.split() if line]
+                if tip is None:
+                    # Branche supprimée sur la forge : pas de ligne vivante.
+                    continue
+                branch_inputs.append(BranchInput(ref, slug, slug, kind, tip))
+                tips.append(tip)
+
+            commits = await self._railmap_commits(workdir, tips, env)
+            versions = self._railmap_versions(
+                await self._railmap_tag_lines(workdir, env), {c.sha for c in commits}
+            )
+            return build_railmap(
+                commits, branch_inputs, versions, unpublished, offset=offset, limit=limit
+            )
+
+    async def _railmap_commits(
+        self, workdir: Path, tips: list[str], env: dict[str, str]
+    ) -> list[CommitInput]:
+        unique = list(dict.fromkeys(tips))
+        if not unique:
+            return []
+        fmt = _UNIT_SEP.join(["%H", "%P", "%an", "%aI", "%ct", "%s"])
+        code, out, err = await run_git(
+            ["log", "--topo-order", "-n", str(_RAILMAP_CAP), f"--format={fmt}", *unique],
+            workdir,
+            env,
+        )
+        if code != 0:
+            raise WorkdirError(_access_code(classify(err)))
+        commits: list[CommitInput] = []
+        for line in out.splitlines():
+            if not line:
+                continue
+            fields = line.split(_UNIT_SEP)
+            if len(fields) != 6:
+                continue
+            sha, parents, author, date, ts, subject = fields
+            commits.append(
+                CommitInput(
+                    sha=sha,
+                    parents=tuple(parents.split()),
+                    author=author,
+                    date=date,
+                    timestamp=int(ts) if ts.isdigit() else 0,
+                    subject=subject,
+                )
+            )
+        return commits
+
+    async def _railmap_tag_lines(self, workdir: Path, env: dict[str, str]) -> str:
+        fmt = _UNIT_SEP.join(
+            ["%(refname:strip=2)", "%(*objectname)", "%(taggername)", "%(contents:subject)"]
+        )
+        _, out, _ = await run_git(
+            ["for-each-ref", f"--format={fmt}", f"refs/tags/{_VERSION_PREFIX}*"], workdir, env
+        )
+        return out
+
+    def _railmap_versions(self, tag_lines: str, known: set[str]) -> list[VersionAt]:
+        versions: list[VersionAt] = []
+        for line in tag_lines.splitlines():
+            if not line.strip():
+                continue
+            fields = line.split(_UNIT_SEP)
+            if len(fields) != 4:
+                continue
+            name, commit, tagger, subject = fields
+            match = _VERSION_RE.match(name)
+            if not match or not commit or commit not in known:
+                continue
+            versions.append(VersionAt(commit, int(match.group(1)), subject, tagger))
+        return versions
 
     def _pose_initial_tree(self, workdir: Path) -> None:
         # Pose l'arborescence attendue si elle manque ; ne touche jamais à

@@ -157,6 +157,16 @@ export const en = {
     versionAlreadyExists: 'Version {{number}}: already saved (same state, same label).',
     versionRestored: 'Return to version {{number}} prepared: a commit is to be published.',
     versionAlreadyCurrent: 'Already at version {{number}}.',
+    railmapTitle: 'Versions diagram',
+    railmapIntro:
+      'The repository history as a transit map: each branch is a line, commits are stops, versions are stations. Hover for details; click a station to select the version.',
+    railmapAria: 'Diagram of the repository branches and versions',
+    railStation: 'Version {{number}} — {{label}}',
+    versionsOnly: 'Versions only',
+    showAll: 'Show all',
+    loadOlder: 'Older',
+    noVersionsYet: 'No version saved yet.',
+    kindRoot: 'root',
     rights: {
       read_fetch: 'read and fetch',
       create_branch: 'create a branch',
