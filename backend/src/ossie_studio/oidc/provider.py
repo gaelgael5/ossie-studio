@@ -167,8 +167,10 @@ async def validate_id_token(
 
 def _extract_claims(raw: dict[str, object]) -> VerifiedClaims:
     email = raw.get("email")
+    name = raw.get("name") or raw.get("preferred_username")
     return VerifiedClaims(
         subject=str(raw["sub"]),
         email=email if isinstance(email, str) and email else None,
         email_verified=raw.get("email_verified") is True,
+        name=name if isinstance(name, str) and name.strip() else None,
     )

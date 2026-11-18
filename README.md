@@ -114,6 +114,18 @@ l'Administrateur) — un annuaire ouvert ne donne ainsi aucun droit d'office ;
 l'administrateur choisit ensuite. Changer le profil par défaut ne touche pas
 les comptes existants, et le profil marqué ne se supprime pas.
 
+La page **Utilisateurs** (capacité « Utilisateurs : consulter ») liste les
+comptes **déjà connus** (ceux qui se sont connectés, plus le premier
+administrateur ; l'application n'interroge jamais l'annuaire de l'IdP). On
+**cherche par nom ou email** (insensible à la casse et aux accents, via une clé
+de recherche normalisée, sans extension Postgres), on **filtre par profil**
+(lien depuis la page Profils), et on **assigne un profil** (capacité
+« Utilisateurs : modifier ») — effectif dès la requête suivante de la personne.
+Le nom d'affichage et la date de dernière connexion viennent des connexions
+(nom capté des claims OIDC). **Anti-verrouillage** : retirer le profil
+Administrateur au dernier administrateur actif est refusé. Chaque assignation
+est journalisée (auteur, utilisateur, ancien et nouveau profil).
+
 **Le serveur fait foi** : chaque route vérifie la capacité qu'elle demande
 (403 sinon), les droits **relus à chaque requête** (un changement de profil vaut
 dès la requête suivante, sans reconnexion). L'écran masque ce qu'on ne peut pas

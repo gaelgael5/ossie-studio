@@ -126,6 +126,7 @@ export function ProfilesPage() {
                   <button type="button" onClick={() => duplicate.mutate(profile.id)}>
                     {t('duplicateProfile')}
                   </button>{' '}
+                  <Link to={`/users?profile=${profile.id}`}>{t('viewUsers')}</Link>{' '}
                   {!profile.is_admin && !profile.is_default ? (
                     <button type="button" onClick={() => setDefault.mutate(profile.id)}>
                       {t('setDefault')}

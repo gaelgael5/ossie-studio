@@ -14,3 +14,4 @@ class VerifiedClaims:
     subject: str
     email: str | None
     email_verified: bool
+    name: str | None = None

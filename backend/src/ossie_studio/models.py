@@ -19,6 +19,8 @@ class User:
     is_bootstrap: bool
     created_at: datetime
     profile_id: uuid.UUID | None = None
+    display_name: str = ""
+    last_login_at: datetime | None = None
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> User:
@@ -30,6 +32,8 @@ class User:
             is_bootstrap=row["is_bootstrap"],
             created_at=row["created_at"],
             profile_id=row["profile_id"] if "profile_id" in row else None,
+            display_name=row["display_name"] if "display_name" in row else "",
+            last_login_at=row["last_login_at"] if "last_login_at" in row else None,
         )
 
 

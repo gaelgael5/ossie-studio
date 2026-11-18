@@ -8,6 +8,7 @@ import structlog
 from ossie_studio.models import ROLE_USER, OidcConnector
 from ossie_studio.oidc.claims import VerifiedClaims
 from ossie_studio.oidc.linking import LinkDecision, LinkOutcome, decide_link
+from ossie_studio.users.service import db_touch_login, search_key
 
 log = structlog.get_logger(__name__)
 
@@ -97,7 +98,10 @@ async def resolve_federated_login(
         await _db_pin_identity(conn, decision.user_id, issuer, claims.subject)
     elif decision.outcome is LinkOutcome.CREATED_NEW:
         new_id = await _db_provision_user(conn, issuer, claims)
+        await db_touch_login(conn, new_id)
         return LinkDecision(LinkOutcome.CREATED_NEW, new_id)
+    if decision.outcome is LinkOutcome.LINKED_EXISTING and decision.user_id is not None:
+        await db_touch_login(conn, decision.user_id)
     return decision
 
 
@@ -120,12 +124,17 @@ async def _db_provision_user(
     async with conn.transaction():
         # Un compte créé à la première connexion reçoit le profil par défaut
         # (« Sans accès » à l'installation). Le rattachement d'un compte existant
-        # garde son profil (il ne passe pas par ici).
+        # garde son profil (il ne passe pas par ici). Le nom d'affichage vient
+        # des claims OIDC (s'il y en a un).
+        display_name = (claims.name or "").strip()
         user_id = await conn.fetchval(
-            "INSERT INTO users (email, password_hash, role, profile_id) "
-            "VALUES ($1, NULL, $2, (SELECT id FROM profiles WHERE is_default)) RETURNING id",
+            "INSERT INTO users (email, password_hash, role, profile_id, display_name, search_key) "
+            "VALUES ($1, NULL, $2, (SELECT id FROM profiles WHERE is_default), $3, $4) "
+            "RETURNING id",
             claims.email,
             ROLE_USER,
+            display_name,
+            search_key(display_name, claims.email),
         )
         await conn.execute(
             "INSERT INTO user_identities (user_id, issuer, subject) VALUES ($1, $2, $3)",

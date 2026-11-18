@@ -435,3 +435,40 @@ test('profils : grille des capacités, admin verrouillé, création', async () =
   await userEvent.click(screen.getByRole('button', { name: 'Créer le profil' }))
   await waitFor(() => expect(screen.getByLabelText('Nom du profil')).toHaveValue(''))
 })
+
+test('utilisateurs : liste, recherche et assignation de profil', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
+      },
+    },
+    '/api/profiles': {
+      body: {
+        profiles: [
+          { id: 'p1', name: 'Lecteur', description: '', capabilities: ['secrets:read'], is_admin: false, is_default: false, user_count: 1 },
+        ],
+        catalog: [],
+      },
+    },
+    '/api/users?q=&profile_id=&limit=50&offset=0': {
+      body: {
+        users: [
+          { id: 'u1', email: 'jose@example.org', display_name: 'José Pérez', is_oidc: true, last_login_at: '2026-01-02T00:00:00Z', profile_id: 'p1', profile_name: 'Lecteur' },
+        ],
+        total: 1,
+      },
+    },
+    'PUT /api/users/u1/profile': { body: { ok: true } },
+  })
+  renderAt('/users')
+  await screen.findByText('Utilisateurs')
+  await waitFor(() => expect(screen.getByText(/José Pérez — jose@example.org/)).toBeInTheDocument())
+  expect(screen.getByLabelText('Rechercher (nom ou email)')).toBeInTheDocument()
+  // La fiche propose d'assigner un profil (select avec le profil Lecteur).
+  expect(screen.getAllByRole('option', { name: 'Lecteur' }).length).toBeGreaterThan(0)
+})

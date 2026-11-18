@@ -246,6 +246,25 @@ export const en = {
     selectScheme: 'Manage',
     colShort: 'Short',
 
+    manageUsers: 'Users',
+    usersTitle: 'Users',
+    usersIntro:
+      'The accounts known to the application (those who have signed in). Search by name or email and assign a profile. A change takes effect on the person’s next request.',
+    userSearchLabel: 'Search (name or email)',
+    userProfileFilterLabel: 'Filter by profile',
+    allProfiles: 'All profiles',
+    colName: 'Name / email',
+    colType: 'Account',
+    colLastLogin: 'Last login',
+    colProfile: 'Profile',
+    accountOidc: 'OIDC',
+    accountLocal: 'Local',
+    previous: 'Previous',
+    next: 'Next',
+    usersTotal: '{{count}} user(s)',
+    noUsers: 'No user.',
+    viewUsers: 'View users',
+
     manageProfiles: 'Profiles',
     profilesTitle: 'Profiles',
     profilesIntro:
@@ -408,6 +427,9 @@ export const en = {
       profile_in_use: 'Profile assigned to {{count}} user(s): remove it from them first.',
       profile_admin_default: 'The Administrator profile cannot be the default profile.',
       profile_default_protected: 'The default profile cannot be deleted.',
+      user_not_found: 'User not found.',
+      admin_lockout:
+        'Not possible: this would remove the Administrator profile from the last active administrator.',
     },
   },
 }

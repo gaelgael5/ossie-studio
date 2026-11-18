@@ -32,6 +32,7 @@ export function HomePage({
     ['governance:read', '/governance/certifications', 'manageCertifications'],
     ['governance:read', '/governance/classifications', 'manageClassifications'],
     ['profiles:read', '/profiles', 'manageProfiles'],
+    ['users:read', '/users', 'manageUsers'],
   ]
   const visible = links.filter(([capability]) => can(capability))
 

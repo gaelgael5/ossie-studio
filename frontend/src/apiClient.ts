@@ -37,6 +37,16 @@ export interface CapabilityDomain {
   capabilities: string[]
 }
 
+export interface UserItem {
+  id: string
+  email: string
+  display_name: string
+  is_oidc: boolean
+  last_login_at: string | null
+  profile_id: string | null
+  profile_name: string | null
+}
+
 export interface Connection {
   id: string
   label: string
@@ -369,6 +379,16 @@ export const api = {
   setDefaultProfile: (id: string) =>
     apiFetch<ProfileItem>(`/api/profiles/${id}/default`, { method: 'POST' }),
   deleteProfile: (id: string) => apiFetch(`/api/profiles/${id}`, { method: 'DELETE' }),
+
+  searchUsers: (q: string, profileId: string, limit: number, offset: number) => {
+    const p = new URLSearchParams({ q, profile_id: profileId, limit: String(limit), offset: String(offset) })
+    return apiFetch<{ users: UserItem[]; total: number }>(`/api/users?${p.toString()}`)
+  },
+  assignUserProfile: (userId: string, profileId: string) =>
+    apiFetch<{ ok: boolean }>(`/api/users/${userId}/profile`, {
+      method: 'PUT',
+      body: JSON.stringify({ profile_id: profileId }),
+    }),
 
   listConnectors: () =>
     apiFetch<{

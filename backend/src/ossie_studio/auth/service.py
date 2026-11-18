@@ -12,6 +12,7 @@ from ossie_studio.security import (
     verify_password,
     waste_time_like_a_verification,
 )
+from ossie_studio.users.service import db_touch_login, search_key
 
 log = structlog.get_logger(__name__)
 
@@ -47,11 +48,14 @@ async def db_create_bootstrap_admin(
     """
     try:
         row = await conn.fetchrow(
-            "INSERT INTO users (email, password_hash, role, is_bootstrap, profile_id) "
-            "VALUES ($1, $2, $3, true, (SELECT id FROM profiles WHERE is_admin)) RETURNING *",
+            "INSERT INTO users "
+            "(email, password_hash, role, is_bootstrap, profile_id, search_key, last_login_at) "
+            "VALUES ($1, $2, $3, true, (SELECT id FROM profiles WHERE is_admin), $4, now()) "
+            "RETURNING *",
             email,
             password_hash,
             ROLE_ADMIN,
+            search_key("", email),
         )
     except asyncpg.UniqueViolationError as exc:
         raise BootstrapConflictError from exc
@@ -74,4 +78,5 @@ async def resolve_login(conn: asyncpg.Connection, email: str, password: str) -> 
         return None
     if not await asyncio.to_thread(verify_password, user.password_hash, password):
         return None
+    await db_touch_login(conn, user.id)
     return user

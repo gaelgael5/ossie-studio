@@ -247,6 +247,25 @@ export const fr = {
     selectScheme: 'Gérer',
     colShort: 'Court',
 
+    manageUsers: 'Utilisateurs',
+    usersTitle: 'Utilisateurs',
+    usersIntro:
+      'Les comptes connus de l’application (ceux qui se sont déjà connectés). On cherche par nom ou email et on assigne un profil. Un changement vaut dès la requête suivante de la personne.',
+    userSearchLabel: 'Rechercher (nom ou email)',
+    userProfileFilterLabel: 'Filtrer par profil',
+    allProfiles: 'Tous les profils',
+    colName: 'Nom / email',
+    colType: 'Compte',
+    colLastLogin: 'Dernière connexion',
+    colProfile: 'Profil',
+    accountOidc: 'OIDC',
+    accountLocal: 'Local',
+    previous: 'Précédent',
+    next: 'Suivant',
+    usersTotal: '{{count}} utilisateur(s)',
+    noUsers: 'Aucun utilisateur.',
+    viewUsers: 'Voir les utilisateurs',
+
     manageProfiles: 'Profils',
     profilesTitle: 'Profils',
     profilesIntro:
@@ -410,6 +429,9 @@ export const fr = {
       profile_in_use: 'Profil assigné à {{count}} utilisateur(s) : retirez-le-leur d’abord.',
       profile_admin_default: 'Le profil Administrateur ne peut pas être le profil par défaut.',
       profile_default_protected: 'Le profil par défaut ne peut pas être supprimé.',
+      user_not_found: 'Utilisateur introuvable.',
+      admin_lockout:
+        'Impossible : ce serait retirer le profil Administrateur au dernier administrateur actif.',
     },
   },
 }

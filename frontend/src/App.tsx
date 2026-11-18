@@ -14,6 +14,7 @@ import { GovernanceTagsPage } from './pages/GovernanceTagsPage'
 import { GovernanceCertificationsPage } from './pages/GovernanceCertificationsPage'
 import { GovernanceClassificationsPage } from './pages/GovernanceClassificationsPage'
 import { ProfilesPage } from './pages/ProfilesPage'
+import { UsersPage } from './pages/UsersPage'
 import { StatusPage } from './StatusPage'
 
 export function App() {
@@ -82,6 +83,7 @@ export function App() {
           element={gate('governance:read', <GovernanceClassificationsPage />)}
         />
         <Route path="/profiles" element={gate('profiles:read', <ProfilesPage />)} />
+        <Route path="/users" element={gate('users:read', <UsersPage />)} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
