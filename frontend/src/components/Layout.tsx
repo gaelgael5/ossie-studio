@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../apiClient'
 import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
+import { useWorkspace } from '../workspace'
 
 /** Un item du menu principal. `to` absent = module pas encore construit. */
 interface NavItem {
@@ -18,7 +19,7 @@ interface NavItem {
 // encore d'écran : ils restent visibles mais désactivés (honnête).
 const MAIN_NAV: NavItem[] = [
   { key: 'navSpaces', to: '/spaces', capability: 'spaces:read', prefix: '/spaces' },
-  { key: 'navSources', prefix: '/sources' },
+  { key: 'navSources', to: '/sources', capability: 'sources:read', prefix: '/sources' },
   { key: 'navCuration', prefix: '/curation' },
   { key: 'navGovernance', to: '/governance/tags', capability: 'governance:read', prefix: '/governance' },
 ]
@@ -58,6 +59,55 @@ export function Layout({ children }: { children: ReactNode }) {
       <AppNav userEmail={user.email} can={can} />
       <div className="page">{children}</div>
     </div>
+  )
+}
+
+function WorkspaceChips() {
+  const { t } = useTranslation()
+  const ws = useWorkspace()
+  if (ws.spaces.length === 0) {
+    return (
+      <>
+        <span className="ctx-chip" aria-disabled="true" title={t('navNoSpace')}>
+          {t('navSpaceLabel')}
+          {' : —'}
+        </span>
+        <span className="ctx-chip" aria-disabled="true" title={t('navNoSpace')}>
+          {t('navBranchLabel')}
+          {' : —'}
+        </span>
+      </>
+    )
+  }
+  return (
+    <>
+      <select
+        className="ctx-select"
+        aria-label={t('navSpaceLabel')}
+        value={ws.spaceId ?? ''}
+        onChange={(e) => ws.setSpace(e.target.value)}
+      >
+        {ws.spaces.map((s) => (
+          <option key={s.id} value={s.id}>
+            {`${t('navSpaceLabel')} : ${s.name}`}
+          </option>
+        ))}
+      </select>
+      <select
+        className="ctx-select"
+        aria-label={t('navBranchLabel')}
+        value={ws.branchId ?? ''}
+        onChange={(e) => ws.setBranch(e.target.value)}
+        disabled={ws.branches.length === 0}
+      >
+        {ws.branches.length === 0 ? <option value="">{`${t('navBranchLabel')} : —`}</option> : null}
+        {ws.branches.map((b) => (
+          <option key={b.id} value={b.id}>
+            {`${t('navBranchLabel')} : ${b.label}`}
+          </option>
+        ))}
+      </select>
+    </>
   )
 }
 
@@ -159,16 +209,7 @@ function AppNav({
         ) : null}
       </div>
       <div className="topnav-right">
-        {/* Contexte espace/branche : présent comme dans la maquette, mais pas
-            encore fonctionnel (il s'activera avec les espaces et la Curation). */}
-        <span className="ctx-chip" aria-disabled="true" title={t('navContextSoon')}>
-          {t('navSpaceLabel')}
-          {' : —'}
-        </span>
-        <span className="ctx-chip" aria-disabled="true" title={t('navContextSoon')}>
-          {t('navBranchLabel')}
-          {' : —'}
-        </span>
+        <WorkspaceChips />
         <LanguageSelector />
         <div className="topnav-dropdown" ref={userRef}>
           <button

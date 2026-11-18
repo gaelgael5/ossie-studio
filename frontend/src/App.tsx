@@ -16,11 +16,21 @@ import { GovernanceTagsPage } from './pages/GovernanceTagsPage'
 import { GovernanceCertificationsPage } from './pages/GovernanceCertificationsPage'
 import { GovernanceClassificationsPage } from './pages/GovernanceClassificationsPage'
 import { GovernanceInvalidValuesPage } from './pages/GovernanceInvalidValuesPage'
+import { SourcesPage } from './pages/SourcesPage'
+import { WorkspaceProvider } from './workspace'
 import { ProfilesPage } from './pages/ProfilesPage'
 import { UsersPage } from './pages/UsersPage'
 import { StatusPage } from './StatusPage'
 
 export function App() {
+  return (
+    <WorkspaceProvider>
+      <AppRoutes />
+    </WorkspaceProvider>
+  )
+}
+
+function AppRoutes() {
   const { t, i18n } = useTranslation()
   const session = useSession()
 
@@ -86,6 +96,7 @@ export function App() {
             )
           }
         />
+        <Route path="/sources" element={gate('sources:read', <SourcesPage />)} />
         <Route path="/secrets" element={gate('secrets:read', <SecretsPage />)} />
         <Route path="/oidc/connectors" element={gate('oidc:read', <ConnectorsPage />)} />
         <Route path="/forges" element={gate('connections:read', <ForgesPage />)} />

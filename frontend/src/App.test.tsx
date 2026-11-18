@@ -11,6 +11,7 @@ const ADMIN_CAPS = [
   'oidc:read', 'oidc:write', 'spaces:read', 'spaces:create', 'spaces:branch',
   'spaces:publish', 'spaces:version', 'governance:read', 'governance:write',
   'governance:certify', 'profiles:read', 'profiles:write', 'users:read', 'users:write',
+  'sources:read', 'sources:declare',
 ]
 
 interface MockRoutes {
@@ -603,4 +604,59 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
   await waitFor(() => expect(screen.getByText('Découverte OK')).toBeInTheDocument())
   expect(screen.getByText(/URL de retour à déclarer/)).toBeInTheDocument()
   expect(screen.getByText('http://test/auth/oidc/callback')).toBeInTheDocument()
+})
+
+test('sources : liste les sources déclarées de la branche regardée', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
+      },
+    },
+    '/api/spaces': {
+      body: {
+        spaces: [
+          {
+            id: 'sp1',
+            name: 'modele',
+            connection_id: 'c1',
+            repo_url: '',
+            last_probe_status: 'valid',
+            last_probe_at: null,
+          },
+        ],
+      },
+    },
+    '/api/spaces/sp1/branches': {
+      body: {
+        branches: [
+          { id: 'br1', label: 'Principale', slug: 'principale', kind: 'base', git_ref: 'work/principale' },
+        ],
+        viewed_branch_id: 'br1',
+      },
+    },
+    '/api/spaces/sp1/branches/br1/sources': {
+      body: {
+        sources: [
+          {
+            slug: 'api-boutique',
+            ok: true,
+            label: 'API boutique',
+            type: 'git',
+            connexion: { id: 'c1', label: 'GitHub', kind: 'forge', forge: 'github' },
+            parametres: { depot: 'org/api', branche: 'main', repertoires: ['src'] },
+          },
+        ],
+      },
+    },
+  })
+  renderAt('/sources')
+  await screen.findByText('Sources déclarées')
+  await waitFor(() => expect(screen.getByText('API boutique')).toBeInTheDocument())
+  // Le sélecteur d'espace de l'en-tête est fonctionnel.
+  expect(screen.getByRole('option', { name: 'Espace : modele' })).toBeInTheDocument()
 })

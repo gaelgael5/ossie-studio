@@ -152,6 +152,30 @@ export interface GitSpace {
   last_probe_at: string | null
 }
 
+export interface SourceConnectionRef {
+  id: string
+  label?: string
+  kind: string
+  forge?: string
+  engine?: string
+}
+export interface SourceItem {
+  slug: string
+  ok: boolean
+  label?: string
+  type?: string
+  connexion?: SourceConnectionRef
+  parametres?: Record<string, unknown>
+  error?: string
+}
+export interface SourceInput {
+  slug: string
+  label: string
+  type: string
+  connexion: string
+  parametres: Record<string, unknown>
+}
+
 export interface RailLine {
   ref: string
   name: string
@@ -377,6 +401,33 @@ export const api = {
     apiFetch(`/api/spaces/${spaceId}/branches/viewed`, {
       method: 'PUT',
       body: JSON.stringify({ branch_id: branchId }),
+    }),
+  listConnectionBranches: (id: string, repo: string) =>
+    apiFetch<{ branches: string[] }>(
+      `/api/connections/${id}/branches?repo=${encodeURIComponent(repo)}`,
+    ),
+  listSources: (spaceId: string, branchId: string) =>
+    apiFetch<{ sources: SourceItem[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources`,
+    ),
+  declareSource: (spaceId: string, branchId: string, body: SourceInput) =>
+    apiFetch<SourceItem>(`/api/spaces/${spaceId}/branches/${branchId}/sources`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateSource: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    body: Omit<SourceInput, 'slug' | 'type'>,
+  ) =>
+    apiFetch<SourceItem>(`/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteSource: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch(`/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}`, {
+      method: 'DELETE',
     }),
   listUnpublished: (spaceId: string, branchId: string) =>
     apiFetch<{

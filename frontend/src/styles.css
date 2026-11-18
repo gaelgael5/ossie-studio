@@ -129,6 +129,22 @@ a {
   opacity: 0.65;
 }
 
+.ctx-select {
+  background: var(--nav-chip-bg);
+  color: var(--nav-chip-fg);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 0.85rem;
+  max-width: 240px;
+  cursor: pointer;
+}
+.ctx-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .topnav-user {
   color: #fff;
   font-size: 0.9rem;
