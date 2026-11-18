@@ -361,15 +361,17 @@ test('gouvernance tags : liste, filtre et création', async () => {
   })
   renderAt('/governance/tags')
   await screen.findByText('Gouvernance › Tags')
-  await waitFor(() => expect(screen.getByText('gouvernance/pii')).toBeInTheDocument())
+  // L'arbre liste le tag géré (feuille « pii » sous le groupe « gouvernance »).
+  await waitFor(() => expect(screen.getByText('pii')).toBeInTheDocument())
   // Filtre par préfixe : un préfixe qui ne matche pas vide la liste.
   await userEvent.type(screen.getByLabelText('Filtrer par préfixe'), 'reseau')
   await waitFor(() => expect(screen.getByText('Aucun tag géré.')).toBeInTheDocument())
-  // Création : après succès, le champ identifiant se réinitialise.
   await userEvent.clear(screen.getByLabelText('Filtrer par préfixe'))
+  // Création : « + Nouveau tag » ouvre le formulaire ; au succès il se referme.
+  await userEvent.click(screen.getByRole('button', { name: '+ Nouveau tag' }))
   await userEvent.type(screen.getByLabelText(/Identifiant/), 'Gouvernance/RGPD')
   await userEvent.click(screen.getByRole('button', { name: 'Créer le tag' }))
-  await waitFor(() => expect(screen.getByLabelText(/Identifiant/)).toHaveValue(''))
+  await waitFor(() => expect(screen.queryByLabelText(/Identifiant/)).not.toBeInTheDocument())
 })
 
 test('gouvernance certifications : liste et presets', async () => {
@@ -393,9 +395,11 @@ test('gouvernance certifications : liste et presets', async () => {
   })
   renderAt('/governance/certifications')
   await screen.findByText('Gouvernance › Certifications')
-  expect(screen.getByRole('button', { name: /niveaux par défaut/ })).toBeInTheDocument()
+  // La carte du niveau « Or » est listée (présente sur la carte et le badge d'aperçu).
+  await waitFor(() => expect(screen.getAllByText('🥇 Or').length).toBeGreaterThan(0))
+  // La sélectionner affiche son tag associé dans le détail.
+  await userEvent.click(screen.getAllByText('🥇 Or')[0])
   await waitFor(() => expect(screen.getByText('certification/or')).toBeInTheDocument())
-  expect(screen.getByText('🥇 Or')).toBeInTheDocument()
 })
 
 test('gouvernance classifications : schéma principal, presets et niveaux', async () => {
@@ -430,13 +434,14 @@ test('gouvernance classifications : schéma principal, presets et niveaux', asyn
   })
   renderAt('/governance/classifications')
   await screen.findByText('Gouvernance › Classifications')
-  // Un preset TLP est proposé, et le schéma principal est listé.
-  expect(screen.getByRole('button', { name: 'TLP 2.0' })).toBeInTheDocument()
-  await waitFor(() => expect(screen.getByText('classification')).toBeInTheDocument())
-  // Gérer le schéma montre ses niveaux.
-  await userEvent.click(screen.getByRole('button', { name: 'Gérer' }))
+  // Le schéma principal « Classification » est listé ; le sélectionner montre ses niveaux.
+  const schemeItem = await screen.findByRole('button', { name: /Classification/ })
+  await userEvent.click(schemeItem)
   await waitFor(() => expect(screen.getAllByText('Public').length).toBeGreaterThan(0))
-  expect(screen.getByText('PUB')).toBeInTheDocument()
+  expect(screen.getAllByText('PUB').length).toBeGreaterThan(0)
+  // Le menu « Ajouter un schéma » propose les presets, dont TLP 2.0.
+  await userEvent.click(screen.getByRole('button', { name: /Ajouter un schéma/ }))
+  await waitFor(() => expect(screen.getByRole('button', { name: /TLP 2.0/ })).toBeInTheDocument())
 })
 
 test('profils : grille des capacités, admin verrouillé, création', async () => {

@@ -1,0 +1,544 @@
+/*
+ * Socle visuel d'Ossie-studio : shell d'application (nav sombre, canvas large)
+ * et composants partagés par les pages Gouvernance. Les couleurs sont des
+ * tokens, repris des maquettes, pour rester cohérents d'une page à l'autre.
+ */
+:root {
+  --nav-bg: #0f1b2d;
+  --nav-fg: #aeb8c7;
+  --nav-fg-active: #ffffff;
+  --nav-accent: #5b7cfa;
+  --nav-chip-bg: #1c2a40;
+  --nav-chip-fg: #c7d0dd;
+
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --border: #e6e9ef;
+  --border-strong: #d4d9e2;
+  --text: #1b2430;
+  --muted: #6c7684;
+
+  --primary: #3b5bdb;
+  --primary-hover: #314fc4;
+  --primary-fg: #ffffff;
+  --danger: #e03131;
+  --danger-bg: #fdecec;
+  --warn-bg: #fdf6e3;
+  --warn-fg: #8a6d1a;
+  --warn-border: #f0e2bb;
+
+  --chip-bg: #e8edfd;
+  --chip-fg: #3449b5;
+
+  --radius: 14px;
+  --radius-sm: 8px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+a {
+  color: var(--primary);
+}
+
+/* ---------- Shell d'application ---------- */
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topnav {
+  background: var(--nav-bg);
+  color: var(--nav-fg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 24px;
+  min-height: 56px;
+  flex-wrap: wrap;
+}
+
+.topnav-brand {
+  font-weight: 700;
+  color: #fff;
+  font-size: 1.05rem;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+
+.topnav-menu {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.topnav-item {
+  color: var(--nav-fg);
+  text-decoration: none;
+  padding: 18px 14px;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  font: inherit;
+  cursor: pointer;
+}
+.topnav-item:hover {
+  color: var(--nav-fg-active);
+}
+.topnav-item.active {
+  color: var(--nav-fg-active);
+  border-bottom-color: var(--nav-accent);
+}
+.topnav-item[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.topnav-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ctx-chip {
+  background: var(--nav-chip-bg);
+  color: var(--nav-chip-fg);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.ctx-chip[aria-disabled="true"] {
+  opacity: 0.65;
+}
+
+.topnav-user {
+  color: #fff;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.topnav-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+.topnav-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  min-width: 200px;
+  padding: 6px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+}
+.topnav-dropdown-menu a {
+  color: var(--text);
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+.topnav-dropdown-menu a:hover {
+  background: var(--bg);
+}
+
+/* ---------- Page ---------- */
+.page {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+  flex: 1;
+}
+
+.page-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.breadcrumb {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+.page-title {
+  font-size: 1.9rem;
+  margin: 0;
+}
+.page-sub {
+  color: var(--muted);
+  margin: 4px 0 0;
+  max-width: 70ch;
+}
+.page-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ---------- Onglets ---------- */
+.tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--border);
+  margin: 20px 0 24px;
+  flex-wrap: wrap;
+}
+.tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+  padding: 10px 2px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: -1px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.tab:hover {
+  color: var(--text);
+}
+.tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+.tab-count {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 7px;
+}
+
+/* ---------- Boutons ---------- */
+.btn {
+  font: inherit;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 9px 16px;
+  cursor: pointer;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--text);
+  white-space: nowrap;
+}
+.btn:hover {
+  background: var(--bg);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-fg);
+}
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+.btn-danger {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--panel);
+}
+.btn-danger:hover {
+  background: var(--danger-bg);
+}
+.btn-sm {
+  padding: 5px 10px;
+  font-size: 0.85rem;
+}
+
+/* ---------- Panneaux / cartes ---------- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+.panel + .panel {
+  margin-top: 20px;
+}
+.panel-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+
+.master-detail {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 820px) {
+  .master-detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Arbre de tags ---------- */
+.tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tree-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+}
+.tree-item:hover {
+  background: var(--bg);
+}
+.tree-item.selected {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  font-weight: 600;
+}
+.tree-count {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+
+/* ---------- Chips / badges ---------- */
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tag-chip.unmanaged {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--border-strong);
+}
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  padding: 2px 9px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #fff;
+}
+.badge-prefix {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-right: 4px;
+}
+.pill {
+  display: inline-block;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+/* ---------- Cartes de certification ---------- */
+.card-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.cert-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  box-shadow: var(--shadow);
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  width: 100%;
+}
+.cert-card.selected {
+  border-color: #d9b84a;
+  box-shadow: 0 0 0 2px #f3e3a8;
+}
+.cert-rank {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ---------- Tableaux ---------- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.table th {
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---------- Bannières / états ---------- */
+.banner {
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  margin-top: 16px;
+  font-size: 0.92rem;
+}
+.banner-danger {
+  background: var(--danger-bg);
+  color: #b42318;
+}
+.banner-warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border: 1px solid var(--warn-border);
+}
+.empty-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+  background: var(--bg);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+}
+.info-note {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  font-size: 0.88rem;
+}
+
+/* ---------- Formulaires ---------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+.field-hint {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.input,
+.textarea,
+.select {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  color: var(--text);
+  width: 100%;
+}
+.input:disabled {
+  background: var(--bg);
+  color: var(--muted);
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.mono {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+.muted {
+  color: var(--muted);
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Barre haute minimale (avant connexion) */
+.topbar-plain {
+  background: var(--nav-bg);
+  color: #fff;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 24px;
+}

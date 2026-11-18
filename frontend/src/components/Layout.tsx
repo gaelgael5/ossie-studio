@@ -1,16 +1,204 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../apiClient'
+import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
+
+/** Un item du menu principal. `to` absent = module pas encore construit. */
+interface NavItem {
+  key: string
+  to?: string
+  capability?: string
+  prefix: string
+}
+
+// Menu principal, calqué sur les maquettes. Sources et Curation n'ont pas
+// encore d'écran : ils restent visibles mais désactivés (honnête).
+const MAIN_NAV: NavItem[] = [
+  { key: 'navSpaces', to: '/spaces', capability: 'spaces:read', prefix: '/spaces' },
+  { key: 'navSources', prefix: '/sources' },
+  { key: 'navCuration', prefix: '/curation' },
+  { key: 'navGovernance', to: '/governance/tags', capability: 'governance:read', prefix: '/governance' },
+]
+
+// Regroupées sous « Réglages » (menu déroulant).
+const SETTINGS_NAV: NavItem[] = [
+  { key: 'navSecrets', to: '/secrets', capability: 'secrets:read', prefix: '/secrets' },
+  { key: 'navConnectors', to: '/oidc/connectors', capability: 'oidc:read', prefix: '/oidc' },
+  { key: 'navForges', to: '/forges', capability: 'connections:read', prefix: '/forges' },
+  { key: 'navProfiles', to: '/profiles', capability: 'profiles:read', prefix: '/profiles' },
+  { key: 'navUsers', to: '/users', capability: 'users:read', prefix: '/users' },
+]
 
 export function Layout({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
+  const session = useSession()
+  const authenticated = session.data?.authenticated ?? false
+  const user = session.data?.user
+  const caps = session.data?.capabilities ?? []
+
+  if (!authenticated || !user) {
+    return (
+      <div className="app-shell">
+        <div className="topbar-plain">
+          <strong>{t('appName')}</strong>
+          <LanguageSelector />
+        </div>
+        <div className="page">{children}</div>
+      </div>
+    )
+  }
+
+  const can = (capability?: string) => !capability || caps.includes(capability)
+
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 760, margin: '32px auto', padding: '0 16px' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <strong>{t('appName')}</strong>
-        <LanguageSelector />
-      </header>
-      {children}
+    <div className="app-shell">
+      <AppNav userEmail={user.email} can={can} />
+      <div className="page">{children}</div>
     </div>
+  )
+}
+
+function AppNav({
+  userEmail,
+  can,
+}: {
+  userEmail: string
+  can: (capability?: string) => boolean
+}) {
+  const { t } = useTranslation()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [userOpen, setUserOpen] = useState(false)
+  const settingsRef = useRef<HTMLDivElement>(null)
+  const userRef = useRef<HTMLDivElement>(null)
+
+  // Fermer les menus au changement de route.
+  useEffect(() => {
+    setSettingsOpen(false)
+    setUserOpen(false)
+  }, [location.pathname])
+
+  // Fermer au clic en dehors.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setSettingsOpen(false)
+      if (userRef.current && !userRef.current.contains(e.target as Node)) setUserOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
+
+  const logout = useMutation({
+    mutationFn: () => api.logout(),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['session'] })
+      navigate('/login')
+    },
+  })
+
+  const isActive = (prefix: string) => location.pathname.startsWith(prefix)
+  const settingsItems = SETTINGS_NAV.filter((item) => can(item.capability))
+  const settingsActive = settingsItems.some((item) => isActive(item.prefix))
+
+  return (
+    <nav className="topnav" aria-label={t('appName')}>
+      <span className="topnav-brand">{t('appName')}</span>
+      <div className="topnav-menu">
+        {MAIN_NAV.map((item) => {
+          const label = t(item.key)
+          if (!item.to) {
+            return (
+              <span
+                key={item.key}
+                className="topnav-item"
+                aria-disabled="true"
+                title={t('navNotReady')}
+              >
+                {label}
+              </span>
+            )
+          }
+          if (!can(item.capability)) return null
+          return (
+            <Link
+              key={item.key}
+              to={item.to}
+              className={`topnav-item${isActive(item.prefix) ? ' active' : ''}`}
+            >
+              {label}
+            </Link>
+          )
+        })}
+        {settingsItems.length > 0 ? (
+          <div className="topnav-dropdown" ref={settingsRef}>
+            <button
+              type="button"
+              className={`topnav-item${settingsActive ? ' active' : ''}`}
+              aria-haspopup="true"
+              aria-expanded={settingsOpen}
+              onClick={() => setSettingsOpen((v) => !v)}
+            >
+              {t('navSettings')}
+              {' ▾'}
+            </button>
+            {settingsOpen ? (
+              <div className="topnav-dropdown-menu" role="menu">
+                {settingsItems.map((item) => (
+                  <Link key={item.key} to={item.to as string} role="menuitem">
+                    {t(item.key)}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      <div className="topnav-right">
+        {/* Contexte espace/branche : présent comme dans la maquette, mais pas
+            encore fonctionnel (il s'activera avec les espaces et la Curation). */}
+        <span className="ctx-chip" aria-disabled="true" title={t('navContextSoon')}>
+          {t('navSpaceLabel')}
+          {' : —'}
+        </span>
+        <span className="ctx-chip" aria-disabled="true" title={t('navContextSoon')}>
+          {t('navBranchLabel')}
+          {' : —'}
+        </span>
+        <LanguageSelector />
+        <div className="topnav-dropdown" ref={userRef}>
+          <button
+            type="button"
+            className="topnav-user"
+            style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+            aria-haspopup="true"
+            aria-expanded={userOpen}
+            onClick={() => setUserOpen((v) => !v)}
+          >
+            {userEmail}
+            {' ▾'}
+          </button>
+          {userOpen ? (
+            <div className="topnav-dropdown-menu" role="menu">
+              <Link to="/" role="menuitem">
+                {t('home')}
+              </Link>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ margin: 6 }}
+                onClick={() => logout.mutate()}
+              >
+                {t('logout')}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </nav>
   )
 }

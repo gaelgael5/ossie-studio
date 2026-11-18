@@ -15,6 +15,7 @@ import { SpaceDetailPage } from './pages/SpaceDetailPage'
 import { GovernanceTagsPage } from './pages/GovernanceTagsPage'
 import { GovernanceCertificationsPage } from './pages/GovernanceCertificationsPage'
 import { GovernanceClassificationsPage } from './pages/GovernanceClassificationsPage'
+import { GovernanceInvalidValuesPage } from './pages/GovernanceInvalidValuesPage'
 import { ProfilesPage } from './pages/ProfilesPage'
 import { UsersPage } from './pages/UsersPage'
 import { StatusPage } from './StatusPage'
@@ -98,6 +99,10 @@ export function App() {
         <Route
           path="/governance/classifications"
           element={gate('governance:read', <GovernanceClassificationsPage />)}
+        />
+        <Route
+          path="/governance/invalid-values"
+          element={gate('governance:read', <GovernanceInvalidValuesPage />)}
         />
         <Route path="/profiles" element={gate('profiles:read', <ProfilesPage />)} />
         <Route path="/users" element={gate('users:read', <UsersPage />)} />
