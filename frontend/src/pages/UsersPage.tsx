@@ -15,26 +15,54 @@ export function UsersPage() {
   const [messages, setMessages] = useState<string[]>([])
   const [q, setQ] = useState('')
   const [profileFilter, setProfileFilter] = useState(params.get('profile') ?? '')
+  const [teamFilter, setTeamFilter] = useState('')
   const [offset, setOffset] = useState(0)
 
   const profiles = useQuery({ queryKey: ['profiles'], queryFn: api.listProfiles })
+  const teams = useQuery({ queryKey: ['teams'], queryFn: api.listTeams })
   const users = useQuery({
-    queryKey: ['users', q, profileFilter, offset],
-    queryFn: () => api.searchUsers(q, profileFilter, PAGE, offset),
+    queryKey: ['users', q, profileFilter, teamFilter, offset],
+    queryFn: () => api.searchUsers(q, profileFilter, teamFilter, PAGE, offset),
   })
+  const invalidateUsers = () => queryClient.invalidateQueries({ queryKey: ['users'] })
+  const onMutationError = (err: unknown) => setMessages(errorMessages(t, err))
   const assign = useMutation({
     mutationFn: ({ userId, profileId }: { userId: string; profileId: string }) =>
       api.assignUserProfile(userId, profileId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
-    onError: (err) => setMessages(errorMessages(t, err)),
+    onSuccess: invalidateUsers,
+    onError: onMutationError,
   })
   const removePin = useMutation({
     mutationFn: (userId: string) => api.removeUserPin(userId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
-    onError: (err) => setMessages(errorMessages(t, err)),
+    onSuccess: invalidateUsers,
+    onError: onMutationError,
+  })
+  const assignTeam = useMutation({
+    mutationFn: ({ userId, teamId }: { userId: string; teamId: string }) =>
+      api.assignUserTeam(userId, teamId),
+    onSuccess: invalidateUsers,
+    onError: onMutationError,
+  })
+  const removeTeamPin = useMutation({
+    mutationFn: (userId: string) => api.removeUserTeamPin(userId),
+    onSuccess: invalidateUsers,
+    onError: onMutationError,
+  })
+  const createAndAssignTeam = useMutation({
+    mutationFn: async ({ userId, name }: { userId: string; name: string }) => {
+      const team = await api.createTeam(name)
+      await api.assignUserTeam(userId, team.id)
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['teams'] })
+      await invalidateUsers()
+    },
+    onError: onMutationError,
   })
 
   const profileList = profiles.data?.profiles ?? []
+  const teamList = teams.data?.teams ?? []
+  const CREATE_TEAM = '__create__'
   const data = users.data
   const total = data?.total ?? 0
   const formatDate = (iso: string | null) =>
@@ -79,6 +107,24 @@ export function UsersPage() {
             ))}
           </select>
         </div>
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <label htmlFor="tf">{t('userTeamFilterLabel')}</label>
+          <select
+            id="tf"
+            value={teamFilter}
+            onChange={(e) => {
+              setOffset(0)
+              setTeamFilter(e.target.value)
+            }}
+          >
+            <option value="">{t('allTeams')}</option>
+            {teamList.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {data && data.users.length > 0 ? (
@@ -90,6 +136,7 @@ export function UsersPage() {
                 <th>{t('colType')}</th>
                 <th>{t('colLastLogin')}</th>
                 <th>{t('colProfile')}</th>
+                <th>{t('colTeam')}</th>
               </tr>
             </thead>
             <tbody>
@@ -123,6 +170,39 @@ export function UsersPage() {
                           {t('removePin')}
                         </button>
                       </>
+                    ) : null}
+                  </td>
+                  <td>
+                    <select
+                      value={u.team_id ?? ''}
+                      onChange={(e) => {
+                        setMessages([])
+                        const value = e.target.value
+                        if (value === CREATE_TEAM) {
+                          const name = window.prompt(t('createTeamPrompt'))?.trim()
+                          if (name) createAndAssignTeam.mutate({ userId: u.id, name })
+                          return
+                        }
+                        if (value) assignTeam.mutate({ userId: u.id, teamId: value })
+                      }}
+                    >
+                      {u.team_id === null ? <option value="">—</option> : null}
+                      {teamList.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.name}
+                        </option>
+                      ))}
+                      <option value={CREATE_TEAM}>{t('createTeamOption')}</option>
+                    </select>{' '}
+                    {u.team_pinned ? (
+                      <>
+                        <span title={t('teamPinnedHint')}>{t('teamPinnedBadge')}</span>{' '}
+                        <button type="button" onClick={() => removeTeamPin.mutate(u.id)}>
+                          {t('removePin')}
+                        </button>
+                      </>
+                    ) : u.team_origin === 'oidc' ? (
+                      <span title={t('teamFromOidcHint')}>{t('teamOidcBadge')}</span>
                     ) : null}
                   </td>
                 </tr>

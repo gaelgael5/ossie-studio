@@ -46,6 +46,17 @@ export interface UserItem {
   profile_id: string | null
   profile_name: string | null
   profile_pinned: boolean
+  team_id: string | null
+  team_name: string | null
+  team_origin: string | null
+  team_pinned: boolean
+}
+
+export interface TeamItem {
+  id: string
+  name: string
+  slug: string
+  origin: string
 }
 
 export interface RoleMapping {
@@ -403,8 +414,14 @@ export const api = {
     apiFetch<ProfileItem>(`/api/profiles/${id}/default`, { method: 'POST' }),
   deleteProfile: (id: string) => apiFetch(`/api/profiles/${id}`, { method: 'DELETE' }),
 
-  searchUsers: (q: string, profileId: string, limit: number, offset: number) => {
-    const p = new URLSearchParams({ q, profile_id: profileId, limit: String(limit), offset: String(offset) })
+  searchUsers: (q: string, profileId: string, teamId: string, limit: number, offset: number) => {
+    const p = new URLSearchParams({
+      q,
+      profile_id: profileId,
+      team_id: teamId,
+      limit: String(limit),
+      offset: String(offset),
+    })
     return apiFetch<{ users: UserItem[]; total: number }>(`/api/users?${p.toString()}`)
   },
   assignUserProfile: (userId: string, profileId: string) =>
@@ -412,6 +429,19 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ profile_id: profileId }),
     }),
+  listTeams: () => apiFetch<{ teams: TeamItem[] }>('/api/teams'),
+  createTeam: (name: string) =>
+    apiFetch<{ id: string; name: string; origin: string }>('/api/teams', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  assignUserTeam: (userId: string, teamId: string) =>
+    apiFetch<{ ok: boolean }>(`/api/users/${userId}/team`, {
+      method: 'PUT',
+      body: JSON.stringify({ team_id: teamId }),
+    }),
+  removeUserTeamPin: (userId: string) =>
+    apiFetch(`/api/users/${userId}/team-pin`, { method: 'DELETE' }),
 
   listConnectors: () =>
     apiFetch<{

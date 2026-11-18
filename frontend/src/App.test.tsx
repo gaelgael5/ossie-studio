@@ -455,12 +455,20 @@ test('utilisateurs : liste, recherche et assignation de profil', async () => {
         catalog: [],
       },
     },
-    '/api/users?q=&profile_id=&limit=50&offset=0': {
+    '/api/users?q=&profile_id=&team_id=&limit=50&offset=0': {
       body: {
         users: [
-          { id: 'u1', email: 'jose@example.org', display_name: 'José Pérez', is_oidc: true, last_login_at: '2026-01-02T00:00:00Z', profile_id: 'p1', profile_name: 'Lecteur' },
+          { id: 'u1', email: 'jose@example.org', display_name: 'José Pérez', is_oidc: true, last_login_at: '2026-01-02T00:00:00Z', profile_id: 'p1', profile_name: 'Lecteur', profile_pinned: false, team_id: 't1', team_name: 'equipe-data', team_origin: 'oidc', team_pinned: false },
         ],
         total: 1,
+      },
+    },
+    '/api/teams': {
+      body: {
+        teams: [
+          { id: 't1', name: 'equipe-data', slug: 'equipe-data', origin: 'oidc' },
+          { id: 't2', name: 'Data', slug: 'data', origin: 'manual' },
+        ],
       },
     },
     'PUT /api/users/u1/profile': { body: { ok: true } },
@@ -471,6 +479,10 @@ test('utilisateurs : liste, recherche et assignation de profil', async () => {
   expect(screen.getByLabelText('Rechercher (nom ou email)')).toBeInTheDocument()
   // La fiche propose d'assigner un profil (select avec le profil Lecteur).
   expect(screen.getAllByRole('option', { name: 'Lecteur' }).length).toBeGreaterThan(0)
+  // Colonne Équipe : filtre, équipe de la personne (venue de l'OIDC) et option de création.
+  expect(screen.getByLabelText('Filtrer par équipe')).toBeInTheDocument()
+  expect(screen.getAllByRole('option', { name: 'equipe-data' }).length).toBeGreaterThan(0)
+  expect(screen.getByRole('option', { name: '+ Créer une équipe…' })).toBeInTheDocument()
 })
 
 test('connecteurs OIDC : bloc des correspondances rôle → profil', async () => {

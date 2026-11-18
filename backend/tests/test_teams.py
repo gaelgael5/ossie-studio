@@ -11,7 +11,10 @@ from ossie_studio.oidc.roles import extract_memberships, memberships_from_claims
 from ossie_studio.profiles.service import load_capabilities
 from ossie_studio.teams.service import (
     apply_team_mapping,
+    db_assign_team,
+    db_create_team_manual,
     db_get_or_create_team_by_name,
+    db_remove_team_pin,
     slugify,
 )
 from tests.conftest import bootstrap_admin, create_plain_user, login
@@ -250,3 +253,106 @@ async def test_team_claim_reserve_a_oidc_write(client: AsyncClient, app: FastAPI
     await login(client, "limite@example.org", "mot-de-passe-solide")
     r = await client.put(f"/api/oidc/connectors/{cid}/team-claim", json={"team_claim": "x"})
     assert r.status_code == 403
+
+
+# ===== Ticket « assigner une équipe à la main » ==============================
+
+
+async def test_assignation_manuelle_fixe_l_equipe(app: FastAPI) -> None:
+    # Critère 1 : assigner à la main → cette seule équipe, marquée fixée à la main.
+    async with app.state.pool.acquire() as conn:
+        t = await db_create_team_manual(conn, "Équipe RH")
+        user = await _user(app, "rh@example.org")
+        old = await db_assign_team(conn, user, t.id)
+        row = await conn.fetchrow(
+            "SELECT team_id, team_pinned FROM users WHERE id = $1", user
+        )
+    assert old is None
+    assert row["team_id"] == t.id
+    assert row["team_pinned"] is True
+
+
+async def test_surcharge_resiste_au_claim_puis_rendue(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Critères 2 & 3 : l'équipe fixée résiste au claim ; retirer la marque la rend.
+    cid = await _connector(app)
+    async with app.state.pool.acquire() as conn:
+        manuelle = await db_create_team_manual(conn, "equipe-manuelle")
+        user = await _user(app, "surcharge@example.org")
+        await db_assign_team(conn, user, manuelle.id)
+        # Connexion suivante : le claim désigne une autre équipe → conservée.
+        await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-claim"}, user)
+    assert await _user_team(app, user) == manuelle.id
+
+    async with app.state.pool.acquire() as conn:
+        assert await db_remove_team_pin(conn, user) is True
+        # La marque retirée, le claim reprend la main.
+        await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-claim"}, user)
+    assert await _team_name(app, user) == "equipe-claim"
+
+
+async def test_creer_equipe_a_la_main(app: FastAPI) -> None:
+    # Critère 5 : créer une équipe à la main → rejoint le référentiel (origine manuelle).
+    async with app.state.pool.acquire() as conn:
+        team = await db_create_team_manual(conn, "Plateforme")
+        again = await db_create_team_manual(conn, "Plateforme")  # idempotent sur le nom
+    assert team.origin == "manual"
+    assert again.id == team.id  # pas de doublon
+
+
+async def test_api_assigner_filtrer_et_retirer(admin: AsyncClient, app: FastAPI) -> None:
+    # Critères 1, 4, 5 via l'API : créer, assigner, filtrer, retirer la marque.
+    user = await _user(app, "api-team@example.org")
+    created = await admin.post("/api/teams", json={"name": "Data"})
+    assert created.status_code == 201
+    team_id = created.json()["id"]
+    assert created.json()["origin"] == "manual"
+
+    assigned = await admin.put(f"/api/users/{user}/team", json={"team_id": team_id})
+    assert assigned.status_code == 200
+
+    # Le payload utilisateur porte l'équipe et la marque.
+    listed = (await admin.get("/api/users")).json()["users"]
+    me = next(u for u in listed if u["id"] == str(user))
+    assert me["team_name"] == "Data"
+    assert me["team_pinned"] is True
+
+    # Filtre par équipe.
+    filtered = (await admin.get(f"/api/users?team_id={team_id}")).json()
+    assert [u["id"] for u in filtered["users"]] == [str(user)]
+
+    # Retirer la marque.
+    removed = await admin.delete(f"/api/users/{user}/team-pin")
+    assert removed.status_code == 200
+    async with app.state.pool.acquire() as conn:
+        pinned = await conn.fetchval("SELECT team_pinned FROM users WHERE id = $1", user)
+    assert pinned is False
+
+
+async def test_api_assignation_journalise_auteur(
+    admin: AsyncClient, app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Critère 6 : assignation journalisée (auteur, utilisateur, ancienne, nouvelle).
+    spy = _LogSpy()
+    monkeypatch.setattr("ossie_studio.api.users.log", spy)
+    user = await _user(app, "journal@example.org")
+    team_id = (await admin.post("/api/teams", json={"name": "Finance"})).json()["id"]
+    await admin.put(f"/api/users/{user}/team", json={"team_id": team_id})
+    entry = spy.find("team_assigned")
+    assert entry["user_id"] == str(user)
+    assert entry["old_team"] is None
+    assert entry["new_team"] == team_id
+    assert entry["author"]  # email de l'auteur présent
+
+
+async def test_api_equipe_reserve_a_users_write(client: AsyncClient, app: FastAPI) -> None:
+    # Critère 7 : réservé à la capacité « Utilisateurs : modifier ».
+    user = await _user(app, "cible@example.org")
+    await create_plain_user(app, "sanspouvoir@example.org", "mot-de-passe-solide")
+    await login(client, "sanspouvoir@example.org", "mot-de-passe-solide")
+    assert (await client.post("/api/teams", json={"name": "X"})).status_code == 403
+    assert (
+        await client.put(f"/api/users/{user}/team", json={"team_id": str(uuid.uuid4())})
+    ).status_code == 403
+    assert (await client.delete(f"/api/users/{user}/team-pin")).status_code == 403

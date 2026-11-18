@@ -15,9 +15,13 @@ import structlog
 
 from ossie_studio.models import Team
 from ossie_studio.oidc.roles import memberships_from_claims
-from ossie_studio.users.service import fold
+from ossie_studio.users.service import UserNotFoundError, fold
 
 log = structlog.get_logger(__name__)
+
+
+class TeamNotFoundError(Exception):
+    """Équipe cible absente du référentiel."""
 
 
 def slugify(name: str) -> str:
@@ -69,6 +73,47 @@ async def db_get_or_create_team_by_name(
         source_connector_id,
     )
     return team_id
+
+
+async def db_create_team_manual(conn: asyncpg.Connection, name: str) -> Team:
+    """Crée une équipe à la main (origine « créée à la main »). Idempotent sur le
+    nom exact : si le nom existe déjà (même venu de l'OIDC), on rend l'équipe
+    existante — elle est dans le référentiel, c'est ce qu'on veut."""
+    team_id = await db_get_or_create_team_by_name(
+        conn, name, origin="manual", source_connector_id=None
+    )
+    row = await conn.fetchrow("SELECT * FROM teams WHERE id = $1", team_id)
+    assert row is not None
+    return Team.from_row(row)
+
+
+async def db_assign_team(
+    conn: asyncpg.Connection, user_id: uuid.UUID, team_id: uuid.UUID
+) -> uuid.UUID | None:
+    """Assigne une équipe à la main (SURCHARGE) : marque `team_pinned`, pour que le
+    claim ne la remplace plus. Rend l'ancienne équipe. Une personne n'a qu'une
+    équipe : assigner remplace la précédente. Affichage seulement : aucun droit
+    n'est touché (ce service n'écrit jamais profile_id ni capabilities)."""
+    async with conn.transaction():
+        current = await conn.fetchrow("SELECT team_id FROM users WHERE id = $1", user_id)
+        if current is None:
+            raise UserNotFoundError
+        if await conn.fetchval("SELECT 1 FROM teams WHERE id = $1", team_id) is None:
+            raise TeamNotFoundError
+        old_team_id: uuid.UUID | None = current["team_id"]
+        await conn.execute(
+            "UPDATE users SET team_id = $2, team_pinned = true WHERE id = $1", user_id, team_id
+        )
+    return old_team_id
+
+
+async def db_remove_team_pin(conn: asyncpg.Connection, user_id: uuid.UUID) -> bool:
+    """Retire la marque : à la connexion suivante, le claim reprend la main. On
+    laisse l'équipe actuelle en place jusque-là."""
+    result: str = await conn.execute(
+        "UPDATE users SET team_pinned = false WHERE id = $1", user_id
+    )
+    return result != "UPDATE 0"
 
 
 async def apply_team_mapping(

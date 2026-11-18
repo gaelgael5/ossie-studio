@@ -68,6 +68,7 @@ ERROR_CODES: tuple[str, ...] = (
     "profile_in_mapping",
     "mapping_duplicate",
     "mapping_not_found",
+    "team_not_found",
 )
 
 
