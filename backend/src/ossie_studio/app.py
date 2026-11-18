@@ -14,6 +14,7 @@ from ossie_studio.api.connections import router as api_connections_router
 from ossie_studio.api.governance import certifications_router as api_certifications_router
 from ossie_studio.api.governance import router as api_governance_router
 from ossie_studio.api.oidc import router as api_oidc_router
+from ossie_studio.api.profiles import router as api_profiles_router
 from ossie_studio.api.secrets import router as api_secrets_router
 from ossie_studio.api.session import router as api_session_router
 from ossie_studio.api.spaces import router as api_spaces_router
@@ -80,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_governance_router)
     app.include_router(api_certifications_router)
     app.include_router(api_classifications_router)
+    app.include_router(api_profiles_router)
     # Flux OIDC : navigations du navigateur (redirections), pas de l'API JSON.
     app.include_router(oidc_login_router)
     return app

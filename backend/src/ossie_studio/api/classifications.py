@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict
 
-from ossie_studio.api.common import AdminApiDep, require_admin_api
+from ossie_studio.api.common import GovernanceRead, require_capability
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.governance.classifications import (
@@ -127,7 +127,7 @@ async def _require_scheme(conn: ConnDep, scheme_id: str) -> ClassificationScheme
 
 
 @router.get("")
-async def list_schemes(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
+async def list_schemes(conn: ConnDep, _: GovernanceRead) -> dict[str, object]:
     rows = await db_list_schemes_with_levels(conn)
     return {"schemes": [_scheme_payload(scheme, levels) for scheme, levels in rows]}
 
@@ -169,7 +169,7 @@ async def _create_scheme_with_levels(
 
 @router.post("", status_code=201)
 async def create_scheme(request: Request, conn: ConnDep, body: SchemeCreate) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     errors = validate_scheme(body.name, body.multi_value, body.is_primary)
     for level in body.levels:
         errors.extend(validate_level(level.name, level.short_name))
@@ -188,7 +188,7 @@ async def create_scheme(request: Request, conn: ConnDep, body: SchemeCreate) -> 
 async def import_scheme(
     request: Request, conn: ConnDep, body: SchemeImportBody
 ) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     try:
         parsed = parse_scheme_yaml(body.yaml)
     except SchemeImportError as exc:
@@ -209,7 +209,7 @@ async def import_scheme(
 
 
 @router.get("/{scheme_id}/export")
-async def export_scheme(conn: ConnDep, _: AdminApiDep, scheme_id: str) -> dict[str, str]:
+async def export_scheme(conn: ConnDep, _: GovernanceRead, scheme_id: str) -> dict[str, str]:
     scheme = await _require_scheme(conn, scheme_id)
     rows = await db_list_schemes_with_levels(conn)
     levels = next((lv for s, lv in rows if s.id == scheme.id), [])
@@ -220,7 +220,7 @@ async def export_scheme(conn: ConnDep, _: AdminApiDep, scheme_id: str) -> dict[s
 async def update_scheme(
     request: Request, conn: ConnDep, scheme_id: str, body: SchemeUpdate
 ) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     errors = validate_scheme(body.name, body.multi_value, body.is_primary)
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
@@ -240,7 +240,7 @@ async def update_scheme(
 
 @router.delete("/{scheme_id}", status_code=204)
 async def delete_scheme(request: Request, conn: ConnDep, scheme_id: str) -> None:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     # Le refus/invalidation sur les assets utilisant le schéma (critère 8)
     # arrivera avec les assets (epic Curation).
     deleted = await db_delete_scheme(conn, scheme_id)
@@ -253,7 +253,7 @@ async def delete_scheme(request: Request, conn: ConnDep, scheme_id: str) -> None
 async def add_level(
     request: Request, conn: ConnDep, scheme_id: str, body: LevelBody
 ) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     await _require_scheme(conn, scheme_id)
     errors = validate_level(body.name, body.short_name)
     if errors:
@@ -274,7 +274,7 @@ async def add_level(
 async def update_level(
     request: Request, conn: ConnDep, scheme_id: str, level_id: uuid.UUID, body: LevelBody
 ) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     errors = validate_level(body.name, body.short_name)
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
@@ -297,7 +297,7 @@ async def update_level(
 async def delete_level(
     request: Request, conn: ConnDep, scheme_id: str, level_id: uuid.UUID
 ) -> None:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     deleted = await db_delete_level(conn, level_id)
     if not deleted:
         raise ApiError("level_not_found", status_code=404)
@@ -308,7 +308,7 @@ async def delete_level(
 async def reorder_levels(
     request: Request, conn: ConnDep, scheme_id: str, body: ReorderBody
 ) -> dict[str, bool]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     await _require_scheme(conn, scheme_id)
     try:
         ordered = [uuid.UUID(value) for value in body.order]

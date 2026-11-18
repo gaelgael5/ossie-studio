@@ -97,6 +97,28 @@ cet écran n'est plus accessible. L'administrateur gère ensuite les
 Tous les écrans passent par i18n ; les erreurs viennent de l'API sous forme
 de codes traduits côté interface.
 
+### Profils et capacités
+
+L'accès aux fonctions passe par des **profils**. Un profil est un **jeu de
+capacités** (cases indépendantes, **jamais une échelle** : on peut publier sans
+pouvoir modifier). Le **catalogue des capacités** est déclaré dans le code,
+groupé par domaine (Secrets, Forges, OIDC, Espaces Git, Gouvernance, Sources,
+Curation, Profils, Utilisateurs), chaque capacité avec un identifiant stable et
+un libellé traduit. Chaque utilisateur a **un seul profil**. Le profil
+**Administrateur** est livré d'office, a **toutes** les capacités (y compris
+celles ajoutées plus tard), et ne se supprime ni ne se modifie ; le premier
+administrateur le reçoit.
+
+**Le serveur fait foi** : chaque route vérifie la capacité qu'elle demande
+(403 sinon), les droits **relus à chaque requête** (un changement de profil vaut
+dès la requête suivante, sans reconnexion). L'écran masque ce qu'on ne peut pas
+faire (nav et routes selon les capacités de la session), mais ce masquage n'est
+jamais la protection. La page **Profils** (capacité « Profils : modifier »)
+liste, crée, duplique, modifie et supprime les profils via une grille de cases
+par domaine ; supprimer un profil assigné est refusé (avec le nombre
+d'utilisateurs). Dans les autres écrans, « réservé à l'administrateur » se lit
+désormais « réservé aux profils qui ont la capacité correspondante ».
+
 ### Forges et connexions
 
 Une connexion à une forge Git (par jeton d'accès) est vérifiée **avant**

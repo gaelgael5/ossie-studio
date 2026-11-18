@@ -18,6 +18,7 @@ class User:
     role: str
     is_bootstrap: bool
     created_at: datetime
+    profile_id: uuid.UUID | None = None
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> User:
@@ -28,6 +29,30 @@ class User:
             role=row["role"],
             is_bootstrap=row["is_bootstrap"],
             created_at=row["created_at"],
+            profile_id=row["profile_id"] if "profile_id" in row else None,
+        )
+
+
+@dataclass(frozen=True)
+class Profile:
+    id: uuid.UUID
+    name: str
+    description: str
+    capabilities: list[str]
+    is_admin: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> Profile:
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"],
+            capabilities=list(row["capabilities"] or []),
+            is_admin=row["is_admin"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )
 
 

@@ -15,6 +15,7 @@ from ossie_studio.auth.service import (
 from ossie_studio.deps import ConnDep, bootstrap_is_done, get_current_user
 from ossie_studio.errors import ApiError
 from ossie_studio.oidc.service import db_list_connectors
+from ossie_studio.profiles.service import load_capabilities
 
 log = structlog.get_logger(__name__)
 
@@ -32,10 +33,12 @@ async def session_state(request: Request, conn: ConnDep) -> dict[str, object]:
     """État d'amorçage et d'authentification, pour le routage côté SPA."""
     user = await get_current_user(request, conn)
     bootstrap_done = await bootstrap_is_done(request.app)
+    capabilities = sorted(await load_capabilities(conn, user)) if user is not None else []
     return {
         "bootstrap_required": not bootstrap_done,
         "authenticated": user is not None,
         "user": user_payload(user) if user is not None else None,
+        "capabilities": capabilities,
     }
 
 

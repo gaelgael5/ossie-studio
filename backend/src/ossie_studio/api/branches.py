@@ -6,7 +6,12 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 
-from ossie_studio.api.common import AdminApiDep, require_admin_api
+from ossie_studio.api.common import (
+    SpacesBranch,
+    SpacesPublish,
+    SpacesRead,
+    SpacesVersion,
+)
 from ossie_studio.connections.service import db_get_connection, resolve_connection_token
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_current_user, get_workdir_manager
@@ -76,7 +81,7 @@ async def space_credentials(
 
 @router.get("")
 async def list_branches(
-    request: Request, conn: ConnDep, _: AdminApiDep, space_id: uuid.UUID
+    request: Request, conn: ConnDep, _: SpacesRead, space_id: uuid.UUID
 ) -> dict[str, object]:
     if await db_get_space(conn, space_id) is None:
         raise ApiError("space_not_found", status_code=404)
@@ -103,7 +108,7 @@ def _slug_from_label(label: str) -> str:
 async def create_base(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: AdminApiDep,
+    _: SpacesBranch,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     body: LabelBody,
@@ -128,7 +133,7 @@ async def create_base(
 async def create_child(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: AdminApiDep,
+    _: SpacesBranch,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     body: LabelBody,
@@ -161,9 +166,8 @@ async def create_child(
 
 @router.put("/viewed")
 async def set_viewed(
-    request: Request, conn: ConnDep, space_id: uuid.UUID, body: ViewedBody
+    conn: ConnDep, user: SpacesRead, space_id: uuid.UUID, body: ViewedBody
 ) -> dict[str, bool]:
-    user = await require_admin_api(request, conn)
     try:
         branch_id = uuid.UUID(body.branch_id)
     except ValueError:
@@ -197,7 +201,7 @@ async def _branch_in_space(
 async def list_unpublished(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: AdminApiDep,
+    _: SpacesRead,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
@@ -223,7 +227,7 @@ async def list_unpublished(
 async def publish(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: AdminApiDep,
+    _: SpacesPublish,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
@@ -266,7 +270,7 @@ def _validate_version_label(label: str) -> None:
 async def list_versions(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: AdminApiDep,
+    _: SpacesRead,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
@@ -295,15 +299,14 @@ async def list_versions(
 
 @router.post("/{branch_id}/versions", status_code=201)
 async def create_version(
-    request: Request,
     conn: ConnDep,
     crypto: CryptoDep,
+    user: SpacesVersion,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
     body: VersionLabelBody,
 ) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
     branch = await _branch_in_space(conn, space_id, branch_id)
     _validate_version_label(body.label)
     space, username, token = await space_credentials(conn, crypto, space_id)
@@ -329,15 +332,14 @@ async def create_version(
 
 @router.post("/{branch_id}/versions/{number}/restore")
 async def restore_version(
-    request: Request,
     conn: ConnDep,
     crypto: CryptoDep,
+    user: SpacesVersion,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
     number: int,
 ) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
     branch = await _branch_in_space(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:

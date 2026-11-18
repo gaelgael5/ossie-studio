@@ -7,7 +7,7 @@ import structlog
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict
 
-from ossie_studio.api.common import AdminApiDep, require_admin_api
+from ossie_studio.api.common import GovernanceRead, require_capability
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.governance.certifications import PRESETS, validate_certification
@@ -72,14 +72,14 @@ def _payload(tag: GovernedTag) -> dict[str, object]:
 
 
 @router.get("")
-async def list_tags(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
+async def list_tags(conn: ConnDep, _: GovernanceRead) -> dict[str, object]:
     tags = await db_list_tags(conn)
     return {"tags": [_payload(t) for t in tags]}
 
 
 @router.post("", status_code=201)
 async def create_tag(request: Request, conn: ConnDep, body: TagCreate) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     tag_id = normalize_tag_id(body.id)
     errors = validate_tag_fields(tag_id, body.links, body.properties)
     if errors:
@@ -96,14 +96,14 @@ async def create_tag(request: Request, conn: ConnDep, body: TagCreate) -> dict[s
 
 
 @router.get("/export")
-async def export_tags(conn: ConnDep, _: AdminApiDep) -> dict[str, str]:
+async def export_tags(conn: ConnDep, _: GovernanceRead) -> dict[str, str]:
     tags = await db_list_tags(conn)
     return {"yaml": export_tags_yaml(tags)}
 
 
 @router.post("/import")
 async def import_tags(request: Request, conn: ConnDep, body: ImportBody) -> dict[str, int]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     try:
         parsed = parse_tags_yaml(body.yaml)
     except TagImportError as exc:
@@ -119,7 +119,7 @@ async def import_tags(request: Request, conn: ConnDep, body: ImportBody) -> dict
 async def update_tag(
     request: Request, conn: ConnDep, tag_id: str, body: TagUpdate
 ) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     normalized = normalize_tag_id(tag_id)
     errors = validate_tag_fields(normalized, body.links, body.properties)
     if errors:
@@ -137,7 +137,7 @@ async def update_tag(
 
 @router.delete("/{tag_id:path}", status_code=204)
 async def delete_tag(request: Request, conn: ConnDep, tag_id: str) -> None:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     normalized = normalize_tag_id(tag_id)
     # Le refus « tag utilisé par des assets » (critère 6) arrivera avec les
     # assets (epic Curation) ; sans assets, aucun usage ne bloque encore.
@@ -174,7 +174,7 @@ def _cert_payload(cert: Certification) -> dict[str, object]:
 
 
 @certifications_router.get("")
-async def list_certifications(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
+async def list_certifications(conn: ConnDep, _: GovernanceRead) -> dict[str, object]:
     certs = await db_list_certifications(conn)
     return {"certifications": [_cert_payload(c) for c in certs]}
 
@@ -183,7 +183,7 @@ async def list_certifications(conn: ConnDep, _: AdminApiDep) -> dict[str, object
 async def create_certification(
     request: Request, conn: ConnDep, body: CertificationBody
 ) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     tag = normalize_tag_id(body.tag)
     errors = validate_certification(body.name, body.rank, tag)
     if errors:
@@ -201,7 +201,7 @@ async def create_certification(
 
 @certifications_router.post("/presets")
 async def create_presets(request: Request, conn: ConnDep) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     await db_create_certification_presets(conn, PRESETS)
     log.info("certification_presets_created", author=user.email)
     certs = await db_list_certifications(conn)
@@ -212,7 +212,7 @@ async def create_presets(request: Request, conn: ConnDep) -> dict[str, object]:
 async def update_certification(
     request: Request, conn: ConnDep, cert_id: uuid.UUID, body: CertificationBody
 ) -> dict[str, object]:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     tag = normalize_tag_id(body.tag)
     errors = validate_certification(body.name, body.rank, tag)
     if errors:
@@ -232,7 +232,7 @@ async def update_certification(
 
 @certifications_router.delete("/{cert_id}", status_code=204)
 async def delete_certification(request: Request, conn: ConnDep, cert_id: uuid.UUID) -> None:
-    user = await require_admin_api(request, conn)
+    user = await require_capability("governance:write")(request, conn)
     # Le refus « certification assignée à des assets » (critère 5) arrivera avec
     # les assets (epic Curation) ; sans assets, aucune assignation ne bloque.
     deleted = await db_delete_certification(conn, cert_id)

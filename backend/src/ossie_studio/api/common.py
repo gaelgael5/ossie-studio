@@ -1,26 +1,51 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, Request
 
 from ossie_studio.deps import ConnDep, get_current_user
 from ossie_studio.errors import ApiError
-from ossie_studio.models import ROLE_ADMIN, User
+from ossie_studio.models import User
+from ossie_studio.profiles.service import load_capabilities
 
 
 def user_payload(user: User) -> dict[str, str]:
     return {"email": user.email, "role": user.role}
 
 
-async def require_admin_api(request: Request, conn: ConnDep) -> User:
-    """Garde d'API : anonyme → 401, rôle insuffisant → 403, le tout en codes."""
-    user = await get_current_user(request, conn)
-    if user is None:
-        raise ApiError("unauthenticated", status_code=401)
-    if user.role != ROLE_ADMIN:
-        raise ApiError("forbidden", status_code=403)
-    return user
+def require_capability(capability: str) -> Callable[..., Awaitable[User]]:
+    """Fabrique une garde d'API pour une capacité : anonyme → 401, profil sans
+    la capacité → 403. Les droits sont relus à chaque requête (jamais figés en
+    session) : un changement de profil vaut dès la requête suivante. Le serveur
+    fait foi ; le masquage côté écran n'est jamais la protection."""
+
+    async def dependency(request: Request, conn: ConnDep) -> User:
+        user = await get_current_user(request, conn)
+        if user is None:
+            raise ApiError("unauthenticated", status_code=401)
+        if capability not in await load_capabilities(conn, user):
+            raise ApiError("forbidden", status_code=403)
+        return user
+
+    return dependency
 
 
-AdminApiDep = Annotated[User, Depends(require_admin_api)]
+SecretsRead = Annotated[User, Depends(require_capability("secrets:read"))]
+SecretsWrite = Annotated[User, Depends(require_capability("secrets:write"))]
+ConnectionsRead = Annotated[User, Depends(require_capability("connections:read"))]
+ConnectionsWrite = Annotated[User, Depends(require_capability("connections:write"))]
+OidcRead = Annotated[User, Depends(require_capability("oidc:read"))]
+OidcWrite = Annotated[User, Depends(require_capability("oidc:write"))]
+SpacesRead = Annotated[User, Depends(require_capability("spaces:read"))]
+SpacesCreate = Annotated[User, Depends(require_capability("spaces:create"))]
+SpacesBranch = Annotated[User, Depends(require_capability("spaces:branch"))]
+SpacesPublish = Annotated[User, Depends(require_capability("spaces:publish"))]
+SpacesVersion = Annotated[User, Depends(require_capability("spaces:version"))]
+GovernanceRead = Annotated[User, Depends(require_capability("governance:read"))]
+GovernanceWrite = Annotated[User, Depends(require_capability("governance:write"))]
+ProfilesRead = Annotated[User, Depends(require_capability("profiles:read"))]
+ProfilesWrite = Annotated[User, Depends(require_capability("profiles:write"))]
+UsersRead = Annotated[User, Depends(require_capability("users:read"))]
+UsersWrite = Annotated[User, Depends(require_capability("users:write"))]

@@ -47,8 +47,8 @@ async def db_create_bootstrap_admin(
     """
     try:
         row = await conn.fetchrow(
-            "INSERT INTO users (email, password_hash, role, is_bootstrap) "
-            "VALUES ($1, $2, $3, true) RETURNING *",
+            "INSERT INTO users (email, password_hash, role, is_bootstrap, profile_id) "
+            "VALUES ($1, $2, $3, true, (SELECT id FROM profiles WHERE is_admin)) RETURNING *",
             email,
             password_hash,
             ROLE_ADMIN,

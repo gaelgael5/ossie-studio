@@ -6,7 +6,7 @@ import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
-from ossie_studio.api.common import AdminApiDep
+from ossie_studio.api.common import SecretsRead, SecretsWrite
 from ossie_studio.crypto import CryptoService, SecretValue
 from ossie_studio.deps import ConnDep, get_crypto
 from ossie_studio.errors import ApiError
@@ -59,14 +59,14 @@ def _payload(secret: Secret) -> dict[str, object]:
 
 
 @router.get("")
-async def list_secrets(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
+async def list_secrets(conn: ConnDep, _: SecretsRead) -> dict[str, object]:
     secrets = await db_list_secrets(conn)
     return {"secrets": [_payload(s) for s in secrets], "categories": SECRET_CATEGORIES}
 
 
 @router.post("", status_code=201)
 async def create_secret(
-    conn: ConnDep, crypto: CryptoDep, _: AdminApiDep, body: SecretCreate
+    conn: ConnDep, crypto: CryptoDep, _: SecretsWrite, body: SecretCreate
 ) -> dict[str, object]:
     slug = body.slug.strip()
     errors = validate_new_secret(slug, body.label, body.category, body.value)
@@ -84,7 +84,7 @@ async def create_secret(
 
 @router.put("/{slug}/value")
 async def replace_value(
-    conn: ConnDep, crypto: CryptoDep, _: AdminApiDep, slug: str, body: SecretValueBody
+    conn: ConnDep, crypto: CryptoDep, _: SecretsWrite, slug: str, body: SecretValueBody
 ) -> dict[str, object]:
     errors = validate_value(body.value)
     if errors:
@@ -99,7 +99,7 @@ async def replace_value(
 
 @router.put("/{slug}/label")
 async def update_label(
-    conn: ConnDep, _: AdminApiDep, slug: str, body: SecretLabelBody
+    conn: ConnDep, _: SecretsWrite, slug: str, body: SecretLabelBody
 ) -> dict[str, object]:
     if not body.label.strip():
         raise ApiError("invalid_request", status_code=400, fields=["label_required"])
@@ -111,7 +111,7 @@ async def update_label(
 
 
 @router.delete("/{slug}", status_code=204)
-async def delete_secret(conn: ConnDep, _: AdminApiDep, slug: str) -> None:
+async def delete_secret(conn: ConnDep, _: SecretsWrite, slug: str) -> None:
     deleted = await db_delete_secret(conn, slug)
     if not deleted:
         raise ApiError("secret_not_found", status_code=404, slug=slug)

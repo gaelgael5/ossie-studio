@@ -6,6 +6,13 @@ import { afterEach, expect, test, vi } from 'vitest'
 import i18n from './i18n'
 import { App } from './App'
 
+const ADMIN_CAPS = [
+  'secrets:read', 'secrets:write', 'connections:read', 'connections:write',
+  'oidc:read', 'oidc:write', 'spaces:read', 'spaces:create', 'spaces:branch',
+  'spaces:publish', 'spaces:version', 'governance:read', 'governance:write',
+  'governance:certify', 'profiles:read', 'profiles:write', 'users:read', 'users:write',
+]
+
 interface MockRoutes {
   [url: string]: { status?: number; body?: unknown }
 }
@@ -63,6 +70,7 @@ test('admin connecté : la racine affiche l’accueil avec le lien secrets', asy
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
   })
@@ -95,6 +103,7 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
     '/api/connections': { body: { connections: [] } },
@@ -118,6 +127,7 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
     '/api/spaces': { body: { spaces: [] } },
@@ -147,6 +157,7 @@ test('détail espace : liste les branches et propose la création de fille', asy
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
     '/api/spaces/s1/branches': {
@@ -173,6 +184,7 @@ test('détail espace : liste les commits non publiés et les publie', async () =
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
     '/api/spaces/s1/branches': {
@@ -209,6 +221,7 @@ test('détail espace : enregistre une version et liste les versions', async () =
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
     '/api/spaces/s1/branches': {
@@ -244,6 +257,7 @@ test('détail espace : affiche le diagramme réseau ferroviaire', async () => {
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
     '/api/spaces/s1/branches': {
@@ -288,6 +302,7 @@ test('gouvernance tags : liste, filtre et création', async () => {
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
     '/api/governance/tags': {
@@ -323,6 +338,7 @@ test('gouvernance certifications : liste et presets', async () => {
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
     '/api/governance/certifications': {
@@ -348,6 +364,7 @@ test('gouvernance classifications : schéma principal, presets et niveaux', asyn
         bootstrap_required: false,
         authenticated: true,
         user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
       },
     },
     '/api/governance/classifications': {
@@ -378,4 +395,43 @@ test('gouvernance classifications : schéma principal, presets et niveaux', asyn
   await userEvent.click(screen.getByRole('button', { name: 'Gérer' }))
   await waitFor(() => expect(screen.getAllByText('Public').length).toBeGreaterThan(0))
   expect(screen.getByText('PUB')).toBeInTheDocument()
+})
+
+test('profils : grille des capacités, admin verrouillé, création', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
+      },
+    },
+    '/api/profiles': {
+      body: {
+        profiles: [
+          { id: 'adm', name: 'Administrateur', description: '', capabilities: ADMIN_CAPS, is_admin: true, user_count: 1 },
+        ],
+        catalog: [
+          { domain: 'secrets', capabilities: ['secrets:read', 'secrets:write'] },
+          { domain: 'spaces', capabilities: ['spaces:read', 'spaces:create', 'spaces:branch', 'spaces:publish', 'spaces:version'] },
+        ],
+      },
+    },
+    'POST /api/profiles': {
+      status: 201,
+      body: { id: 'p1', name: 'Lecteur', description: '', capabilities: ['secrets:read'], is_admin: false, user_count: 0 },
+    },
+  })
+  renderAt('/profiles')
+  await screen.findByText('Profils')
+  // Le profil administrateur est verrouillé, et la grille montre les domaines.
+  await waitFor(() => expect(screen.getByText(/🔒 administrateur/)).toBeInTheDocument())
+  expect(screen.getByText('Espaces Git')).toBeInTheDocument()
+  expect(screen.getByText('Travailler dans une branche')).toBeInTheDocument()
+  // Création : après succès, le champ nom se réinitialise.
+  await userEvent.type(screen.getByLabelText('Nom du profil'), 'Lecteur')
+  await userEvent.click(screen.getByRole('button', { name: 'Créer le profil' }))
+  await waitFor(() => expect(screen.getByLabelText('Nom du profil')).toHaveValue(''))
 })

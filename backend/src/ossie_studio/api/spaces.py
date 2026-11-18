@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
-from ossie_studio.api.common import AdminApiDep
+from ossie_studio.api.common import SpacesCreate, SpacesRead
 from ossie_studio.connections.service import db_get_connection, resolve_connection_token
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import (
@@ -94,14 +94,14 @@ async def _run_probe(
 
 
 @router.get("")
-async def list_spaces(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
+async def list_spaces(conn: ConnDep, _: SpacesRead) -> dict[str, object]:
     spaces = await db_list_spaces(conn)
     return {"spaces": [_payload(s) for s in spaces]}
 
 
 @router.post("", status_code=201)
 async def create_space(
-    conn: ConnDep, crypto: CryptoDep, _: AdminApiDep, git_probe: GitProbeDep, body: SpaceCreate
+    conn: ConnDep, crypto: CryptoDep, _: SpacesCreate, git_probe: GitProbeDep, body: SpaceCreate
 ) -> dict[str, object]:
     errors = validate_space(body.name, body.connection_id, body.repo_url)
     if errors:
@@ -138,7 +138,7 @@ async def create_space(
 
 @router.post("/{space_id}/probe")
 async def reprobe_space(
-    conn: ConnDep, crypto: CryptoDep, _: AdminApiDep, git_probe: GitProbeDep, space_id: uuid.UUID
+    conn: ConnDep, crypto: CryptoDep, _: SpacesCreate, git_probe: GitProbeDep, space_id: uuid.UUID
 ) -> dict[str, object]:
     space = await db_get_space(conn, space_id)
     if space is None:
@@ -154,7 +154,7 @@ async def reprobe_space(
 
 
 @router.delete("/{space_id}", status_code=204)
-async def delete_space(conn: ConnDep, _: AdminApiDep, space_id: uuid.UUID) -> None:
+async def delete_space(conn: ConnDep, _: SpacesCreate, space_id: uuid.UUID) -> None:
     # Supprimer un espace ne touche pas au dépôt.
     deleted = await db_delete_space(conn, space_id)
     if not deleted:
@@ -216,7 +216,7 @@ async def get_railmap(
     request: Request,
     conn: ConnDep,
     crypto: CryptoDep,
-    _: AdminApiDep,
+    _: SpacesRead,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     limit: int = 200,

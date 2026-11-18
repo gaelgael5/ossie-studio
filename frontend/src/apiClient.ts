@@ -20,6 +20,20 @@ export interface SessionState {
   bootstrap_required: boolean
   authenticated: boolean
   user: SessionUser | null
+  capabilities?: string[]
+}
+
+export interface ProfileItem {
+  id: string
+  name: string
+  description: string
+  capabilities: string[]
+  is_admin: boolean
+  user_count: number
+}
+export interface CapabilityDomain {
+  domain: string
+  capabilities: string[]
 }
 
 export interface Connection {
@@ -339,6 +353,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ yaml }),
     }),
+
+  listProfiles: () =>
+    apiFetch<{ profiles: ProfileItem[]; catalog: CapabilityDomain[] }>('/api/profiles'),
+  createProfile: (body: { name: string; description: string; capabilities: string[] }) =>
+    apiFetch<ProfileItem>('/api/profiles', { method: 'POST', body: JSON.stringify(body) }),
+  updateProfile: (
+    id: string,
+    body: { name: string; description: string; capabilities: string[] },
+  ) =>
+    apiFetch<ProfileItem>(`/api/profiles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  duplicateProfile: (id: string) =>
+    apiFetch<ProfileItem>(`/api/profiles/${id}/duplicate`, { method: 'POST' }),
+  deleteProfile: (id: string) => apiFetch(`/api/profiles/${id}`, { method: 'DELETE' }),
 
   listConnectors: () =>
     apiFetch<{

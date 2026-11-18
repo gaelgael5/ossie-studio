@@ -9,7 +9,7 @@ import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
-from ossie_studio.api.common import AdminApiDep
+from ossie_studio.api.common import ConnectionsRead, ConnectionsWrite
 from ossie_studio.connections.forms import validate_connection
 from ossie_studio.connections.service import (
     ConnectionDuplicateError,
@@ -59,7 +59,7 @@ def _payload(c: Connection) -> dict[str, object]:
 
 
 @router.get("")
-async def list_connections(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
+async def list_connections(conn: ConnDep, _: ConnectionsRead) -> dict[str, object]:
     connections = await db_list_connections(conn)
     return {"connections": [_payload(c) for c in connections]}
 
@@ -68,7 +68,7 @@ async def list_connections(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
 async def create_connection(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: AdminApiDep,
+    _: ConnectionsWrite,
     http_client_factory: HttpFactoryDep,
     body: ConnectionCreate,
 ) -> dict[str, object]:
@@ -104,7 +104,7 @@ async def create_connection(
 async def test_connection(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: AdminApiDep,
+    _: ConnectionsWrite,
     http_client_factory: HttpFactoryDep,
     connection_id: uuid.UUID,
 ) -> dict[str, object]:
@@ -132,7 +132,7 @@ async def test_connection(
 
 
 @router.delete("/{connection_id}", status_code=204)
-async def delete_connection(conn: ConnDep, _: AdminApiDep, connection_id: uuid.UUID) -> None:
+async def delete_connection(conn: ConnDep, _: ConnectionsWrite, connection_id: uuid.UUID) -> None:
     # Une connexion utilisée par un ou plusieurs espaces Git ne se supprime pas :
     # le refus nomme les espaces.
     spaces = await db_spaces_using_connection(conn, connection_id)

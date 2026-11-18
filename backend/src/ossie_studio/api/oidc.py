@@ -9,7 +9,7 @@ import structlog
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
-from ossie_studio.api.common import AdminApiDep
+from ossie_studio.api.common import OidcRead, OidcWrite
 from ossie_studio.crypto import CryptoService, SecretValue
 from ossie_studio.deps import ConnDep, get_crypto, get_http_client_factory
 from ossie_studio.errors import ApiError
@@ -42,7 +42,7 @@ class ConnectorCreate(BaseModel):
 
 
 @router.get("")
-async def list_connectors(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
+async def list_connectors(conn: ConnDep, _: OidcRead) -> dict[str, object]:
     connectors = await db_list_connectors(conn)
     rows = [
         {
@@ -60,7 +60,7 @@ async def list_connectors(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
 async def create_connector(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: AdminApiDep,
+    _: OidcWrite,
     http_client_factory: HttpFactoryDep,
     body: ConnectorCreate,
 ) -> dict[str, str]:
@@ -93,7 +93,7 @@ async def create_connector(
 
 
 @router.delete("/{connector_id}", status_code=204)
-async def delete_connector(conn: ConnDep, _: AdminApiDep, connector_id: uuid.UUID) -> None:
+async def delete_connector(conn: ConnDep, _: OidcWrite, connector_id: uuid.UUID) -> None:
     connector = await db_get_connector(conn, connector_id)
     if connector is None:
         raise ApiError("not_found", status_code=404)

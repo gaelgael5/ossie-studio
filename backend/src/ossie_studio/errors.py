@@ -57,6 +57,10 @@ ERROR_CODES: tuple[str, ...] = (
     "level_not_found",
     "level_name_taken",
     "level_short_name_taken",
+    "profile_name_taken",
+    "profile_not_found",
+    "profile_admin_protected",
+    "profile_in_use",
 )
 
 

@@ -13,6 +13,7 @@ import { SpaceDetailPage } from './pages/SpaceDetailPage'
 import { GovernanceTagsPage } from './pages/GovernanceTagsPage'
 import { GovernanceCertificationsPage } from './pages/GovernanceCertificationsPage'
 import { GovernanceClassificationsPage } from './pages/GovernanceClassificationsPage'
+import { ProfilesPage } from './pages/ProfilesPage'
 import { StatusPage } from './StatusPage'
 
 export function App() {
@@ -28,7 +29,11 @@ export function App() {
   }
 
   const { bootstrap_required, authenticated, user } = session.data
-  const isAdmin = user?.role === 'admin'
+  const caps = session.data.capabilities ?? []
+  // Un utilisateur authentifié mais sans la capacité est renvoyé à l'accueil ;
+  // la vraie protection est côté serveur (403). Le routage ne fait que masquer.
+  const gate = (capability: string, element: JSX.Element) =>
+    !authenticated ? <Navigate to="/login" replace /> : caps.includes(capability) ? element : <Navigate to="/" replace />
 
   return (
     <Layout>
@@ -58,42 +63,25 @@ export function App() {
             ) : !authenticated || !user ? (
               <Navigate to="/login" replace />
             ) : (
-              <HomePage user={user} />
+              <HomePage user={user} capabilities={caps} />
             )
           }
         />
-        <Route
-          path="/secrets"
-          element={isAdmin ? <SecretsPage /> : <Navigate to="/login" replace />}
-        />
-        <Route
-          path="/oidc/connectors"
-          element={isAdmin ? <ConnectorsPage /> : <Navigate to="/login" replace />}
-        />
-        <Route
-          path="/forges"
-          element={isAdmin ? <ForgesPage /> : <Navigate to="/login" replace />}
-        />
-        <Route
-          path="/spaces"
-          element={isAdmin ? <SpacesPage /> : <Navigate to="/login" replace />}
-        />
-        <Route
-          path="/spaces/:spaceId"
-          element={isAdmin ? <SpaceDetailPage /> : <Navigate to="/login" replace />}
-        />
-        <Route
-          path="/governance/tags"
-          element={isAdmin ? <GovernanceTagsPage /> : <Navigate to="/login" replace />}
-        />
+        <Route path="/secrets" element={gate('secrets:read', <SecretsPage />)} />
+        <Route path="/oidc/connectors" element={gate('oidc:read', <ConnectorsPage />)} />
+        <Route path="/forges" element={gate('connections:read', <ForgesPage />)} />
+        <Route path="/spaces" element={gate('spaces:read', <SpacesPage />)} />
+        <Route path="/spaces/:spaceId" element={gate('spaces:read', <SpaceDetailPage />)} />
+        <Route path="/governance/tags" element={gate('governance:read', <GovernanceTagsPage />)} />
         <Route
           path="/governance/certifications"
-          element={isAdmin ? <GovernanceCertificationsPage /> : <Navigate to="/login" replace />}
+          element={gate('governance:read', <GovernanceCertificationsPage />)}
         />
         <Route
           path="/governance/classifications"
-          element={isAdmin ? <GovernanceClassificationsPage /> : <Navigate to="/login" replace />}
+          element={gate('governance:read', <GovernanceClassificationsPage />)}
         />
+        <Route path="/profiles" element={gate('profiles:read', <ProfilesPage />)} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>
