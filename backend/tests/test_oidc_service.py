@@ -36,13 +36,16 @@ async def test_nouvel_arrivant_provisionne_au_role_par_defaut(app: FastAPI) -> N
     claims = VerifiedClaims(subject="s1", email="neuf@example.org", email_verified=True)
     decision = await _resolve(app, claims)
     assert decision.outcome is LinkOutcome.CREATED_NEW  # type: ignore[attr-defined]
-    user = await db_fetchrow(app, "SELECT role, password_hash FROM users")
+    user = await db_fetchrow(app, "SELECT role, password_hash, profile_id FROM users")
     identity = await db_fetchrow(app, "SELECT issuer, subject FROM user_identities")
     assert user is not None and identity is not None
     assert user["role"] == ROLE_USER
     assert user["password_hash"] is None
     assert identity["issuer"] == ISSUER
     assert identity["subject"] == "s1"
+    # Le nouvel arrivant reçoit le profil par défaut (« Sans accès »).
+    default_id = await db_fetchval(app, "SELECT id FROM profiles WHERE is_default")
+    assert user["profile_id"] == default_id
 
 
 async def test_admin_local_garde_son_role_en_revenant_par_oidc(app: FastAPI) -> None:

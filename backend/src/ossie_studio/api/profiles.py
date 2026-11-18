@@ -19,6 +19,7 @@ from ossie_studio.profiles.service import (
     db_delete_profile,
     db_get_profile,
     db_list_profiles,
+    db_set_default_profile,
     db_update_profile,
 )
 
@@ -53,6 +54,7 @@ def _payload(profile: Profile, user_count: int) -> dict[str, object]:
         "description": profile.description,
         "capabilities": caps,
         "is_admin": profile.is_admin,
+        "is_default": profile.is_default,
         "user_count": user_count,
     }
 
@@ -138,8 +140,28 @@ async def delete_profile(conn: ConnDep, user: ProfilesWrite, profile_id: uuid.UU
         raise ApiError("profile_not_found", status_code=404)
     if source.is_admin:
         raise ApiError("profile_admin_protected", status_code=409)
+    if source.is_default:
+        # Le profil par défaut ne se supprime pas tant qu'il porte la marque.
+        raise ApiError("profile_default_protected", status_code=409)
     count = await db_count_users_with_profile(conn, profile_id)
     if count > 0:
         raise ApiError("profile_in_use", status_code=409, count=count)
     await db_delete_profile(conn, profile_id)
     log.info("profile_deleted", profile_id=str(profile_id), author=user.email)
+
+
+@router.post("/{profile_id}/default")
+async def set_default(
+    conn: ConnDep, user: ProfilesWrite, profile_id: uuid.UUID
+) -> dict[str, object]:
+    source = await db_get_profile(conn, profile_id)
+    if source is None:
+        raise ApiError("profile_not_found", status_code=404)
+    if source.is_admin:
+        # L'Administrateur ne peut pas être le profil par défaut (il ouvrirait
+        # tous les droits à quiconque se connecte).
+        raise ApiError("profile_admin_default", status_code=409)
+    profile = await db_set_default_profile(conn, profile_id)
+    count = await db_count_users_with_profile(conn, profile_id)
+    log.info("profile_default_set", profile_id=str(profile_id), author=user.email)
+    return _payload(profile, count)

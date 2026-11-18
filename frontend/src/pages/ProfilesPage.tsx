@@ -48,6 +48,11 @@ export function ProfilesPage() {
     onSuccess: invalidate,
     onError,
   })
+  const setDefault = useMutation({
+    mutationFn: (id: string) => api.setDefaultProfile(id),
+    onSuccess: invalidate,
+    onError,
+  })
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteProfile(id),
     onSuccess: invalidate,
@@ -104,6 +109,7 @@ export function ProfilesPage() {
                 <td>
                   {profile.name}
                   {profile.is_admin ? ` ${t('adminLocked')}` : ''}
+                  {profile.is_default ? ` ${t('defaultBadge')}` : ''}
                 </td>
                 <td>{profile.user_count}</td>
                 <td>
@@ -120,6 +126,11 @@ export function ProfilesPage() {
                   <button type="button" onClick={() => duplicate.mutate(profile.id)}>
                     {t('duplicateProfile')}
                   </button>{' '}
+                  {!profile.is_admin && !profile.is_default ? (
+                    <button type="button" onClick={() => setDefault.mutate(profile.id)}>
+                      {t('setDefault')}
+                    </button>
+                  ) : null}{' '}
                   {!profile.is_admin ? (
                     <button
                       type="button"

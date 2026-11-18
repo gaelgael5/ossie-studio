@@ -260,6 +260,10 @@ export const en = {
     noProfiles: 'No profile.',
     colUsers: 'Users',
     adminLocked: '🔒 administrator',
+    defaultBadge: '⭐ default',
+    setDefault: 'Set as default',
+    noAccessYet:
+      'You do not have access to any function yet. An administrator must assign you a profile.',
     capabilitiesHeading: 'Capabilities',
     profileNoAccess: 'This profile grants access to nothing.',
     capRead: 'View',
@@ -402,6 +406,8 @@ export const en = {
       profile_not_found: 'Profile not found.',
       profile_admin_protected: 'The Administrator profile cannot be edited or deleted.',
       profile_in_use: 'Profile assigned to {{count}} user(s): remove it from them first.',
+      profile_admin_default: 'The Administrator profile cannot be the default profile.',
+      profile_default_protected: 'The default profile cannot be deleted.',
     },
   },
 }

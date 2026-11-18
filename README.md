@@ -107,7 +107,12 @@ Curation, Profils, Utilisateurs), chaque capacité avec un identifiant stable et
 un libellé traduit. Chaque utilisateur a **un seul profil**. Le profil
 **Administrateur** est livré d'office, a **toutes** les capacités (y compris
 celles ajoutées plus tard), et ne se supprime ni ne se modifie ; le premier
-administrateur le reçoit.
+administrateur le reçoit. Un profil est **marqué par défaut** (un seul à la
+fois) : tout compte créé à la première connexion OIDC le reçoit. À
+l'installation, c'est un profil **« Sans accès »** (aucune capacité, jamais
+l'Administrateur) — un annuaire ouvert ne donne ainsi aucun droit d'office ;
+l'administrateur choisit ensuite. Changer le profil par défaut ne touche pas
+les comptes existants, et le profil marqué ne se supprime pas.
 
 **Le serveur fait foi** : chaque route vérifie la capacité qu'elle demande
 (403 sinon), les droits **relus à chaque requête** (un changement de profil vaut

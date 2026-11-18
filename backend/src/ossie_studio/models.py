@@ -40,6 +40,7 @@ class Profile:
     description: str
     capabilities: list[str]
     is_admin: bool
+    is_default: bool
     created_at: datetime
     updated_at: datetime
 
@@ -51,6 +52,7 @@ class Profile:
             description=row["description"],
             capabilities=list(row["capabilities"] or []),
             is_admin=row["is_admin"],
+            is_default=row["is_default"] if "is_default" in row else False,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

@@ -118,8 +118,12 @@ async def _db_provision_user(
 ) -> uuid.UUID:
     assert claims.email is not None
     async with conn.transaction():
+        # Un compte créé à la première connexion reçoit le profil par défaut
+        # (« Sans accès » à l'installation). Le rattachement d'un compte existant
+        # garde son profil (il ne passe pas par ici).
         user_id = await conn.fetchval(
-            "INSERT INTO users (email, password_hash, role) VALUES ($1, NULL, $2) RETURNING id",
+            "INSERT INTO users (email, password_hash, role, profile_id) "
+            "VALUES ($1, NULL, $2, (SELECT id FROM profiles WHERE is_default)) RETURNING id",
             claims.email,
             ROLE_USER,
         )

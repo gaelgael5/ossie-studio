@@ -48,7 +48,7 @@ async def test_creer_profil_cases_independantes(admin: AsyncClient) -> None:
 
 
 async def test_profil_sans_capacite_accepte(admin: AsyncClient) -> None:
-    response = await admin.post("/api/profiles", json={"name": "Sans accès", "capabilities": []})
+    response = await admin.post("/api/profiles", json={"name": "Observateur", "capabilities": []})
     assert response.status_code == 201
     assert response.json()["capabilities"] == []
 
@@ -99,6 +99,43 @@ async def test_profil_utilise_refuse(admin: AsyncClient, app: FastAPI) -> None:
     assert deleted.status_code == 409
     assert deleted.json()["error"] == "profile_in_use"
     assert deleted.json()["error_args"]["count"] == 1
+
+
+async def test_installation_a_le_profil_par_defaut_sans_acces(admin: AsyncClient) -> None:
+    profiles = (await admin.get("/api/profiles")).json()["profiles"]
+    default = next(p for p in profiles if p["is_default"])
+    assert default["name"] == "Sans accès"
+    assert default["capabilities"] == []
+    assert default["is_admin"] is False
+
+
+async def test_marquer_par_defaut_passe_la_marque(admin: AsyncClient) -> None:
+    pid = (
+        await admin.post(
+            "/api/profiles", json={"name": "Standard", "capabilities": ["secrets:read"]}
+        )
+    ).json()["id"]
+    marked = await admin.post(f"/api/profiles/{pid}/default")
+    assert marked.status_code == 200
+    assert marked.json()["is_default"] is True
+    # Une seule marque : « Sans accès » l'a perdue.
+    profiles = (await admin.get("/api/profiles")).json()["profiles"]
+    assert [p["id"] for p in profiles if p["is_default"]] == [pid]
+
+
+async def test_admin_jamais_par_defaut(admin: AsyncClient) -> None:
+    admin_id = await _admin_profile_id(admin)
+    response = await admin.post(f"/api/profiles/{admin_id}/default")
+    assert response.status_code == 409
+    assert response.json()["error"] == "profile_admin_default"
+
+
+async def test_suppression_du_profil_par_defaut_refusee(admin: AsyncClient) -> None:
+    profiles = (await admin.get("/api/profiles")).json()["profiles"]
+    default_id = next(p["id"] for p in profiles if p["is_default"])
+    response = await admin.delete(f"/api/profiles/{default_id}")
+    assert response.status_code == 409
+    assert response.json()["error"] == "profile_default_protected"
 
 
 @pytest.fixture

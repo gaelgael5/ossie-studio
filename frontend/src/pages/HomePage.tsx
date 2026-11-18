@@ -47,7 +47,9 @@ export function HomePage({
             </Link>
           ))}
         </nav>
-      ) : null}
+      ) : (
+        <p>{t('noAccessYet')}</p>
+      )}
       <p>{t('semanticSoon')}</p>
       <button type="button" onClick={() => logout.mutate()}>
         {t('logout')}

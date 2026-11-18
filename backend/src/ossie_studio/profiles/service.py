@@ -94,3 +94,23 @@ async def db_delete_profile(conn: asyncpg.Connection, profile_id: uuid.UUID) -> 
 async def db_count_users_with_profile(conn: asyncpg.Connection, profile_id: uuid.UUID) -> int:
     value = await conn.fetchval("SELECT count(*) FROM users WHERE profile_id = $1", profile_id)
     return int(value or 0)
+
+
+async def db_get_default_profile_id(conn: asyncpg.Connection) -> uuid.UUID | None:
+    value: uuid.UUID | None = await conn.fetchval(
+        "SELECT id FROM profiles WHERE is_default LIMIT 1"
+    )
+    return value
+
+
+async def db_set_default_profile(conn: asyncpg.Connection, profile_id: uuid.UUID) -> Profile:
+    """Marque un profil par défaut ; un seul à la fois (la marque passe)."""
+    async with conn.transaction():
+        await conn.execute("UPDATE profiles SET is_default = false WHERE is_default")
+        row = await conn.fetchrow(
+            "UPDATE profiles SET is_default = true, updated_at = now() WHERE id = $1 RETURNING *",
+            profile_id,
+        )
+    if row is None:
+        raise ProfileNotFoundError
+    return Profile.from_row(row)

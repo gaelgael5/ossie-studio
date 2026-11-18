@@ -61,6 +61,8 @@ ERROR_CODES: tuple[str, ...] = (
     "profile_not_found",
     "profile_admin_protected",
     "profile_in_use",
+    "profile_admin_default",
+    "profile_default_protected",
 )
 
 

@@ -261,6 +261,10 @@ export const fr = {
     noProfiles: 'Aucun profil.',
     colUsers: 'Utilisateurs',
     adminLocked: '🔒 administrateur',
+    defaultBadge: '⭐ par défaut',
+    setDefault: 'Définir par défaut',
+    noAccessYet:
+      'Vous n’avez accès à aucune fonction pour l’instant. Un administrateur doit vous attribuer un profil.',
     capabilitiesHeading: 'Capacités',
     profileNoAccess: 'Ce profil ne donne accès à rien.',
     capRead: 'Consulter',
@@ -404,6 +408,8 @@ export const fr = {
       profile_not_found: 'Profil introuvable.',
       profile_admin_protected: 'Le profil Administrateur ne se modifie ni ne se supprime.',
       profile_in_use: 'Profil assigné à {{count}} utilisateur(s) : retirez-le-leur d’abord.',
+      profile_admin_default: 'Le profil Administrateur ne peut pas être le profil par défaut.',
+      profile_default_protected: 'Le profil par défaut ne peut pas être supprimé.',
     },
   },
 }

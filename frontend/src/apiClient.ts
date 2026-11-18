@@ -29,6 +29,7 @@ export interface ProfileItem {
   description: string
   capabilities: string[]
   is_admin: boolean
+  is_default: boolean
   user_count: number
 }
 export interface CapabilityDomain {
@@ -365,6 +366,8 @@ export const api = {
     apiFetch<ProfileItem>(`/api/profiles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   duplicateProfile: (id: string) =>
     apiFetch<ProfileItem>(`/api/profiles/${id}/duplicate`, { method: 'POST' }),
+  setDefaultProfile: (id: string) =>
+    apiFetch<ProfileItem>(`/api/profiles/${id}/default`, { method: 'POST' }),
   deleteProfile: (id: string) => apiFetch(`/api/profiles/${id}`, { method: 'DELETE' }),
 
   listConnectors: () =>
