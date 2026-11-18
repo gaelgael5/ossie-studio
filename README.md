@@ -205,6 +205,27 @@ d'un niveau assigné, détection d'incohérence) arrivera avec les **assets** ;
 l'assignation d'un niveau **restreint** demandera la capacité « Gouvernance :
 certifier » (epic « Profils »).
 
+### Classifications — schémas de sensibilité
+
+La page **Gouvernance › Classifications** gère des **schémas** de niveaux de
+sensibilité. Un schéma a un **id dérivé de son nom et immuable** (clé dans les
+assets), un préfixe de badge, l'option **multi-valeurs** (un ensemble de
+valeurs, jamais principal) et peut être le **schéma principal** (un seul, garanti
+par un index unique partiel). Un **niveau** porte un **nom canonique** (valeur
+stable stockée dans les assets, unique, sans virgule), un **libellé d'affichage**
+traduisible, un nom court (≤ 12), un rang (le plus élevé l'emporte à la
+dérivation), des critères Markdown, une couleur et une icône. On crée un schéma
+vide, **depuis un preset** (Classification, RGPD, RGPD art. 9 multi-valeurs,
+TLP 2.0 — libellés résolus selon la langue à l'import) ou **par import YAML**, et
+on **exporte** un schéma en YAML. Sur une **installation neuve**, le schéma
+« Classification » existe déjà, principal, avec ses quatre niveaux.
+
+**Pour l'instant**, seule la **gestion des schémas et niveaux** est livrée
+(admin). La **pose des classifications sur les champs/assets** et la
+**dérivation** (réécriture des assets au renommage d'un niveau, invalidation à
+la suppression d'un niveau utilisé, compteurs d'usage) arriveront avec les
+**assets** (epic « Curation »).
+
 ## Tests et qualité
 
 ```bash

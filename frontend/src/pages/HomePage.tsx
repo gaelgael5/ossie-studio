@@ -28,6 +28,7 @@ export function HomePage({ user }: { user: SessionUser }) {
           <Link to="/spaces">{t('manageSpaces')}</Link>
           <Link to="/governance/tags">{t('manageGovernanceTags')}</Link>
           <Link to="/governance/certifications">{t('manageCertifications')}</Link>
+          <Link to="/governance/classifications">{t('manageClassifications')}</Link>
         </nav>
       )}
       <p>{t('semanticSoon')}</p>

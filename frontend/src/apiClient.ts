@@ -129,6 +129,48 @@ export interface CertificationInput {
   restricted: boolean
 }
 
+export interface ClassificationLevel {
+  id: string
+  name: string
+  label: string
+  short_name: string
+  rank: number
+  description: string
+  criteria: string
+  color: string
+  icon: string
+  position: number
+}
+export interface ClassificationScheme {
+  id: string
+  name: string
+  description: string
+  badge_prefix: string
+  multi_value: boolean
+  is_primary: boolean
+  display_order: number
+  levels: ClassificationLevel[]
+}
+export interface SchemeInput {
+  id?: string
+  name: string
+  description: string
+  badge_prefix: string
+  multi_value: boolean
+  is_primary: boolean
+  levels?: LevelInput[]
+}
+export interface LevelInput {
+  name: string
+  label: string
+  short_name: string
+  rank: number
+  description?: string
+  criteria?: string
+  color?: string
+  icon?: string
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setup: (email: string, password: string) =>
@@ -257,6 +299,45 @@ export const api = {
   createCertificationPresets: () =>
     apiFetch<{ certifications: Certification[] }>('/api/governance/certifications/presets', {
       method: 'POST',
+    }),
+
+  listSchemes: () =>
+    apiFetch<{ schemes: ClassificationScheme[] }>('/api/governance/classifications'),
+  createScheme: (body: SchemeInput) =>
+    apiFetch<ClassificationScheme>('/api/governance/classifications', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateScheme: (id: string, body: Omit<SchemeInput, 'id' | 'levels'> & { display_order: number }) =>
+    apiFetch<ClassificationScheme>(`/api/governance/classifications/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteScheme: (id: string) =>
+    apiFetch(`/api/governance/classifications/${id}`, { method: 'DELETE' }),
+  addLevel: (schemeId: string, body: LevelInput) =>
+    apiFetch<ClassificationLevel>(`/api/governance/classifications/${schemeId}/levels`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateLevel: (schemeId: string, levelId: string, body: LevelInput) =>
+    apiFetch<ClassificationLevel>(
+      `/api/governance/classifications/${schemeId}/levels/${levelId}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  deleteLevel: (schemeId: string, levelId: string) =>
+    apiFetch(`/api/governance/classifications/${schemeId}/levels/${levelId}`, { method: 'DELETE' }),
+  reorderLevels: (schemeId: string, order: string[]) =>
+    apiFetch(`/api/governance/classifications/${schemeId}/levels`, {
+      method: 'PUT',
+      body: JSON.stringify({ order }),
+    }),
+  exportScheme: (id: string) =>
+    apiFetch<{ yaml: string }>(`/api/governance/classifications/${id}/export`),
+  importScheme: (yaml: string) =>
+    apiFetch<ClassificationScheme>('/api/governance/classifications/import', {
+      method: 'POST',
+      body: JSON.stringify({ yaml }),
     }),
 
   listConnectors: () =>

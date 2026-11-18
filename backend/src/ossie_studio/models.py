@@ -182,6 +182,64 @@ class Certification:
 
 
 @dataclass(frozen=True)
+class ClassificationLevel:
+    id: uuid.UUID
+    scheme_id: str
+    name: str
+    label: str
+    short_name: str
+    rank: int
+    description: str
+    criteria: str
+    color: str
+    icon: str
+    position: int
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> ClassificationLevel:
+        return cls(
+            id=row["id"],
+            scheme_id=row["scheme_id"],
+            name=row["name"],
+            label=row["label"],
+            short_name=row["short_name"],
+            rank=row["rank"],
+            description=row["description"],
+            criteria=row["criteria"],
+            color=row["color"],
+            icon=row["icon"],
+            position=row["position"],
+        )
+
+
+@dataclass(frozen=True)
+class ClassificationScheme:
+    id: str
+    name: str
+    description: str
+    badge_prefix: str
+    multi_value: bool
+    is_primary: bool
+    display_order: int
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> ClassificationScheme:
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"],
+            badge_prefix=row["badge_prefix"],
+            multi_value=row["multi_value"],
+            is_primary=row["is_primary"],
+            display_order=row["display_order"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+@dataclass(frozen=True)
 class SpaceBranch:
     id: uuid.UUID
     space_id: uuid.UUID

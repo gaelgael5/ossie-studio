@@ -51,6 +51,12 @@ ERROR_CODES: tuple[str, ...] = (
     "tag_import_invalid",
     "certification_tag_taken",
     "certification_not_found",
+    "scheme_id_taken",
+    "scheme_not_found",
+    "scheme_import_invalid",
+    "level_not_found",
+    "level_name_taken",
+    "level_short_name_taken",
 )
 
 

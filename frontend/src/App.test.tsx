@@ -339,3 +339,43 @@ test('gouvernance certifications : liste et presets', async () => {
   await waitFor(() => expect(screen.getByText('certification/or')).toBeInTheDocument())
   expect(screen.getByText('🥇 Or')).toBeInTheDocument()
 })
+
+test('gouvernance classifications : schéma principal, presets et niveaux', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+      },
+    },
+    '/api/governance/classifications': {
+      body: {
+        schemes: [
+          {
+            id: 'classification',
+            name: 'Classification',
+            description: '',
+            badge_prefix: '',
+            multi_value: false,
+            is_primary: true,
+            display_order: 0,
+            levels: [
+              { id: 'l1', name: 'Public', label: 'Public', short_name: 'PUB', rank: 1, description: '', criteria: '', color: '', icon: '', position: 0 },
+            ],
+          },
+        ],
+      },
+    },
+  })
+  renderAt('/governance/classifications')
+  await screen.findByText('Gouvernance › Classifications')
+  // Un preset TLP est proposé, et le schéma principal est listé.
+  expect(screen.getByRole('button', { name: 'TLP 2.0' })).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByText('classification')).toBeInTheDocument())
+  // Gérer le schéma montre ses niveaux.
+  await userEvent.click(screen.getByRole('button', { name: 'Gérer' }))
+  await waitFor(() => expect(screen.getAllByText('Public').length).toBeGreaterThan(0))
+  expect(screen.getByText('PUB')).toBeInTheDocument()
+})
