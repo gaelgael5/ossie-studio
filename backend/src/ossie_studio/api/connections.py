@@ -124,6 +124,32 @@ async def list_connection_repositories(
     }
 
 
+@router.get("/{connection_id}/branches")
+async def list_connection_branches(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: ConnectionsRead,
+    http_client_factory: HttpFactoryDep,
+    connection_id: uuid.UUID,
+    repo: str = "",
+) -> dict[str, object]:
+    """Branches d'un dépôt lisible par la connexion : sert à proposer la
+    « branche suivie » d'une source Git."""
+    connection = await db_get_connection(conn, connection_id)
+    if connection is None:
+        raise ApiError("connection_not_found", status_code=404)
+    if not repo.strip():
+        raise ApiError("invalid_request", status_code=400, fields=["repo_required"])
+    token = (await resolve_connection_token(conn, crypto, connection)).reveal()
+    strategy = get_strategy(connection.forge)
+    async with http_client_factory() as client:
+        try:
+            branches = await strategy.list_branches(client, connection.url, token, repo.strip())
+        except ForgeError as exc:
+            raise ApiError(exc.code, status_code=400) from None
+    return {"branches": branches}
+
+
 @router.post("", status_code=201)
 async def create_connection(
     conn: ConnDep,

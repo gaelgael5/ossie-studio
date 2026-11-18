@@ -64,6 +64,13 @@ class ForgeStrategy(Protocol):
         """Liste tous les dépôts lisibles (pagination gérée de bout en bout)."""
         ...
 
+    async def list_branches(
+        self, client: httpx.AsyncClient, url: str, token: str, repo: str
+    ) -> list[str]:
+        """Liste les noms des branches d'un dépôt (identifié par son full_name).
+        Sert à proposer la « branche suivie » d'une source Git."""
+        ...
+
     def git_username(self) -> str:
         """Identifiant conventionnel passé à git avec le jeton en mot de passe."""
         ...

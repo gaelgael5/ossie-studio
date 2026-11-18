@@ -439,6 +439,23 @@ export const fr = {
     },
 
     fields: {
+      connexion_required: 'La connexion est obligatoire.',
+      connexion_invalid: 'Connexion inexistante ou d’un autre genre.',
+      depot_required: 'Le dépôt est obligatoire.',
+      branche_required: 'La branche suivie est obligatoire.',
+      branche_not_found: 'Cette branche n’existe pas dans le dépôt source.',
+      repertoires_invalid: 'Les répertoires doivent être une liste de chaînes.',
+      base_required: 'La base est obligatoire.',
+      schemas_invalid: 'Les schémas doivent être une liste de chaînes.',
+      exclusions_invalid: 'Les exclusions doivent être une liste de chaînes.',
+      type_unknown: 'Type de source inconnu.',
+      repo_required: 'Le dépôt est obligatoire.',
+      version_unsupported: 'Version de manifeste non prise en charge.',
+      parametres_invalid: 'Paramètres invalides.',
+      yaml_invalid: 'Le manifeste n’est pas un YAML valide.',
+      slug_mismatch: 'Le slug du manifeste ne correspond pas au répertoire.',
+      manifest_missing: 'Manifeste absent.',
+      manifest_invalid: 'Manifeste invalide.',
       email_required: "L'adresse email est obligatoire.",
       email_invalid: "L'adresse email n'est pas valide.",
       password_required: 'Le mot de passe est obligatoire.',
@@ -567,6 +584,8 @@ export const fr = {
       'Aucune valeur invalide. Cet onglet se remplira quand les assets existeront (avec la Curation).',
 
     errors: {
+      source_slug_taken: 'Un slug de source déjà utilisé dans cette branche.',
+      source_not_found: 'Source introuvable.',
       generic: 'Une erreur est survenue ({{code}})',
       forbidden: 'Accès refusé.',
       unauthenticated: 'Vous devez être connecté.',

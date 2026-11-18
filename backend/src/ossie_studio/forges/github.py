@@ -55,6 +55,25 @@ class GitHubStrategy:
                 return repos
             page += 1
 
+    async def list_branches(
+        self, client: httpx.AsyncClient, url: str, token: str, repo: str
+    ) -> list[str]:
+        names: list[str] = []
+        page = 1
+        while True:
+            response = await client.get(
+                f"{_api_base(url)}/repos/{repo}/branches",
+                headers=_headers(token),
+                params={"per_page": _PER_PAGE, "page": page},
+            )
+            if response.status_code >= 400:
+                raise ForgeError("connection_token_invalid")
+            batch = response.json()
+            names.extend(str(b["name"]) for b in batch)
+            if len(batch) < _PER_PAGE:
+                return names
+            page += 1
+
     def git_username(self) -> str:
         return "x-access-token"
 

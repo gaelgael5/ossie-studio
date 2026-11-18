@@ -437,6 +437,23 @@ export const en = {
     },
 
     fields: {
+      connexion_required: 'A connection is required.',
+      connexion_invalid: 'Connection missing or of another kind.',
+      depot_required: 'The repository is required.',
+      branche_required: 'The tracked branch is required.',
+      branche_not_found: 'That branch does not exist in the source repository.',
+      repertoires_invalid: 'Directories must be a list of strings.',
+      base_required: 'The database is required.',
+      schemas_invalid: 'Schemas must be a list of strings.',
+      exclusions_invalid: 'Exclusions must be a list of strings.',
+      type_unknown: 'Unknown source type.',
+      repo_required: 'The repository is required.',
+      version_unsupported: 'Unsupported manifest version.',
+      parametres_invalid: 'Invalid parameters.',
+      yaml_invalid: 'The manifest is not valid YAML.',
+      slug_mismatch: 'The manifest slug does not match the directory.',
+      manifest_missing: 'Manifest missing.',
+      manifest_invalid: 'Invalid manifest.',
       email_required: 'The email address is required.',
       email_invalid: 'The email address is not valid.',
       password_required: 'The password is required.',
@@ -564,6 +581,8 @@ export const en = {
       'No invalid values. This tab will fill once assets exist (with Curation).',
 
     errors: {
+      source_slug_taken: 'That source slug is already used in this branch.',
+      source_not_found: 'Source not found.',
       generic: 'Something went wrong ({{code}})',
       forbidden: 'Access denied.',
       unauthenticated: 'You must be signed in.',

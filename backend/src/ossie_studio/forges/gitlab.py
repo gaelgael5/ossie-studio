@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import httpx
 
 from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo
@@ -47,6 +49,26 @@ class GitLabStrategy:
             )
             if len(batch) < _PER_PAGE:
                 return repos
+            page += 1
+
+    async def list_branches(
+        self, client: httpx.AsyncClient, url: str, token: str, repo: str
+    ) -> list[str]:
+        encoded = quote(repo, safe="")
+        names: list[str] = []
+        page = 1
+        while True:
+            response = await client.get(
+                f"{_api(url)}/projects/{encoded}/repository/branches",
+                headers=_headers(token),
+                params={"per_page": _PER_PAGE, "page": page},
+            )
+            if response.status_code >= 400:
+                raise ForgeError("connection_token_invalid")
+            batch = response.json()
+            names.extend(str(b["name"]) for b in batch)
+            if len(batch) < _PER_PAGE:
+                return names
             page += 1
 
     def git_username(self) -> str:

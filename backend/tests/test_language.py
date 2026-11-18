@@ -63,5 +63,7 @@ async def test_seul_son_propre_compte(admin: AsyncClient, app: FastAPI) -> None:
         ROLE_USER,
     )
     await admin.put("/api/session/language", json={"language": "fr"})
-    autre_lang = await db_fetchval(app, "SELECT language FROM users WHERE email = 'autre@example.org'")
+    autre_lang = await db_fetchval(
+        app, "SELECT language FROM users WHERE email = 'autre@example.org'"
+    )
     assert autre_lang is None

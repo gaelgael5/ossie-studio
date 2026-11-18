@@ -76,6 +76,27 @@ class AzureDevOpsStrategy:
             if not continuation:
                 return projects
 
+    async def list_branches(
+        self, client: httpx.AsyncClient, url: str, token: str, repo: str
+    ) -> list[str]:
+        org = url.rstrip("/")
+        # full_name d'un dépôt Azure = "projet/depot".
+        project, _, repo_name = repo.partition("/")
+        if not project or not repo_name:
+            raise ForgeError("connection_url_unreachable")
+        response = await client.get(
+            f"{org}/{project}/_apis/git/repositories/{repo_name}/refs",
+            headers=_headers(token),
+            params={"filter": "heads", "api-version": _API_VERSION},
+        )
+        _classify(response.status_code)
+        names: list[str] = []
+        for ref in response.json().get("value", []):
+            name = str(ref.get("name", ""))
+            if name.startswith("refs/heads/"):
+                names.append(name.removeprefix("refs/heads/"))
+        return names
+
     def git_username(self) -> str:
         return "pat"
 

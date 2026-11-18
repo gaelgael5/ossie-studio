@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 import structlog
 
@@ -25,6 +26,8 @@ from ossie_studio.spaces.railmap import (
 )
 
 log = structlog.get_logger(__name__)
+
+_T = TypeVar("_T")
 
 # Borne de l'historique chargé pour le diagramme : au-delà, on s'arrête (les
 # arêtes vers des parents plus anciens deviennent des amorces « plus bas »).
@@ -261,6 +264,29 @@ class WorkdirManager:
                 raise WorkdirError(_access_code(classify(err)))
             log.info("commit_to_branch", space_id=str(space_id), ref=ref)
             return True
+
+    async def read_branch(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        read_fn: Callable[[Path], _T],
+    ) -> _T:
+        """Aligne la copie d'une branche de travail sur la forge puis laisse
+        `read_fn` lire son arborescence. Ne modifie rien, ne commite pas : c'est
+        le pendant en lecture de `commit_to_branch` (pour lister des fichiers
+        versionnés, ici les manifestes de sources)."""
+        ref = f"{WORK_PREFIX}{slug}"
+        workdir = self._dir(space_id, slug)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            if not await self._remote_branch_exists(workdir, ref, env):
+                raise WorkdirError("branch_not_found")
+            await self._checkout_branch(workdir, ref, env)
+            return read_fn(workdir)
 
     async def list_unpublished(
         self, space_id: uuid.UUID, slug: str, repo_url: str, username: str, token: str | None

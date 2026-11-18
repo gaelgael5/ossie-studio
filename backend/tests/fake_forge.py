@@ -31,6 +31,18 @@ async def _repos(request: Request) -> Response:
     return JSONResponse(items)
 
 
+async def _branches(request: Request) -> Response:
+    if not _authorized(request):
+        return JSONResponse({"message": "Bad credentials"}, status_code=401)
+    return JSONResponse([{"name": "main"}, {"name": "develop"}])
+
+
 def fake_github_app() -> Starlette:
-    """Faux GitHub pour les tests de l'API des connexions."""
-    return Starlette(routes=[Route("/user", _user), Route("/user/repos", _repos)])
+    """Faux GitHub pour les tests de l'API des connexions et des sources."""
+    return Starlette(
+        routes=[
+            Route("/user", _user),
+            Route("/user/repos", _repos),
+            Route("/repos/{owner}/{repo}/branches", _branches),
+        ]
+    )
