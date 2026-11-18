@@ -95,7 +95,7 @@ class OidcConnector:
     label: str
     issuer: str
     client_id: str
-    client_secret_encrypted: bytes
+    client_secret_slug: str
     scopes: str
     created_at: datetime
     roles_claim: str = ""
@@ -108,7 +108,7 @@ class OidcConnector:
             label=row["label"],
             issuer=row["issuer"],
             client_id=row["client_id"],
-            client_secret_encrypted=row["client_secret_encrypted"],
+            client_secret_slug=row["client_secret_slug"],
             scopes=row["scopes"],
             created_at=row["created_at"],
             roles_claim=row["roles_claim"] if "roles_claim" in row else "",

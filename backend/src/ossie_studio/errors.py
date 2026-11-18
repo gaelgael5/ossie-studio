@@ -22,6 +22,7 @@ ERROR_CODES: tuple[str, ...] = (
     "secret_in_use",
     "oidc_issuer_unreachable",
     "oidc_issuer_already_declared",
+    "oidc_secret_invalid",
     "oidc_token_rejected",
     "oidc_email_ambiguous",
     "oidc_email_unverified",

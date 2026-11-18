@@ -26,6 +26,7 @@ class SecretUsage:
 # utilisateur) : l'interpolation dans la requête est donc sûre.
 SECRET_USAGES: tuple[SecretUsage, ...] = (
     SecretUsage("connections", "secret_slug", "connection", "label"),
+    SecretUsage("oidc_connectors", "client_secret_slug", "oidc_connector", "label"),
 )
 
 

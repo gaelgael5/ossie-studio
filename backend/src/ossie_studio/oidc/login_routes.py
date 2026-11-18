@@ -26,6 +26,7 @@ from ossie_studio.oidc.provider import (
 )
 from ossie_studio.oidc.roles import roles_from_claims
 from ossie_studio.oidc.service import db_get_connector, resolve_federated_login
+from ossie_studio.secretstore.service import resolve_secret_value
 from ossie_studio.teams.service import apply_team_mapping
 
 log = structlog.get_logger(__name__)
@@ -104,7 +105,11 @@ async def oidc_callback(
     if connector is None:
         return _login_redirect("not_found")
 
-    client_secret = crypto.decrypt(connector.client_secret_encrypted).reveal()
+    # Valeur ACTUELLE du secret (par son slug) : une rotation faite dans
+    # l'ecran Secrets est prise en compte sans recreer le connecteur.
+    client_secret = (
+        await resolve_secret_value(conn, crypto, connector.client_secret_slug)
+    ).reveal()
     async with http_client_factory() as client:
         metadata = await discover(client, connector.issuer)
         try:

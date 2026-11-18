@@ -34,17 +34,17 @@ async def db_create_connector(
     label: str,
     issuer: str,
     client_id: str,
-    client_secret_encrypted: bytes,
+    client_secret_slug: str,
     scopes: str,
 ) -> OidcConnector:
     try:
         row = await conn.fetchrow(
-            "INSERT INTO oidc_connectors (label, issuer, client_id, client_secret_encrypted, "
+            "INSERT INTO oidc_connectors (label, issuer, client_id, client_secret_slug, "
             "scopes) VALUES ($1, $2, $3, $4, $5) RETURNING *",
             label,
             issuer,
             client_id,
-            client_secret_encrypted,
+            client_secret_slug,
             scopes,
         )
     except asyncpg.UniqueViolationError as exc:

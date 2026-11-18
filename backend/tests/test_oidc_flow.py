@@ -27,12 +27,16 @@ async def flow(
     wire_fake_idp(app, idp.app())
     await bootstrap_admin(client)
     await client.post(
+        "/api/secrets",
+        json={"slug": "oidc-sec", "label": "Secret IdP", "category": "oidc", "value": SECRET},
+    )
+    await client.post(
         "/api/oidc/connectors",
         json={
             "label": "Mon IdP",
             "issuer": ISSUER,
             "client_id": "client-x",
-            "client_secret": SECRET,
+            "client_secret_slug": "oidc-sec",
             "scopes": "openid email profile",
         },
     )

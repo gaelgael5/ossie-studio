@@ -10,8 +10,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import OidcRead, OidcWrite
-from ossie_studio.crypto import CryptoService, SecretValue
-from ossie_studio.deps import ConnDep, get_crypto, get_http_client_factory
+from ossie_studio.deps import ConnDep, get_http_client_factory
 from ossie_studio.errors import ApiError
 from ossie_studio.oidc.forms import DEFAULT_SCOPES, parse_connector
 from ossie_studio.oidc.mapping import (
@@ -32,6 +31,8 @@ from ossie_studio.oidc.service import (
     db_list_connectors,
 )
 from ossie_studio.profiles.service import db_get_profile, db_list_profiles
+from ossie_studio.secretstore.service import db_get_secret
+from ossie_studio.secretstore.usages import db_delete_secret_if_unused
 from ossie_studio.teams.service import db_list_teams_for_connector, db_set_team_claim
 from ossie_studio.users.service import db_count_pinned_users
 
@@ -39,8 +40,9 @@ log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/oidc/connectors")
 
-CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 HttpFactoryDep = Annotated[Callable[[], httpx.AsyncClient], Depends(get_http_client_factory)]
+
+OIDC_SECRET_CATEGORY = "oidc"  # noqa: S105  (nom de catégorie, pas un secret)
 
 
 class ConnectorCreate(BaseModel):
@@ -48,7 +50,7 @@ class ConnectorCreate(BaseModel):
     label: str = ""
     issuer: str = ""
     client_id: str = ""
-    client_secret: str = ""
+    client_secret_slug: str = ""
     scopes: str = DEFAULT_SCOPES
 
 
@@ -87,6 +89,7 @@ async def list_connectors(conn: ConnDep, _: OidcRead) -> dict[str, object]:
                 "label": c.label,
                 "issuer": c.issuer,
                 "accounts": await db_count_identities_for_issuer(conn, c.issuer),
+                "client_secret_slug": c.client_secret_slug,
                 "roles_claim": c.roles_claim,
                 "team_claim": c.team_claim,
                 "mappings": [
@@ -112,14 +115,23 @@ async def list_connectors(conn: ConnDep, _: OidcRead) -> dict[str, object]:
 @router.post("", status_code=201)
 async def create_connector(
     conn: ConnDep,
-    crypto: CryptoDep,
     _: OidcWrite,
     http_client_factory: HttpFactoryDep,
     body: ConnectorCreate,
 ) -> dict[str, str]:
-    form = parse_connector(body.label, body.issuer, body.client_id, body.client_secret, body.scopes)
+    form = parse_connector(body.label, body.issuer, body.client_id, body.scopes)
     if form.errors:
         raise ApiError("invalid_request", status_code=400, fields=form.errors)
+
+    # Le client secret est un secret de catégorie « oidc », désigné par son slug
+    # et jamais saisi ici. On vérifie qu'il existe et qu'il est bien de cette
+    # catégorie avant tout (local, pas de réseau).
+    slug = body.client_secret_slug.strip()
+    if not slug:
+        raise ApiError("invalid_request", status_code=400, fields=["client_secret_required"])
+    secret = await db_get_secret(conn, slug)
+    if secret is None or secret.category != OIDC_SECRET_CATEGORY:
+        raise ApiError("oidc_secret_invalid", status_code=400, slug=slug)
 
     # On interroge la découverte AVANT d'enregistrer.
     async with http_client_factory() as client:
@@ -130,12 +142,7 @@ async def create_connector(
 
     try:
         connector = await db_create_connector(
-            conn,
-            form.label,
-            form.issuer,
-            form.client_id,
-            crypto.encrypt(SecretValue(form.client_secret)),
-            form.scopes,
+            conn, form.label, form.issuer, form.client_id, slug, form.scopes
         )
     except IssuerAlreadyDeclaredError:
         raise ApiError(
@@ -146,13 +153,20 @@ async def create_connector(
 
 
 @router.delete("/{connector_id}", status_code=204)
-async def delete_connector(conn: ConnDep, _: OidcWrite, connector_id: uuid.UUID) -> None:
+async def delete_connector(
+    conn: ConnDep, _: OidcWrite, connector_id: uuid.UUID, delete_secret: bool = False
+) -> None:
     connector = await db_get_connector(conn, connector_id)
     if connector is None:
         raise ApiError("not_found", status_code=404)
-    # Les comptes rattachés et leur couple (issuer, sub) sont conservés.
+    # Les comptes rattachés et leur couple (issuer, sub) sont conservés : seul le
+    # connecteur disparaît. Le secret ne part que si l'administrateur l'a demandé
+    # ET qu'aucun autre objet ne l'utilise (vérifié côté serveur, à l'instant).
     await db_delete_connector(conn, connector_id)
-    log.info("oidc_connector_deleted", issuer=connector.issuer)
+    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
+    if delete_secret:
+        secret_outcome = await db_delete_secret_if_unused(conn, connector.client_secret_slug)
+    log.info("oidc_connector_deleted", issuer=connector.issuer, secret=secret_outcome)
 
 
 async def _require_connector(conn: ConnDep, connector_id: uuid.UUID) -> None:

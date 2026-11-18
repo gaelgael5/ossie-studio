@@ -75,6 +75,7 @@ export interface OidcConnectorItem {
   label: string
   issuer: string
   accounts: number
+  client_secret_slug: string
   roles_claim: string
   mappings: RoleMapping[]
   team_claim: string
@@ -489,9 +490,9 @@ export const api = {
     label: string
     issuer: string
     client_id: string
-    client_secret: string
+    client_secret_slug: string
     scopes: string
   }) => apiFetch('/api/oidc/connectors', { method: 'POST', body: JSON.stringify(body) }),
-  deleteConnector: (id: string) =>
-    apiFetch(`/api/oidc/connectors/${id}`, { method: 'DELETE' }),
+  deleteConnector: (id: string, deleteSecret = false) =>
+    apiFetch(`/api/oidc/connectors/${id}?delete_secret=${deleteSecret}`, { method: 'DELETE' }),
 }

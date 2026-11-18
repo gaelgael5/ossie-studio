@@ -228,12 +228,22 @@ export function ConnectorsPage() {
   const [label, setLabel] = useState('')
   const [issuer, setIssuer] = useState('')
   const [clientId, setClientId] = useState('')
-  const [clientSecret, setClientSecret] = useState('')
+  const [secretSlug, setSecretSlug] = useState('')
   const [scopes, setScopes] = useState('')
+  const [showNewSecret, setShowNewSecret] = useState(false)
+  const [newSecretLabel, setNewSecretLabel] = useState('')
+  const [newSecretSlug, setNewSecretSlug] = useState('')
+  const [newSecretValue, setNewSecretValue] = useState('')
+  const [deleting, setDeleting] = useState('')
+  const [alsoDeleteSecret, setAlsoDeleteSecret] = useState(false)
 
   const list = useQuery({ queryKey: ['connectors'], queryFn: api.listConnectors })
   const profiles = useQuery({ queryKey: ['profiles'], queryFn: api.listProfiles })
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['connectors'] })
+  const secrets = useQuery({ queryKey: ['secrets', 'oidc'], queryFn: () => api.listSecrets('oidc') })
+  const invalidate = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['connectors'] })
+    await queryClient.invalidateQueries({ queryKey: ['secrets'] })
+  }
   const onError = (err: unknown) => setMessages(errorMessages(t, err))
 
   useEffect(() => {
@@ -242,24 +252,54 @@ export function ConnectorsPage() {
 
   const create = useMutation({
     mutationFn: () =>
-      api.createConnector({ label, issuer, client_id: clientId, client_secret: clientSecret, scopes }),
+      api.createConnector({
+        label,
+        issuer,
+        client_id: clientId,
+        client_secret_slug: secretSlug,
+        scopes,
+      }),
     onSuccess: async () => {
       setLabel('')
       setIssuer('')
       setClientId('')
-      setClientSecret('')
+      setSecretSlug('')
       await invalidate()
     },
     onError,
   })
+  const createSecret = useMutation({
+    mutationFn: () =>
+      api.createSecret({
+        slug: newSecretSlug.trim(),
+        label: newSecretLabel,
+        category: 'oidc',
+        value: newSecretValue,
+      }),
+    onSuccess: async () => {
+      setSecretSlug(newSecretSlug.trim())
+      setShowNewSecret(false)
+      setNewSecretLabel('')
+      setNewSecretSlug('')
+      setNewSecretValue('')
+      await queryClient.invalidateQueries({ queryKey: ['secrets'] })
+    },
+    onError,
+  })
   const remove = useMutation({
-    mutationFn: (id: string) => api.deleteConnector(id),
-    onSuccess: invalidate,
+    mutationFn: ({ id, deleteSecret }: { id: string; deleteSecret: boolean }) =>
+      api.deleteConnector(id, deleteSecret),
+    onSuccess: async () => {
+      setDeleting('')
+      setAlsoDeleteSecret(false)
+      await invalidate()
+    },
     onError,
   })
 
   const profileList = profiles.data?.profiles ?? []
   const pinnedCount = list.data?.pinned_count ?? 0
+  const oidcSecrets = secrets.data?.secrets ?? []
 
   return (
     <main>
@@ -276,6 +316,7 @@ export function ConnectorsPage() {
               <tr>
                 <th>{t('colLabel')}</th>
                 <th>{t('colIssuer')}</th>
+                <th>{t('colClientSecret')}</th>
                 <th>{t('colAccounts')}</th>
                 <th>{t('colActions')}</th>
               </tr>
@@ -287,16 +328,50 @@ export function ConnectorsPage() {
                   <td>
                     <code>{c.issuer}</code>
                   </td>
+                  <td>
+                    <code>{c.client_secret_slug}</code>
+                    <br />
+                    <small style={{ color: 'var(--muted, #666)' }}>{t('secretReplaceHint')}</small>
+                  </td>
                   <td>{c.accounts}</td>
                   <td>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm(t('deleteConnectorConfirm'))) remove.mutate(c.id)
-                      }}
-                    >
-                      {t('delete')}
-                    </button>
+                    {deleting === c.id ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span>{t('deleteConnectorReminder', { count: c.accounts })}</span>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={alsoDeleteSecret}
+                            onChange={(e) => setAlsoDeleteSecret(e.target.checked)}
+                          />{' '}
+                          {t('deleteAlsoSecret')}
+                        </label>
+                        <span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              remove.mutate({ id: c.id, deleteSecret: alsoDeleteSecret })
+                            }
+                          >
+                            {t('confirmDelete')}
+                          </button>{' '}
+                          <button type="button" onClick={() => setDeleting('')}>
+                            {t('cancel')}
+                          </button>
+                        </span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMessages([])
+                          setAlsoDeleteSecret(false)
+                          setDeleting(c.id)
+                        }}
+                      >
+                        {t('delete')}
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -335,13 +410,61 @@ export function ConnectorsPage() {
         <input id="issuer" value={issuer} onChange={(e) => setIssuer(e.target.value)} />
         <label htmlFor="clientId">{t('clientIdLabel')}</label>
         <input id="clientId" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-        <label htmlFor="clientSecret">{t('clientSecretLabel')}</label>
-        <input
-          id="clientSecret"
-          type="password"
-          value={clientSecret}
-          onChange={(e) => setClientSecret(e.target.value)}
-        />
+        <label htmlFor="secretSlug">{t('clientSecretLabel')}</label>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <select
+            id="secretSlug"
+            value={secretSlug}
+            onChange={(e) => setSecretSlug(e.target.value)}
+            style={{ flex: 1 }}
+          >
+            <option value="">
+              {oidcSecrets.length > 0 ? t('chooseSecret') : t('noOidcSecret')}
+            </option>
+            {oidcSecrets.map((s) => (
+              <option key={s.slug} value={s.slug}>
+                {s.label} ({s.slug})
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => setShowNewSecret((v) => !v)}>
+            +
+          </button>
+        </div>
+        {showNewSecret ? (
+          <fieldset style={{ border: '1px solid var(--border, #ddd)' }}>
+            <legend>{t('newSecretBlockTitle')}</legend>
+            <label htmlFor="nsLabel">{t('colLabel')}</label>
+            <input
+              id="nsLabel"
+              value={newSecretLabel}
+              onChange={(e) => setNewSecretLabel(e.target.value)}
+            />
+            <label htmlFor="nsSlug">{t('slugLabel')}</label>
+            <input
+              id="nsSlug"
+              value={newSecretSlug}
+              onChange={(e) => setNewSecretSlug(e.target.value)}
+            />
+            <label htmlFor="nsValue">{t('valueLabel')}</label>
+            <input
+              id="nsValue"
+              type="password"
+              value={newSecretValue}
+              onChange={(e) => setNewSecretValue(e.target.value)}
+            />
+            <button
+              type="button"
+              disabled={createSecret.isPending || !newSecretSlug.trim() || !newSecretValue}
+              onClick={() => {
+                setMessages([])
+                createSecret.mutate()
+              }}
+            >
+              {t('createAndSelect')}
+            </button>
+          </fieldset>
+        ) : null}
         <label htmlFor="scopes">{t('scopesLabel')}</label>
         <input id="scopes" value={scopes} onChange={(e) => setScopes(e.target.value)} />
         <button type="submit" disabled={create.isPending}>

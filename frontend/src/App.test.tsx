@@ -504,6 +504,7 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
             label: 'IdP',
             issuer: 'http://idp.test',
             accounts: 2,
+            client_secret_slug: 'oidc-idp',
             roles_claim: 'realm_access.roles',
             mappings: [{ id: 'm1', role_value: 'ossie-admins', profile_id: 'p1', profile_name: 'Admins' }],
             team_claim: 'department',
@@ -512,6 +513,15 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
         ],
         default_scopes: 'openid email profile',
         pinned_count: 3,
+      },
+    },
+    '/api/secrets?category=oidc': {
+      body: {
+        secrets: [
+          { slug: 'oidc-idp', label: 'Secret IdP', category: 'oidc', updated_at: '2026-01-01T00:00:00Z', used_by: 1 },
+        ],
+        categories: { oidc: 'OIDC' },
+        category_inputs: { oidc: 'masked' },
       },
     },
     '/api/profiles': {
@@ -533,4 +543,9 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
   await screen.findByText('Équipe — IdP')
   expect(screen.getByText('affichage seulement, ne donne aucun droit')).toBeInTheDocument()
   expect(screen.getByText('equipe-data')).toBeInTheDocument()
+  // Client secret par son slug + choix d'un secret oidc dans la liste.
+  expect(screen.getByText(/Pour la remplacer/)).toBeInTheDocument()
+  await waitFor(() =>
+    expect(screen.getByRole('option', { name: /Secret IdP \(oidc-idp\)/ })).toBeInTheDocument(),
+  )
 })

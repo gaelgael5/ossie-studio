@@ -40,10 +40,17 @@ def test_roles_from_claims() -> None:
 
 async def _connector(app: FastAPI) -> uuid.UUID:
     async with app.state.pool.acquire() as conn:
+        slug = f"oidc-{uuid.uuid4().hex}"
+        await conn.execute(
+            "INSERT INTO secrets (slug, label, category, value_encrypted) "
+            "VALUES ($1, 'Secret', 'oidc', '\\x00'::bytea)",
+            slug,
+        )
         value = await conn.fetchval(
-            "INSERT INTO oidc_connectors (label, issuer, client_id, client_secret_encrypted) "
-            "VALUES ('IdP', $1, 'cid', '\\x00'::bytea) RETURNING id",
+            "INSERT INTO oidc_connectors (label, issuer, client_id, client_secret_slug) "
+            "VALUES ('IdP', $1, 'cid', $2) RETURNING id",
             f"http://idp.test/{uuid.uuid4()}",
+            slug,
         )
     assert isinstance(value, uuid.UUID)
     return value

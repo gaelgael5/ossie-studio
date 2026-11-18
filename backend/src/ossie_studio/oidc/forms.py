@@ -11,16 +11,15 @@ class ConnectorForm:
     label: str
     issuer: str
     client_id: str
-    client_secret: str
     scopes: str
     # Codes de champ, traduits par l'interface.
     errors: list[str]
 
 
-def parse_connector(
-    label: str, issuer: str, client_id: str, client_secret: str, scopes: str
-) -> ConnectorForm:
-    """Valide les champs AVANT tout usage réseau ; renvoie des codes."""
+def parse_connector(label: str, issuer: str, client_id: str, scopes: str) -> ConnectorForm:
+    """Valide les champs AVANT tout usage réseau ; renvoie des codes. Le client
+    secret n'est plus saisi ici : il se choisit par son slug (secret de catégorie
+    « oidc »), validé côté API avec la base."""
     errors: list[str] = []
     label = label.strip()
     issuer = issuer.strip().rstrip("/")
@@ -32,11 +31,9 @@ def parse_connector(
         errors.append("issuer_invalid")
     if not client_id:
         errors.append("client_id_required")
-    if not client_secret:
-        errors.append("client_secret_required")
     if "openid" not in scopes.split():
         errors.append("scopes_openid_required")
-    return ConnectorForm(label, issuer, client_id, client_secret, scopes, errors)
+    return ConnectorForm(label, issuer, client_id, scopes, errors)
 
 
 def _is_http_url(value: str) -> bool:
