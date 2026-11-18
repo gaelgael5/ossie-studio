@@ -245,17 +245,29 @@ export const api = {
   logout: () => apiFetch<{ ok: boolean }>('/api/logout', { method: 'POST' }),
   publicConnectors: () => apiFetch<{ id: string; label: string }[]>('/api/auth/connectors'),
 
-  listSecrets: () =>
+  listSecrets: (category?: string) =>
     apiFetch<{
-      secrets: { slug: string; label: string; category: string; updated_at: string }[]
+      secrets: {
+        slug: string
+        label: string
+        category: string
+        updated_at: string
+        used_by: number
+      }[]
       categories: Record<string, string>
-    }>('/api/secrets'),
+      category_inputs: Record<string, string>
+    }>(`/api/secrets${category ? `?category=${encodeURIComponent(category)}` : ''}`),
   createSecret: (body: { slug: string; label: string; category: string; value: string }) =>
     apiFetch('/api/secrets', { method: 'POST', body: JSON.stringify(body) }),
   replaceSecretValue: (slug: string, value: string) =>
     apiFetch(`/api/secrets/${encodeURIComponent(slug)}/value`, {
       method: 'PUT',
       body: JSON.stringify({ value }),
+    }),
+  updateSecretLabel: (slug: string, label: string) =>
+    apiFetch(`/api/secrets/${encodeURIComponent(slug)}/label`, {
+      method: 'PUT',
+      body: JSON.stringify({ label }),
     }),
   deleteSecret: (slug: string) =>
     apiFetch(`/api/secrets/${encodeURIComponent(slug)}`, { method: 'DELETE' }),

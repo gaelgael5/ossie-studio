@@ -19,6 +19,7 @@ ERROR_CODES: tuple[str, ...] = (
     "secret_not_found",
     "secret_category_unknown",
     "secret_value_required",
+    "secret_in_use",
     "oidc_issuer_unreachable",
     "oidc_issuer_already_declared",
     "oidc_token_rejected",

@@ -28,6 +28,13 @@ async def db_list_secrets(conn: asyncpg.Connection) -> list[Secret]:
     return [Secret.from_row(row) for row in rows]
 
 
+async def db_list_secrets_by_category(conn: asyncpg.Connection, category: str) -> list[Secret]:
+    rows = await conn.fetch(
+        "SELECT * FROM secrets WHERE category = $1 ORDER BY slug", category
+    )
+    return [Secret.from_row(row) for row in rows]
+
+
 async def db_get_secret(conn: asyncpg.Connection, slug: str) -> Secret | None:
     row = await conn.fetchrow("SELECT * FROM secrets WHERE slug = $1", slug)
     return Secret.from_row(row) if row is not None else None

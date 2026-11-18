@@ -11,7 +11,11 @@ from ossie_studio.crypto import CryptoService, SecretValue
 from ossie_studio.deps import ConnDep, get_crypto
 from ossie_studio.errors import ApiError
 from ossie_studio.models import Secret
-from ossie_studio.secretstore.categories import SECRET_CATEGORIES
+from ossie_studio.secretstore.categories import (
+    SECRET_CATEGORIES,
+    SECRET_CATEGORY_INPUTS,
+    is_known_category,
+)
 from ossie_studio.secretstore.forms import validate_new_secret, validate_value
 from ossie_studio.secretstore.service import (
     SecretNotFoundError,
@@ -19,9 +23,11 @@ from ossie_studio.secretstore.service import (
     db_create_secret,
     db_delete_secret,
     db_list_secrets,
+    db_list_secrets_by_category,
     db_replace_secret_value,
     db_update_secret_label,
 )
+from ossie_studio.secretstore.usages import db_count_secret_usages, db_list_secret_usages
 
 log = structlog.get_logger(__name__)
 
@@ -59,9 +65,23 @@ def _payload(secret: Secret) -> dict[str, object]:
 
 
 @router.get("")
-async def list_secrets(conn: ConnDep, _: SecretsRead) -> dict[str, object]:
-    secrets = await db_list_secrets(conn)
-    return {"secrets": [_payload(s) for s in secrets], "categories": SECRET_CATEGORIES}
+async def list_secrets(conn: ConnDep, _: SecretsRead, category: str = "") -> dict[str, object]:
+    # Filtre optionnel par catégorie (pour alimenter les listes déroulantes des
+    # popups de connexion) ; catégorie inconnue → refus explicite.
+    if category.strip():
+        if not is_known_category(category):
+            raise ApiError("secret_category_unknown", status_code=400, category=category)
+        secrets = await db_list_secrets_by_category(conn, category)
+    else:
+        secrets = await db_list_secrets(conn)
+    rows = [
+        {**_payload(s), "used_by": await db_count_secret_usages(conn, s.slug)} for s in secrets
+    ]
+    return {
+        "secrets": rows,
+        "categories": SECRET_CATEGORIES,
+        "category_inputs": SECRET_CATEGORY_INPUTS,
+    }
 
 
 @router.post("", status_code=201)
@@ -112,6 +132,11 @@ async def update_label(
 
 @router.delete("/{slug}", status_code=204)
 async def delete_secret(conn: ConnDep, _: SecretsWrite, slug: str) -> None:
+    # Supprimer un secret utilisé casserait silencieusement les objets qui le
+    # désignent : on refuse, en disant combien l'utilisent.
+    usages = await db_list_secret_usages(conn, slug)
+    if usages:
+        raise ApiError("secret_in_use", status_code=409, slug=slug, count=len(usages))
     deleted = await db_delete_secret(conn, slug)
     if not deleted:
         raise ApiError("secret_not_found", status_code=404, slug=slug)
