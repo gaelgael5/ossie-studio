@@ -227,3 +227,47 @@ async def test_non_admin_refus_403(user_client: AsyncClient) -> None:
         json={"label": "X", "forge": "github", "url": URL, "secret_slug": "gh"},
     )
     assert creation.status_code == 403
+
+
+# --- Alignement sur les maquettes : menu, dépôts, « utilisée par » -----------
+
+async def test_menu_des_forges_liste_les_strategies(admin_client: AsyncClient) -> None:
+    body = (await admin_client.get("/api/connections/forges")).json()
+    specs = {f["forge"]: f for f in body["forges"]}
+    assert set(specs) == {"github", "gitlab", "azure_devops"}
+    assert specs["github"]["default_url"] == "https://github.com"
+    assert specs["github"]["secret_category"] == "github"
+    # Azure DevOps : URL d'organisation obligatoire, sans défaut.
+    assert specs["azure_devops"]["default_url"] == ""
+    assert specs["azure_devops"]["url_required"] is True
+
+
+async def test_strategie_de_test_apparait_dans_le_menu(
+    admin_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ossie_studio.forges import registry
+    from ossie_studio.forges.base import ForgeFormSpec
+
+    class _FakeStrategy:
+        def form_spec(self) -> ForgeFormSpec:
+            return ForgeFormSpec(forge="forge_test", default_url="https://t", url_required=False)
+
+    monkeypatch.setitem(registry._STRATEGIES, "forge_test", _FakeStrategy())  # type: ignore[arg-type]
+    body = (await admin_client.get("/api/connections/forges")).json()
+    assert "forge_test" in {f["forge"] for f in body["forges"]}
+
+
+async def test_depots_lisibles_pagines(admin_client: AsyncClient, app: FastAPI) -> None:
+    await _create(admin_client)
+    connection_id = await db_fetchval(app, "SELECT id FROM connections")
+    body = (await admin_client.get(f"/api/connections/{connection_id}/repositories")).json()
+    # Le faux GitHub pagine : 100 + 1 → la pagination est gérée de bout en bout.
+    assert body["total"] == 101
+    assert any(r["full_name"].endswith("/last") for r in body["repositories"])
+
+
+async def test_payload_utilisee_par(admin_client: AsyncClient) -> None:
+    await _create(admin_client)
+    c = (await admin_client.get("/api/connections")).json()["connections"][0]
+    assert c["used_by_spaces"] == 0
+    assert c["used_by_sources"] == 0

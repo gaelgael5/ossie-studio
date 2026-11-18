@@ -4,7 +4,7 @@ import base64
 
 import httpx
 
-from ossie_studio.forges.base import ForgeError, ForgeIdentity, ForgeRepo
+from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo
 
 _API_VERSION = "7.0"
 _TOP = 100
@@ -78,3 +78,8 @@ class AzureDevOpsStrategy:
 
     def git_username(self) -> str:
         return "pat"
+
+    def form_spec(self) -> ForgeFormSpec:
+        # Pas de défaut : l'URL de l'organisation (https://dev.azure.com/<org>)
+        # est propre à chaque client, donc obligatoire.
+        return ForgeFormSpec(forge="azure_devops", default_url="", url_required=True)

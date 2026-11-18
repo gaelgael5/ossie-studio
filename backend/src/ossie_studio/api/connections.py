@@ -24,7 +24,7 @@ from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_http_client_factory
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.base import ForgeError
-from ossie_studio.forges.registry import get_strategy
+from ossie_studio.forges.registry import get_strategy, list_form_specs
 from ossie_studio.models import Connection
 from ossie_studio.secretstore.service import db_get_secret, resolve_secret_value
 from ossie_studio.secretstore.usages import db_count_secret_usages, db_delete_secret_if_unused
@@ -64,11 +64,16 @@ def _payload(c: Connection) -> dict[str, object]:
 async def _row(conn: ConnDep, c: Connection) -> dict[str, object]:
     secret = await db_get_secret(conn, c.secret_slug)
     others = await db_count_secret_usages(conn, c.secret_slug, exclude=("connections", c.id))
+    spaces = await db_spaces_using_connection(conn, c.id)
     return {
         **_payload(c),
         "secret_slug": c.secret_slug,
         "secret_label": secret.label if secret is not None else c.secret_slug,
         "secret_used_by_others": others,
+        # « Utilisée par » : espaces Git réels ; les sources n'existent pas encore
+        # dans le code → 0, sans erreur.
+        "used_by_spaces": len(spaces),
+        "used_by_sources": 0,
     }
 
 
@@ -76,6 +81,47 @@ async def _row(conn: ConnDep, c: Connection) -> dict[str, object]:
 async def list_connections(conn: ConnDep, _: ConnectionsRead) -> dict[str, object]:
     connections = await db_list_connections(conn)
     return {"connections": [await _row(conn, c) for c in connections]}
+
+
+@router.get("/forges")
+async def list_forges(_: ConnectionsRead) -> dict[str, object]:
+    # Menu « Ajouter une forge » : une entrée par stratégie enregistrée. Les
+    # textes (nom, précision, portées) sont rendus par l'interface, par forge.
+    return {
+        "forges": [
+            {
+                "forge": spec.forge,
+                "default_url": spec.default_url,
+                "url_required": spec.url_required,
+                "secret_category": spec.forge,
+            }
+            for spec in list_form_specs()
+        ]
+    }
+
+
+@router.get("/{connection_id}/repositories")
+async def list_connection_repositories(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: ConnectionsRead,
+    http_client_factory: HttpFactoryDep,
+    connection_id: uuid.UUID,
+) -> dict[str, object]:
+    connection = await db_get_connection(conn, connection_id)
+    if connection is None:
+        raise ApiError("connection_not_found", status_code=404)
+    token = (await resolve_connection_token(conn, crypto, connection)).reveal()
+    strategy = get_strategy(connection.forge)
+    async with http_client_factory() as client:
+        try:
+            repos = await strategy.list_repositories(client, connection.url, token)
+        except ForgeError as exc:
+            raise ApiError(exc.code, status_code=400) from None
+    return {
+        "repositories": [{"full_name": r.full_name, "url": r.url} for r in repos],
+        "total": len(repos),
+    }
 
 
 @router.post("", status_code=201)

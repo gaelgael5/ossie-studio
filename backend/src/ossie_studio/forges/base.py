@@ -23,6 +23,19 @@ class ForgeRepo:
     url: str
 
 
+@dataclass(frozen=True)
+class ForgeFormSpec:
+    """Description du formulaire d'ajout d'une connexion, fournie par la forge :
+    de quoi construire sa popup dédiée sans que la page la connaisse. Les textes
+    (nom, précision, portées du jeton) sont rendus par l'interface, indexés par
+    la clé de forge ; ici on ne porte que la structure."""
+
+    forge: str
+    default_url: str  # pré-rempli (ex. https://github.com) ; "" si pas de défaut
+    url_required: bool  # True : saisie obligatoire sans défaut (organisation Azure)
+    # La catégorie de secret du jeton vaut la clé de forge.
+
+
 class ForgeError(Exception):
     """Échec de dialogue avec une forge, porté par un code stable.
 
@@ -53,4 +66,8 @@ class ForgeStrategy(Protocol):
 
     def git_username(self) -> str:
         """Identifiant conventionnel passé à git avec le jeton en mot de passe."""
+        ...
+
+    def form_spec(self) -> ForgeFormSpec:
+        """Décrit le formulaire d'ajout de cette forge (URL par défaut, etc.)."""
         ...

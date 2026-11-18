@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 
-from ossie_studio.forges.base import ForgeError, ForgeIdentity, ForgeRepo
+from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo
 
 _PER_PAGE = 100
 _GITHUB_COM = "https://github.com"
@@ -57,3 +57,6 @@ class GitHubStrategy:
 
     def git_username(self) -> str:
         return "x-access-token"
+
+    def form_spec(self) -> ForgeFormSpec:
+        return ForgeFormSpec(forge="github", default_url=_GITHUB_COM, url_required=False)

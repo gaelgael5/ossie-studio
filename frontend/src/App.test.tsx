@@ -107,6 +107,14 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
       },
     },
     '/api/connections': { body: { connections: [] } },
+    '/api/connections/forges': {
+      body: {
+        forges: [
+          { forge: 'github', default_url: 'https://github.com', url_required: false, secret_category: 'github' },
+          { forge: 'gitlab', default_url: 'https://gitlab.com', url_required: false, secret_category: 'gitlab' },
+        ],
+      },
+    },
     '/api/secrets?category=github': {
       body: {
         secrets: [
@@ -120,13 +128,15 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
   })
   renderAt('/forges')
   await screen.findByText('Forges et connexions')
+  // Le choix de la forge se fait sur la page, puis une popup dédiée s'ouvre.
+  await userEvent.click(screen.getByRole('button', { name: '+ Ajouter une forge' }))
+  await userEvent.click(await screen.findByRole('button', { name: /GitHub — github\.com/ }))
   await userEvent.type(screen.getByLabelText('Libellé'), 'GitHub perso')
-  // Le jeton se choisit dans la liste des secrets de la forge.
   await waitFor(() =>
     expect(screen.getByRole('option', { name: /Jeton CI \(gh-ci\)/ })).toBeInTheDocument(),
   )
   await userEvent.selectOptions(screen.getByLabelText("Jeton d'accès personnel"), 'gh-ci')
-  await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+  await userEvent.click(screen.getByRole('button', { name: 'Vérifier et enregistrer' }))
   await waitFor(() =>
     expect(screen.getByText('Jeton invalide ou expiré.')).toBeInTheDocument(),
   )

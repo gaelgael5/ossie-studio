@@ -94,6 +94,15 @@ export interface Connection {
   secret_slug: string
   secret_label: string
   secret_used_by_others: number
+  used_by_spaces: number
+  used_by_sources: number
+}
+
+export interface ForgeSpec {
+  forge: string
+  default_url: string
+  url_required: boolean
+  secret_category: string
 }
 
 export const FORGE_DEFAULT_URL: Record<string, string> = {
@@ -278,6 +287,12 @@ export const api = {
 
   listConnections: () =>
     apiFetch<{ connections: Connection[] }>('/api/connections'),
+  listForges: () =>
+    apiFetch<{ forges: ForgeSpec[] }>('/api/connections/forges'),
+  listConnectionRepositories: (id: string) =>
+    apiFetch<{ repositories: { full_name: string; url: string }[]; total: number }>(
+      `/api/connections/${id}/repositories`,
+    ),
   createConnection: (body: { label: string; forge: string; url: string; secret_slug: string }) =>
     apiFetch<Connection>('/api/connections', { method: 'POST', body: JSON.stringify(body) }),
   testConnection: (id: string) =>

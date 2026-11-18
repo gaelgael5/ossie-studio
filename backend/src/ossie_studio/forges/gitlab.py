@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 
-from ossie_studio.forges.base import ForgeError, ForgeIdentity, ForgeRepo
+from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo
 
 _PER_PAGE = 100
 
@@ -51,3 +51,8 @@ class GitLabStrategy:
 
     def git_username(self) -> str:
         return "oauth2"
+
+    def form_spec(self) -> ForgeFormSpec:
+        return ForgeFormSpec(
+            forge="gitlab", default_url="https://gitlab.com", url_required=False
+        )
