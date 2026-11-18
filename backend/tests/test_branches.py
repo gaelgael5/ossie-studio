@@ -42,12 +42,16 @@ async def space(client: AsyncClient, app: FastAPI, tmp_path: Path) -> tuple[Asyn
     wire_fake_idp(app, fake_github_app())
     await bootstrap_admin(client)
     await client.post(
+        "/api/secrets",
+        json={"slug": "gh", "label": "Jeton", "category": "github", "value": GOOD_TOKEN},
+    )
+    await client.post(
         "/api/connections",
         json={
             "label": "GitHub",
             "forge": "github",
             "url": "https://github.com",
-            "token": GOOD_TOKEN,
+            "secret_slug": "gh",
         },
     )
     connection_id = (await client.get("/api/connections")).json()["connections"][0]["id"]

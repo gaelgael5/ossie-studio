@@ -33,45 +33,31 @@ async def db_get_connection(
     return Connection.from_row(row) if row is not None else None
 
 
-async def db_create_connection_with_secret(
+async def db_create_connection(
     conn: asyncpg.Connection,
-    crypto: CryptoService,
     *,
     label: str,
     forge: str,
     url: str,
-    token: str,
+    secret_slug: str,
     identity: ForgeIdentity,
 ) -> Connection:
-    """Enregistre la connexion ET son jeton (comme secret) d'un seul tenant.
-
-    Le jeton vit dans la table des secrets, catégorie = forge ; la connexion
-    n'en garde que le slug. En cas de doublon, rien n'est écrit (ni secret, ni
-    connexion) — la transaction est annulée.
-    """
-    secret_slug = f"forge-{forge}-{uuid.uuid4().hex[:12]}"
-    encrypted = crypto.encrypt(SecretValue(token))
+    """Enregistre la connexion, qui désigne un secret existant par son slug (de
+    la catégorie de la forge). La valeur du jeton n'est jamais touchée ici : elle
+    vit dans la table des secrets. Doublon (forge, url, identité) → rien n'est
+    écrit. La clé étrangère garantit que le secret existe."""
     try:
-        async with conn.transaction():
-            await conn.execute(
-                "INSERT INTO secrets (slug, label, category, value_encrypted) "
-                "VALUES ($1, $2, $3, $4)",
-                secret_slug,
-                f"Jeton {forge} — {label}",
-                forge,
-                encrypted,
-            )
-            row = await conn.fetchrow(
-                "INSERT INTO connections (label, forge, url, secret_slug, identity, "
-                "last_status, last_checked_at) VALUES ($1, $2, $3, $4, $5, 'valid', $6) "
-                "RETURNING *",
-                label,
-                forge,
-                url,
-                secret_slug,
-                identity.username,
-                datetime.now(UTC),
-            )
+        row = await conn.fetchrow(
+            "INSERT INTO connections (label, forge, url, secret_slug, identity, "
+            "last_status, last_checked_at) VALUES ($1, $2, $3, $4, $5, 'valid', $6) "
+            "RETURNING *",
+            label,
+            forge,
+            url,
+            secret_slug,
+            identity.username,
+            datetime.now(UTC),
+        )
     except asyncpg.UniqueViolationError as exc:
         raise ConnectionDuplicateError from exc
     log.info("connection_created", forge=forge, identity=identity.username)
@@ -97,18 +83,18 @@ async def db_update_connection_status(
     )
 
 
-async def db_delete_connection_and_secret(
+async def db_delete_connection(
     conn: asyncpg.Connection, connection_id: uuid.UUID
-) -> bool:
-    """Supprime la connexion ET son secret. False si elle n'existe pas."""
+) -> str | None:
+    """Supprime la seule connexion ; rend le slug de son secret (pour que
+    l'appelant décide s'il faut aussi le supprimer). None si elle n'existe pas.
+    Le secret n'est jamais supprimé ici."""
     connection = await db_get_connection(conn, connection_id)
     if connection is None:
-        return False
-    async with conn.transaction():
-        await conn.execute("DELETE FROM connections WHERE id = $1", connection_id)
-        await conn.execute("DELETE FROM secrets WHERE slug = $1", connection.secret_slug)
+        return None
+    await conn.execute("DELETE FROM connections WHERE id = $1", connection_id)
     log.info("connection_deleted", forge=connection.forge)
-    return True
+    return connection.secret_slug
 
 
 async def resolve_connection_token(

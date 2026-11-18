@@ -13,8 +13,8 @@ from ossie_studio.api.common import ConnectionsRead, ConnectionsWrite
 from ossie_studio.connections.forms import validate_connection
 from ossie_studio.connections.service import (
     ConnectionDuplicateError,
-    db_create_connection_with_secret,
-    db_delete_connection_and_secret,
+    db_create_connection,
+    db_delete_connection,
     db_get_connection,
     db_list_connections,
     db_update_connection_status,
@@ -26,6 +26,8 @@ from ossie_studio.errors import ApiError
 from ossie_studio.forges.base import ForgeError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import Connection
+from ossie_studio.secretstore.service import db_get_secret, resolve_secret_value
+from ossie_studio.secretstore.usages import db_count_secret_usages, db_delete_secret_if_unused
 from ossie_studio.spaces.service import db_spaces_using_connection
 
 log = structlog.get_logger(__name__)
@@ -41,11 +43,12 @@ class ConnectionCreate(BaseModel):
     label: str = ""
     forge: str = ""
     url: str = ""
-    token: str = ""
+    secret_slug: str = ""
 
 
 def _payload(c: Connection) -> dict[str, object]:
-    # Jamais le slug du secret ni le jeton : seulement de quoi afficher la ligne.
+    # Jamais le jeton : seulement de quoi afficher la ligne. Le slug du secret
+    # (une référence, pas la valeur) est utile pour piloter la suppression.
     return {
         "id": str(c.id),
         "label": c.label,
@@ -58,10 +61,21 @@ def _payload(c: Connection) -> dict[str, object]:
     }
 
 
+async def _row(conn: ConnDep, c: Connection) -> dict[str, object]:
+    secret = await db_get_secret(conn, c.secret_slug)
+    others = await db_count_secret_usages(conn, c.secret_slug, exclude=("connections", c.id))
+    return {
+        **_payload(c),
+        "secret_slug": c.secret_slug,
+        "secret_label": secret.label if secret is not None else c.secret_slug,
+        "secret_used_by_others": others,
+    }
+
+
 @router.get("")
 async def list_connections(conn: ConnDep, _: ConnectionsRead) -> dict[str, object]:
     connections = await db_list_connections(conn)
-    return {"connections": [_payload(c) for c in connections]}
+    return {"connections": [await _row(conn, c) for c in connections]}
 
 
 @router.post("", status_code=201)
@@ -72,27 +86,32 @@ async def create_connection(
     http_client_factory: HttpFactoryDep,
     body: ConnectionCreate,
 ) -> dict[str, object]:
-    errors = validate_connection(body.label, body.forge, body.url, body.token)
+    errors = validate_connection(body.label, body.forge, body.url, body.secret_slug)
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
+
+    # Le jeton est un secret de la catégorie de la forge, désigné par son slug.
+    secret = await db_get_secret(conn, body.secret_slug.strip())
+    if secret is None or secret.category != body.forge:
+        raise ApiError("connection_secret_invalid", status_code=400, slug=body.secret_slug.strip())
+    token = (await resolve_secret_value(conn, crypto, secret.slug)).reveal()
 
     url = body.url.strip().rstrip("/")
     strategy = get_strategy(body.forge)
     # Vérification AVANT enregistrement : rien n'est écrit si la forge refuse.
     async with http_client_factory() as client:
         try:
-            identity = await strategy.verify(client, url, body.token)
+            identity = await strategy.verify(client, url, token)
         except ForgeError as exc:
             raise ApiError(exc.code, status_code=400) from None
 
     try:
-        connection = await db_create_connection_with_secret(
+        connection = await db_create_connection(
             conn,
-            crypto,
             label=body.label.strip(),
             forge=body.forge,
             url=url,
-            token=body.token,
+            secret_slug=secret.slug,
             identity=identity,
         )
     except ConnectionDuplicateError:
@@ -132,12 +151,20 @@ async def test_connection(
 
 
 @router.delete("/{connection_id}", status_code=204)
-async def delete_connection(conn: ConnDep, _: ConnectionsWrite, connection_id: uuid.UUID) -> None:
+async def delete_connection(
+    conn: ConnDep, _: ConnectionsWrite, connection_id: uuid.UUID, delete_secret: bool = False
+) -> None:
     # Une connexion utilisée par un ou plusieurs espaces Git ne se supprime pas :
     # le refus nomme les espaces.
     spaces = await db_spaces_using_connection(conn, connection_id)
     if spaces:
         raise ApiError("connection_in_use", status_code=409, spaces=spaces)
-    deleted = await db_delete_connection_and_secret(conn, connection_id)
-    if not deleted:
+    secret_slug = await db_delete_connection(conn, connection_id)
+    if secret_slug is None:
         raise ApiError("connection_not_found", status_code=404)
+    # Le secret ne part que si demandé ET s'il n'est plus utilisé par rien
+    # d'autre (vérifié à l'instant, la connexion étant déjà supprimée).
+    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
+    if delete_secret:
+        secret_outcome = await db_delete_secret_if_unused(conn, secret_slug)
+    log.info("connection_removed", secret=secret_outcome)

@@ -117,6 +117,10 @@ export const fr = {
     tokenLabel: "Jeton d'accès personnel",
     tokenHint:
       'Droits de lecture des dépôts (GitHub : lecture du contenu ; GitLab : read_api et read_repository ; Azure DevOps : Code en lecture).',
+    newSecretTitle: 'Nouveau secret',
+    noSecretForForge: 'Aucun secret pour cette forge — créez-en un avec « + »',
+    deleteAlsoSecretNamed: 'Supprimer aussi le secret {{label}} ({{slug}}) ? Il n’est utilisé par rien d’autre.',
+    deleteConnectionSecretShared: 'Le secret {{slug}} est conservé : il est utilisé par {{count}} autre(s) connexion(s).',
     githubName: 'GitHub',
     gitlabName: 'GitLab',
     azureName: 'Azure DevOps',
@@ -453,6 +457,7 @@ export const fr = {
       connection_duplicate: 'Une connexion identique existe déjà (même forge, URL et identité).',
       connection_not_found: 'Connexion introuvable.',
       connection_in_use: 'Connexion utilisée par un ou plusieurs espaces : {{spaces}}.',
+      connection_secret_invalid: 'Le secret choisi est introuvable ou n’est pas de la catégorie de la forge.',
       space_name_taken: "Ce nom d'espace est déjà pris.",
       space_repo_taken: "Ce dépôt est déjà rattaché à l'espace « {{space}} ».",
       space_probe_failed: "L'épreuve des cinq droits a échoué.",

@@ -116,6 +116,10 @@ export const en = {
     tokenLabel: 'Personal access token',
     tokenHint:
       'Repository read rights (GitHub: content read; GitLab: read_api and read_repository; Azure DevOps: Code read).',
+    newSecretTitle: 'New secret',
+    noSecretForForge: 'No secret for this forge — create one with “+”',
+    deleteAlsoSecretNamed: 'Also delete the secret {{label}} ({{slug}})? Nothing else uses it.',
+    deleteConnectionSecretShared: 'The secret {{slug}} is kept: it is used by {{count}} other connection(s).',
     githubName: 'GitHub',
     gitlabName: 'GitLab',
     azureName: 'Azure DevOps',
@@ -450,6 +454,7 @@ export const en = {
       connection_duplicate: 'An identical connection already exists (same forge, URL and identity).',
       connection_not_found: 'Connection not found.',
       connection_in_use: 'Connection used by one or more spaces: {{spaces}}.',
+      connection_secret_invalid: 'The chosen secret is missing or not of the forge’s category.',
       space_name_taken: 'This space name is already taken.',
       space_repo_taken: 'This repository is already attached to space “{{space}}”.',
       space_probe_failed: 'Proving the five rights failed.',

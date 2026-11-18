@@ -33,6 +33,7 @@ ERROR_CODES: tuple[str, ...] = (
     "connection_duplicate",
     "connection_not_found",
     "connection_in_use",
+    "connection_secret_invalid",
     "space_name_taken",
     "space_repo_taken",
     "space_probe_failed",

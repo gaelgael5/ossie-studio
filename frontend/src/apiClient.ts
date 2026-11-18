@@ -91,6 +91,9 @@ export interface Connection {
   last_status: string
   last_error_code: string | null
   last_checked_at: string | null
+  secret_slug: string
+  secret_label: string
+  secret_used_by_others: number
 }
 
 export const FORGE_DEFAULT_URL: Record<string, string> = {
@@ -275,12 +278,12 @@ export const api = {
 
   listConnections: () =>
     apiFetch<{ connections: Connection[] }>('/api/connections'),
-  createConnection: (body: { label: string; forge: string; url: string; token: string }) =>
+  createConnection: (body: { label: string; forge: string; url: string; secret_slug: string }) =>
     apiFetch<Connection>('/api/connections', { method: 'POST', body: JSON.stringify(body) }),
   testConnection: (id: string) =>
     apiFetch<Connection>(`/api/connections/${id}/test`, { method: 'POST' }),
-  deleteConnection: (id: string) =>
-    apiFetch(`/api/connections/${id}`, { method: 'DELETE' }),
+  deleteConnection: (id: string, deleteSecret = false) =>
+    apiFetch(`/api/connections/${id}?delete_secret=${deleteSecret}`, { method: 'DELETE' }),
 
   listSpaces: () => apiFetch<{ spaces: GitSpace[] }>('/api/spaces'),
   listBranches: (spaceId: string) =>

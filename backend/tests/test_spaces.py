@@ -36,13 +36,17 @@ def _ko_probe() -> ProbeResult:
 
 
 async def _make_connection(client: AsyncClient) -> str:
+    await client.post(
+        "/api/secrets",
+        json={"slug": "gh", "label": "Jeton", "category": "github", "value": GOOD_TOKEN},
+    )
     response = await client.post(
         "/api/connections",
         json={
             "label": "GitHub",
             "forge": "github",
             "url": "https://github.com",
-            "token": GOOD_TOKEN,
+            "secret_slug": "gh",
         },
     )
     assert response.status_code == 201, response.text

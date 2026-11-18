@@ -107,12 +107,25 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
       },
     },
     '/api/connections': { body: { connections: [] } },
+    '/api/secrets?category=github': {
+      body: {
+        secrets: [
+          { slug: 'gh-ci', label: 'Jeton CI', category: 'github', updated_at: '2026-01-01T00:00:00Z', used_by: 0 },
+        ],
+        categories: { github: 'GitHub' },
+        category_inputs: { github: 'masked' },
+      },
+    },
     'POST /api/connections': { status: 400, body: { error: 'connection_token_invalid' } },
   })
   renderAt('/forges')
   await screen.findByText('Forges et connexions')
   await userEvent.type(screen.getByLabelText('Libellé'), 'GitHub perso')
-  await userEvent.type(screen.getByLabelText("Jeton d'accès personnel"), 'mauvais')
+  // Le jeton se choisit dans la liste des secrets de la forge.
+  await waitFor(() =>
+    expect(screen.getByRole('option', { name: /Jeton CI \(gh-ci\)/ })).toBeInTheDocument(),
+  )
+  await userEvent.selectOptions(screen.getByLabelText("Jeton d'accès personnel"), 'gh-ci')
   await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
   await waitFor(() =>
     expect(screen.getByText('Jeton invalide ou expiré.')).toBeInTheDocument(),

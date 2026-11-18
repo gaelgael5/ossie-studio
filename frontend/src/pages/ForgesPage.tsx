@@ -15,32 +15,66 @@ export function ForgesPage() {
   const [label, setLabel] = useState('')
   const [forge, setForge] = useState<string>('github')
   const [url, setUrl] = useState<string>(FORGE_DEFAULT_URL.github)
-  const [token, setToken] = useState('')
+  const [secretSlug, setSecretSlug] = useState('')
+  const [showNewSecret, setShowNewSecret] = useState(false)
+  const [newSecretLabel, setNewSecretLabel] = useState('')
+  const [newSecretSlug, setNewSecretSlug] = useState('')
+  const [newSecretValue, setNewSecretValue] = useState('')
+  const [deleting, setDeleting] = useState('')
+  const [alsoDeleteSecret, setAlsoDeleteSecret] = useState(false)
 
   const list = useQuery({ queryKey: ['connections'], queryFn: api.listConnections })
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['connections'] })
+  const secrets = useQuery({ queryKey: ['secrets', forge], queryFn: () => api.listSecrets(forge) })
+  const invalidate = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['connections'] })
+    await queryClient.invalidateQueries({ queryKey: ['secrets'] })
+  }
+  const onError = (err: unknown) => setMessages(errorMessages(t, err))
 
   const create = useMutation({
-    mutationFn: () => api.createConnection({ label, forge, url, token }),
+    mutationFn: () => api.createConnection({ label, forge, url, secret_slug: secretSlug }),
     onSuccess: async () => {
       setLabel('')
-      setToken('')
+      setSecretSlug('')
       await invalidate()
     },
-    onError: (err) => setMessages(errorMessages(t, err)),
+    onError,
+  })
+  const createSecret = useMutation({
+    mutationFn: () =>
+      api.createSecret({
+        slug: newSecretSlug.trim(),
+        label: newSecretLabel,
+        category: forge,
+        value: newSecretValue,
+      }),
+    onSuccess: async () => {
+      setSecretSlug(newSecretSlug.trim())
+      setShowNewSecret(false)
+      setNewSecretLabel('')
+      setNewSecretSlug('')
+      setNewSecretValue('')
+      await queryClient.invalidateQueries({ queryKey: ['secrets'] })
+    },
+    onError,
   })
   const test = useMutation({ mutationFn: (id: string) => api.testConnection(id), onSuccess: invalidate })
   const remove = useMutation({
-    mutationFn: (id: string) => api.deleteConnection(id),
-    onSuccess: invalidate,
-    onError: (err) => setMessages(errorMessages(t, err)),
+    mutationFn: ({ id, deleteSecret }: { id: string; deleteSecret: boolean }) =>
+      api.deleteConnection(id, deleteSecret),
+    onSuccess: async () => {
+      setDeleting('')
+      setAlsoDeleteSecret(false)
+      await invalidate()
+    },
+    onError,
   })
 
   const forgeName = (f: string) =>
     f === 'github' ? t('githubName') : f === 'gitlab' ? t('gitlabName') : t('azureName')
-
   const formatDate = (iso: string | null) =>
     iso ? new Intl.DateTimeFormat(i18n.resolvedLanguage).format(new Date(iso)) : t('neverChecked')
+  const forgeSecrets = secrets.data?.secrets ?? []
 
   return (
     <main>
@@ -83,15 +117,53 @@ export function ForgesPage() {
                 <td>
                   <button type="button" onClick={() => test.mutate(c.id)}>
                     {t('test')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm(t('deleteConnectionConfirm'))) remove.mutate(c.id)
-                    }}
-                  >
-                    {t('delete')}
-                  </button>
+                  </button>{' '}
+                  {deleting === c.id ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {c.secret_used_by_others > 0 ? (
+                        <span>
+                          {t('deleteConnectionSecretShared', {
+                            slug: c.secret_slug,
+                            count: c.secret_used_by_others,
+                          })}
+                        </span>
+                      ) : (
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={alsoDeleteSecret}
+                            onChange={(e) => setAlsoDeleteSecret(e.target.checked)}
+                          />{' '}
+                          {t('deleteAlsoSecretNamed', {
+                            label: c.secret_label,
+                            slug: c.secret_slug,
+                          })}
+                        </label>
+                      )}
+                      <span>
+                        <button
+                          type="button"
+                          onClick={() => remove.mutate({ id: c.id, deleteSecret: alsoDeleteSecret })}
+                        >
+                          {t('confirmDelete')}
+                        </button>{' '}
+                        <button type="button" onClick={() => setDeleting('')}>
+                          {t('cancel')}
+                        </button>
+                      </span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMessages([])
+                        setAlsoDeleteSecret(false)
+                        setDeleting(c.id)
+                      }}
+                    >
+                      {t('delete')}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -117,6 +189,7 @@ export function ForgesPage() {
           onChange={(e) => {
             setForge(e.target.value)
             setUrl(FORGE_DEFAULT_URL[e.target.value] ?? '')
+            setSecretSlug('')
           }}
         >
           {FORGES.map((f) => (
@@ -129,9 +202,54 @@ export function ForgesPage() {
         <input id="label" value={label} onChange={(e) => setLabel(e.target.value)} />
         <label htmlFor="url">{t('urlLabel')}</label>
         <input id="url" value={url} onChange={(e) => setUrl(e.target.value)} />
-        <label htmlFor="token">{t('tokenLabel')}</label>
-        <input id="token" type="password" value={token} onChange={(e) => setToken(e.target.value)} />
+        <label htmlFor="secretSlug">{t('tokenLabel')}</label>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <select
+            id="secretSlug"
+            value={secretSlug}
+            onChange={(e) => setSecretSlug(e.target.value)}
+            style={{ flex: 1 }}
+          >
+            <option value="">
+              {forgeSecrets.length > 0 ? t('chooseSecret') : t('noSecretForForge')}
+            </option>
+            {forgeSecrets.map((s) => (
+              <option key={s.slug} value={s.slug}>
+                {s.label} ({s.slug})
+              </option>
+            ))}
+          </select>
+          <button type="button" onClick={() => setShowNewSecret((v) => !v)}>
+            +
+          </button>
+        </div>
         <small>{t('tokenHint')}</small>
+        {showNewSecret ? (
+          <fieldset style={{ border: '1px solid var(--border, #ddd)' }}>
+            <legend>{t('newSecretTitle')}</legend>
+            <label htmlFor="nsLabel">{t('colLabel')}</label>
+            <input id="nsLabel" value={newSecretLabel} onChange={(e) => setNewSecretLabel(e.target.value)} />
+            <label htmlFor="nsSlug">{t('slugLabel')}</label>
+            <input id="nsSlug" value={newSecretSlug} onChange={(e) => setNewSecretSlug(e.target.value)} />
+            <label htmlFor="nsValue">{t('valueLabel')}</label>
+            <input
+              id="nsValue"
+              type="password"
+              value={newSecretValue}
+              onChange={(e) => setNewSecretValue(e.target.value)}
+            />
+            <button
+              type="button"
+              disabled={createSecret.isPending || !newSecretSlug.trim() || !newSecretValue}
+              onClick={() => {
+                setMessages([])
+                createSecret.mutate()
+              }}
+            >
+              {t('createAndSelect')}
+            </button>
+          </fieldset>
+        ) : null}
         <button type="submit" disabled={create.isPending}>
           {t('save')}
         </button>
