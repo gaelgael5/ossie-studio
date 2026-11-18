@@ -11,6 +11,7 @@ import { ForgesPage } from './pages/ForgesPage'
 import { SpacesPage } from './pages/SpacesPage'
 import { SpaceDetailPage } from './pages/SpaceDetailPage'
 import { GovernanceTagsPage } from './pages/GovernanceTagsPage'
+import { GovernanceCertificationsPage } from './pages/GovernanceCertificationsPage'
 import { StatusPage } from './StatusPage'
 
 export function App() {
@@ -83,6 +84,10 @@ export function App() {
         <Route
           path="/governance/tags"
           element={isAdmin ? <GovernanceTagsPage /> : <Navigate to="/login" replace />}
+        />
+        <Route
+          path="/governance/certifications"
+          element={isAdmin ? <GovernanceCertificationsPage /> : <Navigate to="/login" replace />}
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

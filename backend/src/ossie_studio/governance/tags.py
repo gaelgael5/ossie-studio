@@ -21,6 +21,10 @@ def normalize_tag_id(raw: str) -> str:
     return raw.strip().lower()
 
 
+def is_valid_tag_id(tag_id: str) -> bool:
+    return bool(_TAG_ID.fullmatch(tag_id))
+
+
 def tag_prefixes(tag_id: str) -> list[str]:
     """Les préfixes hiérarchiques d'un id, du plus large au plus précis
     (« gouvernance/pii/x » → [gouvernance, gouvernance/pii, gouvernance/pii/x])."""

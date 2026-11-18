@@ -314,3 +314,28 @@ test('gouvernance tags : liste, filtre et création', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Créer le tag' }))
   await waitFor(() => expect(screen.getByLabelText(/Identifiant/)).toHaveValue(''))
 })
+
+test('gouvernance certifications : liste et presets', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+      },
+    },
+    '/api/governance/certifications': {
+      body: {
+        certifications: [
+          { id: 'c1', name: 'Or', rank: 1, description: 'top', criteria: '', tag: 'certification/or', icon: '🥇', restricted: false, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+        ],
+      },
+    },
+  })
+  renderAt('/governance/certifications')
+  await screen.findByText('Gouvernance › Certifications')
+  expect(screen.getByRole('button', { name: /niveaux par défaut/ })).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByText('certification/or')).toBeInTheDocument())
+  expect(screen.getByText('🥇 Or')).toBeInTheDocument()
+})

@@ -153,6 +153,35 @@ class GovernedTag:
 
 
 @dataclass(frozen=True)
+class Certification:
+    id: uuid.UUID
+    name: str
+    rank: int
+    description: str
+    criteria: str
+    tag: str
+    icon: str
+    restricted: bool
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> Certification:
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            rank=row["rank"],
+            description=row["description"],
+            criteria=row["criteria"],
+            tag=row["tag"],
+            icon=row["icon"],
+            restricted=row["restricted"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+@dataclass(frozen=True)
 class SpaceBranch:
     id: uuid.UUID
     space_id: uuid.UUID

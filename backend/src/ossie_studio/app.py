@@ -10,6 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ossie_studio.api.branches import router as api_branches_router
 from ossie_studio.api.connections import router as api_connections_router
+from ossie_studio.api.governance import certifications_router as api_certifications_router
 from ossie_studio.api.governance import router as api_governance_router
 from ossie_studio.api.oidc import router as api_oidc_router
 from ossie_studio.api.secrets import router as api_secrets_router
@@ -76,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_spaces_router)
     app.include_router(api_branches_router)
     app.include_router(api_governance_router)
+    app.include_router(api_certifications_router)
     # Flux OIDC : navigations du navigateur (redirections), pas de l'API JSON.
     app.include_router(oidc_login_router)
     return app

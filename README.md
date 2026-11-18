@@ -189,6 +189,22 @@ avec les **assets** (epic « Curation »), qui n'existent pas encore ; de même,
 les **capacités** fines (« Gouvernance : modifier ») remplaceront la garde
 administrateur quand l'epic « Profils » sera là.
 
+### Certifications — niveaux de qualité
+
+La page **Gouvernance › Certifications** définit des **niveaux** (Or, Argent,
+Bronze…). Chaque niveau a un **rang** (le plus bas en premier, Or = 1), une
+description, des **critères** en Markdown, une **icône**, une option
+**restreinte**, et un **tag** (ex. `certification/or`) qui le reliera aux
+assets. Un bouton crée les **trois niveaux par défaut** (idempotent),
+modifiables ensuite.
+
+**Pour l'instant**, seule la **gestion des niveaux** est livrée (admin).
+L'**assignation d'un niveau à un asset** (écriture du tag de certification dans
+`x-tags`, remplacement du niveau précédent, badge, filtre, refus de suppression
+d'un niveau assigné, détection d'incohérence) arrivera avec les **assets** ;
+l'assignation d'un niveau **restreint** demandera la capacité « Gouvernance :
+certifier » (epic « Profils »).
+
 ## Tests et qualité
 
 ```bash

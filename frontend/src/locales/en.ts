@@ -189,6 +189,27 @@ export const en = {
     importTagsLabel: 'Paste a YAML vocabulary',
     tagsImported: '{{count}} tag(s) imported.',
     colOwner: 'Team',
+
+    manageCertifications: 'Governance: certifications',
+    certificationsTitle: 'Governance › Certifications',
+    certificationsIntro:
+      'Quality levels (Gold, Silver, Bronze…), each backed by a tag. Assigning a level to an asset will come with curation.',
+    createPresets: 'Create default levels (Gold, Silver, Bronze)',
+    certNameLabel: 'Name',
+    certRankLabel: 'Rank (1 = highest)',
+    certTagLabel: 'Tag (e.g. certification/or)',
+    certDescriptionLabel: 'Description (badge)',
+    certCriteriaLabel: 'Criteria (Markdown)',
+    certIconLabel: 'Icon (emoji or text)',
+    certRestrictedLabel: 'Restricted (assigning reserved to “Governance: certify”)',
+    createCertification: 'Create the level',
+    updateCertification: 'Save',
+    editCertification: 'Edit',
+    deleteCertificationConfirm: 'Delete this certification level?',
+    noCertifications: 'No certification level.',
+    colRank: 'Rank',
+    colCertTag: 'Tag',
+    restrictedBadge: '🔒 restricted',
     rights: {
       read_fetch: 'read and fetch',
       create_branch: 'create a branch',
@@ -237,6 +258,8 @@ export const en = {
       tag_id_invalid: 'The identifier must be lowercase: segments “a-z 0-9 - _” separated by “/”.',
       tag_links_invalid: 'Links must be “name: URL” pairs.',
       tag_properties_invalid: 'Properties must be “key: simple value” pairs.',
+      certification_name_required: 'The level name is required.',
+      certification_rank_invalid: 'The rank must be an integer greater than or equal to 1.',
     },
 
     errors: {
@@ -283,6 +306,8 @@ export const en = {
       tag_id_taken: 'A managed tag already uses this identifier.',
       tag_not_found: 'Tag not found.',
       tag_import_invalid: 'The YAML vocabulary is invalid: {{detail}}.',
+      certification_tag_taken: 'A certification level already uses this tag.',
+      certification_not_found: 'Certification level not found.',
     },
   },
 }

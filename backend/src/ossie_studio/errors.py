@@ -49,6 +49,8 @@ ERROR_CODES: tuple[str, ...] = (
     "tag_id_taken",
     "tag_not_found",
     "tag_import_invalid",
+    "certification_tag_taken",
+    "certification_not_found",
 )
 
 

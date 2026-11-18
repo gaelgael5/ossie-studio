@@ -107,6 +107,28 @@ export interface GovernedTagInput {
   properties: Record<string, string | number | boolean>
 }
 
+export interface Certification {
+  id: string
+  name: string
+  rank: number
+  description: string
+  criteria: string
+  tag: string
+  icon: string
+  restricted: boolean
+  created_at: string
+  updated_at: string
+}
+export interface CertificationInput {
+  name: string
+  rank: number
+  description: string
+  criteria: string
+  tag: string
+  icon: string
+  restricted: boolean
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setup: (email: string, password: string) =>
@@ -216,6 +238,25 @@ export const api = {
     apiFetch<{ imported: number }>('/api/governance/tags/import', {
       method: 'POST',
       body: JSON.stringify({ yaml }),
+    }),
+
+  listCertifications: () =>
+    apiFetch<{ certifications: Certification[] }>('/api/governance/certifications'),
+  createCertification: (body: CertificationInput) =>
+    apiFetch<Certification>('/api/governance/certifications', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateCertification: (id: string, body: CertificationInput) =>
+    apiFetch<Certification>(`/api/governance/certifications/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteCertification: (id: string) =>
+    apiFetch(`/api/governance/certifications/${id}`, { method: 'DELETE' }),
+  createCertificationPresets: () =>
+    apiFetch<{ certifications: Certification[] }>('/api/governance/certifications/presets', {
+      method: 'POST',
     }),
 
   listConnectors: () =>

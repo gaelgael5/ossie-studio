@@ -190,6 +190,27 @@ export const fr = {
     importTagsLabel: 'Coller un vocabulaire YAML',
     tagsImported: '{{count}} tag(s) importé(s).',
     colOwner: 'Équipe',
+
+    manageCertifications: 'Gouvernance : certifications',
+    certificationsTitle: 'Gouvernance › Certifications',
+    certificationsIntro:
+      'Des niveaux de qualité (Or, Argent, Bronze…), chacun adossé à un tag. L’assignation d’un niveau à un asset arrivera avec la curation.',
+    createPresets: 'Créer les niveaux par défaut (Or, Argent, Bronze)',
+    certNameLabel: 'Nom',
+    certRankLabel: 'Rang (1 = le plus élevé)',
+    certTagLabel: 'Tag (ex. certification/or)',
+    certDescriptionLabel: 'Description (badge)',
+    certCriteriaLabel: 'Critères (Markdown)',
+    certIconLabel: 'Icône (emoji ou texte)',
+    certRestrictedLabel: 'Restreint (assignation réservée à « Gouvernance : certifier »)',
+    createCertification: 'Créer le niveau',
+    updateCertification: 'Enregistrer',
+    editCertification: 'Modifier',
+    deleteCertificationConfirm: 'Supprimer ce niveau de certification ?',
+    noCertifications: 'Aucun niveau de certification.',
+    colRank: 'Rang',
+    colCertTag: 'Tag',
+    restrictedBadge: '🔒 restreint',
     rights: {
       read_fetch: 'lire et récupérer',
       create_branch: 'créer une branche',
@@ -239,6 +260,8 @@ export const fr = {
         'L’identifiant doit être en minuscules : segments « a-z 0-9 - _ » séparés par « / ».',
       tag_links_invalid: 'Les liens doivent être des paires « nom : URL ».',
       tag_properties_invalid: 'Les propriétés doivent être des paires « clé : valeur simple ».',
+      certification_name_required: 'Le nom du niveau est obligatoire.',
+      certification_rank_invalid: 'Le rang doit être un entier supérieur ou égal à 1.',
     },
 
     errors: {
@@ -285,6 +308,8 @@ export const fr = {
       tag_id_taken: 'Un tag géré porte déjà cet identifiant.',
       tag_not_found: 'Tag introuvable.',
       tag_import_invalid: 'Le vocabulaire YAML est invalide : {{detail}}.',
+      certification_tag_taken: 'Un niveau de certification utilise déjà ce tag.',
+      certification_not_found: 'Niveau de certification introuvable.',
     },
   },
 }

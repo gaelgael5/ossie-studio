@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 import structlog
@@ -9,22 +10,31 @@ from pydantic import BaseModel, ConfigDict
 from ossie_studio.api.common import AdminApiDep, require_admin_api
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
+from ossie_studio.governance.certifications import PRESETS, validate_certification
 from ossie_studio.governance.service import (
+    CertificationNotFoundError,
+    CertificationTagTakenError,
     TagIdTakenError,
     TagNotFoundError,
+    db_create_certification,
+    db_create_certification_presets,
     db_create_tag,
+    db_delete_certification,
     db_delete_tag,
+    db_list_certifications,
     db_list_tags,
+    db_update_certification,
     db_update_tag,
     db_upsert_tag,
 )
 from ossie_studio.governance.tags import normalize_tag_id, validate_tag_fields
 from ossie_studio.governance.yaml_io import TagImportError, export_tags_yaml, parse_tags_yaml
-from ossie_studio.models import GovernedTag
+from ossie_studio.models import Certification, GovernedTag
 
 log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/governance/tags")
+certifications_router = APIRouter(prefix="/api/governance/certifications")
 
 
 class TagCreate(BaseModel):
@@ -135,3 +145,97 @@ async def delete_tag(request: Request, conn: ConnDep, tag_id: str) -> None:
     if not deleted:
         raise ApiError("tag_not_found", status_code=404, tag_id=normalized)
     log.info("governed_tag_deleted", tag_id=normalized, author=user.email)
+
+
+class CertificationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = ""
+    rank: int = 1
+    description: str = ""
+    criteria: str = ""
+    tag: str = ""
+    icon: str = ""
+    restricted: bool = False
+
+
+def _cert_payload(cert: Certification) -> dict[str, object]:
+    return {
+        "id": str(cert.id),
+        "name": cert.name,
+        "rank": cert.rank,
+        "description": cert.description,
+        "criteria": cert.criteria,
+        "tag": cert.tag,
+        "icon": cert.icon,
+        "restricted": cert.restricted,
+        "created_at": cert.created_at.isoformat(),
+        "updated_at": cert.updated_at.isoformat(),
+    }
+
+
+@certifications_router.get("")
+async def list_certifications(conn: ConnDep, _: AdminApiDep) -> dict[str, object]:
+    certs = await db_list_certifications(conn)
+    return {"certifications": [_cert_payload(c) for c in certs]}
+
+
+@certifications_router.post("", status_code=201)
+async def create_certification(
+    request: Request, conn: ConnDep, body: CertificationBody
+) -> dict[str, object]:
+    user = await require_admin_api(request, conn)
+    tag = normalize_tag_id(body.tag)
+    errors = validate_certification(body.name, body.rank, tag)
+    if errors:
+        raise ApiError("invalid_request", status_code=400, fields=errors)
+    try:
+        cert = await db_create_certification(
+            conn, body.name.strip(), body.rank, body.description.strip(),
+            body.criteria, tag, body.icon.strip(), body.restricted,
+        )
+    except CertificationTagTakenError:
+        raise ApiError("certification_tag_taken", status_code=409, tag=tag) from None
+    log.info("certification_created", cert_id=str(cert.id), tag=tag, author=user.email)
+    return _cert_payload(cert)
+
+
+@certifications_router.post("/presets")
+async def create_presets(request: Request, conn: ConnDep) -> dict[str, object]:
+    user = await require_admin_api(request, conn)
+    await db_create_certification_presets(conn, PRESETS)
+    log.info("certification_presets_created", author=user.email)
+    certs = await db_list_certifications(conn)
+    return {"certifications": [_cert_payload(c) for c in certs]}
+
+
+@certifications_router.put("/{cert_id}")
+async def update_certification(
+    request: Request, conn: ConnDep, cert_id: uuid.UUID, body: CertificationBody
+) -> dict[str, object]:
+    user = await require_admin_api(request, conn)
+    tag = normalize_tag_id(body.tag)
+    errors = validate_certification(body.name, body.rank, tag)
+    if errors:
+        raise ApiError("invalid_request", status_code=400, fields=errors)
+    try:
+        cert = await db_update_certification(
+            conn, cert_id, body.name.strip(), body.rank, body.description.strip(),
+            body.criteria, tag, body.icon.strip(), body.restricted,
+        )
+    except CertificationTagTakenError:
+        raise ApiError("certification_tag_taken", status_code=409, tag=tag) from None
+    except CertificationNotFoundError:
+        raise ApiError("certification_not_found", status_code=404) from None
+    log.info("certification_updated", cert_id=str(cert_id), author=user.email)
+    return _cert_payload(cert)
+
+
+@certifications_router.delete("/{cert_id}", status_code=204)
+async def delete_certification(request: Request, conn: ConnDep, cert_id: uuid.UUID) -> None:
+    user = await require_admin_api(request, conn)
+    # Le refus « certification assignée à des assets » (critère 5) arrivera avec
+    # les assets (epic Curation) ; sans assets, aucune assignation ne bloque.
+    deleted = await db_delete_certification(conn, cert_id)
+    if not deleted:
+        raise ApiError("certification_not_found", status_code=404)
+    log.info("certification_deleted", cert_id=str(cert_id), author=user.email)
