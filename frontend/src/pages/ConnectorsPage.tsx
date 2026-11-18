@@ -143,6 +143,84 @@ function ConnectorMappings({
   )
 }
 
+function ConnectorTeam({
+  connector,
+  invalidate,
+  onError,
+}: {
+  connector: OidcConnectorItem
+  invalidate: () => void
+  onError: (err: unknown) => void
+}) {
+  const { t } = useTranslation()
+  const [claim, setClaim] = useState(connector.team_claim)
+
+  const saveClaim = useMutation({
+    mutationFn: () => api.setTeamClaim(connector.id, claim),
+    onSuccess: invalidate,
+    onError,
+  })
+
+  return (
+    <section style={{ marginTop: 16, borderTop: '1px solid var(--border, #ddd)', paddingTop: 12 }}>
+      <h3>
+        {`${t('teamBlockTitle')} — ${connector.label}`}{' '}
+        <span
+          style={{
+            fontSize: '0.75em',
+            fontWeight: 'normal',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: 'var(--muted-bg, #eee)',
+            color: 'var(--muted, #666)',
+          }}
+        >
+          {t('teamDisplayOnlyBadge')}
+        </span>
+      </h3>
+      <p style={{ color: 'var(--muted, #666)', maxWidth: 560 }}>{t('teamClaimRulesHint')}</p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          saveClaim.mutate()
+        }}
+        style={{ display: 'flex', gap: 8, alignItems: 'flex-end', maxWidth: 520 }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+          <label htmlFor={`team-claim-${connector.id}`}>{t('teamClaimLabel')}</label>
+          <input
+            id={`team-claim-${connector.id}`}
+            value={claim}
+            onChange={(e) => setClaim(e.target.value)}
+          />
+        </div>
+        <button type="submit" disabled={saveClaim.isPending}>
+          {t('save')}
+        </button>
+      </form>
+      <p style={{ marginTop: 8 }}>
+        <span style={{ color: 'var(--muted, #666)' }}>{t('teamsFromConnector')}</span>{' '}
+        {connector.teams.length > 0
+          ? connector.teams.map((team) => (
+              <span
+                key={team.id}
+                style={{
+                  display: 'inline-block',
+                  margin: '2px 4px',
+                  padding: '2px 8px',
+                  borderRadius: 10,
+                  background: 'var(--muted-bg, #eee)',
+                }}
+              >
+                {team.name}
+              </span>
+            ))
+          : t('teamsFromConnectorNone')}
+      </p>
+    </section>
+  )
+}
+
 export function ConnectorsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -233,6 +311,9 @@ export function ConnectorsPage() {
               invalidate={invalidate}
               onError={onError}
             />
+          ))}
+          {list.data.connectors.map((c) => (
+            <ConnectorTeam key={c.id} connector={c} invalidate={invalidate} onError={onError} />
           ))}
         </>
       ) : (

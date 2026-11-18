@@ -32,6 +32,7 @@ from ossie_studio.oidc.service import (
     db_list_connectors,
 )
 from ossie_studio.profiles.service import db_get_profile, db_list_profiles
+from ossie_studio.teams.service import db_list_teams_for_connector, db_set_team_claim
 from ossie_studio.users.service import db_count_pinned_users
 
 log = structlog.get_logger(__name__)
@@ -56,6 +57,11 @@ class RolesClaimBody(BaseModel):
     roles_claim: str = ""
 
 
+class TeamClaimBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    team_claim: str = ""
+
+
 class MappingBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     role_value: str = ""
@@ -74,6 +80,7 @@ async def list_connectors(conn: ConnDep, _: OidcRead) -> dict[str, object]:
     rows = []
     for c in connectors:
         mappings = await db_list_mappings(conn, c.id)
+        teams = await db_list_teams_for_connector(conn, c.id)
         rows.append(
             {
                 "id": str(c.id),
@@ -81,6 +88,7 @@ async def list_connectors(conn: ConnDep, _: OidcRead) -> dict[str, object]:
                 "issuer": c.issuer,
                 "accounts": await db_count_identities_for_issuer(conn, c.issuer),
                 "roles_claim": c.roles_claim,
+                "team_claim": c.team_claim,
                 "mappings": [
                     {
                         "id": str(m.id),
@@ -90,6 +98,8 @@ async def list_connectors(conn: ConnDep, _: OidcRead) -> dict[str, object]:
                     }
                     for m in mappings
                 ],
+                # Équipes venues de ce connecteur (affichage seulement).
+                "teams": [{"id": str(t.id), "name": t.name, "slug": t.slug} for t in teams],
             }
         )
     return {
@@ -157,6 +167,16 @@ async def set_roles_claim(
     await _require_connector(conn, connector_id)
     await db_set_roles_claim(conn, connector_id, body.roles_claim.strip())
     log.info("oidc_roles_claim_set", connector_id=str(connector_id))
+    return {"ok": True}
+
+
+@router.put("/{connector_id}/team-claim")
+async def set_team_claim(
+    conn: ConnDep, _: OidcWrite, connector_id: uuid.UUID, body: TeamClaimBody
+) -> dict[str, bool]:
+    await _require_connector(conn, connector_id)
+    await db_set_team_claim(conn, connector_id, body.team_claim.strip())
+    log.info("oidc_team_claim_set", connector_id=str(connector_id))
     return {"ok": True}
 
 

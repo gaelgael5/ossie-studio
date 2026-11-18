@@ -261,6 +261,14 @@ export const en = {
     pinnedHint: 'OIDC mappings do not replace this profile.',
     removePin: 'Remove the mark',
 
+    teamBlockTitle: 'Team',
+    teamDisplayOnlyBadge: 'display only, grants no rights',
+    teamClaimLabel: 'Team claim path (e.g. department, groups)',
+    teamClaimRulesHint:
+      'A person belongs to a single team: if the claim carries several values, the first one wins. An unknown value creates the team (OIDC origin). Missing claim: the current team is kept. A team pinned by hand is not replaced.',
+    teamsFromConnector: 'Teams from this connector:',
+    teamsFromConnectorNone: 'none yet',
+
     manageUsers: 'Users',
     usersTitle: 'Users',
     usersIntro:

@@ -46,3 +46,26 @@ def roles_from_claims(claims: object, path: str) -> list[str]:
         # Forme inattendue : aucun rôle, et on le signale (pas de plantage).
         log.warning("oidc_roles_claim_unexpected_shape", path=path)
     return roles
+
+
+def extract_memberships(value: object) -> list[str]:
+    """Comme :func:`extract_roles`, mais accepte aussi une **chaîne simple** : le
+    claim d'équipe est souvent un scalaire (`"department": "equipe-data"`)."""
+    if isinstance(value, str):
+        return [value] if value else []
+    return extract_roles(value)
+
+
+def memberships_from_claims(claims: object, path: str) -> list[str]:
+    """Valeurs d'appartenance (équipe) lues au même point d'adaptation que les
+    rôles. Chaîne, tableau de chaînes ou objet à clés ; toute autre forme → aucune
+    valeur, avertissement journalisé (jamais de plantage ni de valeur devinée)."""
+    if not path.strip():
+        return []
+    value = navigate_claim(claims, path)
+    if value is None:
+        return []
+    memberships = extract_memberships(value)
+    if not memberships and not isinstance(value, (str, list, dict)):
+        log.warning("oidc_team_claim_unexpected_shape", path=path)
+    return memberships

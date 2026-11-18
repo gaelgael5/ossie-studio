@@ -21,6 +21,8 @@ class User:
     profile_id: uuid.UUID | None = None
     display_name: str = ""
     last_login_at: datetime | None = None
+    team_id: uuid.UUID | None = None
+    team_pinned: bool = False
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> User:
@@ -34,6 +36,8 @@ class User:
             profile_id=row["profile_id"] if "profile_id" in row else None,
             display_name=row["display_name"] if "display_name" in row else "",
             last_login_at=row["last_login_at"] if "last_login_at" in row else None,
+            team_id=row["team_id"] if "team_id" in row else None,
+            team_pinned=row["team_pinned"] if "team_pinned" in row else False,
         )
 
 
@@ -95,6 +99,7 @@ class OidcConnector:
     scopes: str
     created_at: datetime
     roles_claim: str = ""
+    team_claim: str = ""
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> OidcConnector:
@@ -107,6 +112,7 @@ class OidcConnector:
             scopes=row["scopes"],
             created_at=row["created_at"],
             roles_claim=row["roles_claim"] if "roles_claim" in row else "",
+            team_claim=row["team_claim"] if "team_claim" in row else "",
         )
 
 
@@ -126,6 +132,29 @@ class OidcRoleMapping:
             position=row["position"],
             role_value=row["role_value"],
             profile_id=row["profile_id"],
+        )
+
+
+@dataclass(frozen=True)
+class Team:
+    """Équipe du référentiel local. AFFICHAGE SEULEMENT : ne porte aucun droit."""
+
+    id: uuid.UUID
+    name: str
+    slug: str
+    origin: str  # 'oidc' (venue de l'annuaire) | 'manual' (créée à la main)
+    source_connector_id: uuid.UUID | None
+    created_at: datetime
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> Team:
+        return cls(
+            id=row["id"],
+            name=row["name"],
+            slug=row["slug"],
+            origin=row["origin"],
+            source_connector_id=row["source_connector_id"],
+            created_at=row["created_at"],
         )
 
 

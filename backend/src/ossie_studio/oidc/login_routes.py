@@ -26,6 +26,7 @@ from ossie_studio.oidc.provider import (
 )
 from ossie_studio.oidc.roles import roles_from_claims
 from ossie_studio.oidc.service import db_get_connector, resolve_federated_login
+from ossie_studio.teams.service import apply_team_mapping
 
 log = structlog.get_logger(__name__)
 
@@ -136,6 +137,9 @@ async def oidc_callback(
     # connexion ; les capacités restent celles du profil en base.
     roles = roles_from_claims(claims.raw, connector.roles_claim)
     await apply_role_mapping(conn, connector.id, roles, decision.user_id)
+    # L'équipe suit le claim d'appartenance (sauf équipe fixée à la main). Elle
+    # sert à l'affichage seulement : elle ne change aucun droit.
+    await apply_team_mapping(conn, connector.id, connector.team_claim, claims.raw, decision.user_id)
     request.session["user_id"] = str(decision.user_id)
     log.info("oidc_login_succeeded", outcome=decision.outcome.value, issuer=connector.issuer)
     return _login_redirect()

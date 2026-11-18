@@ -494,6 +494,8 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
             accounts: 2,
             roles_claim: 'realm_access.roles',
             mappings: [{ id: 'm1', role_value: 'ossie-admins', profile_id: 'p1', profile_name: 'Admins' }],
+            team_claim: 'department',
+            teams: [{ id: 't1', name: 'equipe-data', slug: 'equipe-data' }],
           },
         ],
         default_scopes: 'openid email profile',
@@ -515,4 +517,8 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
   // Les deux rappels (ordre ; profil fixé à la main avec le nombre de comptes).
   expect(screen.getByText(/première correspondance/)).toBeInTheDocument()
   expect(screen.getByText(/3 compte\(s\)/)).toBeInTheDocument()
+  // Bloc Équipe : mention « affichage seulement », chemin du claim, équipes du connecteur.
+  await screen.findByText('Équipe — IdP')
+  expect(screen.getByText('affichage seulement, ne donne aucun droit')).toBeInTheDocument()
+  expect(screen.getByText('equipe-data')).toBeInTheDocument()
 })

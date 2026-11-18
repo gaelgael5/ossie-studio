@@ -262,6 +262,14 @@ export const fr = {
     pinnedHint: 'Les correspondances OIDC ne remplacent pas ce profil.',
     removePin: 'Retirer la marque',
 
+    teamBlockTitle: 'Équipe',
+    teamDisplayOnlyBadge: 'affichage seulement, ne donne aucun droit',
+    teamClaimLabel: 'Chemin du claim de l’équipe (ex. department, groups)',
+    teamClaimRulesHint:
+      'Une personne appartient à une seule équipe : si le claim porte plusieurs valeurs, la première l’emporte. Une valeur inconnue crée l’équipe (origine OIDC). Claim absent : l’équipe actuelle est conservée. Une équipe fixée à la main n’est pas remplacée.',
+    teamsFromConnector: 'Équipes venues de ce connecteur :',
+    teamsFromConnectorNone: 'aucune pour l’instant',
+
     manageUsers: 'Utilisateurs',
     usersTitle: 'Utilisateurs',
     usersIntro:

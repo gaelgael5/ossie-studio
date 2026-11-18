@@ -54,6 +54,11 @@ export interface RoleMapping {
   profile_id: string
   profile_name: string | null
 }
+export interface ConnectorTeam {
+  id: string
+  name: string
+  slug: string
+}
 export interface OidcConnectorItem {
   id: string
   label: string
@@ -61,6 +66,8 @@ export interface OidcConnectorItem {
   accounts: number
   roles_claim: string
   mappings: RoleMapping[]
+  team_claim: string
+  teams: ConnectorTeam[]
 }
 
 export interface Connection {
@@ -416,6 +423,11 @@ export const api = {
     apiFetch(`/api/oidc/connectors/${connectorId}/roles-claim`, {
       method: 'PUT',
       body: JSON.stringify({ roles_claim: rolesClaim }),
+    }),
+  setTeamClaim: (connectorId: string, teamClaim: string) =>
+    apiFetch(`/api/oidc/connectors/${connectorId}/team-claim`, {
+      method: 'PUT',
+      body: JSON.stringify({ team_claim: teamClaim }),
     }),
   addRoleMapping: (connectorId: string, roleValue: string, profileId: string) =>
     apiFetch(`/api/oidc/connectors/${connectorId}/mappings`, {
