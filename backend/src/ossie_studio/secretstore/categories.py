@@ -7,15 +7,17 @@ SECRET_CATEGORIES: dict[str, str] = {
     "gitlab": "GitLab",
     "azure_devops": "Azure DevOps",
     "oidc": "OIDC",
+    "postgres": "PostgreSQL",
+    "sqlserver": "SQL Server",
+    "snowflake": "Snowflake",
 }
-# gitlab et azure_devops servent aussi de catégories de secrets pour les
-# connexions aux forges (github existait déjà).
 
 # Forme de saisie de la valeur, par catégorie. « masked » : un champ texte
-# masqué (jeton, client secret…). Les formes particulières (p. ex. un fichier de
-# clef privée pour Snowflake) seront déclarées ici par le ticket qui les ajoute,
-# sans toucher au service des secrets.
+# masqué (jeton, mot de passe, client secret…). « keyfile » : un fichier de clé
+# privée et une phrase de passe facultative (Snowflake), ouverte à la création —
+# c'est la clé ouverte qui est stockée, la phrase de passe n'est pas conservée.
 SECRET_CATEGORY_INPUTS: dict[str, str] = {slug: "masked" for slug in SECRET_CATEGORIES}
+SECRET_CATEGORY_INPUTS["snowflake"] = "keyfile"
 
 
 def is_known_category(slug: str) -> bool:

@@ -72,6 +72,16 @@ ERROR_CODES: tuple[str, ...] = (
     "mapping_duplicate",
     "mapping_not_found",
     "team_not_found",
+    "db_connection_duplicate",
+    "db_connection_not_found",
+    "db_connection_secret_invalid",
+    "db_host_unreachable",
+    "db_auth_failed",
+    "db_not_found",
+    "db_role_not_found",
+    "db_warehouse_not_found",
+    "db_key_rejected",
+    "db_driver_unavailable",
 )
 
 

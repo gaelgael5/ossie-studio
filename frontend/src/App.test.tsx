@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
@@ -125,6 +125,18 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
       },
     },
     'POST /api/connections': { status: 400, body: { error: 'connection_token_invalid' } },
+    '/api/db-connections': { body: { connections: [] } },
+    '/api/db-connections/engines': {
+      body: {
+        engines: [
+          { engine: 'postgres', secret_category: 'postgres', secret_kind: 'masked', target_field: 'host', fields: [{ name: 'host', kind: 'text', default: '', required: true, options: [] }] },
+          { engine: 'snowflake', secret_category: 'snowflake', secret_kind: 'keyfile', target_field: 'account', fields: [{ name: 'account', kind: 'text', default: '', required: true, options: [] }] },
+        ],
+      },
+    },
+    '/api/secrets?category=snowflake': {
+      body: { secrets: [], categories: { snowflake: 'Snowflake' }, category_inputs: { snowflake: 'keyfile' } },
+    },
   })
   renderAt('/forges')
   await screen.findByText('Forges et connexions')
@@ -140,6 +152,13 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
   await waitFor(() =>
     expect(screen.getByText('Jeton invalide ou expiré.')).toBeInTheDocument(),
   )
+  // Section Bases de données : menu des moteurs, popup Snowflake avec fichier de clé.
+  expect(screen.getByText('Bases de données')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '+ Ajouter une base' }))
+  await userEvent.click(await screen.findByRole('button', { name: /Snowflake —/ }))
+  const sfDialog = await screen.findByRole('dialog', { name: 'Nouvelle connexion Snowflake' })
+  await userEvent.click(within(sfDialog).getByRole('button', { name: '+' }))
+  expect(within(sfDialog).getByLabelText('Fichier de clé privée')).toBeInTheDocument()
 })
 
 test('espaces : un droit en échec affiche le droit et la cause traduits', async () => {

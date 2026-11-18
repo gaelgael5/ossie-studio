@@ -105,6 +105,37 @@ export interface ForgeSpec {
   secret_category: string
 }
 
+export interface DbConnectionItem {
+  id: string
+  label: string
+  engine: string
+  target: string
+  identity: string
+  server_version: string
+  last_status: string
+  last_error_code: string | null
+  last_checked_at: string | null
+  secret_slug: string
+  secret_label: string
+  secret_used_by_others: number
+}
+
+export interface DbEngineField {
+  name: string
+  kind: string
+  default: string
+  required: boolean
+  options: string[]
+}
+
+export interface DbEngineSpec {
+  engine: string
+  secret_category: string
+  secret_kind: string
+  target_field: string
+  fields: DbEngineField[]
+}
+
 export const FORGE_DEFAULT_URL: Record<string, string> = {
   github: 'https://github.com',
   gitlab: 'https://gitlab.com',
@@ -270,8 +301,14 @@ export const api = {
       categories: Record<string, string>
       category_inputs: Record<string, string>
     }>(`/api/secrets${category ? `?category=${encodeURIComponent(category)}` : ''}`),
-  createSecret: (body: { slug: string; label: string; category: string; value: string }) =>
-    apiFetch('/api/secrets', { method: 'POST', body: JSON.stringify(body) }),
+  createSecret: (body: {
+    slug: string
+    label: string
+    category: string
+    value?: string
+    key_file?: string
+    passphrase?: string
+  }) => apiFetch<{ slug: string }>('/api/secrets', { method: 'POST', body: JSON.stringify(body) }),
   replaceSecretValue: (slug: string, value: string) =>
     apiFetch(`/api/secrets/${encodeURIComponent(slug)}/value`, {
       method: 'PUT',
@@ -293,6 +330,20 @@ export const api = {
     apiFetch<{ repositories: { full_name: string; url: string }[]; total: number }>(
       `/api/connections/${id}/repositories`,
     ),
+  listDbConnections: () =>
+    apiFetch<{ connections: DbConnectionItem[] }>('/api/db-connections'),
+  listDbEngines: () =>
+    apiFetch<{ engines: DbEngineSpec[] }>('/api/db-connections/engines'),
+  createDbConnection: (body: {
+    label: string
+    engine: string
+    params: Record<string, string>
+    secret_slug: string
+  }) => apiFetch<DbConnectionItem>('/api/db-connections', { method: 'POST', body: JSON.stringify(body) }),
+  testDbConnection: (id: string) =>
+    apiFetch<DbConnectionItem>(`/api/db-connections/${id}/test`, { method: 'POST' }),
+  deleteDbConnection: (id: string, deleteSecret = false) =>
+    apiFetch(`/api/db-connections/${id}?delete_secret=${deleteSecret}`, { method: 'DELETE' }),
   createConnection: (body: { label: string; forge: string; url: string; secret_slug: string }) =>
     apiFetch<Connection>('/api/connections', { method: 'POST', body: JSON.stringify(body) }),
   testConnection: (id: string) =>

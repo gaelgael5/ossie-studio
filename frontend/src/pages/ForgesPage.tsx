@@ -6,6 +6,7 @@ import { api } from '../apiClient'
 import type { Connection, ForgeSpec } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { DatabasesSection } from './DatabasesSection'
 
 function forgeName(t: (k: string) => string, f: string): string {
   return f === 'github' ? t('githubName') : f === 'gitlab' ? t('gitlabName') : t('azureName')
@@ -403,6 +404,8 @@ export function ForgesPage() {
       )}
 
       {selectedConnection ? <ConnectionPanel connection={selectedConnection} /> : null}
+
+      <DatabasesSection />
     </main>
   )
 }

@@ -188,6 +188,39 @@ class Connection:
 
 
 @dataclass(frozen=True)
+class DbConnection:
+    id: uuid.UUID
+    label: str
+    engine: str
+    target: str
+    params: dict[str, object]
+    secret_slug: str
+    identity: str
+    server_version: str
+    last_status: str
+    last_error_code: str | None
+    last_checked_at: datetime | None
+    created_at: datetime
+
+    @classmethod
+    def from_row(cls, row: asyncpg.Record) -> DbConnection:
+        return cls(
+            id=row["id"],
+            label=row["label"],
+            engine=row["engine"],
+            target=row["target"],
+            params=dict(row["params"] or {}),
+            secret_slug=row["secret_slug"],
+            identity=row["identity"],
+            server_version=row["server_version"],
+            last_status=row["last_status"],
+            last_error_code=row["last_error_code"],
+            last_checked_at=row["last_checked_at"],
+            created_at=row["created_at"],
+        )
+
+
+@dataclass(frozen=True)
 class GitSpace:
     id: uuid.UUID
     name: str

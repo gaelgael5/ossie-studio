@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 from typing import Annotated
 
 import structlog
@@ -36,12 +38,35 @@ router = APIRouter(prefix="/api/secrets")
 CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 
 
+def _opened_key_value(body: SecretCreate) -> str:
+    """Valeur d'un secret « keyfile » : la clé privée ouverte. Le fichier arrive
+    en base64 ; la phrase de passe sert à l'ouvrir et n'est pas conservée."""
+    from ossie_studio.databases.base import DbEngineError
+    from ossie_studio.databases.keys import open_private_key
+
+    if not body.key_file:
+        raise ApiError("invalid_request", status_code=400, fields=["key_file_required"])
+    try:
+        pem = base64.b64decode(body.key_file, validate=True)
+    except (binascii.Error, ValueError):
+        raise ApiError("db_key_rejected", status_code=400) from None
+    try:
+        return open_private_key(pem, body.passphrase)
+    except DbEngineError:
+        raise ApiError("db_key_rejected", status_code=400) from None
+
+
 class SecretCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     slug: str = ""
     label: str = ""
     category: str = ""
     value: str = ""
+    # Catégories « keyfile » (Snowflake) : la valeur vient d'un fichier de clé
+    # privée (base64) et d'une phrase de passe facultative, ouverte ici — c'est
+    # la clé ouverte qui est stockée, la phrase de passe n'est pas conservée.
+    key_file: str = ""
+    passphrase: str = ""
 
 
 class SecretValueBody(BaseModel):
@@ -89,12 +114,17 @@ async def create_secret(
     conn: ConnDep, crypto: CryptoDep, _: SecretsWrite, body: SecretCreate
 ) -> dict[str, object]:
     slug = body.slug.strip()
-    errors = validate_new_secret(slug, body.label, body.category, body.value)
+    # Pour une catégorie « keyfile », la valeur stockée est la clé ouverte.
+    if SECRET_CATEGORY_INPUTS.get(body.category) == "keyfile":
+        value = _opened_key_value(body)
+    else:
+        value = body.value
+    errors = validate_new_secret(slug, body.label, body.category, value)
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
     try:
         secret = await db_create_secret(
-            conn, slug, body.label.strip(), body.category, crypto.encrypt(SecretValue(body.value))
+            conn, slug, body.label.strip(), body.category, crypto.encrypt(SecretValue(value))
         )
     except SecretSlugTakenError:
         raise ApiError("secret_slug_taken", status_code=409, slug=slug) from None

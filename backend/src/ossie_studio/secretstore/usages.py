@@ -27,6 +27,7 @@ class SecretUsage:
 SECRET_USAGES: tuple[SecretUsage, ...] = (
     SecretUsage("connections", "secret_slug", "connection", "label"),
     SecretUsage("oidc_connectors", "client_secret_slug", "oidc_connector", "label"),
+    SecretUsage("db_connections", "secret_slug", "db_connection", "label"),
 )
 
 
