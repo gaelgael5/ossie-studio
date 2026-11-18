@@ -1,6 +1,8 @@
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { SUPPORTED_LANGUAGES } from './i18n'
 import { useSession } from './hooks'
 import { SetupPage } from './pages/SetupPage'
 import { LoginPage } from './pages/LoginPage'
@@ -18,8 +20,23 @@ import { UsersPage } from './pages/UsersPage'
 import { StatusPage } from './StatusPage'
 
 export function App() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const session = useSession()
+
+  // Une fois connecté, la langue du compte l'emporte et le navigateur la retient
+  // (i18next écrit dans localStorage). Valeur inconnue → on ne force rien.
+  const accountLanguage = session.data?.language
+  const isAuthenticated = session.data?.authenticated
+  useEffect(() => {
+    if (
+      isAuthenticated &&
+      accountLanguage &&
+      (SUPPORTED_LANGUAGES as readonly string[]).includes(accountLanguage) &&
+      i18n.resolvedLanguage !== accountLanguage
+    ) {
+      void i18n.changeLanguage(accountLanguage)
+    }
+  }, [isAuthenticated, accountLanguage, i18n])
 
   if (session.isLoading || !session.data) {
     return (

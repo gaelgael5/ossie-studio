@@ -21,6 +21,7 @@ export interface SessionState {
   authenticated: boolean
   user: SessionUser | null
   capabilities?: string[]
+  language?: string
 }
 
 export interface ProfileItem {
@@ -276,6 +277,11 @@ export interface LevelInput {
 
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
+  setLanguage: (language: string) =>
+    apiFetch<{ ok: boolean }>('/api/session/language', {
+      method: 'PUT',
+      body: JSON.stringify({ language }),
+    }),
   setup: (email: string, password: string) =>
     apiFetch<{ user: SessionUser }>('/api/setup', {
       method: 'POST',

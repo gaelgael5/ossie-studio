@@ -9,8 +9,15 @@ import structlog
 log = structlog.get_logger(__name__)
 
 
+SUPPORTED_LANGUAGES = ("fr", "en")
+
+
 class UserNotFoundError(Exception):
     pass
+
+
+async def db_set_language(conn: asyncpg.Connection, user_id: uuid.UUID, language: str) -> None:
+    await conn.execute("UPDATE users SET language = $2 WHERE id = $1", user_id, language)
 
 
 class AdminLockoutError(Exception):

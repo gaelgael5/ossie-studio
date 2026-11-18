@@ -16,6 +16,7 @@ from ossie_studio.deps import ConnDep, bootstrap_is_done, get_current_user
 from ossie_studio.errors import ApiError
 from ossie_studio.oidc.service import db_list_connectors
 from ossie_studio.profiles.service import load_capabilities
+from ossie_studio.users.service import SUPPORTED_LANGUAGES, db_set_language
 
 log = structlog.get_logger(__name__)
 
@@ -28,18 +29,41 @@ class Credentials(BaseModel):
     password: str = ""
 
 
+class LanguageBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    language: str = ""
+
+
 @router.get("/session")
 async def session_state(request: Request, conn: ConnDep) -> dict[str, object]:
     """État d'amorçage et d'authentification, pour le routage côté SPA."""
     user = await get_current_user(request, conn)
     bootstrap_done = await bootstrap_is_done(request.app)
     capabilities = sorted(await load_capabilities(conn, user)) if user is not None else []
+    # Langue enregistrée sur le compte ; une valeur inconnue → "" (l'interface
+    # retombe alors sur le socle i18n, c.-à-d. l'anglais à défaut).
+    language = ""
+    if user is not None and user.language in SUPPORTED_LANGUAGES:
+        language = user.language
     return {
         "bootstrap_required": not bootstrap_done,
         "authenticated": user is not None,
         "user": user_payload(user) if user is not None else None,
         "capabilities": capabilities,
+        "language": language,
     }
+
+
+@router.put("/session/language")
+async def set_language(request: Request, conn: ConnDep, body: LanguageBody) -> dict[str, bool]:
+    # Un utilisateur ne modifie que la langue de SON compte (celui de la session).
+    user = await get_current_user(request, conn)
+    if user is None:
+        raise ApiError("unauthenticated", status_code=401)
+    if body.language not in SUPPORTED_LANGUAGES:
+        raise ApiError("invalid_request", status_code=400, fields=["language_invalid"])
+    await db_set_language(conn, user.id, body.language)
+    return {"ok": True}
 
 
 @router.post("/setup")

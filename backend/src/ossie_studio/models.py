@@ -23,6 +23,7 @@ class User:
     last_login_at: datetime | None = None
     team_id: uuid.UUID | None = None
     team_pinned: bool = False
+    language: str = ""
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> User:
@@ -38,6 +39,7 @@ class User:
             last_login_at=row["last_login_at"] if "last_login_at" in row else None,
             team_id=row["team_id"] if "team_id" in row else None,
             team_pinned=row["team_pinned"] if "team_pinned" in row else False,
+            language=(row["language"] or "") if "language" in row else "",
         )
 
 
