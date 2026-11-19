@@ -6,7 +6,6 @@ from typing import Any
 
 from ossie_studio.databases.base import (
     CatalogColumn,
-    CatalogForeignKey,
     CatalogObject,
     CatalogRead,
     DatabaseEngine,
@@ -16,6 +15,7 @@ from ossie_studio.databases.base import (
     DbIdentity,
     DbTable,
 )
+from ossie_studio.databases.catalog_build import fk_groups, grouped_keys
 
 # Longueur « sans limite » de VARCHAR dans Snowflake : pas de maxLength alors.
 _SF_MAX_TEXT = 16777216
@@ -76,22 +76,6 @@ def _sf_type_fragment(
     return frag
 
 
-def _grouped_keys(
-    rows: list[dict[str, Any]], name_key: str
-) -> dict[tuple[str, str], list[list[str]]]:
-    """Regroupe des lignes de clefs par (schéma, table) puis par contrainte, en
-    respectant l'ordre des colonnes (`key_sequence`)."""
-    by_constraint: dict[tuple[str, str, str], list[tuple[int, str]]] = {}
-    for r in rows:
-        key = (str(r["schema"]), str(r["table"]), str(r.get(name_key) or ""))
-        by_constraint.setdefault(key, []).append((int(r.get("seq", 0)), str(r["column"])))
-    out: dict[tuple[str, str], list[list[str]]] = {}
-    for (schema, table, _name), cols in by_constraint.items():
-        ordered = [c for _, c in sorted(cols)]
-        out.setdefault((schema, table), []).append(ordered)
-    return out
-
-
 def build_catalog(
     *,
     tables: list[dict[str, Any]],
@@ -132,11 +116,11 @@ def build_catalog(
             )
         )
 
-    pk = _grouped_keys([r for r in (primary_keys or []) if kept(str(r["schema"]))], "constraint")
-    uq = _grouped_keys([r for r in (unique_keys or []) if kept(str(r["schema"]))], "constraint")
-    fks_by_obj: dict[tuple[str, str], list[CatalogForeignKey]] = {}
-    for fk in _fk_groups([r for r in (foreign_keys or []) if kept(str(r["schema"]))]):
-        fks_by_obj.setdefault((fk[0], fk[1]), []).append(fk[2])
+    pk = grouped_keys([r for r in (primary_keys or []) if kept(str(r["schema"]))], "constraint")
+    uq = grouped_keys([r for r in (unique_keys or []) if kept(str(r["schema"]))], "constraint")
+    fks_by_obj = fk_groups(
+        [r for r in (foreign_keys or []) if kept(str(r["schema"]))], enforced=False
+    )
     deps_by_obj: dict[tuple[str, str], list[str]] = {}
     for d in dependencies or []:
         if kept(str(d["schema"])):
@@ -175,30 +159,6 @@ def build_catalog(
             )
         )
     return CatalogRead(objects=objects, errors=list(errors or []), queries=queries)
-
-
-def _fk_groups(rows: list[dict[str, Any]]) -> list[tuple[str, str, CatalogForeignKey]]:
-    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
-    for r in rows:
-        key = (str(r["schema"]), str(r["table"]), str(r.get("fk_name") or ""))
-        grouped.setdefault(key, []).append(r)
-    out: list[tuple[str, str, CatalogForeignKey]] = []
-    for (schema, table, _name), items in grouped.items():
-        items.sort(key=lambda r: int(r.get("seq", 0)))
-        out.append(
-            (
-                schema,
-                table,
-                CatalogForeignKey(
-                    columns=tuple(str(r["column"]) for r in items),
-                    ref_schema=str(items[0].get("ref_schema", "")),
-                    ref_object=str(items[0].get("ref_table", "")),
-                    ref_columns=tuple(str(r.get("ref_column", "")) for r in items),
-                    enforced=False,
-                ),
-            )
-        )
-    return out
 
 
 def _driver() -> Any:
