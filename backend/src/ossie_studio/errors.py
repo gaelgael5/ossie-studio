@@ -86,6 +86,14 @@ ERROR_CODES: tuple[str, ...] = (
     "source_not_found",
     "collect_branch_behind",
     "collect_failed",
+    "contract_not_openapi",
+    "contract_yaml_invalid",
+    "contract_swagger_unsupported",
+    "contract_ref_missing",
+    "contract_too_large",
+    "contract_version_invalid",
+    "contract_version_taken",
+    "contract_not_found",
 )
 
 

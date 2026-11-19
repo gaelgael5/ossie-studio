@@ -8,7 +8,7 @@ from pathlib import Path
 import structlog
 
 from ossie_studio.models import GitSpace
-from ossie_studio.parsers.registry import all_parsers
+from ossie_studio.parsers.registry import all_parsers, openapi_parsers
 from ossie_studio.sources.collect_core import (
     RAW_DIR,
     TECH_MANIFEST_NAME,
@@ -20,7 +20,7 @@ from ossie_studio.sources.collect_core import (
 )
 from ossie_studio.sources.collect_core import CollectionPlan as _Plan
 from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
-from ossie_studio.sources.paths import SOURCES_DIR
+from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
 from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
 
 log = structlog.get_logger(__name__)
@@ -61,6 +61,18 @@ def _read_source_files(root: Path) -> dict[str, bytes]:
         if ".git" in rel.parts:
             continue
         files[rel.as_posix()] = path.read_bytes()
+    return files
+
+
+def _read_contrats(work_copy: Path, source_slug: str) -> dict[str, bytes]:
+    """Les contrats déposés d'une source OpenAPI (hors fichier d'index), nom de
+    fichier → octets. Ce sont les « fichiers source » d'une collecte OpenAPI."""
+    base = work_copy / SOURCES_DIR / source_slug / CONTRATS_DIR
+    files: dict[str, bytes] = {}
+    if base.is_dir():
+        for path in sorted(base.iterdir()):
+            if path.is_file() and path.name != CONTRATS_INDEX:
+                files[path.name] = path.read_bytes()
     return files
 
 
@@ -195,6 +207,86 @@ class SourceCollector:
             )
             return CollectReport(
                 source_commit=source_commit,
+                local_commit=local_commit,
+                added=plan.added,
+                modified=plan.modified,
+                deleted=plan.deleted,
+                unchanged=plan.unchanged,
+                read=plan.read,
+                retained=plan.retained,
+                errors=plan.errors,
+                duration_ms=int((time.monotonic() - start) * 1000),
+            )
+
+    async def collect_openapi(
+        self,
+        *,
+        space: GitSpace,
+        branch_slug: str,
+        branche_label: str,
+        space_username: str,
+        space_token: str | None,
+        source_slug: str,
+        author_name: str,
+        author_email: str,
+        force: bool,
+    ) -> CollectReport:
+        """Collecte une source `openapi` : pas de descente (les contrats sont déjà
+        versionnés dans `contrats/`), lecture incrémentale → `raw/`, commit local.
+        `source_commit` est vide : rien n'est descendu."""
+        key = f"{space.id}/{branch_slug}/{source_slug}"
+        async with self._lock(key):
+            start = time.monotonic()
+            try:
+                ahead, behind = await self._workdir.divergence(
+                    space.id, branch_slug, space.repo_url, space_username, space_token
+                )
+            except WorkdirError as exc:
+                raise CollectionError(exc.code) from None
+            if ahead > 0 and behind > 0:
+                raise CollectionError("branch_behind")
+
+            previous, existing, contrats = await self._workdir.read_branch(
+                space.id,
+                branch_slug,
+                space.repo_url,
+                space_username,
+                space_token,
+                lambda wc: (*_read_raw(wc, source_slug), _read_contrats(wc, source_slug)),
+            )
+            plan = run_collection(
+                contrats, openapi_parsers(), previous, existing, branche=branche_label, force=force
+            )
+            message = (
+                f"collecte {source_slug} (contrats) : "
+                f"+{plan.added} ~{plan.modified} -{plan.deleted}"
+            )
+            try:
+                local_commit = await self._workdir.commit_to_branch(
+                    space.id,
+                    branch_slug,
+                    space.repo_url,
+                    space_username,
+                    space_token,
+                    author_name,
+                    author_email,
+                    message,
+                    lambda wc: _apply_plan(wc, source_slug, plan),
+                )
+            except WorkdirError as exc:
+                raise CollectionError(exc.code) from None
+
+            log.info(
+                "source_collected",
+                space_id=str(space.id),
+                slug=source_slug,
+                source="contrats",
+                added=plan.added,
+                modified=plan.modified,
+                deleted=plan.deleted,
+            )
+            return CollectReport(
+                source_commit="",
                 local_commit=local_commit,
                 added=plan.added,
                 modified=plan.modified,

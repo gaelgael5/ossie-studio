@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # si absente, on la déduit de la requête entrante.
     public_base_url: str = ""
 
+    # Taille maximale d'un contrat OpenAPI déposé (octets). Au-delà : refus.
+    openapi_max_contract_bytes: int = 5 * 1024 * 1024
+
     @field_validator("session_secret")
     @classmethod
     def _session_secret_long_enough(cls, value: SecretStr) -> SecretStr:

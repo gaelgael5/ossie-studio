@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import SourcesCollect, SourcesDeclare, SourcesRead
+from ossie_studio.config import Settings
 from ossie_studio.connections.service import (
     db_get_connection_by_slug,
     resolve_connection_token,
@@ -20,6 +22,7 @@ from ossie_studio.deps import (
     ConnDep,
     get_crypto,
     get_http_client_factory,
+    get_settings,
     get_source_collector,
     get_source_downloader,
     get_workdir_manager,
@@ -27,16 +30,35 @@ from ossie_studio.deps import (
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.base import ForgeError
 from ossie_studio.forges.registry import get_strategy
+from ossie_studio.parsers.openapi import (
+    Analysis,
+    OpenApiError,
+    is_valid_version_name,
+)
+from ossie_studio.parsers.openapi import (
+    analyze as analyze_contract,
+)
 from ossie_studio.sources.collect import CollectionError, CollectReport, SourceCollector
 from ossie_studio.sources.collections_service import (
     CollectionRun,
     db_list_collections,
     db_record_collection,
 )
+from ossie_studio.sources.contracts import (
+    ContractEntry,
+    ContractExistsError,
+    ContractNotFoundError,
+    ContractView,
+    deposit_contract_fn,
+    read_contract_bytes,
+    read_contracts_view,
+    remove_contract_fn,
+)
 from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.sources.manifest import (
     DB_TYPES,
     GIT_TYPE,
+    OPENAPI_TYPE,
     ManifestError,
     SourceManifest,
     manifest_from_mapping,
@@ -61,6 +83,7 @@ WorkdirDep = Annotated[WorkdirManager, Depends(get_workdir_manager)]
 DownloaderDep = Annotated[SourceDownloader, Depends(get_source_downloader)]
 CollectorDep = Annotated[SourceCollector, Depends(get_source_collector)]
 HttpFactoryDep = Annotated[Callable[[], httpx.AsyncClient], Depends(get_http_client_factory)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 class SourceBody(BaseModel):
@@ -77,6 +100,20 @@ class SourceUpdateBody(BaseModel):
     label: str = ""
     connexion: str = ""
     parametres: dict[str, Any] = {}
+
+
+class AnalyzeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    filename: str = ""
+    content: str = ""  # contenu texte du contrat (YAML ou JSON)
+
+
+class DepositBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    filename: str = ""
+    content: str = ""
+    version: str = ""
+    replace: bool = False
 
 
 def _workdir_http_error(exc: WorkdirError) -> ApiError:
@@ -117,10 +154,13 @@ async def _build_manifest(
     source_type: str,
     connexion: str,
     parametres: dict[str, Any],
-) -> tuple[SourceManifest, dict[str, object]]:
+) -> tuple[SourceManifest, dict[str, object] | None]:
     if not is_valid_source_slug(slug):
         raise ApiError("invalid_request", status_code=400, fields=["slug_invalid"])
-    connection_info = await _resolve_connection(conn, source_type, connexion)
+    # Source par dépôt : pas de connexion à résoudre.
+    connection_info: dict[str, object] | None = None
+    if source_type != OPENAPI_TYPE:
+        connection_info = await _resolve_connection(conn, source_type, connexion)
     try:
         manifest = manifest_from_mapping(
             {
@@ -128,7 +168,7 @@ async def _build_manifest(
                 "slug": slug,
                 "label": label,
                 "type": source_type,
-                "connexion": connection_info["slug"],
+                "connexion": connection_info["slug"] if connection_info is not None else "",
                 "parametres": parametres,
             }
         )
@@ -164,12 +204,17 @@ def _entry_payload(entry: SourceEntry, connection: dict[str, object] | None) -> 
     if entry.manifest is None:
         return {"slug": entry.slug, "ok": False, "error": entry.error}
     manifest = entry.manifest
+    if manifest.type == OPENAPI_TYPE:
+        # Source par dépôt : pas de connexion (ni manquante, ni à afficher).
+        connexion: dict[str, object] = {"kind": "none"}
+    else:
+        connexion = connection or {"slug": manifest.connexion, "kind": "missing"}
     return {
         "slug": manifest.slug,
         "ok": True,
         "label": manifest.label,
         "type": manifest.type,
-        "connexion": connection or {"slug": manifest.connexion, "kind": "missing"},
+        "connexion": connexion,
         "parametres": manifest.parametres,
     }
 
@@ -221,7 +266,7 @@ async def declare_branch_source(
     body: SourceBody,
 ) -> dict[str, object]:
     slug = await _branch_slug(conn, space_id, branch_id)
-    if body.type not in (GIT_TYPE, *DB_TYPES):
+    if body.type not in (GIT_TYPE, *DB_TYPES, OPENAPI_TYPE):
         raise ApiError("invalid_request", status_code=400, fields=["type_unknown"])
     manifest, connection = await _build_manifest(
         conn, body.slug.strip(), body.label, body.type, body.connexion, body.parametres
@@ -389,34 +434,50 @@ async def collect_branch_source(
     if entry is None or entry.manifest is None:
         raise ApiError("source_not_found", status_code=404, slug=slug)
     manifest = entry.manifest
-    if manifest.type != GIT_TYPE:
+    if manifest.type == OPENAPI_TYPE:
+        try:
+            report = await collector.collect_openapi(
+                space=space,
+                branch_slug=branch_slug,
+                branche_label=branch_slug,
+                space_username=space_username,
+                space_token=space_token,
+                source_slug=slug,
+                author_name=user.email,
+                author_email=user.email,
+                force=force,
+            )
+        except CollectionError as exc:
+            raise _collect_error(exc.code) from None
+    elif manifest.type == GIT_TYPE:
+        connection = await db_get_connection_by_slug(conn, manifest.connexion)
+        if connection is None:
+            raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
+        strategy = get_strategy(connection.forge)
+        source_token = (await resolve_connection_token(conn, crypto, connection)).reveal()
+        try:
+            report = await collector.collect(
+                space=space,
+                branch_slug=branch_slug,
+                branche_label=branch_slug,
+                space_username=space_username,
+                space_token=space_token,
+                source_slug=slug,
+                source_clone_url=strategy.git_clone_url(
+                    connection.url, str(manifest.parametres.get("depot", ""))
+                ),
+                source_branch=str(manifest.parametres.get("branche", "")),
+                source_username=strategy.git_username(),
+                source_token=source_token,
+                author_name=user.email,
+                author_email=user.email,
+                force=force,
+            )
+        except CollectionError as exc:
+            raise _collect_error(exc.code) from None
+    else:
         # Les sources de base se lisent par leur catalogue (epic Parseurs).
         raise ApiError("invalid_request", status_code=400, fields=["collect_git_only"])
-    connection = await db_get_connection_by_slug(conn, manifest.connexion)
-    if connection is None:
-        raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
-    strategy = get_strategy(connection.forge)
-    source_token = (await resolve_connection_token(conn, crypto, connection)).reveal()
-    try:
-        report = await collector.collect(
-            space=space,
-            branch_slug=branch_slug,
-            branche_label=branch_slug,
-            space_username=space_username,
-            space_token=space_token,
-            source_slug=slug,
-            source_clone_url=strategy.git_clone_url(
-                connection.url, str(manifest.parametres.get("depot", ""))
-            ),
-            source_branch=str(manifest.parametres.get("branche", "")),
-            source_username=strategy.git_username(),
-            source_token=source_token,
-            author_name=user.email,
-            author_email=user.email,
-            force=force,
-        )
-    except CollectionError as exc:
-        raise _collect_error(exc.code) from None
     await db_record_collection(
         conn,
         space_id=space_id,
@@ -443,3 +504,228 @@ async def list_source_collections(
         conn, space_id=space_id, branch_slug=branch.slug, source_slug=slug
     )
     return {"collections": [_run_payload(r) for r in runs]}
+
+
+# --- Contrats OpenAPI déposés ------------------------------------------------
+
+
+def _check_contract_size(raw: bytes, settings: Settings) -> None:
+    if len(raw) > settings.openapi_max_contract_bytes:
+        max_mo = settings.openapi_max_contract_bytes // (1024 * 1024)
+        raise ApiError("contract_too_large", status_code=400, max=max_mo)
+
+
+def _contract_error(exc: OpenApiError) -> ApiError:
+    code = {
+        "not_openapi": "contract_not_openapi",
+        "yaml_invalid": "contract_yaml_invalid",
+        "swagger_unsupported": "contract_swagger_unsupported",
+        "ref_missing": "contract_ref_missing",
+    }.get(exc.code, "contract_not_openapi")
+    if exc.code == "ref_missing":
+        return ApiError(code, status_code=400, ref=exc.detail)
+    return ApiError(code, status_code=400)
+
+
+def _analysis_payload(analysis: Analysis) -> dict[str, object]:
+    return {
+        "openapi": analysis.openapi,
+        "titre": analysis.title,
+        "version_declaree": analysis.declared_version,
+        "nb_schemas": analysis.schema_count,
+        "nb_operations": analysis.operation_count,
+        "refs_externes": analysis.external_refs,
+        "version_proposee": analysis.proposed_version,
+    }
+
+
+def _contract_payload(view: ContractView) -> dict[str, object]:
+    e = view.entry
+    return {
+        "version": e.version,
+        "fichier": e.fichier,
+        "fichier_origine": e.fichier_origine,
+        "openapi": e.openapi,
+        "version_declaree": e.version_declaree,
+        "nb_schemas": e.nb_schemas,
+        "nb_operations": e.nb_operations,
+        "depose_le": e.depose_le,
+        "auteur": e.auteur,
+        "collecte": view.collecte,
+    }
+
+
+async def _require_openapi_source(
+    conn: ConnDep,
+    crypto: CryptoService,
+    workdir: WorkdirManager,
+    space_id: uuid.UUID,
+    branch_slug: str,
+    slug: str,
+) -> None:
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    entries = await list_sources(workdir, space, branch_slug, username, token)
+    entry = next((e for e in entries if e.slug == slug and e.manifest is not None), None)
+    if entry is None or entry.manifest is None:
+        raise ApiError("source_not_found", status_code=404, slug=slug)
+    if entry.manifest.type != OPENAPI_TYPE:
+        raise ApiError("invalid_request", status_code=400, fields=["not_openapi_source"])
+
+
+@router.post("/{slug}/contracts/analyze")
+async def analyze_branch_contract(
+    _: SourcesDeclare,
+    settings: SettingsDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: AnalyzeBody,
+) -> dict[str, object]:
+    """Analyse un fichier déposé sans rien écrire : l'interface montre l'analyse
+    avant l'enregistrement."""
+    raw = body.content.encode("utf-8")
+    _check_contract_size(raw, settings)
+    try:
+        analysis = analyze_contract(raw)
+    except OpenApiError as exc:
+        raise _contract_error(exc) from None
+    return _analysis_payload(analysis)
+
+
+@router.get("/{slug}/contracts")
+async def list_branch_contracts(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: SourcesRead,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        views = await workdir.read_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            lambda wc: read_contracts_view(wc, slug),
+        )
+    except WorkdirError as exc:
+        raise _workdir_http_error(exc) from None
+    return {"contrats": [_contract_payload(v) for v in views]}
+
+
+@router.post("/{slug}/contracts", status_code=201)
+async def deposit_branch_contract(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: SourcesDeclare,
+    workdir: WorkdirDep,
+    settings: SettingsDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: DepositBody,
+) -> dict[str, object]:
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    await _require_openapi_source(conn, crypto, workdir, space_id, branch_slug, slug)
+    raw = body.content.encode("utf-8")
+    _check_contract_size(raw, settings)
+    version = body.version.strip()
+    if not is_valid_version_name(version):
+        raise ApiError("contract_version_invalid", status_code=400)
+    try:
+        analysis = analyze_contract(raw)
+    except OpenApiError as exc:
+        raise _contract_error(exc) from None
+    entry = ContractEntry(
+        version=version,
+        fichier=f"{version}.yaml",
+        fichier_origine=body.filename.strip() or f"{version}.yaml",
+        openapi=analysis.openapi,
+        version_declaree=analysis.declared_version,
+        nb_schemas=analysis.schema_count,
+        nb_operations=analysis.operation_count,
+        depose_le=datetime.now(UTC).isoformat(),
+        auteur=user.email,
+    )
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        await workdir.commit_to_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            user.email, user.email,
+            f"dépose le contrat {slug} {version}",
+            deposit_contract_fn(slug, entry, raw, replace=body.replace),
+        )
+    except ContractExistsError:
+        raise ApiError("contract_version_taken", status_code=409, version=version) from None
+    except WorkdirError as exc:
+        raise _workdir_http_error(exc) from None
+    return _analysis_payload(analysis)
+
+
+@router.delete("/{slug}/contracts/{version}", status_code=204)
+async def remove_branch_contract(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: SourcesDeclare,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    version: str,
+) -> None:
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    await _require_openapi_source(conn, crypto, workdir, space_id, branch_slug, slug)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        await workdir.commit_to_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            user.email, user.email,
+            f"retire le contrat {slug} {version}",
+            remove_contract_fn(slug, version),
+        )
+    except ContractNotFoundError:
+        raise ApiError("contract_not_found", status_code=404, version=version) from None
+    except WorkdirError as exc:
+        raise _workdir_http_error(exc) from None
+
+
+@router.get("/{slug}/contracts/{version}/download")
+async def download_branch_contract(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: SourcesRead,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    version: str,
+) -> Response:
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+
+    def read(wc: Any) -> tuple[bytes, str] | None:
+        content = read_contract_bytes(wc, slug, version)
+        if content is None:
+            return None
+        view = next(
+            (v for v in read_contracts_view(wc, slug) if v.entry.version == version), None
+        )
+        name = view.entry.fichier_origine if view is not None else f"{version}.yaml"
+        return content, name
+
+    try:
+        result = await workdir.read_branch(
+            space.id, branch_slug, space.repo_url, username, token, read
+        )
+    except WorkdirError as exc:
+        raise _workdir_http_error(exc) from None
+    if result is None:
+        raise ApiError("contract_not_found", status_code=404, version=version)
+    content, name = result
+    safe_name = name.replace('"', "").replace("\n", "").replace("\r", "")
+    return Response(
+        content=content,
+        media_type="application/yaml",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )

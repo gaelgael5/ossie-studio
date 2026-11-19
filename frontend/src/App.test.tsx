@@ -730,3 +730,74 @@ test('détail source : collecte une source Git et affiche le rapport', async () 
   // Un commit local a été écrit → l'action « Publier la branche » est proposée.
   expect(screen.getByRole('button', { name: 'Publier la branche' })).toBeInTheDocument()
 })
+
+test('détail source OpenAPI : dépôt d’un contrat, analyse avant enregistrement', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
+      },
+    },
+    '/api/spaces': {
+      body: {
+        spaces: [
+          { id: 'sp1', name: 'modele', connection_id: 'c1', repo_url: '', last_probe_status: 'valid', last_probe_at: null },
+        ],
+      },
+    },
+    '/api/spaces/sp1/branches': {
+      body: {
+        branches: [
+          { id: 'br1', label: 'Principale', slug: 'principale', kind: 'base', git_ref: 'work/principale' },
+        ],
+        viewed_branch_id: 'br1',
+      },
+    },
+    '/api/spaces/sp1/branches/br1/sources': {
+      body: {
+        sources: [
+          {
+            slug: 'api-paiement',
+            ok: true,
+            label: 'API paiement',
+            type: 'openapi',
+            connexion: { kind: 'none' },
+            parametres: {},
+          },
+        ],
+      },
+    },
+    '/api/spaces/sp1/branches/br1/sources/api-paiement/contracts': { body: { contrats: [] } },
+    '/api/spaces/sp1/branches/br1/sources/api-paiement/collections': { body: { collections: [] } },
+    'POST /api/spaces/sp1/branches/br1/sources/api-paiement/contracts/analyze': {
+      body: {
+        openapi: '3.1.0',
+        titre: 'API paiement',
+        version_declaree: '2.0.0',
+        nb_schemas: 2,
+        nb_operations: 1,
+        refs_externes: [],
+        version_proposee: 'v2',
+      },
+    },
+  })
+  const { container } = renderAt('/sources/api-paiement')
+  // L'onglet Contrats est actif par défaut pour une source OpenAPI.
+  await screen.findByText('Contrats déposés')
+  await waitFor(() => expect(screen.getByText('Aucun contrat déposé.')).toBeInTheDocument())
+  expect(screen.getByText('Déposer un contrat')).toBeInTheDocument()
+  // Déposer un fichier : il est analysé avant l'enregistrement.
+  const input = container.querySelector('input[type="file"]') as HTMLInputElement
+  const file = new File(['openapi: 3.1.0'], 'paiement.yaml', { type: 'application/yaml' })
+  await userEvent.upload(input, file)
+  // L'analyse s'affiche : le nom de version est proposé depuis info.version (v2).
+  await waitFor(() =>
+    expect(screen.getByLabelText('Enregistrer comme version')).toHaveValue('v2'),
+  )
+  expect(screen.getByText(/version déclarée 2\.0\.0/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Déposer' })).toBeInTheDocument()
+})

@@ -10,6 +10,7 @@ from fastapi import Depends, Request
 from starlette.applications import Starlette
 
 from ossie_studio.auth.service import db_count_users, db_get_user_by_id
+from ossie_studio.config import Settings
 from ossie_studio.crypto import CryptoService
 from ossie_studio.models import User
 from ossie_studio.sources.collect import SourceCollector
@@ -24,6 +25,11 @@ async def get_conn(request: Request) -> AsyncIterator[asyncpg.Connection]:
     pool: asyncpg.Pool = request.app.state.pool
     async with pool.acquire() as conn:
         yield conn
+
+
+async def get_settings(request: Request) -> Settings:
+    settings: Settings = request.app.state.settings
+    return settings
 
 
 ConnDep = Annotated[asyncpg.Connection, Depends(get_conn)]

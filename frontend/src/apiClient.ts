@@ -204,6 +204,34 @@ export interface CollectionRun {
   created_at: string
 }
 
+export interface ContractAnalysis {
+  openapi: string
+  titre: string
+  version_declaree: string
+  nb_schemas: number
+  nb_operations: number
+  refs_externes: string[]
+  version_proposee: string
+}
+export interface ContractItem {
+  version: string
+  fichier: string
+  fichier_origine: string
+  openapi: string
+  version_declaree: string
+  nb_schemas: number
+  nb_operations: number
+  depose_le: string
+  auteur: string
+  collecte: boolean
+}
+export interface ContractDeposit {
+  filename: string
+  content: string
+  version: string
+  replace: boolean
+}
+
 export interface RailLine {
   ref: string
   name: string
@@ -466,6 +494,33 @@ export const api = {
     apiFetch<{ collections: CollectionRun[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/collections`,
     ),
+  listContracts: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ contrats: ContractItem[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/contracts`,
+    ),
+  analyzeContract: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    filename: string,
+    content: string,
+  ) =>
+    apiFetch<ContractAnalysis>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/contracts/analyze`,
+      { method: 'POST', body: JSON.stringify({ filename, content }) },
+    ),
+  depositContract: (spaceId: string, branchId: string, slug: string, body: ContractDeposit) =>
+    apiFetch<ContractAnalysis>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/contracts`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  removeContract: (spaceId: string, branchId: string, slug: string, version: string) =>
+    apiFetch(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/contracts/${encodeURIComponent(version)}`,
+      { method: 'DELETE' },
+    ),
+  contractDownloadUrl: (spaceId: string, branchId: string, slug: string, version: string) =>
+    `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/contracts/${encodeURIComponent(version)}/download`,
   listUnpublished: (spaceId: string, branchId: string) =>
     apiFetch<{
       commits: { sha: string; author: string; date: string; message: string }[]

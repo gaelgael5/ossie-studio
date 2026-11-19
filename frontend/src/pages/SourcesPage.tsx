@@ -23,6 +23,9 @@ function asList(value: unknown): string[] {
 
 function whatIsRead(source: SourceItem, t: (k: string) => string): string {
   const p = source.parametres ?? {}
+  if (source.type === 'openapi') {
+    return t('openapiContractsRead')
+  }
   if (source.type === 'git') {
     const dirs = asList(p.repertoires)
     const where = dirs.length > 0 ? dirs.join(', ') : t('wholeRepo')
@@ -35,6 +38,7 @@ function whatIsRead(source: SourceItem, t: (k: string) => string): string {
 type Editing =
   | { kind: 'git'; source?: SourceItem }
   | { kind: 'sql'; source?: SourceItem }
+  | { kind: 'openapi'; source?: SourceItem }
   | null
 
 export function SourcesPage() {
@@ -126,6 +130,17 @@ export function SourcesPage() {
                 >
                   {t('sourceTypeSql')}
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  style={{ margin: 4, textAlign: 'left' }}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setEditing({ kind: 'openapi' })
+                  }}
+                >
+                  {t('sourceTypeOpenapi')}
+                </button>
               </div>
             ) : null}
           </div>
@@ -177,7 +192,9 @@ export function SourcesPage() {
                         <div className="muted" style={{ fontSize: '0.82rem' }}>
                           {source.connexion?.kind === 'missing'
                             ? t('connectionMissing')
-                            : source.connexion?.label}
+                            : source.connexion?.kind === 'none'
+                              ? t('sourceNoConnection')
+                              : source.connexion?.label}
                         </div>
                       </>
                     ) : (
@@ -200,9 +217,9 @@ export function SourcesPage() {
                   </td>
                   <td>
                     <div className="row">
-                      {source.ok && source.type === 'git' ? (
+                      {source.ok && (source.type === 'git' || source.type === 'openapi') ? (
                         <Link to={`/sources/${source.slug}`} className="btn btn-sm btn-primary">
-                          {t('collect')}
+                          {source.type === 'openapi' ? t('openContracts') : t('collect')}
                         </Link>
                       ) : null}
                       {source.ok ? (
@@ -211,7 +228,12 @@ export function SourcesPage() {
                           className="btn btn-sm"
                           onClick={() =>
                             setEditing({
-                              kind: source.type === 'git' ? 'git' : 'sql',
+                              kind:
+                                source.type === 'git'
+                                  ? 'git'
+                                  : source.type === 'openapi'
+                                    ? 'openapi'
+                                    : 'sql',
                               source,
                             })
                           }
@@ -272,7 +294,121 @@ export function SourcesPage() {
           }}
         />
       ) : null}
+      {editing?.kind === 'openapi' ? (
+        <OpenApiSourceModal
+          spaceId={ws.spaceId as string}
+          branchId={ws.branchId as string}
+          source={editing.source}
+          onClose={() => setEditing(null)}
+          onSaved={async (slug) => {
+            setEditing(null)
+            await invalidate()
+            if (slug) navigate(`/sources/${slug}`)
+          }}
+        />
+      ) : null}
     </Frame>
+  )
+}
+
+function OpenApiSourceModal({
+  spaceId,
+  branchId,
+  source,
+  onClose,
+  onSaved,
+}: {
+  spaceId: string
+  branchId: string
+  source?: SourceItem
+  onClose: () => void
+  onSaved: (slug?: string) => void
+}) {
+  const { t } = useTranslation()
+  const editMode = source !== undefined
+  const [label, setLabel] = useState(source?.label ?? '')
+  const [slug, setSlug] = useState(source?.slug ?? '')
+  const [slugTouched, setSlugTouched] = useState(editMode)
+  const [messages, setMessages] = useState<string[]>([])
+
+  useEffect(() => {
+    if (!slugTouched) setSlug(slugify(label))
+  }, [label, slugTouched])
+
+  const save = useMutation({
+    mutationFn: () => {
+      const body: SourceInput = {
+        slug,
+        label,
+        type: 'openapi',
+        connexion: '',
+        parametres: {},
+      }
+      return editMode
+        ? api.updateSource(spaceId, branchId, source!.slug, {
+            label,
+            connexion: '',
+            parametres: {},
+          })
+        : api.declareSource(spaceId, branchId, body)
+    },
+    // À la création, on ouvre le détail pour y déposer les contrats.
+    onSuccess: (saved) => onSaved(editMode ? undefined : saved.slug),
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
+
+  return (
+    <Modal
+      title={editMode ? t('editOpenapiSource') : t('newOpenapiSource')}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose}>
+            {t('cancelEdit')}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={save.isPending || !label || !slug}
+            onClick={() => {
+              setMessages([])
+              save.mutate()
+            }}
+          >
+            {editMode ? t('declare') : t('declareOpenapi')}
+          </button>
+        </>
+      }
+    >
+      <ErrorList messages={messages} />
+      <div className="stack">
+        <p className="muted">{t('openapiSourceIntro')}</p>
+        <div className="form-grid">
+          <div className="field">
+            <label className="field-label" htmlFor="o-label">
+              {t('fieldLabel')}
+            </label>
+            <input id="o-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="o-slug">
+              {t('fieldSlug')}
+            </label>
+            <input
+              id="o-slug"
+              className="input mono"
+              value={slug}
+              disabled={editMode}
+              onChange={(e) => {
+                setSlugTouched(true)
+                setSlug(e.target.value)
+              }}
+            />
+          </div>
+        </div>
+        <div className="info-note">{t('openapiSourceNote')}</div>
+      </div>
+    </Modal>
   )
 }
 

@@ -13,10 +13,11 @@ MANIFEST_VERSION = 1
 
 GIT_TYPE = "git"
 # Les types « base » partagent la même forme de paramètres ; le type vaut le
-# moteur de la connexion choisie (décision : « juste SQL ou Git » pour l'instant,
-# pas de contrats OpenAPI ni de sélection de parseurs).
+# moteur de la connexion choisie.
 DB_TYPES = ("postgres", "sqlserver", "snowflake")
-SOURCE_TYPES = (GIT_TYPE, *DB_TYPES)
+# Source alimentée par **dépôt de fichiers** (contrats OpenAPI) : pas de connexion.
+OPENAPI_TYPE = "openapi"
+SOURCE_TYPES = (GIT_TYPE, *DB_TYPES, OPENAPI_TYPE)
 
 # Clés autorisées, par type. Toute autre clé est refusée (manifeste strict).
 _GIT_KEYS = {"depot", "branche", "repertoires"}
@@ -78,7 +79,12 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if source_type not in SOURCE_TYPES:
         errors.append("type_unknown")
 
-    if not isinstance(data.get("connexion"), str) or not str(data.get("connexion")).strip():
+    connexion = data.get("connexion")
+    if source_type == OPENAPI_TYPE:
+        # Source par dépôt : pas de connexion.
+        if isinstance(connexion, str) and connexion.strip():
+            errors.append("connexion_forbidden")
+    elif not isinstance(connexion, str) or not connexion.strip():
         errors.append("connexion_required")
 
     params = data.get("parametres")
@@ -88,6 +94,9 @@ def _validate(data: dict[str, Any]) -> list[str]:
         errors += _validate_git_params(params)
     elif source_type in DB_TYPES:
         errors += _validate_db_params(params)
+    elif source_type == OPENAPI_TYPE and params:
+        # Aucun paramètre : les contrats vivent dans contrats/, pas dans le manifeste.
+        errors.append("parametres_forbidden")
     return errors
 
 
@@ -124,7 +133,7 @@ def manifest_from_mapping(data: dict[str, Any]) -> SourceManifest:
         slug=str(data["slug"]),
         label=str(data["label"]).strip(),
         type=str(data["type"]),
-        connexion=str(data["connexion"]),
+        connexion=str(data.get("connexion") or ""),
         parametres=dict(data["parametres"]),
     )
 

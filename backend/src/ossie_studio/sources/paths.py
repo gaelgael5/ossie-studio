@@ -6,6 +6,9 @@ from pathlib import Path
 # Toutes les sources vivent sous ce répertoire de la copie de travail.
 SOURCES_DIR = "sources"
 MANIFEST_FILENAME = "manifest.yaml"
+# Contrats déposés d'une source OpenAPI, versionnés dans l'espace.
+CONTRATS_DIR = "contrats"
+CONTRATS_INDEX = "contrats.yaml"
 
 # Un slug de source : minuscules, chiffres et tirets, sans tiret en bord ni
 # double tiret. Volontairement strict : il devient un nom de répertoire.
@@ -40,3 +43,9 @@ def safe_source_path(workdir: Path, slug: str) -> Path:
     if target == base:
         raise ValueError("slug_invalid")
     return target
+
+
+def safe_contrats_path(workdir: Path, slug: str) -> Path:
+    """Répertoire `contrats/` d'une source, sous `sources/<slug>/` (garde de
+    traversée héritée de safe_source_path)."""
+    return safe_source_path(workdir, slug) / CONTRATS_DIR
