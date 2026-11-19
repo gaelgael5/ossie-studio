@@ -397,6 +397,10 @@ a {
   font-weight: 700;
   color: #fff;
 }
+.badge-warn {
+  background: #b7791f;
+  color: #fff;
+}
 .badge-prefix {
   color: var(--muted);
   font-size: 0.75rem;

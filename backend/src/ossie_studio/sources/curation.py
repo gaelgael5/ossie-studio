@@ -76,6 +76,7 @@ class CurationObject:
     kind: str          # x-kind, ou "object"
     fields: int        # nombre de champs du brut
     retained: str      # none | partial | full
+    orphan: bool       # retenu mais le brut a disparu (asset sans raw)
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,7 @@ class CurationField:
     type: str          # type, x-kind, ou "$ref"
     retained: bool     # déjà présent dans l'asset
     ref: bool          # porte une référence ($ref) — l'écran le signale
+    missing: bool      # retenu dans l'asset mais disparu du brut
 
 
 @dataclass(frozen=True)
@@ -141,6 +143,22 @@ def list_curation(workdir: Path, slug: str) -> list[CurationObject]:
                 kind=str(raw.get("x-kind") or "object"),
                 fields=len(raw.get("properties") or {}),
                 retained=_retained_state(raw, assets.get(name)),
+                orphan=False,
+            )
+        )
+    # Assets dont le brut a disparu : signalés orphelins (jamais supprimés par le
+    # rafraîchissement ; leur sort se décide à la revue).
+    for name, asset in sorted(assets.items()):
+        if name in raws:
+            continue
+        objects.append(
+            CurationObject(
+                path=name,
+                title=str(asset.get("title") or asset.get("$id") or name),
+                kind=str(asset.get("x-kind") or "object"),
+                fields=len(asset.get("properties") or {}),
+                retained="full",
+                orphan=True,
             )
         )
     return objects
@@ -167,20 +185,31 @@ def get_object_detail(workdir: Path, slug: str, path: str) -> CurationDetail | N
     if not raw_file.is_file():
         return None
     raw = json.loads(raw_file.read_text(encoding="utf-8"))
-    asset_props: set[str] = set()
+    asset_data: dict[str, Any] = {}
     if asset_file.is_file():
         try:
             asset = json.loads(asset_file.read_text(encoding="utf-8"))
-            asset_props = set((asset.get("properties") or {}).keys())
+            asset_data = asset.get("properties") or {}
         except json.JSONDecodeError:
-            asset_props = set()
+            asset_data = {}
+    asset_props = set(asset_data.keys())
+    raw_props = raw.get("properties") or {}
     fields: list[CurationField] = []
-    for name, prop in (raw.get("properties") or {}).items():
+    for name, prop in raw_props.items():
         if not isinstance(prop, dict):
             prop = {}
         label, ref = _field_type(prop)
         fields.append(
-            CurationField(name=name, type=label, retained=name in asset_props, ref=ref)
+            CurationField(
+                name=name, type=label, retained=name in asset_props, ref=ref, missing=False
+            )
+        )
+    # Champs retenus disparus du brut : gardés, signalés « disparu à la source ».
+    for name in asset_props - set(raw_props):
+        prop = asset_data[name] if isinstance(asset_data[name], dict) else {}
+        label, ref = _field_type(prop)
+        fields.append(
+            CurationField(name=name, type=label, retained=True, ref=ref, missing=True)
         )
     return CurationDetail(
         path=path, title=str(raw.get("title") or raw.get("$id") or path), fields=fields
@@ -333,5 +362,92 @@ def enrich_asset_fn(
             if field in props and isinstance(props[field], dict):
                 apply_enrichment(props[field], values)
         asset_file.write_text(dump_schema(asset), encoding="utf-8")
+
+    return write
+
+
+# --- Rafraîchir depuis le brut (structure du brut, x- de l'humain) ------------
+
+
+def _merge_structural(raw_node: dict[str, Any], asset_node: dict[str, Any]) -> dict[str, Any]:
+    """Reconstruit un nœud à neuf : clés **standard** (et `$...`) reprises du brut,
+    **toutes** les clés `x-` reprises de l'asset (jamais touchées). Une clé standard
+    disparue du brut disparaît donc de l'asset ; une clé `x-` reste telle quelle."""
+    merged = {k: v for k, v in raw_node.items() if not k.startswith("x-")}
+    for key, value in asset_node.items():
+        if key.startswith("x-"):
+            merged[key] = value
+    return merged
+
+
+def refresh_asset(raw: dict[str, Any], asset: dict[str, Any]) -> dict[str, Any]:
+    """Recopie la structure du brut dans l'asset, **champ retenu par champ retenu**,
+    en gardant toutes les clés `x-` (enrichissement humain comme métadonnées du
+    parseur). N'ajoute aucun champ (un champ apparu dans le brut est ignoré),
+    n'en retire aucun (un champ retenu disparu du brut est gardé tel quel).
+    Déterministe en aval (`dump_schema`)."""
+    refreshed = {
+        k: v
+        for k, v in raw.items()
+        if not k.startswith("x-") and k not in ("properties", "required")
+    }
+    for key, value in asset.items():  # x- de l'asset (dont x-origin) conservés
+        if key.startswith("x-"):
+            refreshed[key] = value
+
+    asset_props = asset.get("properties")
+    if isinstance(asset_props, dict):
+        raw_props = raw.get("properties") or {}
+        kept: dict[str, Any] = {}
+        for name, aprop in asset_props.items():
+            rprop = raw_props.get(name)
+            if isinstance(aprop, dict) and isinstance(rprop, dict):
+                kept[name] = _merge_structural(rprop, aprop)  # champ présent : structure rafraîchie
+            else:
+                kept[name] = aprop  # champ disparu : gardé tel quel
+        refreshed["properties"] = kept
+        required = sorted(r for r in (raw.get("required") or []) if r in kept)
+        if required:
+            refreshed["required"] = required
+    return refreshed
+
+
+def _refresh_pairs(
+    workdir: Path, slug: str, paths: list[str] | None
+) -> list[tuple[str, dict[str, Any], dict[str, Any]]]:
+    """(nom, brut, asset) pour chaque asset visé qui a encore un brut. `paths` None
+    = tous les assets retenus. Les orphelins (brut absent) sont écartés."""
+    try:
+        raw_dir = safe_source_path(workdir, slug) / RAW_DIR
+        assets_dir = safe_assets_path(workdir, slug)
+    except ValueError:
+        return []
+    assets = _read_json_dir(assets_dir)
+    raws = _read_json_dir(raw_dir)
+    wanted = set(assets) if paths is None else {p for p in paths if p in assets}
+    return [(name, raws[name], assets[name]) for name in sorted(wanted) if name in raws]
+
+
+def refresh_targets(workdir: Path, slug: str, paths: list[str] | None) -> list[str]:
+    """Liste triée des assets qui **changeraient** à un rafraîchissement (octets
+    différents). Sert à ne commiter que s'il y a un changement et à lister les
+    assets modifiés dans le message. Lecture seule."""
+    changed: list[str] = []
+    for name, raw, asset in _refresh_pairs(workdir, slug, paths):
+        if dump_schema(refresh_asset(raw, asset)) != dump_schema(asset):
+            changed.append(name)
+    return changed
+
+
+def refresh_assets_fn(slug: str, paths: list[str] | None) -> Callable[[Path], None]:
+    """Réécrit chaque asset visé à sa version rafraîchie, en un commit. `paths`
+    None = tous les assets retenus. Un asset inchangé est réécrit à l'identique
+    (git ne voit rien) ; un orphelin n'est pas touché. Sans changement net,
+    `commit_to_branch` ne commite pas."""
+
+    def write(workdir: Path) -> None:
+        assets_dir = safe_assets_path(workdir, slug)
+        for name, raw, asset in _refresh_pairs(workdir, slug, paths):
+            (assets_dir / name).write_text(dump_schema(refresh_asset(raw, asset)), encoding="utf-8")
 
     return write

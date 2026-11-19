@@ -720,6 +720,15 @@ function CurationTab({
     },
     onError: (err) => setMessages(errorMessages(t, err)),
   })
+  const refresh = useMutation({
+    mutationFn: (paths: string[] | null) => api.refreshAssets(spaceId, branchId, slug, paths),
+    onSuccess: async () => {
+      setMessages([])
+      await invalidate()
+    },
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
+  const hasRetained = objects.some((o: CurationObjectItem) => o.retained !== 'none')
 
   return (
     <div className="panel">
@@ -743,6 +752,14 @@ function CurationTab({
           <option value="retained">{t('curationFilterRetained')}</option>
           <option value="none">{t('curationFilterNone')}</option>
         </select>
+        <button
+          type="button"
+          onClick={() => refresh.mutate(null)}
+          disabled={refresh.isPending || !hasRetained}
+          style={{ marginLeft: 'auto' }}
+        >
+          {t('curationRefreshAll')}
+        </button>
       </div>
 
       <ErrorList messages={messages} />
@@ -763,6 +780,11 @@ function CurationTab({
               <tr key={o.path}>
                 <td>
                   {o.title}
+                  {o.orphan ? (
+                    <span className="badge badge-warn" style={{ marginLeft: '0.4rem' }}>
+                      {t('curationOrphan')}
+                    </span>
+                  ) : null}
                   <div className="mono muted" style={{ fontSize: '0.78rem' }}>
                     {o.path}
                   </div>
@@ -771,17 +793,7 @@ function CurationTab({
                 <td>{o.fields}</td>
                 <td>{t(_RETAINED_KEY[o.retained] ?? 'retainedNone')}</td>
                 <td>
-                  <button
-                    type="button"
-                    onClick={() => retain.mutate({ path: o.path, fields: null })}
-                    disabled={retain.isPending}
-                  >
-                    {t('curationRetainAll')}
-                  </button>{' '}
-                  <button type="button" onClick={() => setSelected(o.path)}>
-                    {t('curationChooseFields')}
-                  </button>{' '}
-                  {o.retained !== 'none' ? (
+                  {o.orphan ? (
                     <>
                       <button type="button" onClick={() => setEnriching(o.path)}>
                         {t('curationEnrich')}
@@ -796,7 +808,43 @@ function CurationTab({
                         {t('curationRemove')}
                       </button>
                     </>
-                  ) : null}
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => retain.mutate({ path: o.path, fields: null })}
+                        disabled={retain.isPending}
+                      >
+                        {t('curationRetainAll')}
+                      </button>{' '}
+                      <button type="button" onClick={() => setSelected(o.path)}>
+                        {t('curationChooseFields')}
+                      </button>{' '}
+                      {o.retained !== 'none' ? (
+                        <>
+                          <button type="button" onClick={() => setEnriching(o.path)}>
+                            {t('curationEnrich')}
+                          </button>{' '}
+                          <button
+                            type="button"
+                            onClick={() => refresh.mutate([o.path])}
+                            disabled={refresh.isPending}
+                          >
+                            {t('curationRefresh')}
+                          </button>{' '}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm(t('curationConfirmRemove'))) remove.mutate(o.path)
+                            }}
+                            disabled={remove.isPending}
+                          >
+                            {t('curationRemove')}
+                          </button>
+                        </>
+                      ) : null}
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -870,22 +918,30 @@ function FieldPanel({
       </p>
       {fields.length > 0 ? (
         <ul style={{ listStyle: 'none', padding: 0 }}>
-          {fields.map((f) => (
-            <li key={f.name}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={current[f.name] ?? false}
-                  onChange={() => setChecked({ ...current, [f.name]: !current[f.name] })}
-                />{' '}
+          {fields.map((f) =>
+            f.missing ? (
+              <li key={f.name} className="muted">
                 <span className="mono">{f.name}</span>{' '}
-                <span className="muted" style={{ fontSize: '0.8rem' }}>
-                  {f.type}
-                </span>{' '}
-                {f.ref ? <span className="badge">{t('curationFieldRef')}</span> : null}
-              </label>
-            </li>
-          ))}
+                <span style={{ fontSize: '0.8rem' }}>{f.type}</span>{' '}
+                <span className="badge badge-warn">{t('curationFieldMissing')}</span>
+              </li>
+            ) : (
+              <li key={f.name}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={current[f.name] ?? false}
+                    onChange={() => setChecked({ ...current, [f.name]: !current[f.name] })}
+                  />{' '}
+                  <span className="mono">{f.name}</span>{' '}
+                  <span className="muted" style={{ fontSize: '0.8rem' }}>
+                    {f.type}
+                  </span>{' '}
+                  {f.ref ? <span className="badge">{t('curationFieldRef')}</span> : null}
+                </label>
+              </li>
+            ),
+          )}
         </ul>
       ) : (
         <p className="muted">{t('curationNoFields')}</p>
@@ -893,7 +949,9 @@ function FieldPanel({
       <div style={{ display: 'flex', gap: '0.5rem' }}>
         <button
           type="button"
-          onClick={() => onSave(fields.filter((f) => current[f.name]).map((f) => f.name))}
+          onClick={() =>
+            onSave(fields.filter((f) => !f.missing && current[f.name]).map((f) => f.name))
+          }
           disabled={pending}
         >
           {t('curationSaveFields')}

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from ossie_studio.parsers.conventions import dump_schema
 from ossie_studio.sources.curation import (
     AssetNotRetainedError,
     AssetOriginMissingError,
@@ -14,6 +15,9 @@ from ossie_studio.sources.curation import (
     get_object_detail,
     list_curation,
     read_enrichment,
+    refresh_asset,
+    refresh_assets_fn,
+    refresh_targets,
     remove_asset_fn,
     retain_asset_fn,
 )
@@ -188,3 +192,97 @@ def test_read_enrichment(tmp_path: Path) -> None:
     field = next(f for f in view.fields if f.name == "a")
     assert field.description == "le nom"
     assert read_enrichment(tmp_path, "api", "absent.json") is None
+
+
+# --- Rafraîchir depuis le brut -----------------------------------------------
+
+
+def test_refresh_type_modifie_garde_enrichissement() -> None:
+    raw = {"$id": "u.json", "title": "U", "type": "object", "x-source": [{"ligne": 9}],
+           "properties": {"a": {"type": "integer", "x-visibility": "public"}}}
+    asset = {"$id": "u.json", "title": "U", "type": "object", "x-origin": "raw/u.json",
+             "x-businessName": "Utilisateur", "x-source": [{"ligne": 3}],
+             "properties": {"a": {"type": "string", "x-visibility": "public",
+                                  "x-businessName": "identifiant"}}}
+    out = refresh_asset(raw, asset)
+    # Structure (standard) reprise du brut ; enrichissement x- conservé.
+    assert out["properties"]["a"]["type"] == "integer"
+    assert out["properties"]["a"]["x-businessName"] == "identifiant"
+    assert out["x-businessName"] == "Utilisateur"
+    assert out["x-origin"] == "raw/u.json"
+    # x- jamais touché : la métadonnée parseur de l'asset reste (pas celle du brut).
+    assert out["x-source"] == [{"ligne": 3}]
+
+
+def test_refresh_champ_disparu_garde() -> None:
+    raw = {"$id": "u.json", "type": "object", "properties": {"a": {"type": "string"}}}
+    asset = {"$id": "u.json", "x-origin": "raw/u.json", "properties": {
+        "a": {"type": "string"},
+        "b": {"type": "integer", "x-businessName": "ancien"},  # disparu du brut
+    }}
+    out = refresh_asset(raw, asset)
+    assert "b" in out["properties"]  # gardé, rien n'est perdu
+    assert out["properties"]["b"]["x-businessName"] == "ancien"
+
+
+def test_refresh_champ_apparu_ignore() -> None:
+    raw = {"$id": "u.json", "type": "object", "required": ["a", "c"],
+           "properties": {"a": {"type": "string"}, "c": {"type": "boolean"}}}
+    asset = {"$id": "u.json", "x-origin": "raw/u.json", "properties": {"a": {"type": "string"}}}
+    out = refresh_asset(raw, asset)
+    assert set(out["properties"]) == {"a"}  # c (apparu) n'est pas ajouté
+    assert out.get("required") == ["a"]     # required réduit aux champs retenus
+
+
+def test_refresh_idempotent() -> None:
+    raw = {"$id": "u.json", "type": "object", "properties": {"a": {"type": "integer"}}}
+    asset = {"$id": "u.json", "x-origin": "raw/u.json",
+             "properties": {"a": {"type": "string", "x-businessName": "id"}}}
+    once = refresh_asset(raw, asset)
+    twice = refresh_asset(raw, once)
+    assert dump_schema(once) == dump_schema(twice)
+
+
+def test_refresh_targets_deja_a_jour(tmp_path: Path) -> None:
+    # Un asset construit depuis son brut est déjà à jour : rien à rafraîchir.
+    _seed_raw(tmp_path, "u.json", _RAW)
+    retain_asset_fn("api", "u.json", None)(tmp_path)
+    assert refresh_targets(tmp_path, "api", None) == []
+
+
+def test_refresh_lot_un_commit_liste(tmp_path: Path) -> None:
+    _seed_raw(tmp_path, "u.json", {"$id": "u.json", "type": "object",
+                                   "properties": {"a": {"type": "integer"}}})
+    _seed_asset(tmp_path, "u.json", {"$id": "u.json", "x-origin": "raw/u.json",
+                                     "properties": {"a": {"type": "string",
+                                                          "x-businessName": "id"}}})
+    _seed_raw(tmp_path, "v.json", {"$id": "v.json", "type": "object",
+                                   "properties": {"x": {"type": "string"}}})
+    _seed_asset(tmp_path, "v.json", {"$id": "v.json", "type": "object", "x-origin": "raw/v.json",
+                                     "properties": {"x": {"type": "string"}}})  # déjà à jour
+    assert refresh_targets(tmp_path, "api", None) == ["u.json"]
+    refresh_assets_fn("api", ["u.json"])(tmp_path)
+    out = json.loads((tmp_path / "sources" / "api" / "assets" / "u.json").read_text())
+    assert out["properties"]["a"]["type"] == "integer"
+    assert out["properties"]["a"]["x-businessName"] == "id"
+
+
+def test_refresh_orphelin_non_touche(tmp_path: Path) -> None:
+    # Asset sans brut : orphelin, jamais rafraîchi ni supprimé.
+    _seed_asset(tmp_path, "gone.json", {"$id": "gone.json", "x-origin": "raw/gone.json",
+                                        "properties": {"a": {"type": "string"}}})
+    assert refresh_targets(tmp_path, "api", None) == []
+    orphans = {o.path: o.orphan for o in list_curation(tmp_path, "api")}
+    assert orphans == {"gone.json": True}
+
+
+def test_object_detail_champ_disparu(tmp_path: Path) -> None:
+    _seed_raw(tmp_path, "u.json", {"title": "U", "type": "object",
+                                   "properties": {"a": {"type": "string"}}})
+    _seed_asset(tmp_path, "u.json", {"title": "U", "x-origin": "raw/u.json", "properties": {
+        "a": {"type": "string"}, "b": {"type": "integer"}}})  # b disparu du brut
+    detail = get_object_detail(tmp_path, "api", "u.json")
+    assert detail is not None
+    fields = {f.name: f for f in detail.fields}
+    assert fields["b"].missing is True and fields["b"].retained is True
+    assert fields["a"].missing is False

@@ -24,6 +24,8 @@ from ossie_studio.sources.curation import (
     is_schema_file,
     list_curation,
     read_enrichment,
+    refresh_assets_fn,
+    refresh_targets,
     remove_asset_fn,
     retain_asset_fn,
 )
@@ -50,6 +52,11 @@ class RemoveBody(BaseModel):
     path: str = ""
 
 
+class RefreshBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    paths: list[str] | None = None  # None = tous les assets retenus
+
+
 class EnrichValues(BaseModel):
     model_config = ConfigDict(extra="forbid")
     business_name: str = ""
@@ -72,6 +79,7 @@ def _object_payload(obj: CurationObject) -> dict[str, object]:
         "kind": obj.kind,
         "fields": obj.fields,
         "retained": obj.retained,
+        "orphan": obj.orphan,
     }
 
 
@@ -120,7 +128,10 @@ def _detail_payload(detail: CurationDetail) -> dict[str, object]:
         "path": detail.path,
         "title": detail.title,
         "fields": [
-            {"name": f.name, "type": f.type, "retained": f.retained, "ref": f.ref}
+            {
+                "name": f.name, "type": f.type, "retained": f.retained,
+                "ref": f.ref, "missing": f.missing,
+            }
             for f in detail.fields
         ],
     }
@@ -286,3 +297,41 @@ async def remove_source_asset(
         raise _workdir_error(exc) from None
     log.info("curation_remove", author=user.email, slug=slug, path=body.path)
     return {"ok": True, "commit": commit}
+
+
+@router.post("/refresh")
+async def refresh_source_assets(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: RefreshBody,
+) -> dict[str, object]:
+    if not is_valid_source_slug(slug):
+        raise ApiError("curation_path_invalid", status_code=400)
+    if body.paths is not None and not all(is_schema_file(p) for p in body.paths):
+        raise ApiError("curation_path_invalid", status_code=400)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        # On calcule d'abord les assets qui changeraient : le message les liste et
+        # on évite un commit à vide (asset déjà à jour).
+        changed = await workdir.read_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            lambda wc: refresh_targets(wc, slug, body.paths),
+        )
+        if not changed:
+            return {"ok": True, "commit": None, "refreshed": []}
+        message = f"curation {slug} : rafraîchir {len(changed)} asset(s) : {', '.join(changed)}"
+        commit = await workdir.commit_to_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            user.email, user.email, message,
+            refresh_assets_fn(slug, changed),
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    log.info("curation_refresh", author=user.email, slug=slug, count=len(changed))
+    return {"ok": True, "commit": commit, "refreshed": changed}

@@ -263,6 +263,7 @@ export interface CurationObjectItem {
   kind: string
   fields: number
   retained: 'none' | 'partial' | 'full'
+  orphan: boolean
 }
 
 export interface CurationField {
@@ -270,6 +271,7 @@ export interface CurationField {
   type: string
   retained: boolean
   ref: boolean
+  missing: boolean
 }
 
 export interface CurationObjectDetail {
@@ -627,6 +629,16 @@ export const api = {
     apiFetch<{ ok: boolean; commit: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/remove`,
       { method: 'POST', body: JSON.stringify({ path }) },
+    ),
+  refreshAssets: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    paths: string[] | null,
+  ) =>
+    apiFetch<{ ok: boolean; commit: string | null; refreshed: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/refresh`,
+      { method: 'POST', body: JSON.stringify({ paths }) },
     ),
   listCodePlugins: () =>
     apiFetch<{ plugins: { id: string; label: string; globs: string[] }[] }>(
