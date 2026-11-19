@@ -23,6 +23,17 @@ from ossie_studio.sources.paths import safe_assets_path, safe_source_path
 
 ORIGIN_KEY = "x-origin"
 
+# Liste **fermée** des clés `x-` d'enrichissement humain (libellé → clé). Toute
+# autre clé (standard ou venue du parseur) est en lecture seule (voir le document
+# de conventions). S'arrêter et demander avant d'en ajouter une.
+ENRICHMENT_KEYS: dict[str, str] = {
+    "business_name": "x-businessName",
+    "description": "x-description",
+    "concept": "x-concept",
+    "tags": "x-tags",
+}
+_ENRICHMENT_X = frozenset(ENRICHMENT_KEYS.values())
+
 
 class AssetOriginMissingError(Exception):
     """L'objet brut à retenir n'existe pas (supprimé entre-temps)."""
@@ -30,6 +41,32 @@ class AssetOriginMissingError(Exception):
     def __init__(self, path: str) -> None:
         super().__init__(path)
         self.path = path
+
+
+class AssetNotRetainedError(Exception):
+    """On enrichit un asset qui n'a pas été retenu."""
+
+    def __init__(self, path: str) -> None:
+        super().__init__(path)
+        self.path = path
+
+
+@dataclass(frozen=True)
+class EnrichScope:
+    name: str          # "" pour l'objet, sinon le nom du champ
+    business_name: str
+    description: str
+    concept: str
+    tags: list[str]
+    readonly: dict[str, Any]  # description standard + clés x- du parseur
+
+
+@dataclass(frozen=True)
+class EnrichView:
+    path: str
+    title: str
+    object: EnrichScope
+    fields: list[EnrichScope]
 
 
 @dataclass(frozen=True)
@@ -211,5 +248,90 @@ def remove_asset_fn(slug: str, path: str) -> Callable[[Path], None]:
     def write(workdir: Path) -> None:
         asset_file = safe_assets_path(workdir, slug) / path
         asset_file.unlink(missing_ok=True)
+
+    return write
+
+
+# --- Enrichissement (clés x- humaines) ---------------------------------------
+
+
+def apply_enrichment(node: dict[str, Any], values: dict[str, Any]) -> None:
+    """Pose (ou retire) **uniquement** les clés d'enrichissement sur un nœud.
+    Une valeur vide retire la clé (pas de valeur vide stockée). Les clés standard
+    et les clés `x-` du parseur ne sont jamais touchées."""
+    for label, xkey in ENRICHMENT_KEYS.items():
+        if label not in values:
+            continue
+        value = values[label]
+        empty = value is None or value == [] or (isinstance(value, str) and not value.strip())
+        if empty:
+            node.pop(xkey, None)
+        else:
+            node[xkey] = value
+
+
+def _scope_view(name: str, node: dict[str, Any]) -> EnrichScope:
+    readonly = {
+        k: v
+        for k, v in sorted(node.items())
+        if k != ORIGIN_KEY
+        and (k == "description" or (k.startswith("x-") and k not in _ENRICHMENT_X))
+    }
+    return EnrichScope(
+        name=name,
+        business_name=str(node.get("x-businessName") or ""),
+        description=str(node.get("x-description") or ""),
+        concept=str(node.get("x-concept") or ""),
+        tags=[str(t) for t in (node.get("x-tags") or [])],
+        readonly=readonly,
+    )
+
+
+def read_enrichment(workdir: Path, slug: str, path: str) -> EnrichView | None:
+    """Enrichissement courant d'un asset (objet et champs) + contexte en lecture
+    seule. None si l'asset n'a pas été retenu."""
+    try:
+        asset_file = safe_assets_path(workdir, slug) / path
+    except ValueError:
+        return None
+    if not asset_file.is_file():
+        return None
+    asset = json.loads(asset_file.read_text(encoding="utf-8"))
+    fields = [
+        _scope_view(name, prop)
+        for name, prop in (asset.get("properties") or {}).items()
+        if isinstance(prop, dict)
+    ]
+    return EnrichView(
+        path=path,
+        title=str(asset.get("title") or asset.get("$id") or path),
+        object=_scope_view("", asset),
+        fields=fields,
+    )
+
+
+def enrich_asset_fn(
+    slug: str,
+    path: str,
+    object_values: dict[str, Any] | None,
+    field_values: dict[str, dict[str, Any]],
+) -> Callable[[Path], None]:
+    """Écrit l'enrichissement sur l'asset `assets/<path>`, en un commit. Seules les
+    clés d'enrichissement sont touchées. Lève AssetNotRetainedError si l'asset
+    n'existe pas. Sortie déterministe : réenregistrer la même saisie ne commite
+    rien."""
+
+    def write(workdir: Path) -> None:
+        asset_file = safe_assets_path(workdir, slug) / path
+        if not asset_file.is_file():
+            raise AssetNotRetainedError(path)
+        asset = json.loads(asset_file.read_text(encoding="utf-8"))
+        if object_values is not None:
+            apply_enrichment(asset, object_values)
+        props = asset.get("properties") or {}
+        for field, values in field_values.items():
+            if field in props and isinstance(props[field], dict):
+                apply_enrichment(props[field], values)
+        asset_file.write_text(dump_schema(asset), encoding="utf-8")
 
     return write

@@ -100,6 +100,7 @@ ERROR_CODES: tuple[str, ...] = (
     "parseur_conflict",
     "asset_origin_missing",
     "curation_path_invalid",
+    "asset_not_retained",
 )
 
 

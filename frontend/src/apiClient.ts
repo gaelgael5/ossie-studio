@@ -278,6 +278,25 @@ export interface CurationObjectDetail {
   fields: CurationField[]
 }
 
+export interface EnrichValues {
+  business_name: string
+  description: string
+  concept: string
+  tags: string[]
+}
+
+export interface EnrichScope extends EnrichValues {
+  name: string
+  readonly: Record<string, unknown>
+}
+
+export interface EnrichView {
+  path: string
+  title: string
+  object: EnrichScope
+  fields: EnrichScope[]
+}
+
 export interface RailLine {
   ref: string
   name: string
@@ -578,6 +597,20 @@ export const api = {
   getCurationObject: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<CurationObjectDetail>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/object?path=${encodeURIComponent(path)}`,
+    ),
+  getEnrichment: (spaceId: string, branchId: string, slug: string, path: string) =>
+    apiFetch<EnrichView>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/enrichment?path=${encodeURIComponent(path)}`,
+    ),
+  enrichAsset: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    body: { path: string; obj: EnrichValues | null; fields: Record<string, EnrichValues> },
+  ) =>
+    apiFetch<{ ok: boolean; commit: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/enrich`,
+      { method: 'PUT', body: JSON.stringify(body) },
     ),
   retainAsset: (
     spaceId: string,

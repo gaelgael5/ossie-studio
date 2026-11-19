@@ -9,6 +9,8 @@ import type {
   ContractAnalysis,
   CurationField,
   CurationObjectItem,
+  EnrichScope,
+  EnrichValues,
   SourceItem,
 } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
@@ -678,6 +680,7 @@ function CurationTab({
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'retained' | 'none'>('all')
   const [selected, setSelected] = useState<string | null>(null)
+  const [enriching, setEnriching] = useState<string | null>(null)
   const [messages, setMessages] = useState<string[]>([])
 
   const list = useQuery({
@@ -779,15 +782,20 @@ function CurationTab({
                     {t('curationChooseFields')}
                   </button>{' '}
                   {o.retained !== 'none' ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm(t('curationConfirmRemove'))) remove.mutate(o.path)
-                      }}
-                      disabled={remove.isPending}
-                    >
-                      {t('curationRemove')}
-                    </button>
+                    <>
+                      <button type="button" onClick={() => setEnriching(o.path)}>
+                        {t('curationEnrich')}
+                      </button>{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(t('curationConfirmRemove'))) remove.mutate(o.path)
+                        }}
+                        disabled={remove.isPending}
+                      >
+                        {t('curationRemove')}
+                      </button>
+                    </>
                   ) : null}
                 </td>
               </tr>
@@ -807,6 +815,20 @@ function CurationTab({
           onClose={() => setSelected(null)}
           onSave={(fields) => retain.mutate({ path: selected, fields })}
           pending={retain.isPending}
+        />
+      ) : null}
+
+      {enriching ? (
+        <EnrichPanel
+          spaceId={spaceId}
+          branchId={branchId}
+          slug={slug}
+          path={enriching}
+          onClose={() => setEnriching(null)}
+          onSaved={() => {
+            setEnriching(null)
+            void invalidate()
+          }}
         />
       ) : null}
     </div>
@@ -880,6 +902,141 @@ function FieldPanel({
           {t('cancel')}
         </button>
       </div>
+    </div>
+  )
+}
+
+type ScopeForm = { business_name: string; description: string; concept: string; tags: string }
+
+function _toValues(form: ScopeForm): EnrichValues {
+  return {
+    business_name: form.business_name,
+    description: form.description,
+    concept: form.concept,
+    tags: form.tags
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  }
+}
+
+function _initScope(scope: EnrichScope): ScopeForm {
+  return {
+    business_name: scope.business_name,
+    description: scope.description,
+    concept: scope.concept,
+    tags: scope.tags.join(', '),
+  }
+}
+
+function EnrichPanel({
+  spaceId,
+  branchId,
+  slug,
+  path,
+  onClose,
+  onSaved,
+}: {
+  spaceId: string
+  branchId: string
+  slug: string
+  path: string
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const { t } = useTranslation()
+  const [form, setForm] = useState<Record<string, ScopeForm> | null>(null)
+  const [messages, setMessages] = useState<string[]>([])
+  const view = useQuery({
+    queryKey: ['enrichment', spaceId, branchId, slug, path],
+    queryFn: () => api.getEnrichment(spaceId, branchId, slug, path),
+    retry: false,
+  })
+
+  const scopes: EnrichScope[] = view.data ? [view.data.object, ...view.data.fields] : []
+  const current: Record<string, ScopeForm> =
+    form ?? Object.fromEntries(scopes.map((s) => [s.name, _initScope(s)]))
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.enrichAsset(spaceId, branchId, slug, {
+        path,
+        obj: current[''] ? _toValues(current['']) : null,
+        fields: Object.fromEntries(
+          (view.data?.fields ?? []).map((f) => [f.name, _toValues(current[f.name])]),
+        ),
+      }),
+    onSuccess: () => {
+      setMessages([])
+      onSaved()
+    },
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
+
+  const update = (name: string, key: keyof ScopeForm, value: string) =>
+    setForm({ ...current, [name]: { ...current[name], [key]: value } })
+
+  const editor = (scope: EnrichScope, label: string) => {
+    const f = current[scope.name]
+    const readonlyKeys = Object.keys(scope.readonly)
+    return (
+      <div key={scope.name || '(object)'} className="panel" style={{ marginBottom: '0.5rem' }}>
+        <p className="panel-label">{label}</p>
+        <div style={{ display: 'grid', gap: '0.35rem' }}>
+          <input
+            value={f.business_name}
+            onChange={(e) => update(scope.name, 'business_name', e.target.value)}
+            placeholder={t('enrichBusinessName')}
+            aria-label={t('enrichBusinessName')}
+          />
+          <input
+            value={f.description}
+            onChange={(e) => update(scope.name, 'description', e.target.value)}
+            placeholder={t('enrichDescription')}
+            aria-label={t('enrichDescription')}
+          />
+          <input
+            value={f.concept}
+            onChange={(e) => update(scope.name, 'concept', e.target.value)}
+            placeholder={t('enrichConcept')}
+            aria-label={t('enrichConcept')}
+          />
+          <input
+            value={f.tags}
+            onChange={(e) => update(scope.name, 'tags', e.target.value)}
+            placeholder={t('enrichTags')}
+            aria-label={t('enrichTags')}
+          />
+        </div>
+        {readonlyKeys.length > 0 ? (
+          <p className="muted" style={{ fontSize: '0.78rem', marginTop: '0.3rem' }}>
+            {t('enrichReadonly')}: {readonlyKeys.join(', ')}
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <div className="panel" style={{ marginTop: '0.75rem' }}>
+      <p className="panel-label">{t('enrichTitle', { title: view.data?.title ?? path })}</p>
+      <ErrorList messages={messages} />
+      {view.data ? (
+        <>
+          {editor(view.data.object, t('enrichObjectScope'))}
+          {view.data.fields.map((field) => editor(field, field.name))}
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="button" onClick={() => save.mutate()} disabled={save.isPending}>
+              {t('enrichSave')}
+            </button>
+            <button type="button" onClick={onClose}>
+              {t('cancel')}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="muted">{t('loading')}</p>
+      )}
     </div>
   )
 }

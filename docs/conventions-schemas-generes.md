@@ -96,6 +96,21 @@ Sous des clefs `x-` : `x-source` (fichier, ligne ou objet de catalogue),
 `@Column`, `Field(...)`…). Ces annotations serviront à relier une classe à sa
 table.
 
+## Enrichissement humain (assets)
+
+Dans un **asset** curé, le travail humain vit sous une **liste fermée** de clés
+`x-`, posées au niveau de l'objet et de chaque champ ; le rafraîchissement depuis
+le brut ne les touche jamais :
+
+- `x-businessName` : nom métier ;
+- `x-description` : description métier (distincte de la `description` du code/catalogue) ;
+- `x-concept` : concept métier rattaché (texte libre ; l'ontologie viendra) ;
+- `x-tags` : étiquettes libres (liste).
+
+Toute autre clé (standard, ou `x-` venue du parseur comme `x-source`,
+`x-annotations`) est en lecture seule côté curation. `x-origin` donne le chemin du
+schéma brut d'origine.
+
 ## Exception : `raw/docs/`
 
 Le validateur des conventions **ne s'applique pas** à `sources/<slug>/raw/docs/`

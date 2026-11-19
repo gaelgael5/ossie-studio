@@ -13,12 +13,17 @@ from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_workdir_manager
 from ossie_studio.errors import ApiError
 from ossie_studio.sources.curation import (
+    AssetNotRetainedError,
     AssetOriginMissingError,
     CurationDetail,
     CurationObject,
+    EnrichScope,
+    EnrichView,
+    enrich_asset_fn,
     get_object_detail,
     is_schema_file,
     list_curation,
+    read_enrichment,
     remove_asset_fn,
     retain_asset_fn,
 )
@@ -43,6 +48,21 @@ class RetainBody(BaseModel):
 class RemoveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str = ""
+
+
+class EnrichValues(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    business_name: str = ""
+    description: str = ""
+    concept: str = ""
+    tags: list[str] = []
+
+
+class EnrichBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = ""
+    obj: EnrichValues | None = None
+    fields: dict[str, EnrichValues] = {}
 
 
 def _object_payload(obj: CurationObject) -> dict[str, object]:
@@ -130,6 +150,83 @@ async def get_source_curation_object(
     if detail is None:
         raise ApiError("asset_origin_missing", status_code=404, path=path)
     return _detail_payload(detail)
+
+
+def _scope_payload(scope: EnrichScope) -> dict[str, object]:
+    return {
+        "name": scope.name,
+        "business_name": scope.business_name,
+        "description": scope.description,
+        "concept": scope.concept,
+        "tags": scope.tags,
+        "readonly": scope.readonly,
+    }
+
+
+def _enrich_payload(view: EnrichView) -> dict[str, object]:
+    return {
+        "path": view.path,
+        "title": view.title,
+        "object": _scope_payload(view.object),
+        "fields": [_scope_payload(f) for f in view.fields],
+    }
+
+
+@router.get("/enrichment")
+async def get_source_enrichment(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: CurationRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    path: str,
+) -> dict[str, object]:
+    _check(slug, path)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        view = await workdir.read_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            lambda wc: read_enrichment(wc, slug, path),
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    if view is None:
+        raise ApiError("asset_not_retained", status_code=404, path=path)
+    return _enrich_payload(view)
+
+
+@router.put("/enrich")
+async def enrich_source_asset(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: EnrichBody,
+) -> dict[str, object]:
+    _check(slug, body.path)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    object_values = body.obj.model_dump() if body.obj is not None else None
+    field_values = {name: values.model_dump() for name, values in body.fields.items()}
+    message = f"curation {slug} : enrichir {body.path}"
+    try:
+        commit = await workdir.commit_to_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            user.email, user.email, message,
+            enrich_asset_fn(slug, body.path, object_values, field_values),
+        )
+    except AssetNotRetainedError as exc:
+        raise ApiError("asset_not_retained", status_code=404, path=exc.path) from None
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    log.info("curation_enrich", author=user.email, slug=slug, path=body.path)
+    return {"ok": True, "commit": commit}
 
 
 @router.post("/retain")
