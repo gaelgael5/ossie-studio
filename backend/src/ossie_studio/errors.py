@@ -94,6 +94,8 @@ ERROR_CODES: tuple[str, ...] = (
     "contract_version_invalid",
     "contract_version_taken",
     "contract_not_found",
+    "plugin_not_found",
+    "plugin_param_not_found",
 )
 
 

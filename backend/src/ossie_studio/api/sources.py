@@ -38,6 +38,7 @@ from ossie_studio.parsers.openapi import (
 from ossie_studio.parsers.openapi import (
     analyze as analyze_contract,
 )
+from ossie_studio.parsers.params_service import db_get_plugin_params
 from ossie_studio.sources.collect import CollectionError, CollectReport, SourceCollector
 from ossie_studio.sources.collections_service import (
     CollectionRun,
@@ -441,6 +442,7 @@ async def collect_branch_source(
     if entry is None or entry.manifest is None:
         raise ApiError("source_not_found", status_code=404, slug=slug)
     manifest = entry.manifest
+    plugin_params = await db_get_plugin_params(conn)
     if manifest.type == OPENAPI_TYPE:
         try:
             report = await collector.collect_openapi(
@@ -453,6 +455,7 @@ async def collect_branch_source(
                 author_name=user.email,
                 author_email=user.email,
                 force=force,
+                plugin_params=plugin_params,
             )
         except CollectionError as exc:
             raise _collect_error(exc.code) from None
@@ -480,6 +483,9 @@ async def collect_branch_source(
                 author_email=user.email,
                 force=force,
                 parseurs=_str_list(manifest.parametres.get("parseurs")),
+                repertoires=_str_list(manifest.parametres.get("repertoires")),
+                exclusions=_str_list(manifest.parametres.get("exclusions")),
+                plugin_params=plugin_params,
             )
         except CollectionError as exc:
             raise _collect_error(exc.code) from None

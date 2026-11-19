@@ -29,6 +29,7 @@ const SETTINGS_NAV: NavItem[] = [
   { key: 'navSecrets', to: '/secrets', capability: 'secrets:read', prefix: '/secrets' },
   { key: 'navConnectors', to: '/oidc/connectors', capability: 'oidc:read', prefix: '/oidc' },
   { key: 'navForges', to: '/forges', capability: 'connections:read', prefix: '/forges' },
+  { key: 'navParsingPlugins', to: '/parsing', capability: 'parsing:read', prefix: '/parsing' },
   { key: 'navProfiles', to: '/profiles', capability: 'profiles:read', prefix: '/profiles' },
   { key: 'navUsers', to: '/users', capability: 'users:read', prefix: '/users' },
 ]

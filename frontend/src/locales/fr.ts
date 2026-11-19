@@ -409,6 +409,7 @@ export const fr = {
       sources_collect: 'Collecter',
       curation_review: 'Valider une revue',
       curation_rules: 'Règles de tri',
+      parsing_manage: 'Gérer les paramètres',
     },
     capDomain: {
       secrets: 'Secrets',
@@ -417,6 +418,7 @@ export const fr = {
       spaces: 'Espaces Git',
       governance: 'Gouvernance',
       sources: 'Sources',
+      parsing: 'Plugins de parsing',
       curation: 'Curation',
       profiles: 'Profils',
       users: 'Utilisateurs',
@@ -446,6 +448,7 @@ export const fr = {
       branche_not_found: 'Cette branche n’existe pas dans le dépôt source.',
       repertoires_invalid: 'Les répertoires doivent être une liste de chaînes.',
       parseurs_invalid: 'Les parseurs doivent être une liste de chaînes.',
+      value_int: 'La valeur doit être un entier.',
       base_required: 'La base est obligatoire.',
       schemas_invalid: 'Les schémas doivent être une liste de chaînes.',
       exclusions_invalid: 'Les exclusions doivent être une liste de chaînes.',
@@ -723,6 +726,32 @@ export const fr = {
     contractsCommitNote:
       'Chaque dépôt, remplacement ou retrait est un commit local de la branche. La collecte suivante ne retransforme que les contrats modifiés.',
 
+    // Page « Plugins de parsing » (Réglages) + panneau d'observation (scan).
+    navParsingPlugins: 'Plugins de parsing',
+    parsingPluginsTitle: 'Plugins de parsing',
+    parsingPluginsSubtitle:
+      'Les plugins installés et leurs paramètres globaux. Ces valeurs s’appliquent à toutes les collectes.',
+    colPlugin: 'Plugin',
+    colGlobs: 'Motifs',
+    colParam: 'Paramètre',
+    colValue: 'Valeur',
+    pluginNoParams: 'Aucun paramètre réglable.',
+    saveValue: 'Enregistrer',
+    paramSaved: 'Paramètre enregistré.',
+    tabScan: 'Scan',
+    scanIntro:
+      'Index de travail de la dernière collecte : les fichiers vus et leur statut de traitement. Reconstruit à chaque collecte.',
+    noScan: 'Aucun fichier scanné. Lance une collecte.',
+    colFile: 'Fichier',
+    colCrc: 'Empreinte',
+    colCible: 'Cible',
+    colStatut: 'Statut',
+    statutTraite: 'traité',
+    statutInchange: 'inchangé',
+    statutErreur: 'erreur',
+    statutIgnore: 'ignoré',
+    statutEnAttente: 'en attente',
+
     errors: {
       source_slug_taken: 'Un slug de source déjà utilisé dans cette branche.',
       source_not_found: 'Source introuvable.',
@@ -738,6 +767,8 @@ export const fr = {
         'Nom de version invalide (minuscules, chiffres, points et tirets).',
       contract_version_taken: 'La version « {{version}} » existe déjà.',
       contract_not_found: 'Contrat introuvable.',
+      plugin_not_found: 'Plugin introuvable.',
+      plugin_param_not_found: 'Paramètre de plugin introuvable.',
       generic: 'Une erreur est survenue ({{code}})',
       forbidden: 'Accès refusé.',
       unauthenticated: 'Vous devez être connecté.',

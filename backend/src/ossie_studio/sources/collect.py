@@ -65,18 +65,33 @@ class CollectReport:
     files: list[FileStatus] = field(default_factory=list)
 
 
-def _read_source_files(root: Path) -> dict[str, bytes]:
-    """Lit les fichiers du code descendu (hors .git), chemin relatif POSIX → octets."""
+# Dossiers exclus du scan par défaut (surchargeables dans le manifeste).
+DEFAULT_EXCLUSIONS = ("node_modules", "vendor", ".git")
+
+
+def _read_source_files(
+    root: Path, *, repertoires: list[str] | None = None, exclusions: list[str] | None = None
+) -> dict[str, bytes]:
+    """Lit les fichiers du code descendu, chemin relatif POSIX → octets. Le
+    processus maître applique les sous-répertoires du manifeste (si donnés) et les
+    dossiers exclus (ceux du manifeste, ou les défauts) ; `.git` est toujours
+    exclu."""
     files: dict[str, bytes] = {}
     if not root.is_dir():
         return files
+    excludes = set(exclusions) if exclusions else set(DEFAULT_EXCLUSIONS)
+    excludes.add(".git")
+    roots = [r.strip("/") for r in (repertoires or []) if r.strip("/")]
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
-        rel = path.relative_to(root)
-        if ".git" in rel.parts:
+        rel = path.relative_to(root).as_posix()
+        parts = rel.split("/")
+        if any(part in excludes for part in parts):
             continue
-        files[rel.as_posix()] = path.read_bytes()
+        if roots and not any(rel == r or rel.startswith(f"{r}/") for r in roots):
+            continue
+        files[rel] = path.read_bytes()
     return files
 
 
@@ -205,6 +220,7 @@ class SourceCollector:
         force: bool,
         source_commit: str,
         start: float,
+        plugin_params: dict[str, dict[str, str]],
     ) -> CollectReport:
         # 1. Instantané de raw/ (index et sorties des plugins), accès lecture seule.
         try:
@@ -229,11 +245,13 @@ class SourceCollector:
         agg = _Aggregate()
         for plugin in plugins:
             matching = {p: d for p, d in source_files.items() if matches_globs(plugin.globs(), p)}
+            stored = plugin_params.get(plugin.id, {})
+            params = {p.slug: stored.get(p.slug, p.default) for p in plugin.parameters()}
             context = PluginContext(
                 files=[FileRow(path=p, crc=working[p]) for p in sorted(matching)],
                 contents=matching,
                 raw=raw,
-                params={},
+                params=params,
                 force=force,
                 branche=branche_label,
             )
@@ -316,6 +334,9 @@ class SourceCollector:
         author_email: str,
         force: bool,
         parseurs: list[str] | None = None,
+        repertoires: list[str] | None = None,
+        exclusions: list[str] | None = None,
+        plugin_params: dict[str, dict[str, str]] | None = None,
     ) -> CollectReport:
         key = f"{space.id}/{branch_slug}/{source_slug}"
         async with self._lock(key):
@@ -333,7 +354,9 @@ class SourceCollector:
             except SourceDownloadError as exc:
                 raise CollectionError(exc.code) from None
             source_dir = self._downloader.source_path(space.id, source_slug)
-            source_files = await asyncio.to_thread(_read_source_files, source_dir)
+            source_files = await asyncio.to_thread(
+                _read_source_files, source_dir, repertoires=repertoires, exclusions=exclusions
+            )
             return await self._run(
                 space=space,
                 branch_slug=branch_slug,
@@ -348,6 +371,7 @@ class SourceCollector:
                 force=force,
                 source_commit=source_commit,
                 start=start,
+                plugin_params=plugin_params or {},
             )
 
     async def collect_openapi(
@@ -362,6 +386,7 @@ class SourceCollector:
         author_name: str,
         author_email: str,
         force: bool,
+        plugin_params: dict[str, dict[str, str]] | None = None,
     ) -> CollectReport:
         """Collecte une source `openapi` : pas de descente (les contrats sont déjà
         versionnés dans `contrats/`), `source_commit` vide."""
@@ -394,4 +419,5 @@ class SourceCollector:
                 force=force,
                 source_commit="",
                 start=start,
+                plugin_params=plugin_params or {},
             )

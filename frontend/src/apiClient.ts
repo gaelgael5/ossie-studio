@@ -232,6 +232,31 @@ export interface ContractDeposit {
   replace: boolean
 }
 
+export interface PluginParamItem {
+  slug: string
+  label: string
+  doc: string
+  type: string
+  default: string
+  value: string
+}
+export interface ParsingPlugin {
+  id: string
+  label: string
+  version: string
+  cible: string
+  globs: string[]
+  parametres: PluginParamItem[]
+}
+export interface ScanFileItem {
+  path: string
+  crc: string
+  cible: string
+  statut: string
+  message: string
+  scanned_at: string
+}
+
 export interface RailLine {
   ref: string
   name: string
@@ -521,6 +546,16 @@ export const api = {
     ),
   contractDownloadUrl: (spaceId: string, branchId: string, slug: string, version: string) =>
     `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/contracts/${encodeURIComponent(version)}/download`,
+  listSourceScan: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ fichiers: ScanFileItem[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/scan`,
+    ),
+  listParsingPlugins: () => apiFetch<{ plugins: ParsingPlugin[] }>('/api/parsing/plugins'),
+  setPluginParam: (pluginId: string, slug: string, value: string) =>
+    apiFetch<{ plugin_id: string; slug: string; value: string }>(
+      `/api/parsing/plugins/${encodeURIComponent(pluginId)}/parameters/${encodeURIComponent(slug)}`,
+      { method: 'PUT', body: JSON.stringify({ value }) },
+    ),
   listUnpublished: (spaceId: string, branchId: string) =>
     apiFetch<{
       commits: { sha: string; author: string; date: string; message: string }[]

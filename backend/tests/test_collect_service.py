@@ -109,6 +109,25 @@ async def test_premiere_collecte_ecrit_les_schemas(
     assert (raw / "manifest.yaml").is_file()
 
 
+async def test_markdown_copie_les_documents_et_exclut_node_modules(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, _ = _make_bare_with(
+        tmp_path,
+        "src",
+        {"README.md": "# Titre\n\ntexte", "node_modules/pkg/x.md": "# ignore\n"},
+    )
+    await _collect(collector, space, src)
+    raw = _raw(tmp_path, space)
+    # Le document est recopié sous raw/docs/ en conservant son chemin, et indexé.
+    assert (raw / "docs" / "README.md").is_file()
+    assert (raw / "docs-index.yaml").is_file()
+    # node_modules est exclu du scan par défaut.
+    assert not (raw / "docs" / "node_modules").exists()
+
+
 async def test_collecte_idempotente(
     setup: tuple[SourceCollector, GitSpace, Path, Path],
 ) -> None:

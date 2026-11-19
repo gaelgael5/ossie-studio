@@ -18,6 +18,7 @@ import { GovernanceClassificationsPage } from './pages/GovernanceClassifications
 import { GovernanceInvalidValuesPage } from './pages/GovernanceInvalidValuesPage'
 import { SourcesPage } from './pages/SourcesPage'
 import { SourceDetailPage } from './pages/SourceDetailPage'
+import { ParsingPluginsPage } from './pages/ParsingPluginsPage'
 import { WorkspaceProvider } from './workspace'
 import { ProfilesPage } from './pages/ProfilesPage'
 import { UsersPage } from './pages/UsersPage'
@@ -102,6 +103,7 @@ function AppRoutes() {
         <Route path="/secrets" element={gate('secrets:read', <SecretsPage />)} />
         <Route path="/oidc/connectors" element={gate('oidc:read', <ConnectorsPage />)} />
         <Route path="/forges" element={gate('connections:read', <ForgesPage />)} />
+        <Route path="/parsing" element={gate('parsing:read', <ParsingPluginsPage />)} />
         <Route path="/spaces" element={gate('spaces:read', <SpacesPage />)} />
         <Route path="/spaces/:spaceId" element={gate('spaces:read', <SpaceDetailPage />)} />
         <Route path="/governance/tags" element={gate('governance:read', <GovernanceTagsPage />)} />

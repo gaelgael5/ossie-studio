@@ -34,6 +34,7 @@ CATALOG: tuple[Domain, ...] = (
     ),
     Domain("governance", ("governance:read", "governance:write", "governance:certify")),
     Domain("sources", ("sources:read", "sources:declare", "sources:collect")),
+    Domain("parsing", ("parsing:read", "parsing:manage")),
     Domain("curation", ("curation:read", "curation:write", "curation:review", "curation:rules")),
     Domain("profiles", ("profiles:read", "profiles:write")),
     Domain("users", ("users:read", "users:write")),

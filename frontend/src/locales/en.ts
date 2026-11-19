@@ -407,6 +407,7 @@ export const en = {
       sources_collect: 'Collect',
       curation_review: 'Approve a review',
       curation_rules: 'Sorting rules',
+      parsing_manage: 'Manage parameters',
     },
     capDomain: {
       secrets: 'Secrets',
@@ -415,6 +416,7 @@ export const en = {
       spaces: 'Git spaces',
       governance: 'Governance',
       sources: 'Sources',
+      parsing: 'Parsing plugins',
       curation: 'Curation',
       profiles: 'Profiles',
       users: 'Users',
@@ -444,6 +446,7 @@ export const en = {
       branche_not_found: 'That branch does not exist in the source repository.',
       repertoires_invalid: 'Directories must be a list of strings.',
       parseurs_invalid: 'Parsers must be a list of strings.',
+      value_int: 'The value must be an integer.',
       base_required: 'The database is required.',
       schemas_invalid: 'Schemas must be a list of strings.',
       exclusions_invalid: 'Exclusions must be a list of strings.',
@@ -718,6 +721,32 @@ export const en = {
     contractsCommitNote:
       'Each deposit, replacement or removal is a local commit on the branch. The next collection only re-transforms changed contracts.',
 
+    // "Parsing plugins" page (Settings) + observation panel (scan).
+    navParsingPlugins: 'Parsing plugins',
+    parsingPluginsTitle: 'Parsing plugins',
+    parsingPluginsSubtitle:
+      'Installed plugins and their global parameters. These values apply to every collection.',
+    colPlugin: 'Plugin',
+    colGlobs: 'Patterns',
+    colParam: 'Parameter',
+    colValue: 'Value',
+    pluginNoParams: 'No adjustable parameter.',
+    saveValue: 'Save',
+    paramSaved: 'Parameter saved.',
+    tabScan: 'Scan',
+    scanIntro:
+      'Working index of the last collection: the files seen and their processing status. Rebuilt on each collection.',
+    noScan: 'No file scanned. Run a collection.',
+    colFile: 'File',
+    colCrc: 'Checksum',
+    colCible: 'Target',
+    colStatut: 'Status',
+    statutTraite: 'processed',
+    statutInchange: 'unchanged',
+    statutErreur: 'error',
+    statutIgnore: 'ignored',
+    statutEnAttente: 'pending',
+
     errors: {
       source_slug_taken: 'That source slug is already used in this branch.',
       source_not_found: 'Source not found.',
@@ -733,6 +762,8 @@ export const en = {
         'Invalid version name (lowercase, digits, dots and hyphens).',
       contract_version_taken: 'Version “{{version}}” already exists.',
       contract_not_found: 'Contract not found.',
+      plugin_not_found: 'Plugin not found.',
+      plugin_param_not_found: 'Plugin parameter not found.',
       generic: 'Something went wrong ({{code}})',
       forbidden: 'Access denied.',
       unauthenticated: 'You must be signed in.',

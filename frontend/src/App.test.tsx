@@ -11,7 +11,7 @@ const ADMIN_CAPS = [
   'oidc:read', 'oidc:write', 'spaces:read', 'spaces:create', 'spaces:branch',
   'spaces:publish', 'spaces:version', 'governance:read', 'governance:write',
   'governance:certify', 'profiles:read', 'profiles:write', 'users:read', 'users:write',
-  'sources:read', 'sources:declare',
+  'sources:read', 'sources:declare', 'sources:collect', 'parsing:read', 'parsing:manage',
 ]
 
 interface MockRoutes {
@@ -800,4 +800,51 @@ test('détail source OpenAPI : dépôt d’un contrat, analyse avant enregistrem
   )
   expect(screen.getByText(/version déclarée 2\.0\.0/)).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Déposer' })).toBeInTheDocument()
+})
+
+test('plugins de parsing : liste et réglage d’un paramètre', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
+      },
+    },
+    '/api/parsing/plugins': {
+      body: {
+        plugins: [
+          {
+            id: 'markdown',
+            label: 'Documents Markdown',
+            version: '1.0',
+            cible: 'raw',
+            globs: ['**/*.md'],
+            parametres: [
+              {
+                slug: 'taille_max_ko',
+                label: 'Taille maximale d’un document (Ko)',
+                doc: 'Au-delà, le document est signalé et non copié.',
+                type: 'int',
+                default: '512',
+                value: '512',
+              },
+            ],
+          },
+        ],
+      },
+    },
+    'PUT /api/parsing/plugins/markdown/parameters/taille_max_ko': {
+      body: { plugin_id: 'markdown', slug: 'taille_max_ko', value: '256' },
+    },
+  })
+  renderAt('/parsing')
+  await screen.findByText('Documents Markdown')
+  const input = screen.getByDisplayValue('512')
+  await userEvent.clear(input)
+  await userEvent.type(input, '256')
+  await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+  await waitFor(() => expect(screen.getByText('Paramètre enregistré.')).toBeInTheDocument())
 })

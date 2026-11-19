@@ -8,7 +8,7 @@ import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { useWorkspace } from '../workspace'
 
-type Tab = 'overview' | 'contrats' | 'collectes' | 'manifeste' | 'raw'
+type Tab = 'overview' | 'contrats' | 'collectes' | 'scan' | 'manifeste' | 'raw'
 
 function sourceMeta(s: SourceItem, t: (k: string) => string): string {
   const p = s.parametres ?? {}
@@ -43,8 +43,8 @@ export function SourceDetailPage() {
   const isOpenapi = source?.type === 'openapi'
   const collectable = source?.type === 'git' || isOpenapi
   const tabList: Tab[] = isOpenapi
-    ? ['overview', 'contrats', 'collectes', 'manifeste', 'raw']
-    : ['overview', 'collectes', 'manifeste', 'raw']
+    ? ['overview', 'contrats', 'collectes', 'scan', 'manifeste', 'raw']
+    : ['overview', 'collectes', 'scan', 'manifeste', 'raw']
   const effectiveTab: Tab = tab ?? (isOpenapi ? 'contrats' : 'collectes')
   const collections = useQuery({
     queryKey: ['collections', ws.spaceId, ws.branchId, slug],
@@ -123,9 +123,11 @@ export function SourceDetailPage() {
                   ? 'tabContracts'
                   : id === 'collectes'
                     ? 'tabCollectes'
-                    : id === 'manifeste'
-                      ? 'tabManifeste'
-                      : 'tabRawExplorer',
+                    : id === 'scan'
+                      ? 'tabScan'
+                      : id === 'manifeste'
+                        ? 'tabManifeste'
+                        : 'tabRawExplorer',
             )}
           </button>
         ))}
@@ -154,6 +156,10 @@ export function SourceDetailPage() {
       ) : null}
 
       {effectiveTab === 'raw' ? <div className="empty-note">{t('rawExplorerSoon')}</div> : null}
+
+      {effectiveTab === 'scan' ? (
+        <ScanPanel spaceId={ws.spaceId as string} branchId={ws.branchId as string} slug={slug} />
+      ) : null}
 
       {effectiveTab === 'manifeste' ? (
         <div className="panel">
@@ -569,6 +575,72 @@ function ContractsTab({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+const _STATUT_KEY: Record<string, string> = {
+  'traité': 'statutTraite',
+  'inchangé': 'statutInchange',
+  erreur: 'statutErreur',
+  'ignoré': 'statutIgnore',
+  en_attente: 'statutEnAttente',
+}
+
+function ScanPanel({
+  spaceId,
+  branchId,
+  slug,
+}: {
+  spaceId: string
+  branchId: string
+  slug: string
+}) {
+  const { t } = useTranslation()
+  const scan = useQuery({
+    queryKey: ['scan', spaceId, branchId, slug],
+    queryFn: () => api.listSourceScan(spaceId, branchId, slug),
+    retry: false,
+  })
+  const rows = scan.data?.fichiers ?? []
+  return (
+    <div className="panel">
+      <p className="muted" style={{ fontSize: '0.88rem' }}>
+        {t('scanIntro')}
+      </p>
+      {rows.length > 0 ? (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>{t('colFile')}</th>
+              <th>{t('colCible')}</th>
+              <th>{t('colStatut')}</th>
+              <th>{t('colCrc')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.path}>
+                <td className="mono">{row.path}</td>
+                <td className="mono">{row.cible}</td>
+                <td>
+                  {t(_STATUT_KEY[row.statut] ?? 'statutEnAttente')}
+                  {row.message ? (
+                    <div className="muted" style={{ fontSize: '0.8rem' }}>
+                      {row.message}
+                    </div>
+                  ) : null}
+                </td>
+                <td className="mono muted" style={{ fontSize: '0.78rem' }}>
+                  {row.crc.slice(0, 10)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="empty-note">{t('noScan')}</div>
+      )}
     </div>
   )
 }
