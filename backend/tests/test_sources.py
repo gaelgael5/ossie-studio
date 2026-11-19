@@ -45,7 +45,7 @@ def test_manifest_valide_et_rejets() -> None:
             "label": "Commandes",
             "type": "git",
             "connexion": "c1",
-            "parametres": {"depot": "org/api", "branche": "main"},
+            "parametres": {"depot": "org/api", "branche": "main", "parseurs": ["markdown"]},
         }
     )
     assert manifest.type == "git"
@@ -58,7 +58,7 @@ def test_manifest_valide_et_rejets() -> None:
                 "label": "Commandes",
                 "type": "git",
                 "connexion": "c1",
-                "parametres": {"depot": "org/api", "branche": "main"},
+                "parametres": {"depot": "org/api", "branche": "main", "parseurs": ["markdown"]},
                 "schema": "x",
             }
         )
@@ -101,7 +101,7 @@ def test_read_sources_tree_signale_les_erreurs(tmp_path: Path) -> None:
     (base / "bonne").mkdir(parents=True)
     (base / "bonne" / "manifest.yaml").write_text(
         "version: 1\nslug: bonne\nlabel: B\ntype: git\nconnexion: c1\n"
-        "parametres:\n  depot: org/api\n  branche: main\n",
+        "parametres:\n  depot: org/api\n  branche: main\n  parseurs:\n    - markdown\n",
         encoding="utf-8",
     )
     (base / "sans-manifeste").mkdir()
@@ -171,6 +171,10 @@ def _git_body(connection_id: str, **over: object) -> dict[str, object]:
         "parametres": {"depot": "octocat/r0", "branche": "main", "repertoires": ["src"]},
     }
     body.update(over)
+    # Une source Git doit choisir au moins un parseur ; on en met un par défaut.
+    params = body.get("parametres")
+    if isinstance(params, dict) and "parseurs" not in params:
+        body["parametres"] = {**params, "parseurs": ["jsonschema-demo"]}
     return body
 
 
@@ -232,6 +236,39 @@ async def test_cle_inconnue_refuse(branch: tuple[AsyncClient, str, str, str]) ->
     )
     assert r.status_code == 400
     assert "unknown_key:parametres.zzz" in r.json()["error_args"]["fields"]
+
+
+async def test_git_sans_parseur_refuse(branch: tuple[AsyncClient, str, str, str]) -> None:
+    client, space_id, branch_id, connection_id = branch
+    base = f"/api/spaces/{space_id}/branches/{branch_id}/sources"
+    # Corps construit à la main pour ne PAS injecter de parseur par défaut.
+    r = await client.post(
+        base,
+        json={
+            "slug": "api-boutique",
+            "label": "API boutique",
+            "type": "git",
+            "connexion": connection_id,
+            "parametres": {"depot": "octocat/r0", "branche": "main"},
+        },
+    )
+    assert r.status_code == 400
+    assert "parseurs_required" in r.json()["error_args"]["fields"]
+
+
+async def test_git_parseur_inconnu_refuse(branch: tuple[AsyncClient, str, str, str]) -> None:
+    client, space_id, branch_id, connection_id = branch
+    base = f"/api/spaces/{space_id}/branches/{branch_id}/sources"
+    r = await client.post(
+        base,
+        json=_git_body(
+            connection_id,
+            parametres={"depot": "octocat/r0", "branche": "main", "parseurs": ["cobol"]},
+        ),
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "parseur_unknown"
+    assert r.json()["error_args"]["id"] == "cobol"
 
 
 async def test_slug_traversant_refuse(branch: tuple[AsyncClient, str, str, str]) -> None:

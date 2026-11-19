@@ -37,6 +37,28 @@ def plugin_by_id(plugin_id: str) -> Plugin | None:
     return next((p for p in _ALL_PLUGINS if p.id == plugin_id), None)
 
 
+def unknown_code_parseur(parseurs: list[str]) -> str | None:
+    """Le premier identifiant qui ne correspond à aucun plugin de code, s'il y en
+    a un (pour refuser un manifeste nommant un parseur inconnu)."""
+    known = {p.id for p in _CODE_PLUGINS}
+    return next((pid for pid in parseurs if pid not in known), None)
+
+
+def conflicting_glob(parseurs: list[str]) -> str | None:
+    """Un motif globing pris en charge par deux des parseurs choisis, s'il existe
+    (pour refuser deux parseurs qui se disputent le même fichier)."""
+    owner: dict[str, str] = {}
+    for pid in parseurs:
+        plugin = plugin_by_id(pid)
+        if plugin is None:
+            continue
+        for pattern in plugin.globs():
+            if pattern in owner and owner[pattern] != pid:
+                return pattern
+            owner[pattern] = pid
+    return None
+
+
 def select_code_plugins(parseurs: list[str] | None) -> list[Plugin]:
     """Les plugins de code à lancer sur une source : ceux nommés dans le manifeste
     (ordre du manifeste, inconnus ignorés), ou tous par défaut."""

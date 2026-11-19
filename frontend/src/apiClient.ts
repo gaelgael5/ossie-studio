@@ -550,6 +550,10 @@ export const api = {
     apiFetch<{ fichiers: ScanFileItem[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/scan`,
     ),
+  listCodePlugins: () =>
+    apiFetch<{ plugins: { id: string; label: string; globs: string[] }[] }>(
+      '/api/parsing/code-plugins',
+    ),
   listParsingPlugins: () => apiFetch<{ plugins: ParsingPlugin[] }>('/api/parsing/plugins'),
   setPluginParam: (pluginId: string, slug: string, value: string) =>
     apiFetch<{ plugin_id: string; slug: string; value: string }>(

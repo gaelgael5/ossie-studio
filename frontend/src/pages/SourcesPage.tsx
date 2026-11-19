@@ -535,6 +535,17 @@ function GitSourceModal({
 
   const forges = useMemo(() => connections.data?.connections ?? [], [connections.data])
 
+  const codePlugins = useQuery({ queryKey: ['code-plugins'], queryFn: api.listCodePlugins })
+  const plugins = useMemo(() => codePlugins.data?.plugins ?? [], [codePlugins.data])
+  const [parseurs, setParseurs] = useState<string[]>(asList(p.parseurs))
+  const parseursTouched = useRef(editMode)
+  // Nouvelle source : on pré-coche tous les parseurs de code dès qu'ils sont connus.
+  useEffect(() => {
+    if (!parseursTouched.current && plugins.length > 0) {
+      setParseurs(plugins.map((pl) => pl.id))
+    }
+  }, [plugins])
+
   useEffect(() => {
     if (!slugTouched) setSlug(slugify(label))
   }, [label, slugTouched])
@@ -550,6 +561,7 @@ function GitSourceModal({
   const parametres: Record<string, unknown> = {
     depot,
     branche,
+    parseurs,
     ...(dirs.trim()
       ? { repertoires: dirs.split(',').map((d) => d.trim()).filter(Boolean) }
       : {}),
@@ -572,7 +584,12 @@ function GitSourceModal({
     onSuccess: (saved) => (collectAfter.current ? onDeclaredCollect(saved.slug) : onSaved()),
     onError: (err) => setMessages(errorMessages(t, err)),
   })
-  const disabled = save.isPending || !label || !slug || !connexion || !depot || !branche
+  const disabled =
+    save.isPending || !label || !slug || !connexion || !depot || !branche || parseurs.length === 0
+  const toggleParseur = (id: string) => {
+    parseursTouched.current = true
+    setParseurs((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))
+  }
 
   return (
     <Modal
@@ -713,6 +730,29 @@ function GitSourceModal({
             </label>
             <input id="g-dirs" className="input" value={dirs} onChange={(e) => setDirs(e.target.value)} />
             <span className="field-hint">{t('dirsHint')}</span>
+          </div>
+          <div className="field">
+            <span className="field-label">{t('fieldParsers')}</span>
+            {plugins.length > 0 ? (
+              <div className="stack" style={{ gap: 4 }}>
+                {plugins.map((plugin) => (
+                  <label key={plugin.id} className="row" style={{ gap: 6 }}>
+                    <input
+                      type="checkbox"
+                      checked={parseurs.includes(plugin.id)}
+                      onChange={() => toggleParseur(plugin.id)}
+                    />
+                    {plugin.label}
+                    <span className="muted mono" style={{ fontSize: '0.78rem' }}>
+                      {plugin.globs.join(', ')}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <span className="muted">{t('noParsers')}</span>
+            )}
+            <span className="field-hint">{t('parsersHint')}</span>
           </div>
         </div>
         <div className="stack">

@@ -96,6 +96,8 @@ ERROR_CODES: tuple[str, ...] = (
     "contract_not_found",
     "plugin_not_found",
     "plugin_param_not_found",
+    "parseur_unknown",
+    "parseur_conflict",
 )
 
 

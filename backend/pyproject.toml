@@ -18,6 +18,8 @@ dependencies = [
     "httpx>=0.28.1",
     "joserfc>=1.8.0",
     "pyyaml>=6.0",
+    "tree-sitter>=0.26.1",
+    "tree-sitter-c-sharp==0.24.0",  # grammaire épinglée (sa version entre dans celle du parseur)
 ]
 
 [dependency-groups]

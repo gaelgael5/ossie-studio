@@ -39,6 +39,7 @@ from ossie_studio.parsers.openapi import (
     analyze as analyze_contract,
 )
 from ossie_studio.parsers.params_service import db_get_plugin_params
+from ossie_studio.parsers.registry import conflicting_glob, unknown_code_parseur
 from ossie_studio.sources.collect import CollectionError, CollectReport, SourceCollector
 from ossie_studio.sources.collections_service import (
     CollectionRun,
@@ -185,6 +186,18 @@ async def _build_manifest(
     return manifest, connection_info
 
 
+def _check_git_parseurs(manifest: SourceManifest) -> None:
+    """Refuse un parseur inconnu (en le nommant) ou deux parseurs qui se disputent
+    le même motif (en nommant le motif)."""
+    parseurs = _str_list(manifest.parametres.get("parseurs")) or []
+    unknown = unknown_code_parseur(parseurs)
+    if unknown is not None:
+        raise ApiError("parseur_unknown", status_code=400, id=unknown)
+    conflict = conflicting_glob(parseurs)
+    if conflict is not None:
+        raise ApiError("parseur_conflict", status_code=400, pattern=conflict)
+
+
 async def _validate_git_branch(
     conn: ConnDep,
     crypto: CryptoService,
@@ -280,6 +293,7 @@ async def declare_branch_source(
         conn, body.slug.strip(), body.label, body.type, body.connexion, body.parametres
     )
     if manifest.type == GIT_TYPE:
+        _check_git_parseurs(manifest)
         await _validate_git_branch(
             conn,
             crypto,
@@ -334,6 +348,7 @@ async def update_branch_source(
         conn, slug, body.label, source_type, body.connexion, body.parametres
     )
     if manifest.type == GIT_TYPE:
+        _check_git_parseurs(manifest)
         await _validate_git_branch(
             conn,
             crypto,

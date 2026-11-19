@@ -109,8 +109,14 @@ def _validate_git_params(params: dict[str, Any]) -> list[str]:
         errors.append("branche_required")
     if "repertoires" in params and _str_list(params["repertoires"]) is None:
         errors.append("repertoires_invalid")
-    if "parseurs" in params and _str_list(params["parseurs"]) is None:
+    # Une source Git doit choisir au moins un parseur (socle des parseurs).
+    parseurs = params.get("parseurs")
+    if "parseurs" not in params:
+        errors.append("parseurs_required")
+    elif _str_list(parseurs) is None:
         errors.append("parseurs_invalid")
+    elif not parseurs:
+        errors.append("parseurs_required")
     if "exclusions" in params and _str_list(params["exclusions"]) is None:
         errors.append("exclusions_invalid")
     return errors
