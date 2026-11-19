@@ -29,6 +29,9 @@ class FakeRaw:
     def list_outputs(self) -> dict[str, str]:
         return dict(self._files)
 
+    def find_schema(self, name: str) -> str | None:
+        return None
+
 
 def _ctx(
     files: dict[str, bytes],

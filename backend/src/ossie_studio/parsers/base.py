@@ -127,6 +127,14 @@ class RawAccess(Protocol):
         Le plugin filtre celles qui le concernent (ses extensions, son dossier)."""
         ...
 
+    def find_schema(self, name: str) -> str | None:
+        """Service de recherche de schéma **commun** du socle : cherche un schéma
+        par nom d'objet dans toute la sortie `raw/` (tous plugins confondus) et
+        rend son chemin s'il est **unique**, sinon None. Un plugin passe par ce
+        service pour résoudre une référence croisée — jamais en lisant directement
+        la sortie d'un autre plugin."""
+        ...
+
 
 @dataclass
 class PluginContext:

@@ -131,6 +131,33 @@ async def test_csharp_classes_partielles_une_seule_collecte(
     assert set(schema["properties"]) == {"A", "B"}
 
 
+async def test_resolution_references_croisees_entre_fichiers(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    import json
+
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    # Deux classes C# dans deux fichiers : chacune son schéma, donc deux groupes
+    # distincts. Le parseur laisse Ligne en x-unresolved-type ; le socle résout.
+    src, _ = _make_bare_with(
+        tmp_path,
+        "src",
+        {
+            "commande.cs": "namespace App; public class Commande { public Ligne L { get; set; } }",
+            "ligne.cs": "namespace App; public class Ligne { public int N { get; set; } }",
+        },
+    )
+    report = await _collect(collector, space, src)
+    assert report.resolved == 1
+    raw = _raw(tmp_path, space)
+    commande = json.loads((raw / "app-commande.json").read_text(encoding="utf-8"))
+    assert commande["properties"]["L"]["$ref"] == "app-ligne.json"
+    # Idempotent : une 2e collecte sans changement ne recommit rien.
+    second = await _collect(collector, space, src)
+    assert second.local_commit is None
+
+
 async def test_markdown_copie_les_documents_et_exclut_node_modules(
     setup: tuple[SourceCollector, GitSpace, Path, Path],
 ) -> None:

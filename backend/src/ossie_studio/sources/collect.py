@@ -25,6 +25,11 @@ from ossie_studio.parsers.registry import openapi_plugin, select_code_plugins
 from ossie_studio.sources.collect_core import RAW_DIR, checksum
 from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
 from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
+from ossie_studio.sources.schema_resolve import (
+    SchemaIndex,
+    is_schema_path,
+    resolve_source_schemas,
+)
 from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
 
 log = structlog.get_logger(__name__)
@@ -62,6 +67,7 @@ class CollectReport:
     retained: int
     errors: list[PluginError]
     duration_ms: int
+    resolved: int = 0
     files: list[FileStatus] = field(default_factory=list)
 
 
@@ -128,6 +134,7 @@ class _RawSnapshot(RawAccess):
 
     def __init__(self, files: dict[str, str]) -> None:
         self._files = files
+        self._index: SchemaIndex | None = None
 
     def read_index(self, name: str) -> str | None:
         return self._files.get(name)
@@ -137,6 +144,13 @@ class _RawSnapshot(RawAccess):
 
     def list_outputs(self) -> dict[str, str]:
         return dict(self._files)
+
+    def find_schema(self, name: str) -> str | None:
+        if self._index is None:
+            self._index = SchemaIndex(
+                {p: c for p, c in self._files.items() if is_schema_path(p)}
+            )
+        return self._index.resolve(name)
 
 
 def _apply_actions(
@@ -263,12 +277,16 @@ class SourceCollector:
                 statuts[err.source] = STATUT_ERREUR
                 messages[err.source] = err.cause
 
-        # 4-5. Écriture unique + commit local unique.
+        # 4. Service de recherche commun : le socle résout les références croisées
+        # (x-unresolved-type → $ref) sur l'ensemble des schémas de la source.
+        writes, deletes = list(agg.writes), list(agg.deletes)
+        writes, resolved = resolve_source_schemas(raw_files, writes, deletes)
+
+        # 5. Écriture unique + commit local unique.
         descripteur = f" {source_commit[:7]}" if source_commit else " (contrats)"
         message = (
             f"collecte {source_slug}{descripteur} : +{agg.added} ~{agg.modified} -{agg.deleted}"
         )
-        writes, deletes = list(agg.writes), list(agg.deletes)
         try:
             local_commit = await self._workdir.commit_to_branch(
                 space.id,
@@ -292,6 +310,7 @@ class SourceCollector:
             added=agg.added,
             modified=agg.modified,
             deleted=agg.deleted,
+            resolved=resolved,
         )
         files = [
             FileStatus(
@@ -314,6 +333,7 @@ class SourceCollector:
             retained=agg.retained,
             errors=agg.errors,
             duration_ms=int((time.monotonic() - start) * 1000),
+            resolved=resolved,
             files=files,
         )
 
