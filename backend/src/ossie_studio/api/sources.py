@@ -165,6 +165,7 @@ async def _build_manifest(
     source_type: str,
     connexion: str,
     parametres: dict[str, Any],
+    tri: list[dict[str, Any]] | None = None,
 ) -> tuple[SourceManifest, dict[str, object] | None]:
     if not is_valid_source_slug(slug):
         raise ApiError("invalid_request", status_code=400, fields=["slug_invalid"])
@@ -181,6 +182,7 @@ async def _build_manifest(
                 "type": source_type,
                 "connexion": connection_info["slug"] if connection_info is not None else "",
                 "parametres": parametres,
+                "tri": tri or [],
             }
         )
     except ManifestError as exc:
@@ -316,19 +318,19 @@ async def declare_branch_source(
     return _entry_payload(SourceEntry(manifest.slug, manifest, None), connection)
 
 
-async def _existing_type(
+async def _existing_manifest(
     conn: ConnDep,
     crypto: CryptoService,
     workdir: WorkdirManager,
     space_id: uuid.UUID,
     branch_slug: str,
     slug: str,
-) -> str:
+) -> SourceManifest:
     space, username, token = await space_credentials(conn, crypto, space_id)
     entries = await list_sources(workdir, space, branch_slug, username, token)
     for entry in entries:
         if entry.slug == slug and entry.manifest is not None:
-            return entry.manifest.type
+            return entry.manifest
     raise ApiError("source_not_found", status_code=404, slug=slug)
 
 
@@ -345,9 +347,10 @@ async def update_branch_source(
     body: SourceUpdateBody,
 ) -> dict[str, object]:
     branch_slug = await _branch_slug(conn, space_id, branch_id)
-    source_type = await _existing_type(conn, crypto, workdir, space_id, branch_slug, slug)
+    existing = await _existing_manifest(conn, crypto, workdir, space_id, branch_slug, slug)
     manifest, connection = await _build_manifest(
-        conn, slug, body.label, source_type, body.connexion, body.parametres
+        conn, slug, body.label, existing.type, body.connexion, body.parametres,
+        tri=existing.tri,  # les règles de tri se gèrent à part : une édition de source les préserve
     )
     if manifest.type == GIT_TYPE:
         _check_git_parseurs(manifest)

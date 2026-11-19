@@ -15,6 +15,7 @@ import type {
   ReviewObjectItem,
   ReviewResult,
   SourceItem,
+  TriRule,
 } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
@@ -698,11 +699,13 @@ function CurationTab({
   const [filter, setFilter] = useState<'all' | 'retained' | 'none'>('all')
   const [selected, setSelected] = useState<string | null>(null)
   const [enriching, setEnriching] = useState<string | null>(null)
+  const [showExcluded, setShowExcluded] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [messages, setMessages] = useState<string[]>([])
 
   const list = useQuery({
-    queryKey: ['curation', spaceId, branchId, slug],
-    queryFn: () => api.listCuration(spaceId, branchId, slug),
+    queryKey: ['curation', spaceId, branchId, slug, showExcluded],
+    queryFn: () => api.listCuration(spaceId, branchId, slug, showExcluded),
     retry: false,
   })
   const objects = list.data?.objects ?? []
@@ -769,6 +772,17 @@ function CurationTab({
           <option value="retained">{t('curationFilterRetained')}</option>
           <option value="none">{t('curationFilterNone')}</option>
         </select>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+          <input
+            type="checkbox"
+            checked={showExcluded}
+            onChange={(e) => setShowExcluded(e.target.checked)}
+          />
+          {t('curationShowExcluded')}
+        </label>
+        <button type="button" onClick={() => setRulesOpen((v) => !v)}>
+          {t('curationRules')}
+        </button>
         <button
           type="button"
           onClick={() => refresh.mutate(null)}
@@ -778,6 +792,10 @@ function CurationTab({
           {t('curationRefreshAll')}
         </button>
       </div>
+
+      {rulesOpen ? (
+        <RulesPanel spaceId={spaceId} branchId={branchId} slug={slug} onSaved={invalidate} />
+      ) : null}
 
       <ErrorList messages={messages} />
 
@@ -802,9 +820,21 @@ function CurationTab({
                       {t('curationOrphan')}
                     </span>
                   ) : null}
+                  {o.excluded ? (
+                    <span className="badge" style={{ marginLeft: '0.4rem', background: '#555' }}>
+                      {t('curationExcluded')}
+                    </span>
+                  ) : null}
                   <div className="mono muted" style={{ fontSize: '0.78rem' }}>
                     {o.path}
                   </div>
+                  {o.excluded_by ? (
+                    <div className="muted" style={{ fontSize: '0.74rem' }}>
+                      {o.excluded && !o.orphan
+                        ? `${t('curationExcludedBy')}: ${o.excluded_by}`
+                        : `${t('curationRuleConflict')}: ${o.excluded_by}`}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="mono">{o.kind}</td>
                 <td>{o.fields}</td>
@@ -1302,6 +1332,130 @@ function ReviewTab({
             </button>
           </div>
         </>
+      )}
+    </div>
+  )
+}
+
+function RulesPanel({
+  spaceId,
+  branchId,
+  slug,
+  onSaved,
+}: {
+  spaceId: string
+  branchId: string
+  slug: string
+  onSaved: () => Promise<unknown>
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [rules, setRules] = useState<TriRule[] | null>(null)
+  const [messages, setMessages] = useState<string[]>([])
+  const [notice, setNotice] = useState('')
+  const config = useQuery({
+    queryKey: ['curationRules', spaceId, branchId, slug],
+    queryFn: () => api.getCurationRules(spaceId, branchId, slug),
+    retry: false,
+  })
+  const targets = config.data?.targets ?? []
+  const kinds = config.data?.kinds ?? []
+  const current: TriRule[] = rules ?? config.data?.rules ?? []
+
+  const save = useMutation({
+    mutationFn: () => api.setCurationRules(spaceId, branchId, slug, current),
+    onSuccess: async () => {
+      setMessages([])
+      setNotice(t('curationRulesSaved'))
+      setRules(null)
+      await queryClient.invalidateQueries({
+        queryKey: ['curationRules', spaceId, branchId, slug],
+      })
+      await onSaved()
+    },
+    onError: (err) => {
+      setNotice('')
+      setMessages(errorMessages(t, err))
+    },
+  })
+
+  const update = (i: number, patch: Partial<TriRule>) =>
+    setRules(current.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const addRule = () =>
+    setRules([
+      ...current,
+      { target: targets[0] ?? 'object-name', pattern: '', kind: kinds[0] ?? 'glob', label: '' },
+    ])
+  const removeRule = (i: number) => setRules(current.filter((_, j) => j !== i))
+
+  return (
+    <div className="panel" style={{ marginBottom: '0.5rem' }}>
+      <p className="panel-label">{t('curationRulesTitle')}</p>
+      <p className="muted" style={{ fontSize: '0.82rem' }}>
+        {t('curationRulesIntro')}
+      </p>
+      <ErrorList messages={messages} />
+      {notice ? <p role="status">{notice}</p> : null}
+      {config.data ? (
+        <>
+          {current.length === 0 ? <p className="muted">{t('curationRulesEmpty')}</p> : null}
+          {current.map((r, i) => (
+            <div
+              key={i}
+              style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.3rem', flexWrap: 'wrap' }}
+            >
+              <select
+                value={r.target}
+                aria-label={t('curationRuleTarget')}
+                onChange={(e) => update(i, { target: e.target.value })}
+              >
+                {targets.map((tg) => (
+                  <option key={tg} value={tg}>
+                    {t(`triTarget_${tg}`)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={r.kind}
+                aria-label={t('curationRuleKind')}
+                onChange={(e) => update(i, { kind: e.target.value })}
+              >
+                {kinds.map((k) => (
+                  <option key={k} value={k}>
+                    {t(`triKind_${k}`)}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={r.pattern}
+                placeholder={t('curationRulePattern')}
+                aria-label={t('curationRulePattern')}
+                onChange={(e) => update(i, { pattern: e.target.value })}
+              />
+              <input
+                value={r.label ?? ''}
+                placeholder={t('curationRuleLabel')}
+                aria-label={t('curationRuleLabel')}
+                onChange={(e) => update(i, { label: e.target.value })}
+              />
+              <button type="button" onClick={() => removeRule(i)}>
+                {t('curationRuleRemove')}
+              </button>
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem' }}>
+            <button type="button" onClick={addRule}>
+              {t('curationRuleAdd')}
+            </button>
+            <button type="button" onClick={() => save.mutate()} disabled={save.isPending}>
+              {t('curationRulesSave')}
+            </button>
+          </div>
+        </>
+      ) : config.isError ? (
+        <ErrorList messages={errorMessages(t, config.error)} />
+      ) : (
+        <p className="muted">{t('loading')}</p>
       )}
     </div>
   )

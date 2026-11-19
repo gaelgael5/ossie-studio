@@ -19,12 +19,16 @@ from ossie_studio.sources.curation import (
     list_curation,
     read_enrichment,
     read_review_point,
+    read_tri_rules_raw,
     refresh_asset,
     refresh_assets_fn,
     refresh_targets,
     remove_asset_fn,
     retain_asset_fn,
+    set_tri_rules_fn,
 )
+from ossie_studio.sources.manifest import SourceManifest, dump_manifest
+from ossie_studio.sources.tri import compile_rules
 
 _RAW = {
     "$id": "app-user.json",
@@ -401,3 +405,71 @@ def test_apply_review_supprime_champ_objet_et_retient_nouveau(tmp_path: Path) ->
 def test_read_review_point_absent(tmp_path: Path) -> None:
     (tmp_path / "sources" / "api").mkdir(parents=True)
     assert read_review_point(tmp_path, "api") is None
+
+
+# --- Règles de tri -----------------------------------------------------------
+
+_DTO_RULE = [{"target": "object-name", "pattern": "*Dto", "kind": "glob"}]
+
+
+def test_list_curation_regle_cache_non_retenu(tmp_path: Path) -> None:
+    _seed_raw(tmp_path, "a.json", {"title": "UserDto", "properties": {"x": {}}})
+    _seed_raw(tmp_path, "b.json", {"title": "User", "properties": {"x": {}}})
+    rules = compile_rules(_DTO_RULE)
+    # Caché par défaut.
+    paths = {o.path for o in list_curation(tmp_path, "api", rules)}
+    assert paths == {"b.json"}
+    # Filtre « afficher les écartés » : montré, avec la règle.
+    shown = {o.path: o for o in list_curation(tmp_path, "api", rules, show_excluded=True)}
+    assert set(shown) == {"a.json", "b.json"}
+    assert shown["a.json"].excluded is True and shown["a.json"].excluded_by
+
+
+def test_list_curation_retenu_reste_visible_en_conflit(tmp_path: Path) -> None:
+    _seed_raw(tmp_path, "a.json", {"title": "UserDto", "properties": {"x": {}}})
+    _seed_asset(tmp_path, "a.json", {"title": "UserDto", "properties": {"x": {}}})  # retenu
+    rules = compile_rules(_DTO_RULE)
+    by_path = {o.path: o for o in list_curation(tmp_path, "api", rules)}
+    assert "a.json" in by_path  # jamais caché
+    assert by_path["a.json"].excluded is False and by_path["a.json"].excluded_by  # conflit signalé
+
+
+def test_build_review_regle_ecarte_nouvel_objet() -> None:
+    head = {"a.json": {"title": "UserDto", "type": "object", "properties": {}},
+            "b.json": {"title": "User", "type": "object", "properties": {}}}
+    rules = compile_rules(_DTO_RULE)
+    result = build_review({}, head, {}, rules)
+    assert [o.path for o in result.objects] == ["b.json"]  # a.json écarté
+
+
+def test_build_review_regle_ecarte_champ_apparu() -> None:
+    base = {"u.json": {"type": "object", "properties": {"a": {"type": "string"}}}}
+    head = {"u.json": {"type": "object", "properties": {
+        "a": {"type": "string"}, "ETL_TS": {"type": "string"}}}}
+    assets = {"u.json": {"type": "object", "x-origin": "raw/u.json",
+                         "properties": {"a": {"type": "string"}}}}
+    rules = compile_rules([{"target": "field-name", "pattern": "ETL_*", "kind": "glob"}])
+    result = build_review(base, head, assets, rules)
+    assert result.objects == []  # le seul changement (ETL_TS apparu) est écarté
+
+
+def _seed_manifest(tmp_path: Path) -> None:
+    manifest = SourceManifest(
+        slug="api", label="API", type="git", connexion="forge",
+        parametres={"depot": "o/r", "branche": "main", "parseurs": ["csharp"]},
+    )
+    (tmp_path / "sources" / "api").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "sources" / "api" / "manifest.yaml").write_text(
+        dump_manifest(manifest), encoding="utf-8"
+    )
+
+
+def test_tri_rules_roundtrip(tmp_path: Path) -> None:
+    _seed_manifest(tmp_path)
+    assert read_tri_rules_raw(tmp_path, "api") == []
+    rules = [{"target": "object-name", "pattern": "*Dto", "kind": "glob", "label": "DTO"}]
+    set_tri_rules_fn("api", rules)(tmp_path)
+    assert read_tri_rules_raw(tmp_path, "api") == rules
+    # Le reste du manifeste est préservé.
+    text = (tmp_path / "sources" / "api" / "manifest.yaml").read_text()
+    assert "depot: o/r" in text and "parseurs:" in text

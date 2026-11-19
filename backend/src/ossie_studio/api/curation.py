@@ -9,7 +9,12 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
-from ossie_studio.api.common import CurationRead, CurationReview, CurationWrite
+from ossie_studio.api.common import (
+    CurationRead,
+    CurationReview,
+    CurationRules,
+    CurationWrite,
+)
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_workdir_manager
 from ossie_studio.errors import ApiError
@@ -33,12 +38,17 @@ from ossie_studio.sources.curation import (
     read_enrichment,
     read_review_point,
     read_source_trees,
+    read_tri_rules,
+    read_tri_rules_raw,
     refresh_assets_fn,
     refresh_targets,
     remove_asset_fn,
     retain_asset_fn,
+    set_tri_rules_fn,
 )
+from ossie_studio.sources.manifest import ManifestError
 from ossie_studio.sources.paths import is_valid_source_slug, source_rel_dir
+from ossie_studio.sources.tri import TRI_KINDS, TRI_TARGETS, validate_tri_rules
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
 
@@ -66,6 +76,19 @@ class RemoveBody(BaseModel):
 class RefreshBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     paths: list[str] | None = None  # None = tous les assets retenus
+
+
+class TriRuleModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target: str
+    pattern: str
+    kind: str
+    label: str = ""
+
+
+class RulesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rules: list[TriRuleModel] = []
 
 
 class ReviewFieldRef(BaseModel):
@@ -107,6 +130,8 @@ def _object_payload(obj: CurationObject) -> dict[str, object]:
         "fields": obj.fields,
         "retained": obj.retained,
         "orphan": obj.orphan,
+        "excluded": obj.excluded,
+        "excluded_by": obj.excluded_by,
     }
 
 
@@ -135,6 +160,7 @@ async def list_source_curation(
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
     slug: str,
+    show_excluded: bool = False,
 ) -> dict[str, object]:
     if not is_valid_source_slug(slug):
         raise ApiError("curation_path_invalid", status_code=400)
@@ -143,7 +169,7 @@ async def list_source_curation(
     try:
         objects = await workdir.read_branch(
             space.id, branch_slug, space.repo_url, username, token,
-            lambda wc: list_curation(wc, slug),
+            lambda wc: list_curation(wc, slug, read_tri_rules(wc, slug), show_excluded),
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
@@ -181,7 +207,7 @@ async def get_source_curation_object(
     try:
         detail = await workdir.read_branch(
             space.id, branch_slug, space.repo_url, username, token,
-            lambda wc: get_object_detail(wc, slug, path),
+            lambda wc: get_object_detail(wc, slug, path, read_tri_rules(wc, slug)),
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
@@ -364,6 +390,76 @@ async def refresh_source_assets(
     return {"ok": True, "commit": commit, "refreshed": changed}
 
 
+# --- Règles de tri (écarter le bruit), réservées à l'administrateur -----------
+
+
+@router.get("/rules")
+async def get_source_rules(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: CurationRules,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    if not is_valid_source_slug(slug):
+        raise ApiError("curation_path_invalid", status_code=400)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        rules = await workdir.read_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            lambda wc: read_tri_rules_raw(wc, slug),
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    return {"rules": rules, "targets": list(TRI_TARGETS), "kinds": list(TRI_KINDS)}
+
+
+@router.put("/rules")
+async def set_source_rules(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationRules,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: RulesBody,
+) -> dict[str, object]:
+    if not is_valid_source_slug(slug):
+        raise ApiError("curation_path_invalid", status_code=400)
+    cleaned: list[dict[str, object]] = []
+    for rule in body.rules:
+        item: dict[str, object] = {
+            "target": rule.target, "pattern": rule.pattern, "kind": rule.kind,
+        }
+        if rule.label.strip():
+            item["label"] = rule.label.strip()
+        cleaned.append(item)
+    # Motif/ cible / genre invalide → refus nommant la règle (tri[i]:...).
+    errors = validate_tri_rules(cleaned)
+    if errors:
+        raise ApiError("invalid_request", status_code=400, fields=errors)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        commit = await workdir.commit_to_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            user.email, user.email, f"curation {slug} : règles de tri",
+            set_tri_rules_fn(slug, cleaned),
+        )
+    except FileNotFoundError:
+        raise ApiError("source_not_found", status_code=404, slug=slug) from None
+    except ManifestError as exc:
+        raise ApiError("invalid_request", status_code=400, fields=exc.fields) from None
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    log.info("curation_rules_set", author=user.email, slug=slug, count=len(cleaned))
+    return {"ok": True, "commit": commit, "rules": cleaned}
+
+
 # --- Revue des changements (réservée à l'administrateur, curation:review) ------
 
 
@@ -414,16 +510,16 @@ async def get_source_review(
     )
     raw_rel = f"{source_rel_dir(slug)}/{RAW_DIR}"
     try:
-        head_sha, base_sha, raw_base_text, trees = await workdir.review_inputs(
+        head_sha, base_sha, raw_base_text, bundle = await workdir.review_inputs(
             space.id, branch_slug, space.repo_url, username, token,
             raw_rel,
             lambda wc: read_review_point(wc, slug),
-            lambda wc: read_source_trees(wc, slug),
+            lambda wc: (read_source_trees(wc, slug), read_tri_rules(wc, slug)),
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
-    raw_head, assets = trees
-    result = build_review(parse_schema_texts(raw_base_text), raw_head, assets)
+    (raw_head, assets), rules = bundle
+    result = build_review(parse_schema_texts(raw_base_text), raw_head, assets, rules)
     return {
         "base_sha": base_sha,
         "head_sha": head_sha,

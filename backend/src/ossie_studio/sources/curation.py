@@ -12,8 +12,8 @@ sans table de correspondance) ; la partie **structurelle** vient du brut, le
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,20 @@ import yaml
 
 from ossie_studio.parsers.conventions import dump_schema
 from ossie_studio.sources.collect_core import RAW_DIR
-from ossie_studio.sources.paths import safe_assets_path, safe_review_path, safe_source_path
+from ossie_studio.sources.manifest import ManifestError, dump_manifest, parse_manifest
+from ossie_studio.sources.paths import (
+    MANIFEST_FILENAME,
+    safe_assets_path,
+    safe_review_path,
+    safe_source_path,
+)
+from ossie_studio.sources.tri import (
+    TriRule,
+    compile_rules,
+    field_excluded,
+    object_excluded,
+    rule_label,
+)
 
 ORIGIN_KEY = "x-origin"
 
@@ -79,6 +92,8 @@ class CurationObject:
     fields: int        # nombre de champs du brut
     retained: str      # none | partial | full
     orphan: bool       # retenu mais le brut a disparu (asset sans raw)
+    excluded: bool     # écarté par une règle de tri (caché sauf filtre)
+    excluded_by: str   # libellé de la règle qui l'écarte (ou "")
 
 
 @dataclass(frozen=True)
@@ -126,26 +141,41 @@ def _retained_state(raw: dict[str, Any], asset: dict[str, Any] | None) -> str:
     return "partial"
 
 
-def list_curation(workdir: Path, slug: str) -> list[CurationObject]:
-    """Les objets de `raw/` d'une source, avec leur état de rétention. Lecture
-    seule."""
+def list_curation(
+    workdir: Path,
+    slug: str,
+    rules: Sequence[TriRule] = (),
+    show_excluded: bool = False,
+) -> list[CurationObject]:
+    """Les objets de `raw/` d'une source, avec leur état de rétention. Les règles
+    de tri écartent les objets non retenus (cachés sauf `show_excluded`) ; un objet
+    **retenu** n'est jamais caché, mais signale la règle en conflit. Lecture seule."""
     try:
         raw_dir = safe_source_path(workdir, slug) / RAW_DIR
         assets_dir = safe_assets_path(workdir, slug)
     except ValueError:
         return []
+    rule_list = list(rules)
     raws = _read_json_dir(raw_dir)
     assets = _read_json_dir(assets_dir)
     objects: list[CurationObject] = []
     for name, raw in sorted(raws.items()):
+        retained = _retained_state(raw, assets.get(name))
+        rule = object_excluded(raw, rule_list)
+        # Non retenu + écarté = caché (sauf filtre) ; retenu + écarté = montré, en conflit.
+        hidden = rule is not None and retained == "none"
+        if hidden and not show_excluded:
+            continue
         objects.append(
             CurationObject(
                 path=name,
                 title=str(raw.get("title") or raw.get("$id") or name),
                 kind=str(raw.get("x-kind") or "object"),
                 fields=len(raw.get("properties") or {}),
-                retained=_retained_state(raw, assets.get(name)),
+                retained=retained,
                 orphan=False,
+                excluded=hidden,
+                excluded_by=rule_label(rule) if rule is not None else "",
             )
         )
     # Assets dont le brut a disparu : signalés orphelins (jamais supprimés par le
@@ -153,6 +183,7 @@ def list_curation(workdir: Path, slug: str) -> list[CurationObject]:
     for name, asset in sorted(assets.items()):
         if name in raws:
             continue
+        rule = object_excluded(asset, rule_list)
         objects.append(
             CurationObject(
                 path=name,
@@ -161,6 +192,8 @@ def list_curation(workdir: Path, slug: str) -> list[CurationObject]:
                 fields=len(asset.get("properties") or {}),
                 retained="full",
                 orphan=True,
+                excluded=False,  # un asset existe : jamais caché
+                excluded_by=rule_label(rule) if rule is not None else "",
             )
         )
     return objects
@@ -176,9 +209,12 @@ def _field_type(prop: dict[str, Any]) -> tuple[str, bool]:
     return str(label), has_ref
 
 
-def get_object_detail(workdir: Path, slug: str, path: str) -> CurationDetail | None:
+def get_object_detail(
+    workdir: Path, slug: str, path: str, rules: Sequence[TriRule] = ()
+) -> CurationDetail | None:
     """Champs d'un objet brut, avec l'état retenu (présent dans l'asset) et le
-    signalement des références. None si l'objet brut n'existe pas."""
+    signalement des références. Les champs écartés par une règle de tri sont
+    retirés (bruit). None si l'objet brut n'existe pas."""
     try:
         raw_file = safe_source_path(workdir, slug) / RAW_DIR / path
         asset_file = safe_assets_path(workdir, slug) / path
@@ -186,6 +222,7 @@ def get_object_detail(workdir: Path, slug: str, path: str) -> CurationDetail | N
         return None
     if not raw_file.is_file():
         return None
+    rule_list = list(rules)
     raw = json.loads(raw_file.read_text(encoding="utf-8"))
     asset_data: dict[str, Any] = {}
     if asset_file.is_file():
@@ -198,6 +235,8 @@ def get_object_detail(workdir: Path, slug: str, path: str) -> CurationDetail | N
     raw_props = raw.get("properties") or {}
     fields: list[CurationField] = []
     for name, prop in raw_props.items():
+        if field_excluded(name, rule_list) is not None:
+            continue  # champ technique écarté du tri
         if not isinstance(prop, dict):
             prop = {}
         label, ref = _field_type(prop)
@@ -208,6 +247,8 @@ def get_object_detail(workdir: Path, slug: str, path: str) -> CurationDetail | N
         )
     # Champs retenus disparus du brut : gardés, signalés « disparu à la source ».
     for name in asset_props - set(raw_props):
+        if field_excluded(name, rule_list) is not None:
+            continue
         prop = asset_data[name] if isinstance(asset_data[name], dict) else {}
         label, ref = _field_type(prop)
         fields.append(
@@ -554,7 +595,10 @@ def _lost_enrichment(node: dict[str, Any]) -> list[str]:
 
 
 def _review_fields(
-    rb: dict[str, Any] | None, rh: dict[str, Any] | None, asset: dict[str, Any]
+    rb: dict[str, Any] | None,
+    rh: dict[str, Any] | None,
+    asset: dict[str, Any],
+    rules: list[TriRule],
 ) -> list[ReviewField]:
     base = (rb or {}).get("properties") or {}
     head = (rh or {}).get("properties") or {}
@@ -579,8 +623,9 @@ def _review_fields(
                     lost_enrichment=_lost_enrichment(ap),
                 )
             )
-        elif in_h and not in_a and not in_b:
-            # Champ apparu dans la fenêtre sur un objet retenu, pas encore repris.
+        elif in_h and not in_a and not in_b and field_excluded(name, rules) is None:
+            # Champ apparu dans la fenêtre sur un objet retenu, pas encore repris
+            # (sauf champ technique écarté par une règle de tri).
             label, _ = _field_type(hp)
             out.append(ReviewField(name=name, change="appeared", type=label, lost_enrichment=[]))
     return out
@@ -594,10 +639,13 @@ def build_review(
     raw_base: dict[str, dict[str, Any]],
     raw_head: dict[str, dict[str, Any]],
     assets: dict[str, dict[str, Any]],
+    rules: Sequence[TriRule] = (),
 ) -> ReviewResult:
     """Décisions à présenter, par objet, en comparant brut@reprise, brut@HEAD et
-    assets. Ne remonte que le bruit utile ; déterministe (tri). `raw_base` vide =
+    assets. Ne remonte que le bruit utile ; les règles de tri écartent les nouveaux
+    objets et les champs apparus techniques. Déterministe (tri). `raw_base` vide =
     première revue (tout le brut est nouveau)."""
+    rule_list = list(rules)
     objects: list[ReviewObject] = []
     for name in sorted(set(raw_base) | set(raw_head) | set(assets)):
         rb = raw_base.get(name)
@@ -614,7 +662,7 @@ def build_review(
                         )
                     )
                 continue
-            fields = _review_fields(rb, rh, asset)
+            fields = _review_fields(rb, rh, asset, rule_list)
             if fields:
                 objects.append(
                     ReviewObject(
@@ -623,7 +671,8 @@ def build_review(
                         status="retained-touched", fields=fields,
                     )
                 )
-        elif rh is not None and rb is None:  # nouvel objet apparu dans la fenêtre
+        elif rh is not None and rb is None and object_excluded(rh, rule_list) is None:
+            # Nouvel objet apparu dans la fenêtre, pas écarté par une règle de tri.
             objects.append(
                 ReviewObject(
                     path=name,
@@ -682,5 +731,42 @@ def apply_review_fn(
             asset = build_asset(new_raw, None, None, f"{RAW_DIR}/{path}")
             (assets_dir / path).write_text(dump_schema(asset), encoding="utf-8")
         _write_review_point(workdir, slug, head_sha)
+
+    return write
+
+
+# --- Règles de tri (écarter le bruit), stockées dans le manifeste -------------
+
+
+def read_tri_rules_raw(workdir: Path, slug: str) -> list[dict[str, Any]]:
+    """Section `tri` brute du manifeste d'une source (pour l'éditeur). [] si le
+    manifeste est absent ou illisible. Lecture seule."""
+    try:
+        manifest_file = safe_source_path(workdir, slug) / MANIFEST_FILENAME
+        if not manifest_file.is_file():
+            return []
+        manifest = parse_manifest(manifest_file.read_text(encoding="utf-8"))
+    except (ManifestError, OSError, ValueError):  # défense en profondeur côté lecture
+        return []
+    return list(manifest.tri)
+
+
+def read_tri_rules(workdir: Path, slug: str) -> list[TriRule]:
+    """Règles de tri compilées d'une source (pour filtrer liste et revue)."""
+    return compile_rules(read_tri_rules_raw(workdir, slug))
+
+
+def set_tri_rules_fn(slug: str, rules: list[dict[str, Any]]) -> Callable[[Path], None]:
+    """Écrit la section `tri` du manifeste (remplace la liste), en un commit. Le
+    reste du manifeste est préservé. Lève SourceManifestError si le manifeste est
+    absent ou invalide."""
+
+    def write(workdir: Path) -> None:
+        manifest_file = safe_source_path(workdir, slug) / MANIFEST_FILENAME
+        if not manifest_file.is_file():
+            raise FileNotFoundError(slug)
+        manifest = parse_manifest(manifest_file.read_text(encoding="utf-8"))
+        updated = replace(manifest, tri=rules)
+        manifest_file.write_text(dump_manifest(updated), encoding="utf-8")
 
     return write

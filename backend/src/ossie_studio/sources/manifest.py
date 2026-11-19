@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
 
 from ossie_studio.sources.paths import is_valid_source_slug
+from ossie_studio.sources.tri import validate_tri_rules
 
 # Version du format de manifeste. Une évolution incompatible l'incrémente ;
 # chaque version sait se relire. Le champ `version` du fichier fait foi.
@@ -22,7 +23,7 @@ SOURCE_TYPES = (GIT_TYPE, *DB_TYPES, OPENAPI_TYPE)
 # Clés autorisées, par type. Toute autre clé est refusée (manifeste strict).
 _GIT_KEYS = {"depot", "branche", "repertoires", "parseurs", "exclusions"}
 _DB_KEYS = {"base", "schemas", "exclusions"}
-_TOP_KEYS = {"version", "slug", "label", "type", "connexion", "parametres"}
+_TOP_KEYS = {"version", "slug", "label", "type", "connexion", "parametres", "tri"}
 
 
 class ManifestError(Exception):
@@ -41,9 +42,11 @@ class SourceManifest:
     type: str
     connexion: str
     parametres: dict[str, Any]
+    # Règles de tri (écarter le bruit) ; section dédiée versionnée avec la source.
+    tri: list[dict[str, Any]] = field(default_factory=list)
 
     def to_mapping(self) -> dict[str, Any]:
-        return {
+        mapping: dict[str, Any] = {
             "version": MANIFEST_VERSION,
             "slug": self.slug,
             "label": self.label,
@@ -51,6 +54,9 @@ class SourceManifest:
             "connexion": self.connexion,
             "parametres": self.parametres,
         }
+        if self.tri:  # omise quand vide : un manifeste sans règle reste inchangé
+            mapping["tri"] = self.tri
+        return mapping
 
 
 def _str_list(value: Any) -> list[str] | None:
@@ -97,6 +103,8 @@ def _validate(data: dict[str, Any]) -> list[str]:
     elif source_type == OPENAPI_TYPE and params:
         # Aucun paramètre : les contrats vivent dans contrats/, pas dans le manifeste.
         errors.append("parametres_forbidden")
+
+    errors += validate_tri_rules(data.get("tri"))
     return errors
 
 
@@ -145,6 +153,7 @@ def manifest_from_mapping(data: dict[str, Any]) -> SourceManifest:
         type=str(data["type"]),
         connexion=str(data.get("connexion") or ""),
         parametres=dict(data["parametres"]),
+        tri=list(data.get("tri") or []),
     )
 
 

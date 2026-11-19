@@ -264,6 +264,21 @@ export interface CurationObjectItem {
   fields: number
   retained: 'none' | 'partial' | 'full'
   orphan: boolean
+  excluded: boolean
+  excluded_by: string
+}
+
+export interface TriRule {
+  target: string
+  pattern: string
+  kind: string
+  label?: string
+}
+
+export interface SourceRules {
+  rules: TriRule[]
+  targets: string[]
+  kinds: string[]
 }
 
 export interface CurationField {
@@ -634,9 +649,18 @@ export const api = {
     apiFetch<{ fichiers: ScanFileItem[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/scan`,
     ),
-  listCuration: (spaceId: string, branchId: string, slug: string) =>
+  listCuration: (spaceId: string, branchId: string, slug: string, showExcluded = false) =>
     apiFetch<{ objects: CurationObjectItem[] }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation`,
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation?show_excluded=${showExcluded}`,
+    ),
+  getCurationRules: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<SourceRules>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/rules`,
+    ),
+  setCurationRules: (spaceId: string, branchId: string, slug: string, rules: TriRule[]) =>
+    apiFetch<{ ok: boolean; commit: string | null; rules: TriRule[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/rules`,
+      { method: 'PUT', body: JSON.stringify({ rules }) },
     ),
   getCurationObject: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<CurationObjectDetail>(
