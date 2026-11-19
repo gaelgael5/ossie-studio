@@ -456,6 +456,7 @@ export const fr = {
       slug_mismatch: 'Le slug du manifeste ne correspond pas au répertoire.',
       manifest_missing: 'Manifeste absent.',
       manifest_invalid: 'Manifeste invalide.',
+      collect_git_only: 'La collecte ne concerne pour l’instant que les sources Git.',
       email_required: "L'adresse email est obligatoire.",
       email_invalid: "L'adresse email n'est pas valide.",
       password_required: 'Le mot de passe est obligatoire.',
@@ -634,6 +635,9 @@ export const fr = {
     errors: {
       source_slug_taken: 'Un slug de source déjà utilisé dans cette branche.',
       source_not_found: 'Source introuvable.',
+      collect_branch_behind:
+        'Collecte refusée : la branche porte des commits non publiés et la forge a avancé. Publiez d’abord la branche.',
+      collect_failed: 'Collecte impossible ({{cause}}).',
       generic: 'Une erreur est survenue ({{code}})',
       forbidden: 'Accès refusé.',
       unauthenticated: 'Vous devez être connecté.',

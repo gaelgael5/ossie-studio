@@ -84,6 +84,8 @@ ERROR_CODES: tuple[str, ...] = (
     "db_driver_unavailable",
     "source_slug_taken",
     "source_not_found",
+    "collect_branch_behind",
+    "collect_failed",
 )
 
 

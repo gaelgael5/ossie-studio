@@ -116,6 +116,10 @@ class SourceDownloader:
             raise SourceDownloadError("git_failed")
         return out.strip()
 
+    def source_path(self, space_id: uuid.UUID, slug: str) -> Path:
+        """Répertoire du code descendu d'une source sur le volume (chemin validé)."""
+        return self._safe_dir(space_id, slug)
+
     async def remove(self, space_id: uuid.UUID, slug: str) -> None:
         """Supprime le code descendu d'une source du volume (à la suppression de
         la source)."""

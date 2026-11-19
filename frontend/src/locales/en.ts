@@ -454,6 +454,7 @@ export const en = {
       slug_mismatch: 'The manifest slug does not match the directory.',
       manifest_missing: 'Manifest missing.',
       manifest_invalid: 'Invalid manifest.',
+      collect_git_only: 'Collection currently applies to Git sources only.',
       email_required: 'The email address is required.',
       email_invalid: 'The email address is not valid.',
       password_required: 'The password is required.',
@@ -631,6 +632,9 @@ export const en = {
     errors: {
       source_slug_taken: 'That source slug is already used in this branch.',
       source_not_found: 'Source not found.',
+      collect_branch_behind:
+        'Collection refused: the branch has unpublished commits and the forge has moved ahead. Publish the branch first.',
+      collect_failed: 'Collection failed ({{cause}}).',
       generic: 'Something went wrong ({{code}})',
       forbidden: 'Access denied.',
       unauthenticated: 'You must be signed in.',

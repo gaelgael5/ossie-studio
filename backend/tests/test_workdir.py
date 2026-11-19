@@ -126,7 +126,7 @@ async def test_commit_puis_publie(tmp_path: Path) -> None:
         "Alice", "alice@example.org", "ajoute data",
         _write("sources/data.txt", "v1"),
     )
-    assert created is True
+    assert created is not None
 
     pending = await manager.list_unpublished(space_id, "principale", url, "x", None)
     assert len(pending) == 1
@@ -149,7 +149,7 @@ async def test_commit_vide_jamais_de_commit(tmp_path: Path) -> None:
     created = await manager.commit_to_branch(
         space_id, "principale", url, "x", None, "Alice", "a@a", "rien", lambda _wd: None
     )
-    assert created is False
+    assert created is None
     assert await manager.list_unpublished(space_id, "principale", url, "x", None) == []
 
 
@@ -173,7 +173,7 @@ async def test_realignement_si_rien_en_attente(tmp_path: Path) -> None:
         space_id, "principale", url, "x", None, "Alice", "a@a", "après forge",
         _write("sources/data.txt", "v2"),
     )
-    assert created is True
+    assert created is not None
     assert await manager.publish(space_id, "principale", url, "x", None) == 1
     assert _clone_file(tmp_path, url, "work/principale", "x.txt", "b") == "forge"
 

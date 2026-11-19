@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
-from ossie_studio.api.common import SourcesDeclare, SourcesRead
+from ossie_studio.api.common import SourcesCollect, SourcesDeclare, SourcesRead
 from ossie_studio.connections.service import (
     db_get_connection_by_slug,
     resolve_connection_token,
@@ -20,12 +20,19 @@ from ossie_studio.deps import (
     ConnDep,
     get_crypto,
     get_http_client_factory,
+    get_source_collector,
     get_source_downloader,
     get_workdir_manager,
 )
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.base import ForgeError
 from ossie_studio.forges.registry import get_strategy
+from ossie_studio.sources.collect import CollectionError, CollectReport, SourceCollector
+from ossie_studio.sources.collections_service import (
+    CollectionRun,
+    db_list_collections,
+    db_record_collection,
+)
 from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.sources.manifest import (
     DB_TYPES,
@@ -52,6 +59,7 @@ router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/sources")
 CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 WorkdirDep = Annotated[WorkdirManager, Depends(get_workdir_manager)]
 DownloaderDep = Annotated[SourceDownloader, Depends(get_source_downloader)]
+CollectorDep = Annotated[SourceCollector, Depends(get_source_collector)]
 HttpFactoryDep = Annotated[Callable[[], httpx.AsyncClient], Depends(get_http_client_factory)]
 
 
@@ -318,3 +326,120 @@ async def delete_branch_source(
         raise _workdir_http_error(exc) from None
     # Le code descendu sur le volume des sources part avec la source.
     await downloader.remove(space_id, slug)
+
+
+def _collect_error(code: str) -> ApiError:
+    if code == "branch_behind":
+        return ApiError("collect_branch_behind", status_code=409)
+    if code == "branch_not_found":
+        return ApiError("branch_not_found", status_code=404)
+    return ApiError("collect_failed", status_code=502, cause=code)
+
+
+def _report_payload(report: CollectReport) -> dict[str, object]:
+    return {
+        "source_commit": report.source_commit,
+        "local_commit": report.local_commit,
+        "added": report.added,
+        "modified": report.modified,
+        "deleted": report.deleted,
+        "unchanged": report.unchanged,
+        "read": report.read,
+        "retained": report.retained,
+        "duration_ms": report.duration_ms,
+        "errors": [{"source": e.source, "cause": e.cause} for e in report.errors],
+    }
+
+
+def _run_payload(run: CollectionRun) -> dict[str, object]:
+    return {
+        "id": str(run.id),
+        "author": run.author_email,
+        "source_commit": run.source_commit,
+        "local_commit": run.local_commit,
+        "added": run.added,
+        "modified": run.modified,
+        "deleted": run.deleted,
+        "unchanged": run.unchanged,
+        "error_count": run.error_count,
+        "duration_ms": run.duration_ms,
+        "created_at": run.created_at.isoformat(),
+    }
+
+
+@router.post("/{slug}/collect")
+async def collect_branch_source(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: SourcesCollect,
+    workdir: WorkdirDep,
+    collector: CollectorDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    force: bool = False,
+) -> dict[str, object]:
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    branch_slug = branch.slug
+    space, space_username, space_token = await space_credentials(conn, crypto, space_id)
+    entries = await list_sources(workdir, space, branch_slug, space_username, space_token)
+    entry = next((e for e in entries if e.slug == slug and e.manifest is not None), None)
+    if entry is None or entry.manifest is None:
+        raise ApiError("source_not_found", status_code=404, slug=slug)
+    manifest = entry.manifest
+    if manifest.type != GIT_TYPE:
+        # Les sources de base se lisent par leur catalogue (epic Parseurs).
+        raise ApiError("invalid_request", status_code=400, fields=["collect_git_only"])
+    connection = await db_get_connection_by_slug(conn, manifest.connexion)
+    if connection is None:
+        raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
+    strategy = get_strategy(connection.forge)
+    source_token = (await resolve_connection_token(conn, crypto, connection)).reveal()
+    try:
+        report = await collector.collect(
+            space=space,
+            branch_slug=branch_slug,
+            branche_label=branch_slug,
+            space_username=space_username,
+            space_token=space_token,
+            source_slug=slug,
+            source_clone_url=strategy.git_clone_url(
+                connection.url, str(manifest.parametres.get("depot", ""))
+            ),
+            source_branch=str(manifest.parametres.get("branche", "")),
+            source_username=strategy.git_username(),
+            source_token=source_token,
+            author_name=user.email,
+            author_email=user.email,
+            force=force,
+        )
+    except CollectionError as exc:
+        raise _collect_error(exc.code) from None
+    await db_record_collection(
+        conn,
+        space_id=space_id,
+        branch_slug=branch_slug,
+        source_slug=slug,
+        author_email=user.email,
+        report=report,
+    )
+    return _report_payload(report)
+
+
+@router.get("/{slug}/collections")
+async def list_source_collections(
+    conn: ConnDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    runs = await db_list_collections(
+        conn, space_id=space_id, branch_slug=branch.slug, source_slug=slug
+    )
+    return {"collections": [_run_payload(r) for r in runs]}

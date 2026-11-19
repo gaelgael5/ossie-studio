@@ -231,11 +231,11 @@ class WorkdirManager:
         author_email: str,
         message: str,
         write_fn: Callable[[Path], None],
-    ) -> bool:
+    ) -> str | None:
         """Écrit dans la copie d'une branche de travail et produit un commit
         local (auteur = le compte déclencheur, message préfixé `ossie: `), sans
-        pousser. Jamais de commit vide : renvoie False si l'écriture n'a rien
-        changé."""
+        pousser. Jamais de commit vide : renvoie le sha du commit, ou None si
+        l'écriture n'a rien changé."""
         ref = f"{WORK_PREFIX}{slug}"
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
@@ -249,7 +249,7 @@ class WorkdirManager:
             await run_git(["add", "-A"], workdir, env)
             code, out, _ = await run_git(["status", "--porcelain"], workdir, env)
             if not out.strip():
-                return False
+                return None
             author_env = {
                 **env,
                 "GIT_AUTHOR_NAME": author_name,
@@ -262,8 +262,9 @@ class WorkdirManager:
             )
             if code != 0:
                 raise WorkdirError(_access_code(classify(err)))
+            _, sha, _ = await run_git(["rev-parse", "HEAD"], workdir, env)
             log.info("commit_to_branch", space_id=str(space_id), ref=ref)
-            return True
+            return sha.strip()
 
     async def read_branch(
         self,
@@ -287,6 +288,32 @@ class WorkdirManager:
                 raise WorkdirError("branch_not_found")
             await self._checkout_branch(workdir, ref, env)
             return read_fn(workdir)
+
+    async def _count(self, workdir: Path, rev_range: str, env: dict[str, str]) -> int:
+        code, out, _ = await run_git(["rev-list", "--count", rev_range], workdir, env)
+        return int(out.strip() or "0") if code == 0 else 0
+
+    async def divergence(
+        self, space_id: uuid.UUID, slug: str, repo_url: str, username: str, token: str | None
+    ) -> tuple[int, int]:
+        """Rend (commits locaux non publiés, commits dont la forge a avancé) pour
+        une branche de travail. Une collecte refuse de tourner quand les deux sont
+        non nuls (base périmée)."""
+        ref = f"{WORK_PREFIX}{slug}"
+        workdir = self._dir(space_id, slug)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            if not await self._remote_branch_exists(workdir, ref, env):
+                raise WorkdirError("branch_not_found")
+            code, _, _ = await run_git(
+                ["rev-parse", "--verify", "--quiet", f"refs/heads/{ref}"], workdir, env
+            )
+            if code != 0:
+                return (0, 0)
+            ahead = await self._count(workdir, f"origin/{ref}..{ref}", env)
+            behind = await self._count(workdir, f"{ref}..origin/{ref}", env)
+            return (ahead, behind)
 
     async def list_unpublished(
         self, space_id: uuid.UUID, slug: str, repo_url: str, username: str, token: str | None

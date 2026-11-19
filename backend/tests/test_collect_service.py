@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import subprocess
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from ossie_studio.models import GitSpace
+from ossie_studio.sources.collect import CollectionError, SourceCollector
+from ossie_studio.sources.download import SourceDownloader
+from ossie_studio.spaces.workdir import WorkdirManager
+
+
+def _git(cwd: Path, *args: str) -> str:
+    out = subprocess.run(
+        ["git", "-c", "user.email=a@a", "-c", "user.name=a", *args],
+        cwd=str(cwd),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return out.stdout.strip()
+
+
+def _schema(title: str) -> str:
+    return f'{{"title": "{title}", "type": "object"}}'
+
+
+def _make_bare_with(tmp_path: Path, name: str, files: dict[str, str]) -> tuple[str, Path]:
+    bare = tmp_path / f"{name}.git"
+    subprocess.run(["git", "init", "-q", "-b", "main", "--bare", str(bare)], check=True)
+    work = tmp_path / f"{name}-seed"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+    for rel, content in files.items():
+        (work / rel).parent.mkdir(parents=True, exist_ok=True)
+        (work / rel).write_text(content, encoding="utf-8")
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", "seed")
+    _git(work, "remote", "add", "origin", str(bare))
+    _git(work, "push", "-q", "origin", "main")
+    return f"file://{bare}", work
+
+
+def _push(work: Path) -> None:
+    _git(work, "add", "-A")
+    _git(work, "commit", "-q", "-m", "change")
+    _git(work, "push", "-q", "origin", "main")
+
+
+@pytest.fixture
+def setup(tmp_path: Path) -> tuple[SourceCollector, GitSpace, Path, Path]:
+    workdir = WorkdirManager(tmp_path / "work")
+    downloader = SourceDownloader(tmp_path / "volume")
+    collector = SourceCollector(workdir, downloader)
+    space_url, _ = _make_bare_with(tmp_path, "space", {"README.md": "x"})
+    space = GitSpace(
+        id=uuid.uuid4(),
+        name="modele",
+        connection_id=uuid.uuid4(),
+        repo_url=space_url,
+        last_probe_status="valid",
+        last_probe_at=None,
+        created_at=datetime.now(UTC),
+    )
+    return collector, space, tmp_path, Path(space_url.removeprefix("file://"))
+
+
+async def _base_branch(collector: SourceCollector, space: GitSpace) -> None:
+    await collector._workdir.create_base_branch(space.id, "principale", space.repo_url, "x", None)
+
+
+def _raw(tmp_path: Path, space: GitSpace) -> Path:
+    return tmp_path / "work" / str(space.id) / "principale" / "sources" / "api" / "raw"
+
+
+async def _collect(collector, space, source_url, *, force=False):
+    return await collector.collect(
+        space=space,
+        branch_slug="principale",
+        branche_label="principale",
+        space_username="x",
+        space_token=None,
+        source_slug="api",
+        source_clone_url=source_url,
+        source_branch="main",
+        source_username="x",
+        source_token=None,
+        author_name="a@a",
+        author_email="a@a",
+        force=force,
+    )
+
+
+async def test_premiere_collecte_ecrit_les_schemas(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, _ = _make_bare_with(
+        tmp_path, "src", {"a.schema.json": _schema("A"), "b.schema.json": _schema("B")}
+    )
+    report = await _collect(collector, space, src)
+    assert report.added == 2
+    assert report.local_commit is not None
+    raw = _raw(tmp_path, space)
+    assert (raw / "a.json").is_file() and (raw / "b.json").is_file()
+    assert (raw / "manifest.yaml").is_file()
+
+
+async def test_collecte_idempotente(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, _ = _make_bare_with(tmp_path, "src", {"a.schema.json": _schema("A")})
+    await _collect(collector, space, src)
+    second = await _collect(collector, space, src)
+    assert second.local_commit is None  # aucun changement, pas de commit
+    assert second.unchanged == 1
+
+
+async def test_fichier_modifie(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, work = _make_bare_with(
+        tmp_path, "src", {"a.schema.json": _schema("A"), "b.schema.json": _schema("B")}
+    )
+    await _collect(collector, space, src)
+    (work / "b.schema.json").write_text('{"title": "B2", "type": "object"}', encoding="utf-8")
+    _push(work)
+    report = await _collect(collector, space, src)
+    assert report.modified == 1
+    assert report.unchanged == 1
+
+
+async def test_fichier_supprime(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, work = _make_bare_with(
+        tmp_path, "src", {"a.schema.json": _schema("A"), "b.schema.json": _schema("B")}
+    )
+    await _collect(collector, space, src)
+    (work / "b.schema.json").unlink()
+    _push(work)
+    report = await _collect(collector, space, src)
+    assert report.deleted == 1
+    assert not (_raw(tmp_path, space) / "b.json").exists()
+
+
+async def test_collecte_forcee_relit_tout(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, _ = _make_bare_with(tmp_path, "src", {"a.schema.json": _schema("A")})
+    await _collect(collector, space, src)
+    forced = await _collect(collector, space, src, force=True)
+    assert forced.read == 1  # relu malgré checksum identique
+    assert forced.local_commit is None  # sortie déterministe : rien à committer
+
+
+async def test_branche_en_retard_refuse(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, _ = _make_bare_with(tmp_path, "src", {"a.schema.json": _schema("A")})
+    await _collect(collector, space, src)  # crée un commit local non publié
+    # La forge avance sur work/principale, par un autre clone.
+    other = tmp_path / "other"
+    _git(tmp_path, "clone", "-q", "-b", "work/principale", space.repo_url, str(other))
+    (other / "ailleurs.txt").write_text("x", encoding="utf-8")
+    _git(other, "add", "-A")
+    _git(other, "commit", "-q", "-m", "avance")
+    _git(other, "push", "-q", "origin", "work/principale")
+    with pytest.raises(CollectionError) as exc:
+        await _collect(collector, space, src)
+    assert exc.value.code == "branch_behind"
