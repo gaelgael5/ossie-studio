@@ -445,6 +445,7 @@ export const fr = {
       branche_required: 'La branche suivie est obligatoire.',
       branche_not_found: 'Cette branche n’existe pas dans le dépôt source.',
       repertoires_invalid: 'Les répertoires doivent être une liste de chaînes.',
+      parseurs_invalid: 'Les parseurs doivent être une liste de chaînes.',
       base_required: 'La base est obligatoire.',
       schemas_invalid: 'Les schémas doivent être une liste de chaînes.',
       exclusions_invalid: 'Les exclusions doivent être une liste de chaînes.',

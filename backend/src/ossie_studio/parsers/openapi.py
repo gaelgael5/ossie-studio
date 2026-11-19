@@ -25,10 +25,19 @@ from typing import Any
 
 import yaml
 
-from ossie_studio.parsers.base import ParsedObject, ParserError
+from ossie_studio.parsers.base import (
+    CIBLE_RAW,
+    ParsedObject,
+    ParserError,
+    PluginContext,
+    PluginParam,
+    PluginResult,
+    matches_globs,
+)
 
 OPENAPI_PARSER_ID = "openapi"
 OPENAPI_PARSER_VERSION = "1.0"
+_GLOBS = ["*.yaml", "*.yml", "*.json"]
 
 _SCHEMA_REF_PREFIX = "#/components/schemas/"
 _HTTP_METHODS = ("get", "put", "post", "delete", "patch", "options", "head", "trace")
@@ -310,10 +319,23 @@ class OpenApiParser:
 
     id = OPENAPI_PARSER_ID
     version = OPENAPI_PARSER_VERSION
+    label = "Contrats OpenAPI"
+    cible = CIBLE_RAW
+
+    def globs(self) -> list[str]:
+        return list(_GLOBS)
+
+    def parameters(self) -> list[PluginParam]:
+        return []
+
+    def run(self, context: PluginContext) -> PluginResult:
+        # Import tardif : évite un cycle base ← collect_core ← openapi.
+        from ossie_studio.sources.collect_core import schema_plugin_run
+
+        return schema_plugin_run(context, self)
 
     def handles(self, path: str) -> bool:
-        lower = path.lower()
-        return lower.endswith((".yaml", ".yml", ".json"))
+        return matches_globs(_GLOBS, path.lower())
 
     def parse(self, files: dict[str, bytes]) -> list[ParsedObject]:
         objects: list[ParsedObject] = []

@@ -2,23 +2,27 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import structlog
 
 from ossie_studio.models import GitSpace
-from ossie_studio.parsers.registry import all_parsers, openapi_parsers
-from ossie_studio.sources.collect_core import (
-    RAW_DIR,
-    TECH_MANIFEST_NAME,
-    CollectError,
-    TechManifest,
-    dump_tech_manifest,
-    parse_tech_manifest,
-    run_collection,
+from ossie_studio.parsers.base import (
+    CIBLE_RAW,
+    STATUT_ERREUR,
+    STATUT_IGNORE,
+    FileRow,
+    OutputAction,
+    Plugin,
+    PluginContext,
+    PluginError,
+    PluginResult,
+    RawAccess,
+    matches_globs,
 )
-from ossie_studio.sources.collect_core import CollectionPlan as _Plan
+from ossie_studio.parsers.registry import openapi_plugin, select_code_plugins
+from ossie_studio.sources.collect_core import RAW_DIR, checksum
 from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
 from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
 from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
@@ -35,6 +39,17 @@ class CollectionError(Exception):
         self.code = code
 
 
+@dataclass(frozen=True)
+class FileStatus:
+    """Une ligne de la table de travail à l'issue d'une collecte."""
+
+    path: str
+    crc: str
+    cible: str
+    statut: str
+    message: str = ""
+
+
 @dataclass
 class CollectReport:
     source_commit: str
@@ -45,8 +60,9 @@ class CollectReport:
     unchanged: int
     read: int
     retained: int
-    errors: list[CollectError]
+    errors: list[PluginError]
     duration_ms: int
+    files: list[FileStatus] = field(default_factory=list)
 
 
 def _read_source_files(root: Path) -> dict[str, bytes]:
@@ -80,35 +96,78 @@ def _raw_dir(work_copy: Path, source_slug: str) -> Path:
     return work_copy / SOURCES_DIR / source_slug / RAW_DIR
 
 
-def _read_raw(work_copy: Path, source_slug: str) -> tuple[TechManifest, dict[str, str]]:
+def _read_raw_files(work_copy: Path, source_slug: str) -> dict[str, str]:
+    """Instantané de `raw/` : chemin relatif → contenu texte. Sert d'accès lecture
+    seule aux plugins (leur index, leurs sorties)."""
     raw = _raw_dir(work_copy, source_slug)
-    manifest_file = raw / TECH_MANIFEST_NAME
-    previous = (
-        parse_tech_manifest(manifest_file.read_text(encoding="utf-8"))
-        if manifest_file.is_file()
-        else TechManifest()
-    )
-    schemas: dict[str, str] = {}
+    files: dict[str, str] = {}
     if raw.is_dir():
-        for schema in raw.glob("*.json"):
-            schemas[schema.name] = schema.read_text(encoding="utf-8")
-    return previous, schemas
+        for path in sorted(raw.rglob("*")):
+            if path.is_file():
+                files[path.relative_to(raw).as_posix()] = path.read_text(encoding="utf-8")
+    return files
 
 
-def _apply_plan(work_copy: Path, source_slug: str, plan: _Plan) -> None:
+class _RawSnapshot(RawAccess):
+    """Accès lecture seule à `raw/` depuis un instantané en mémoire."""
+
+    def __init__(self, files: dict[str, str]) -> None:
+        self._files = files
+
+    def read_index(self, name: str) -> str | None:
+        return self._files.get(name)
+
+    def read_output(self, path: str) -> str | None:
+        return self._files.get(path)
+
+    def list_outputs(self) -> dict[str, str]:
+        return dict(self._files)
+
+
+def _apply_actions(
+    work_copy: Path, source_slug: str, writes: list[OutputAction], deletes: list[str]
+) -> None:
+    """Écrivain **unique** du socle : applique les actions de tous les plugins dans
+    `raw/`. Les plugins ne touchent jamais au disque eux-mêmes."""
     raw = _raw_dir(work_copy, source_slug)
     raw.mkdir(parents=True, exist_ok=True)
-    for dest, content in plan.writes.items():
-        (raw / dest).write_text(content, encoding="utf-8")
-    for dest in plan.deletes:
+    for action in writes:
+        target = raw / action.path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(action.content, encoding="utf-8")
+    for dest in deletes:
         (raw / dest).unlink(missing_ok=True)
-    (raw / TECH_MANIFEST_NAME).write_text(dump_tech_manifest(plan.manifest), encoding="utf-8")
+
+
+@dataclass
+class _Aggregate:
+    writes: list[OutputAction] = field(default_factory=list)
+    deletes: list[str] = field(default_factory=list)
+    errors: list[PluginError] = field(default_factory=list)
+    added: int = 0
+    modified: int = 0
+    deleted: int = 0
+    unchanged: int = 0
+    read: int = 0
+    retained: int = 0
+
+    def merge(self, result: PluginResult) -> None:
+        self.writes += result.writes
+        self.deletes += result.deletes
+        self.errors += result.errors
+        self.added += result.added
+        self.modified += result.modified
+        self.deleted += result.deleted
+        self.unchanged += result.unchanged
+        self.read += result.read
+        self.retained += result.retained
 
 
 class SourceCollector:
-    """Orchestre une collecte : branche à jour → descente → lecture incrémentale
-    → commit local. Un verrou par (espace, branche, source) garantit qu'une seule
-    collecte tourne à la fois sur une même source."""
+    """Orchestre une collecte : branche à jour → inventaire des fichiers →
+    exécution des plugins **en série** → écriture unique → un commit local. Un
+    verrou par (espace, branche, source) garantit une seule collecte à la fois sur
+    une même source."""
 
     def __init__(self, workdir: WorkdirManager, downloader: SourceDownloader) -> None:
         self._workdir = workdir
@@ -117,6 +176,128 @@ class SourceCollector:
 
     def _lock(self, key: str) -> asyncio.Lock:
         return self._locks.setdefault(key, asyncio.Lock())
+
+    async def _divergence_or_refuse(
+        self, space: GitSpace, branch_slug: str, username: str, token: str | None
+    ) -> None:
+        try:
+            ahead, behind = await self._workdir.divergence(
+                space.id, branch_slug, space.repo_url, username, token
+            )
+        except WorkdirError as exc:
+            raise CollectionError(exc.code) from None
+        if ahead > 0 and behind > 0:
+            raise CollectionError("branch_behind")
+
+    async def _run(
+        self,
+        *,
+        space: GitSpace,
+        branch_slug: str,
+        branche_label: str,
+        space_username: str,
+        space_token: str | None,
+        source_slug: str,
+        source_files: dict[str, bytes],
+        plugins: list[Plugin],
+        author_name: str,
+        author_email: str,
+        force: bool,
+        source_commit: str,
+        start: float,
+    ) -> CollectReport:
+        # 1. Instantané de raw/ (index et sorties des plugins), accès lecture seule.
+        try:
+            raw_files = await self._workdir.read_branch(
+                space.id,
+                branch_slug,
+                space.repo_url,
+                space_username,
+                space_token,
+                lambda wc: _read_raw_files(wc, source_slug),
+            )
+        except WorkdirError as exc:
+            raise CollectionError(exc.code) from None
+        raw = _RawSnapshot(raw_files)
+
+        # 2. Inventaire des fichiers source (la table de travail), avec leur crc.
+        working = {path: checksum(data) for path, data in source_files.items()}
+        statuts: dict[str, str] = {path: STATUT_IGNORE for path in working}
+        messages: dict[str, str] = {}
+
+        # 3. Plugins en série ; chacun décide (index + crc), rend des actions.
+        agg = _Aggregate()
+        for plugin in plugins:
+            matching = {p: d for p, d in source_files.items() if matches_globs(plugin.globs(), p)}
+            context = PluginContext(
+                files=[FileRow(path=p, crc=working[p]) for p in sorted(matching)],
+                contents=matching,
+                raw=raw,
+                params={},
+                force=force,
+                branche=branche_label,
+            )
+            result = plugin.run(context)
+            agg.merge(result)
+            for src, statut in result.statuses.items():
+                statuts[src] = statut
+            for err in result.errors:
+                statuts[err.source] = STATUT_ERREUR
+                messages[err.source] = err.cause
+
+        # 4-5. Écriture unique + commit local unique.
+        descripteur = f" {source_commit[:7]}" if source_commit else " (contrats)"
+        message = (
+            f"collecte {source_slug}{descripteur} : +{agg.added} ~{agg.modified} -{agg.deleted}"
+        )
+        writes, deletes = list(agg.writes), list(agg.deletes)
+        try:
+            local_commit = await self._workdir.commit_to_branch(
+                space.id,
+                branch_slug,
+                space.repo_url,
+                space_username,
+                space_token,
+                author_name,
+                author_email,
+                message,
+                lambda wc: _apply_actions(wc, source_slug, writes, deletes),
+            )
+        except WorkdirError as exc:
+            raise CollectionError(exc.code) from None
+
+        log.info(
+            "source_collected",
+            space_id=str(space.id),
+            slug=source_slug,
+            source_commit=source_commit,
+            added=agg.added,
+            modified=agg.modified,
+            deleted=agg.deleted,
+        )
+        files = [
+            FileStatus(
+                path=path,
+                crc=working[path],
+                cible=CIBLE_RAW,
+                statut=statuts[path],
+                message=messages.get(path, ""),
+            )
+            for path in sorted(working)
+        ]
+        return CollectReport(
+            source_commit=source_commit,
+            local_commit=local_commit,
+            added=agg.added,
+            modified=agg.modified,
+            deleted=agg.deleted,
+            unchanged=agg.unchanged,
+            read=agg.read,
+            retained=agg.retained,
+            errors=agg.errors,
+            duration_ms=int((time.monotonic() - start) * 1000),
+            files=files,
+        )
 
     async def collect(
         self,
@@ -134,21 +315,12 @@ class SourceCollector:
         author_name: str,
         author_email: str,
         force: bool,
+        parseurs: list[str] | None = None,
     ) -> CollectReport:
         key = f"{space.id}/{branch_slug}/{source_slug}"
         async with self._lock(key):
             start = time.monotonic()
-            # 1. Branche de travail à jour ; refus si périmée.
-            try:
-                ahead, behind = await self._workdir.divergence(
-                    space.id, branch_slug, space.repo_url, space_username, space_token
-                )
-            except WorkdirError as exc:
-                raise CollectionError(exc.code) from None
-            if ahead > 0 and behind > 0:
-                raise CollectionError("branch_behind")
-
-            # 2. Source à jour (descente), identifiant du commit descendu.
+            await self._divergence_or_refuse(space, branch_slug, space_username, space_token)
             try:
                 source_commit = await self._downloader.download(
                     space.id,
@@ -162,60 +334,20 @@ class SourceCollector:
                 raise CollectionError(exc.code) from None
             source_dir = self._downloader.source_path(space.id, source_slug)
             source_files = await asyncio.to_thread(_read_source_files, source_dir)
-
-            # 3. Lecture incrémentale sur l'état courant de raw/.
-            previous, existing = await self._workdir.read_branch(
-                space.id,
-                branch_slug,
-                space.repo_url,
-                space_username,
-                space_token,
-                lambda wc: _read_raw(wc, source_slug),
-            )
-            plan = run_collection(
-                source_files, all_parsers(), previous, existing, branche=branche_label, force=force
-            )
-
-            # 4-5. Commit local unique (message : source, commit source, compteurs).
-            message = (
-                f"collecte {source_slug} {source_commit[:7]} : "
-                f"+{plan.added} ~{plan.modified} -{plan.deleted}"
-            )
-            try:
-                local_commit = await self._workdir.commit_to_branch(
-                    space.id,
-                    branch_slug,
-                    space.repo_url,
-                    space_username,
-                    space_token,
-                    author_name,
-                    author_email,
-                    message,
-                    lambda wc: _apply_plan(wc, source_slug, plan),
-                )
-            except WorkdirError as exc:
-                raise CollectionError(exc.code) from None
-
-            log.info(
-                "source_collected",
-                space_id=str(space.id),
-                slug=source_slug,
+            return await self._run(
+                space=space,
+                branch_slug=branch_slug,
+                branche_label=branche_label,
+                space_username=space_username,
+                space_token=space_token,
+                source_slug=source_slug,
+                source_files=source_files,
+                plugins=select_code_plugins(parseurs),
+                author_name=author_name,
+                author_email=author_email,
+                force=force,
                 source_commit=source_commit,
-                added=plan.added,
-                modified=plan.modified,
-                deleted=plan.deleted,
-            )
-            return CollectReport(
-                source_commit=source_commit,
-                local_commit=local_commit,
-                added=plan.added,
-                modified=plan.modified,
-                deleted=plan.deleted,
-                unchanged=plan.unchanged,
-                read=plan.read,
-                retained=plan.retained,
-                errors=plan.errors,
-                duration_ms=int((time.monotonic() - start) * 1000),
+                start=start,
             )
 
     async def collect_openapi(
@@ -232,68 +364,34 @@ class SourceCollector:
         force: bool,
     ) -> CollectReport:
         """Collecte une source `openapi` : pas de descente (les contrats sont déjà
-        versionnés dans `contrats/`), lecture incrémentale → `raw/`, commit local.
-        `source_commit` est vide : rien n'est descendu."""
+        versionnés dans `contrats/`), `source_commit` vide."""
         key = f"{space.id}/{branch_slug}/{source_slug}"
         async with self._lock(key):
             start = time.monotonic()
+            await self._divergence_or_refuse(space, branch_slug, space_username, space_token)
             try:
-                ahead, behind = await self._workdir.divergence(
-                    space.id, branch_slug, space.repo_url, space_username, space_token
-                )
-            except WorkdirError as exc:
-                raise CollectionError(exc.code) from None
-            if ahead > 0 and behind > 0:
-                raise CollectionError("branch_behind")
-
-            previous, existing, contrats = await self._workdir.read_branch(
-                space.id,
-                branch_slug,
-                space.repo_url,
-                space_username,
-                space_token,
-                lambda wc: (*_read_raw(wc, source_slug), _read_contrats(wc, source_slug)),
-            )
-            plan = run_collection(
-                contrats, openapi_parsers(), previous, existing, branche=branche_label, force=force
-            )
-            message = (
-                f"collecte {source_slug} (contrats) : "
-                f"+{plan.added} ~{plan.modified} -{plan.deleted}"
-            )
-            try:
-                local_commit = await self._workdir.commit_to_branch(
+                contrats = await self._workdir.read_branch(
                     space.id,
                     branch_slug,
                     space.repo_url,
                     space_username,
                     space_token,
-                    author_name,
-                    author_email,
-                    message,
-                    lambda wc: _apply_plan(wc, source_slug, plan),
+                    lambda wc: _read_contrats(wc, source_slug),
                 )
             except WorkdirError as exc:
                 raise CollectionError(exc.code) from None
-
-            log.info(
-                "source_collected",
-                space_id=str(space.id),
-                slug=source_slug,
-                source="contrats",
-                added=plan.added,
-                modified=plan.modified,
-                deleted=plan.deleted,
-            )
-            return CollectReport(
+            return await self._run(
+                space=space,
+                branch_slug=branch_slug,
+                branche_label=branche_label,
+                space_username=space_username,
+                space_token=space_token,
+                source_slug=source_slug,
+                source_files=contrats,
+                plugins=[openapi_plugin()],
+                author_name=author_name,
+                author_email=author_email,
+                force=force,
                 source_commit="",
-                local_commit=local_commit,
-                added=plan.added,
-                modified=plan.modified,
-                deleted=plan.deleted,
-                unchanged=plan.unchanged,
-                read=plan.read,
-                retained=plan.retained,
-                errors=plan.errors,
-                duration_ms=int((time.monotonic() - start) * 1000),
+                start=start,
             )

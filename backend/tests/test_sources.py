@@ -482,3 +482,22 @@ async def test_depot_reserve_a_la_capacite(
             json={"filename": "p.yaml", "content": _CONTRACT_31, "version": "v2", "replace": False},
         )
     assert r.status_code == 403
+
+
+async def test_table_de_travail_apres_collecte(
+    branch: tuple[AsyncClient, str, str, str],
+) -> None:
+    client, space_id, branch_id, _ = branch
+    base = f"/api/spaces/{space_id}/branches/{branch_id}/sources"
+    await _declare_openapi(client, base)
+    await client.post(
+        f"{base}/api-paiement/contracts",
+        json={"filename": "p.yaml", "content": _CONTRACT_31, "version": "v2", "replace": False},
+    )
+    await client.post(f"{base}/api-paiement/collect")
+    # L'index de travail porte le contrat vu, sa cible et son statut de traitement.
+    scan = (await client.get(f"{base}/api-paiement/scan")).json()["fichiers"]
+    row = next(f for f in scan if f["path"] == "v2.yaml")
+    assert row["cible"] == "raw"
+    assert row["statut"] == "traité"
+    assert row["crc"]

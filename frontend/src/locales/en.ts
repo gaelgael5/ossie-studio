@@ -443,6 +443,7 @@ export const en = {
       branche_required: 'The tracked branch is required.',
       branche_not_found: 'That branch does not exist in the source repository.',
       repertoires_invalid: 'Directories must be a list of strings.',
+      parseurs_invalid: 'Parsers must be a list of strings.',
       base_required: 'The database is required.',
       schemas_invalid: 'Schemas must be a list of strings.',
       exclusions_invalid: 'Exclusions must be a list of strings.',

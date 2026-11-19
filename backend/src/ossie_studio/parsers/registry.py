@@ -1,36 +1,44 @@
 from __future__ import annotations
 
-from ossie_studio.parsers.base import Parser
+from ossie_studio.parsers.base import Plugin
 from ossie_studio.parsers.demo import DemoJsonSchemaParser
 from ossie_studio.parsers.openapi import OpenApiParser
 
-# Parseurs appliqués au **code** d'une source (dépôt Git). Tant que l'epic
-# « Parseurs et extracteurs » ne livre pas le registre et la sélection par
-# source, la collecte applique tous les parseurs de code installés (ici, le seul
-# parseur de démonstration).
-_CODE_PARSERS: tuple[Parser, ...] = (DemoJsonSchemaParser(),)
+# Plugins **en dur** pour l'instant. L'interface et le registre sont pensés pour
+# qu'on puisse en brancher d'autres plus tard sans relivrer l'application.
+_DEMO = DemoJsonSchemaParser()
+_OPENAPI = OpenApiParser()
 
-# Parseurs appliqués aux **contrats déposés** d'une source `openapi`. Ensemble
-# distinct : ces parseurs ne doivent pas concurrencer ceux du code sur un dépôt
-# Git (où un `.json` n'est pas un contrat OpenAPI).
-_OPENAPI_PARSERS: tuple[Parser, ...] = (OpenApiParser(),)
-
-
-def all_parsers() -> tuple[Parser, ...]:
-    return _CODE_PARSERS
+# Plugins appliqués au **code** d'une source Git (choisis par le manifeste, défaut
+# : tous). Le plugin OpenAPI n'en fait pas partie : il ne tourne que sur les
+# sources `openapi`, sur les contrats déposés.
+_CODE_PLUGINS: tuple[Plugin, ...] = (_DEMO,)
+_ALL_PLUGINS: tuple[Plugin, ...] = (_DEMO, _OPENAPI)
 
 
-def openapi_parsers() -> tuple[Parser, ...]:
-    return _OPENAPI_PARSERS
+def all_plugins() -> tuple[Plugin, ...]:
+    """Tous les plugins installés (pour la page de gestion des plugins)."""
+    return _ALL_PLUGINS
 
 
-def parser_for(path: str) -> Parser | None:
-    """Le premier parseur de code qui prend en charge ce fichier, s'il y en a un."""
-    for parser in _CODE_PARSERS:
-        if parser.handles(path):
-            return parser
-    return None
+def code_plugins() -> tuple[Plugin, ...]:
+    """Les plugins de code applicables à une source Git."""
+    return _CODE_PLUGINS
 
 
-def parser_versions() -> dict[str, str]:
-    return {parser.id: parser.version for parser in (*_CODE_PARSERS, *_OPENAPI_PARSERS)}
+def openapi_plugin() -> Plugin:
+    """Le plugin qui traite les contrats d'une source OpenAPI."""
+    return _OPENAPI
+
+
+def plugin_by_id(plugin_id: str) -> Plugin | None:
+    return next((p for p in _ALL_PLUGINS if p.id == plugin_id), None)
+
+
+def select_code_plugins(parseurs: list[str] | None) -> list[Plugin]:
+    """Les plugins de code à lancer sur une source : ceux nommés dans le manifeste
+    (ordre du manifeste, inconnus ignorés), ou tous par défaut."""
+    if not parseurs:
+        return list(_CODE_PLUGINS)
+    by_id = {p.id: p for p in _CODE_PLUGINS}
+    return [by_id[pid] for pid in parseurs if pid in by_id]

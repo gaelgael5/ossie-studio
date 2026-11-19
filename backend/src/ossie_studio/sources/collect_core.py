@@ -6,7 +6,17 @@ from typing import Any
 
 import yaml
 
-from ossie_studio.parsers.base import Parser, ParserError
+from ossie_studio.parsers.base import (
+    STATUT_ERREUR,
+    STATUT_INCHANGE,
+    STATUT_TRAITE,
+    OutputAction,
+    Parser,
+    ParserError,
+    PluginContext,
+    PluginError,
+    PluginResult,
+)
 
 TECH_MANIFEST_VERSION = 1
 RAW_DIR = "raw"
@@ -91,6 +101,7 @@ class CollectionPlan:
     retained: int = 0
     read: int = 0
     errors: list[CollectError] = field(default_factory=list)
+    statuses: dict[str, str] = field(default_factory=dict)
 
 
 def _destination_name(key: str) -> str:
@@ -162,6 +173,7 @@ def run_collection(
         if source in handled and source not in regenerated:
             plan.manifest.entries[source] = entry
             plan.unchanged += 1
+            plan.statuses[source] = STATUT_INCHANGE
 
     old_dest_content = dict(existing_schemas)
     produced_dest: set[str] = set()
@@ -174,6 +186,7 @@ def run_collection(
         except ParserError as exc:
             for source in sorted(group):
                 plan.errors.append(CollectError(source=source, cause=exc.code))
+                plan.statuses[source] = STATUT_ERREUR
             continue
         by_source: dict[str, list[str]] = {s: [] for s in group}
         for obj in objects:
@@ -189,6 +202,7 @@ def run_collection(
                 branche=branche,
                 parseur=parser.id,
             )
+            plan.statuses[source] = STATUT_TRAITE
 
     # Comptage ajouts / modifications sur les destinations produites.
     for dest, content in plan.writes.items():
@@ -216,3 +230,41 @@ def run_collection(
             plan.deleted += 1
 
     return plan
+
+
+def schema_plugin_run(
+    context: PluginContext, parser: Parser, *, index_name: str = TECH_MANIFEST_NAME
+) -> PluginResult:
+    """Adapte le moteur incrémental de schémas au contrat de plugin : lit l'index
+    du plugin et ses sorties `.json` dans `raw/`, applique `run_collection`, et
+    rend des actions d'écriture (dont l'index régénéré). Les plugins de schémas
+    (démo, OpenAPI, C#…) délèguent ici ; chacun garde **son** fichier d'index."""
+    prev_text = context.raw.read_index(index_name)
+    previous = parse_tech_manifest(prev_text) if prev_text else TechManifest()
+    existing = {
+        path: content
+        for path, content in context.raw.list_outputs().items()
+        if path.endswith(".json") and "/" not in path
+    }
+    plan = run_collection(
+        context.contents,
+        (parser,),
+        previous,
+        existing,
+        branche=context.branche,
+        force=context.force,
+    )
+    writes = [OutputAction(path=dest, content=content) for dest, content in plan.writes.items()]
+    writes.append(OutputAction(path=index_name, content=dump_tech_manifest(plan.manifest)))
+    return PluginResult(
+        writes=writes,
+        deletes=list(plan.deletes),
+        statuses=dict(plan.statuses),
+        errors=[PluginError(source=e.source, cause=e.cause) for e in plan.errors],
+        added=plan.added,
+        modified=plan.modified,
+        deleted=plan.deleted,
+        unchanged=plan.unchanged,
+        read=plan.read,
+        retained=plan.retained,
+    )

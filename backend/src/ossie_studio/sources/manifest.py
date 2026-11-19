@@ -20,7 +20,7 @@ OPENAPI_TYPE = "openapi"
 SOURCE_TYPES = (GIT_TYPE, *DB_TYPES, OPENAPI_TYPE)
 
 # Clés autorisées, par type. Toute autre clé est refusée (manifeste strict).
-_GIT_KEYS = {"depot", "branche", "repertoires"}
+_GIT_KEYS = {"depot", "branche", "repertoires", "parseurs"}
 _DB_KEYS = {"base", "schemas", "exclusions"}
 _TOP_KEYS = {"version", "slug", "label", "type", "connexion", "parametres"}
 
@@ -109,6 +109,8 @@ def _validate_git_params(params: dict[str, Any]) -> list[str]:
         errors.append("branche_required")
     if "repertoires" in params and _str_list(params["repertoires"]) is None:
         errors.append("repertoires_invalid")
+    if "parseurs" in params and _str_list(params["parseurs"]) is None:
+        errors.append("parseurs_invalid")
     return errors
 
 

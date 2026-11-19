@@ -64,6 +64,7 @@ from ossie_studio.sources.manifest import (
     manifest_from_mapping,
 )
 from ossie_studio.sources.paths import is_valid_source_slug
+from ossie_studio.sources.scan_service import ScanFile, db_list_scan_files, db_replace_scan_files
 from ossie_studio.sources.service import (
     SourceEntry,
     SourceExistsError,
@@ -114,6 +115,12 @@ class DepositBody(BaseModel):
     content: str = ""
     version: str = ""
     replace: bool = False
+
+
+def _str_list(value: object) -> list[str] | None:
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return [str(v) for v in value]
+    return None
 
 
 def _workdir_http_error(exc: WorkdirError) -> ApiError:
@@ -472,6 +479,7 @@ async def collect_branch_source(
                 author_name=user.email,
                 author_email=user.email,
                 force=force,
+                parseurs=_str_list(manifest.parametres.get("parseurs")),
             )
         except CollectionError as exc:
             raise _collect_error(exc.code) from None
@@ -485,6 +493,10 @@ async def collect_branch_source(
         source_slug=slug,
         author_email=user.email,
         report=report,
+    )
+    # Index de travail : l'inventaire des fichiers vus et leur statut de traitement.
+    await db_replace_scan_files(
+        conn, space_id=space_id, branch_slug=branch_slug, source_slug=slug, files=report.files
     )
     return _report_payload(report)
 
@@ -504,6 +516,36 @@ async def list_source_collections(
         conn, space_id=space_id, branch_slug=branch.slug, source_slug=slug
     )
     return {"collections": [_run_payload(r) for r in runs]}
+
+
+def _scan_payload(scan: ScanFile) -> dict[str, object]:
+    return {
+        "path": scan.path,
+        "crc": scan.crc,
+        "cible": scan.cible,
+        "statut": scan.statut,
+        "message": scan.message,
+        "scanned_at": scan.scanned_at.isoformat(),
+    }
+
+
+@router.get("/{slug}/scan")
+async def list_source_scan(
+    conn: ConnDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    """Index de travail de la dernière collecte : un fichier source par ligne,
+    avec son empreinte, sa cible et son statut de traitement."""
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    files = await db_list_scan_files(
+        conn, space_id=space_id, branch_slug=branch.slug, source_slug=slug
+    )
+    return {"fichiers": [_scan_payload(f) for f in files]}
 
 
 # --- Contrats OpenAPI déposés ------------------------------------------------
