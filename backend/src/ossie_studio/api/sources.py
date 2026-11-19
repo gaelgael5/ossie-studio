@@ -17,6 +17,7 @@ from ossie_studio.connections.service import (
     resolve_connection_token,
 )
 from ossie_studio.crypto import CryptoService
+from ossie_studio.databases.registry import get_engine
 from ossie_studio.databases.service import db_get_db_connection_by_slug
 from ossie_studio.deps import (
     ConnDep,
@@ -40,6 +41,7 @@ from ossie_studio.parsers.openapi import (
 )
 from ossie_studio.parsers.params_service import db_get_plugin_params
 from ossie_studio.parsers.registry import conflicting_glob, unknown_code_parseur
+from ossie_studio.secretstore.service import resolve_secret_value
 from ossie_studio.sources.collect import CollectionError, CollectReport, SourceCollector
 from ossie_studio.sources.collections_service import (
     CollectionRun,
@@ -504,9 +506,36 @@ async def collect_branch_source(
             )
         except CollectionError as exc:
             raise _collect_error(exc.code) from None
+    elif manifest.type in DB_TYPES:
+        db = await db_get_db_connection_by_slug(conn, manifest.connexion)
+        if db is None or db.engine != manifest.type:
+            raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
+        secret_value = (await resolve_secret_value(conn, crypto, db.secret_slug)).reveal()
+        db_params = {k: str(v) for k, v in db.params.items()}
+        base = str(manifest.parametres.get("base", "") or db_params.get("database", ""))
+        db_params["database"] = base
+        try:
+            report = await collector.collect_sql(
+                space=space,
+                branch_slug=branch_slug,
+                branche_label=branch_slug,
+                space_username=space_username,
+                space_token=space_token,
+                source_slug=slug,
+                engine=get_engine(db.engine),
+                dialect=db.engine,
+                db_params=db_params,
+                secret_value=secret_value,
+                schemas=_str_list(manifest.parametres.get("schemas")),
+                exclusions=_str_list(manifest.parametres.get("exclusions")),
+                author_name=user.email,
+                author_email=user.email,
+                force=force,
+            )
+        except CollectionError as exc:
+            raise _collect_error(exc.code) from None
     else:
-        # Les sources de base se lisent par leur catalogue (epic Parseurs).
-        raise ApiError("invalid_request", status_code=400, fields=["collect_git_only"])
+        raise ApiError("invalid_request", status_code=400, fields=["collect_unsupported"])
     await db_record_collection(
         conn,
         space_id=space_id,

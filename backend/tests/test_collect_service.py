@@ -233,6 +233,76 @@ async def test_collecte_forcee_relit_tout(
     assert forced.local_commit is None  # sortie déterministe : rien à committer
 
 
+class _FakeEngine:
+    """Faux moteur : rend un catalogue figé, sans vraie base."""
+
+    def __init__(self, objects: list, errors: list[tuple[str, str]] | None = None) -> None:
+        self._objects = objects
+        self._errors = errors or []
+
+    async def read_catalog(self, params, secret_value, *, schemas, exclusions):
+        from ossie_studio.databases.base import CatalogRead
+
+        return CatalogRead(objects=list(self._objects), errors=list(self._errors), queries=1)
+
+
+async def _collect_sql(collector, space, engine, *, force=False):
+    return await collector.collect_sql(
+        space=space,
+        branch_slug="principale",
+        branche_label="principale",
+        space_username="x",
+        space_token=None,
+        source_slug="db",
+        engine=engine,
+        dialect="postgres",
+        db_params={},
+        secret_value="",
+        schemas=None,
+        exclusions=None,
+        author_name="a@a",
+        author_email="a@a",
+        force=force,
+    )
+
+
+async def test_collect_sql_ecrit_les_schemas(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    import json
+
+    from ossie_studio.databases.base import CatalogColumn, CatalogObject
+
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    obj = CatalogObject(
+        schema="app",
+        name="client",
+        kind="table",
+        columns=(CatalogColumn(name="id", schema={"type": "string"}, required=True, position=1),),
+        primary_key=("id",),
+    )
+    report = await _collect_sql(collector, space, _FakeEngine([obj]))
+    assert report.added == 1
+    raw = tmp_path / "work" / str(space.id) / "principale" / "sources" / "db" / "raw"
+    assert (raw / "manifest-postgres.yaml").is_file()
+    schema = json.loads((raw / "app-client.json").read_text(encoding="utf-8"))
+    assert schema["x-kind"] == "table" and schema["x-primary-key"] == ["id"]
+    # Idempotent : une 2e collecte sans changement ne recommit rien.
+    second = await _collect_sql(collector, space, _FakeEngine([obj]))
+    assert second.local_commit is None
+
+
+async def test_collect_sql_signale_les_schemas_inaccessibles(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    collector, space, _tmp, _ = setup
+    await _base_branch(collector, space)
+    engine = _FakeEngine([], errors=[("prive", "insufficient_privilege")])
+    report = await _collect_sql(collector, space, engine)
+    assert any(e.source == "prive" for e in report.errors)
+
+
 async def test_branche_en_retard_refuse(
     setup: tuple[SourceCollector, GitSpace, Path, Path],
 ) -> None:

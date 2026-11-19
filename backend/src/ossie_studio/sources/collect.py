@@ -7,6 +7,7 @@ from pathlib import Path
 
 import structlog
 
+from ossie_studio.databases.base import DatabaseEngine, DbEngineError
 from ossie_studio.models import GitSpace
 from ossie_studio.parsers.base import (
     CIBLE_RAW,
@@ -30,6 +31,7 @@ from ossie_studio.sources.schema_resolve import (
     is_schema_path,
     resolve_source_schemas,
 )
+from ossie_studio.sources.sql_extract import object_to_source, source_key, sql_extractor
 from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
 
 log = structlog.get_logger(__name__)
@@ -235,6 +237,7 @@ class SourceCollector:
         source_commit: str,
         start: float,
         plugin_params: dict[str, dict[str, str]],
+        commit_descriptor: str = "",
     ) -> CollectReport:
         # 1. Instantané de raw/ (index et sorties des plugins), accès lecture seule.
         try:
@@ -283,7 +286,9 @@ class SourceCollector:
         writes, resolved = resolve_source_schemas(raw_files, writes, deletes)
 
         # 5. Écriture unique + commit local unique.
-        descripteur = f" {source_commit[:7]}" if source_commit else " (contrats)"
+        descripteur = commit_descriptor or (
+            f" {source_commit[:7]}" if source_commit else " (contrats)"
+        )
         message = (
             f"collecte {source_slug}{descripteur} : +{agg.added} ~{agg.modified} -{agg.deleted}"
         )
@@ -441,3 +446,58 @@ class SourceCollector:
                 start=start,
                 plugin_params=plugin_params or {},
             )
+
+    async def collect_sql(
+        self,
+        *,
+        space: GitSpace,
+        branch_slug: str,
+        branche_label: str,
+        space_username: str,
+        space_token: str | None,
+        source_slug: str,
+        engine: DatabaseEngine,
+        dialect: str,
+        db_params: dict[str, str],
+        secret_value: str,
+        schemas: list[str] | None,
+        exclusions: list[str] | None,
+        author_name: str,
+        author_email: str,
+        force: bool,
+    ) -> CollectReport:
+        """Collecte une source base : lit le catalogue (lecture seule, structure
+        seulement), transforme chaque objet en schéma. `source_commit` vide : il
+        n'y a pas de dépôt descendu, l'original est la définition normalisée lue."""
+        key = f"{space.id}/{branch_slug}/{source_slug}"
+        async with self._lock(key):
+            start = time.monotonic()
+            await self._divergence_or_refuse(space, branch_slug, space_username, space_token)
+            try:
+                read = await engine.read_catalog(
+                    db_params, secret_value, schemas=schemas, exclusions=exclusions
+                )
+            except DbEngineError as exc:
+                raise CollectionError(exc.code) from None
+            source_files = {source_key(obj): object_to_source(obj) for obj in read.objects}
+            report = await self._run(
+                space=space,
+                branch_slug=branch_slug,
+                branche_label=branche_label,
+                space_username=space_username,
+                space_token=space_token,
+                source_slug=source_slug,
+                source_files=source_files,
+                plugins=[sql_extractor(dialect)],
+                author_name=author_name,
+                author_email=author_email,
+                force=force,
+                source_commit="",
+                start=start,
+                plugin_params={},
+                commit_descriptor=" (catalogue)",
+            )
+            # Schémas inaccessibles (droits insuffisants) : signalés, sans bloquer.
+            for schema_name, cause in read.errors:
+                report.errors.append(PluginError(source=schema_name, cause=cause))
+            return report

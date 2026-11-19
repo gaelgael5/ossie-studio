@@ -5,6 +5,7 @@ import asyncio
 from typing import Any
 
 from ossie_studio.databases.base import (
+    CatalogRead,
     DatabaseEngine,
     DbEngineError,
     DbEngineFormSpec,
@@ -83,6 +84,18 @@ class SnowflakeEngine(DatabaseEngine):
             return [DbTable(schema=str(r[0]), name=str(r[1])) for r in rows]
 
         return await asyncio.to_thread(_work)
+
+    async def read_catalog(
+        self,
+        params: dict[str, str],
+        secret_value: str,
+        *,
+        schemas: list[str] | None,
+        exclusions: list[str] | None,
+    ) -> CatalogRead:
+        # L'extraction de catalogue Snowflake fait l'objet de son propre ticket
+        # (catalogue simulé en test, épreuve réelle sur un compte fourni par Gael).
+        raise DbEngineError("db_driver_unavailable")
 
     def form_spec(self) -> DbEngineFormSpec:
         return DbEngineFormSpec(

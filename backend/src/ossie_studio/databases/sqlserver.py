@@ -6,6 +6,7 @@ from typing import Any
 
 from ossie_studio.databases.base import (
     VERIFY_TIMEOUT_SECONDS,
+    CatalogRead,
     DatabaseEngine,
     DbEngineError,
     DbEngineFormSpec,
@@ -81,6 +82,18 @@ class SqlServerEngine(DatabaseEngine):
             return [DbTable(schema=str(r[0]), name=str(r[1])) for r in rows]
 
         return await asyncio.to_thread(_work)
+
+    async def read_catalog(
+        self,
+        params: dict[str, str],
+        secret_value: str,
+        *,
+        schemas: list[str] | None,
+        exclusions: list[str] | None,
+    ) -> CatalogRead:
+        # L'extraction de catalogue SQL Server fait l'objet de son propre ticket
+        # (instance en conteneur requise) ; le pilote est absent de cet environnement.
+        raise DbEngineError("db_driver_unavailable")
 
     def form_spec(self) -> DbEngineFormSpec:
         return DbEngineFormSpec(
