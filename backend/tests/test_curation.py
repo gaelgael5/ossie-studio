@@ -9,12 +9,16 @@ from ossie_studio.parsers.conventions import dump_schema
 from ossie_studio.sources.curation import (
     AssetNotRetainedError,
     AssetOriginMissingError,
+    ReviewDecisions,
     apply_enrichment,
+    apply_review_fn,
     build_asset,
+    build_review,
     enrich_asset_fn,
     get_object_detail,
     list_curation,
     read_enrichment,
+    read_review_point,
     refresh_asset,
     refresh_assets_fn,
     refresh_targets,
@@ -286,3 +290,114 @@ def test_object_detail_champ_disparu(tmp_path: Path) -> None:
     fields = {f.name: f for f in detail.fields}
     assert fields["b"].missing is True and fields["b"].retained is True
     assert fields["a"].missing is False
+
+
+# --- Revue des changements ----------------------------------------------------
+
+
+def test_review_premiere_fois_tout_nouveau() -> None:
+    # Critère 1 : aucun point de reprise (base vide) → tout le brut est nouveau.
+    head = {
+        "a.json": {"title": "A", "type": "object", "properties": {"x": {"type": "string"}}},
+        "b.json": {"title": "B", "type": "object", "properties": {}},
+    }
+    result = build_review({}, head, {})
+    assert {o.path: o.status for o in result.objects} == {"a.json": "new", "b.json": "new"}
+
+
+def test_review_montre_retenu_pas_bruit() -> None:
+    # Critère 2 : champ retenu changé + champ apparu montrés ; objet non retenu = bruit.
+    base = {
+        "u.json": {"type": "object", "properties": {"a": {"type": "string"}}},
+        "n.json": {"type": "object", "properties": {"k": {"type": "string"}}},
+    }
+    head = {
+        "u.json": {"type": "object", "properties": {
+            "a": {"type": "integer"},   # changé
+            "b": {"type": "string"},    # apparu
+        }},
+        "n.json": {"type": "object", "properties": {"k": {"type": "integer"}}},  # bruit
+    }
+    assets = {"u.json": {"type": "object", "x-origin": "raw/u.json",
+                         "properties": {"a": {"type": "string", "x-businessName": "id"}}}}
+    result = build_review(base, head, assets)
+    by_path = {o.path: o for o in result.objects}
+    assert set(by_path) == {"u.json"}
+    assert {f.name: f.change for f in by_path["u.json"].fields} == {"a": "changed", "b": "appeared"}
+
+
+def test_review_champ_disparu_enrichissement_perdu() -> None:
+    # Critère 5 (données) : champ disparu + enrichissements qui seraient perdus.
+    base = {"u.json": {"type": "object",
+                       "properties": {"a": {"type": "string"}, "b": {"type": "string"}}}}
+    head = {"u.json": {"type": "object", "properties": {"a": {"type": "string"}}}}
+    assets = {"u.json": {"type": "object", "x-origin": "raw/u.json", "properties": {
+        "a": {"type": "string"},
+        "b": {"type": "string", "x-businessName": "ancien", "x-description": "doc"},
+    }}}
+    field = next(f for o in build_review(base, head, assets).objects for f in o.fields)
+    assert field.name == "b" and field.change == "disappeared"
+    assert field.lost_enrichment == ["x-businessName", "x-description"]
+
+
+def test_review_objet_disparu() -> None:
+    base = {"u.json": {"type": "object", "properties": {"a": {"type": "string"}}}}
+    assets = {"u.json": {"title": "U", "type": "object", "x-origin": "raw/u.json",
+                         "properties": {"a": {"type": "string"}}}}
+    result = build_review(base, {}, assets)
+    assert [(o.path, o.status) for o in result.objects] == [("u.json", "object-disappeared")]
+
+
+def test_review_deja_revu_rien() -> None:
+    same = {"u.json": {"type": "object", "properties": {"a": {"type": "string"}}}}
+    assets = {"u.json": {"type": "object", "x-origin": "raw/u.json",
+                         "properties": {"a": {"type": "string"}}}}
+    assert build_review(same, same, assets).objects == []
+
+
+def test_apply_review_applique_et_avance_le_point(tmp_path: Path) -> None:
+    _seed_raw(tmp_path, "u.json", {"$id": "u.json", "type": "object", "required": ["a"],
+                                   "properties": {"a": {"type": "integer"},
+                                                  "b": {"type": "string"}}})
+    _seed_asset(tmp_path, "u.json", {"$id": "u.json", "type": "object", "x-origin": "raw/u.json",
+                                     "properties": {"a": {"type": "string",
+                                                          "x-businessName": "id"}}})
+    decisions = ReviewDecisions(
+        apply_fields={"u.json": ["a"]}, take_fields={"u.json": ["b"]},
+        remove_fields={}, remove_objects=[], retain_objects=[],
+    )
+    apply_review_fn("api", "deadbeef1234", decisions)(tmp_path)
+    asset = json.loads((tmp_path / "sources" / "api" / "assets" / "u.json").read_text())
+    assert asset["properties"]["a"]["type"] == "integer"          # champ changé appliqué
+    assert asset["properties"]["a"]["x-businessName"] == "id"     # enrichissement conservé
+    assert asset["properties"]["b"]["type"] == "string"          # champ apparu repris
+    assert asset["required"] == ["a"]
+    assert read_review_point(tmp_path, "api") == "deadbeef1234"   # point de reprise avancé
+
+
+def test_apply_review_supprime_champ_objet_et_retient_nouveau(tmp_path: Path) -> None:
+    _seed_raw(tmp_path, "u.json", {"$id": "u.json", "type": "object",
+                                   "properties": {"a": {"type": "string"}}})
+    _seed_asset(tmp_path, "u.json", {"$id": "u.json", "type": "object", "x-origin": "raw/u.json",
+                                     "properties": {"a": {"type": "string"},
+                                                    "b": {"type": "string",
+                                                          "x-businessName": "x"}}})
+    _seed_asset(tmp_path, "gone.json", {"$id": "gone.json", "x-origin": "raw/gone.json",
+                                        "properties": {"a": {"type": "string"}}})
+    _seed_raw(tmp_path, "new.json", {"$id": "new.json", "type": "object",
+                                     "properties": {"k": {"type": "string"}}})
+    decisions = ReviewDecisions(
+        apply_fields={}, take_fields={}, remove_fields={"u.json": ["b"]},
+        remove_objects=["gone.json"], retain_objects=["new.json"],
+    )
+    apply_review_fn("api", "cafe1234", decisions)(tmp_path)
+    u = json.loads((tmp_path / "sources" / "api" / "assets" / "u.json").read_text())
+    assert "b" not in u["properties"]                                      # champ disparu retiré
+    assert not (tmp_path / "sources" / "api" / "assets" / "gone.json").exists()  # objet retiré
+    new_asset = json.loads((tmp_path / "sources" / "api" / "assets" / "new.json").read_text())
+    assert new_asset["x-origin"] == "raw/new.json" and "k" in new_asset["properties"]
+
+
+def test_read_review_point_absent(tmp_path: Path) -> None:
+    (tmp_path / "sources" / "api").mkdir(parents=True)
+    assert read_review_point(tmp_path, "api") is None

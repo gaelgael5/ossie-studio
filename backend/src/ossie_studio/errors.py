@@ -101,6 +101,8 @@ ERROR_CODES: tuple[str, ...] = (
     "asset_origin_missing",
     "curation_path_invalid",
     "asset_not_retained",
+    "review_branch_behind",
+    "review_stale",
 )
 
 

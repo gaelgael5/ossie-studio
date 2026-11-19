@@ -11,13 +11,24 @@ import type {
   CurationObjectItem,
   EnrichScope,
   EnrichValues,
+  ReviewFieldRef,
+  ReviewObjectItem,
+  ReviewResult,
   SourceItem,
 } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { useWorkspace } from '../workspace'
 
-type Tab = 'overview' | 'contrats' | 'collectes' | 'scan' | 'curation' | 'manifeste' | 'raw'
+type Tab =
+  | 'overview'
+  | 'contrats'
+  | 'collectes'
+  | 'scan'
+  | 'curation'
+  | 'revue'
+  | 'manifeste'
+  | 'raw'
 
 function sourceMeta(s: SourceItem, t: (k: string) => string): string {
   const p = s.parametres ?? {}
@@ -52,8 +63,8 @@ export function SourceDetailPage() {
   const isOpenapi = source?.type === 'openapi'
   const collectable = source?.type === 'git' || isOpenapi
   const tabList: Tab[] = isOpenapi
-    ? ['overview', 'contrats', 'collectes', 'scan', 'curation', 'manifeste', 'raw']
-    : ['overview', 'collectes', 'scan', 'curation', 'manifeste', 'raw']
+    ? ['overview', 'contrats', 'collectes', 'scan', 'curation', 'revue', 'manifeste', 'raw']
+    : ['overview', 'collectes', 'scan', 'curation', 'revue', 'manifeste', 'raw']
   const effectiveTab: Tab = tab ?? (isOpenapi ? 'contrats' : 'collectes')
   const collections = useQuery({
     queryKey: ['collections', ws.spaceId, ws.branchId, slug],
@@ -136,9 +147,11 @@ export function SourceDetailPage() {
                       ? 'tabScan'
                       : id === 'curation'
                         ? 'tabCuration'
-                        : id === 'manifeste'
-                          ? 'tabManifeste'
-                          : 'tabRawExplorer',
+                        : id === 'revue'
+                          ? 'tabReview'
+                          : id === 'manifeste'
+                            ? 'tabManifeste'
+                            : 'tabRawExplorer',
             )}
           </button>
         ))}
@@ -174,6 +187,10 @@ export function SourceDetailPage() {
 
       {effectiveTab === 'curation' ? (
         <CurationTab spaceId={ws.spaceId as string} branchId={ws.branchId as string} slug={slug} />
+      ) : null}
+
+      {effectiveTab === 'revue' ? (
+        <ReviewTab spaceId={ws.spaceId as string} branchId={ws.branchId as string} slug={slug} />
       ) : null}
 
       {effectiveTab === 'manifeste' ? (
@@ -1095,6 +1112,236 @@ function EnrichPanel({
       ) : (
         <p className="muted">{t('loading')}</p>
       )}
+    </div>
+  )
+}
+
+function _reviewBody(data: ReviewResult, checked: Record<string, boolean>) {
+  const apply_fields: ReviewFieldRef[] = []
+  const take_fields: ReviewFieldRef[] = []
+  const remove_fields: ReviewFieldRef[] = []
+  const remove_objects: string[] = []
+  const retain_objects: string[] = []
+  for (const o of data.objects) {
+    if (o.status === 'object-disappeared') {
+      if (checked[`o:${o.path}`]) remove_objects.push(o.path)
+    } else if (o.status === 'new') {
+      if (checked[`o:${o.path}`]) retain_objects.push(o.path)
+    } else {
+      for (const f of o.fields) {
+        if (!checked[`f:${o.path}:${f.name}`]) continue
+        if (f.change === 'changed') apply_fields.push({ path: o.path, name: f.name })
+        else if (f.change === 'appeared') take_fields.push({ path: o.path, name: f.name })
+        else if (f.change === 'disappeared') remove_fields.push({ path: o.path, name: f.name })
+      }
+    }
+  }
+  return { head_sha: data.head_sha, apply_fields, take_fields, remove_fields, remove_objects, retain_objects }
+}
+
+function ReviewTab({
+  spaceId,
+  branchId,
+  slug,
+}: {
+  spaceId: string
+  branchId: string
+  slug: string
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [checked, setChecked] = useState<Record<string, boolean>>({})
+  const [messages, setMessages] = useState<string[]>([])
+  const [historyFor, setHistoryFor] = useState<string | null>(null)
+
+  const review = useQuery({
+    queryKey: ['review', spaceId, branchId, slug],
+    queryFn: () => api.getReview(spaceId, branchId, slug),
+    retry: false,
+  })
+  const data = review.data
+
+  const apply = useMutation({
+    mutationFn: () => api.applyReview(spaceId, branchId, slug, _reviewBody(data as ReviewResult, checked)),
+    onSuccess: async () => {
+      setChecked({})
+      setMessages([])
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['review', spaceId, branchId, slug] }),
+        queryClient.invalidateQueries({ queryKey: ['curation', spaceId, branchId, slug] }),
+      ])
+    },
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
+
+  const toggle = (key: string) => setChecked((c) => ({ ...c, [key]: !c[key] }))
+  const chosen = Object.values(checked).filter(Boolean).length
+
+  if (review.isError) {
+    return (
+      <div className="panel">
+        <ErrorList messages={errorMessages(t, review.error)} />
+      </div>
+    )
+  }
+  if (!data) {
+    return (
+      <div className="panel">
+        <p className="muted">{t('loading')}</p>
+      </div>
+    )
+  }
+
+  const fieldLabel = (change: string) =>
+    change === 'changed'
+      ? t('reviewApplyField')
+      : change === 'appeared'
+        ? t('reviewTakeField')
+        : t('reviewRemoveField')
+
+  return (
+    <div className="panel">
+      <p className="muted" style={{ fontSize: '0.88rem' }}>
+        {t('reviewIntro')}
+      </p>
+      <ErrorList messages={messages} />
+
+      {data.up_to_date || data.objects.length === 0 ? (
+        <div className="empty-note">{t('reviewNothing')}</div>
+      ) : (
+        <>
+          {data.objects.map((o: ReviewObjectItem) => (
+            <div key={o.path} className="panel" style={{ marginBottom: '0.5rem' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                <strong>{o.title}</strong>
+                {o.status === 'new' ? (
+                  <span className="badge badge-warn">{t('reviewStatusNew')}</span>
+                ) : null}
+                {o.status === 'object-disappeared' ? (
+                  <span className="badge badge-warn">{t('reviewStatusGone')}</span>
+                ) : null}
+                <span className="mono muted" style={{ fontSize: '0.78rem' }}>
+                  {o.path}
+                </span>
+                <button
+                  type="button"
+                  style={{ marginLeft: 'auto' }}
+                  onClick={() => setHistoryFor(historyFor === o.path ? null : o.path)}
+                >
+                  {t('reviewHistory')}
+                </button>
+              </div>
+
+              {o.status === 'new' ? (
+                <label style={{ display: 'block', marginTop: '0.3rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!checked[`o:${o.path}`]}
+                    onChange={() => toggle(`o:${o.path}`)}
+                  />{' '}
+                  {t('reviewRetainObject')}
+                </label>
+              ) : null}
+
+              {o.status === 'object-disappeared' ? (
+                <label style={{ display: 'block', marginTop: '0.3rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!checked[`o:${o.path}`]}
+                    onChange={() => toggle(`o:${o.path}`)}
+                  />{' '}
+                  {t('reviewRemoveObject')}
+                </label>
+              ) : null}
+
+              {o.status === 'retained-touched' ? (
+                <ul style={{ listStyle: 'none', padding: 0, marginTop: '0.3rem' }}>
+                  {o.fields.map((f) => (
+                    <li key={f.name} style={{ marginBottom: '0.2rem' }}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={!!checked[`f:${o.path}:${f.name}`]}
+                          onChange={() => toggle(`f:${o.path}:${f.name}`)}
+                        />{' '}
+                        <span className="badge">{t(`reviewChange_${f.change}`)}</span>{' '}
+                        <span className="mono">{f.name}</span>{' '}
+                        <span className="muted" style={{ fontSize: '0.8rem' }}>
+                          {f.type}
+                        </span>{' '}
+                        <em style={{ fontSize: '0.8rem' }}>→ {fieldLabel(f.change)}</em>
+                      </label>
+                      {f.lost_enrichment.length > 0 ? (
+                        <div className="muted" style={{ fontSize: '0.78rem', marginLeft: '1.4rem' }}>
+                          {t('reviewLostEnrichment', { keys: f.lost_enrichment.join(', ') })}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {historyFor === o.path ? (
+                <HistoryPanel spaceId={spaceId} branchId={branchId} slug={slug} path={o.path} />
+              ) : null}
+            </div>
+          ))}
+
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm(t('reviewConfirm', { count: chosen }))) apply.mutate()
+              }}
+              disabled={apply.isPending}
+            >
+              {t('reviewValidate')}
+            </button>
+            <button type="button" onClick={() => setChecked({})} disabled={chosen === 0}>
+              {t('reviewAbandon')}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function HistoryPanel({
+  spaceId,
+  branchId,
+  slug,
+  path,
+}: {
+  spaceId: string
+  branchId: string
+  slug: string
+  path: string
+}) {
+  const { t } = useTranslation()
+  const history = useQuery({
+    queryKey: ['reviewHistory', spaceId, branchId, slug, path],
+    queryFn: () => api.getReviewHistory(spaceId, branchId, slug, path),
+    retry: false,
+  })
+  const commits = history.data?.commits ?? []
+  return (
+    <div className="panel" style={{ marginTop: '0.4rem' }}>
+      <p className="panel-label">{t('reviewHistoryTitle', { path })}</p>
+      {history.isLoading ? <p className="muted">{t('loading')}</p> : null}
+      {!history.isLoading && commits.length === 0 ? (
+        <p className="muted">{t('reviewHistoryEmpty')}</p>
+      ) : null}
+      {commits.length > 0 ? (
+        <ul style={{ listStyle: 'none', padding: 0, fontSize: '0.82rem' }}>
+          {commits.map((c) => (
+            <li key={c.sha} style={{ marginBottom: '0.2rem' }}>
+              <span className="mono">{c.sha.slice(0, 8)}</span> · {c.date.slice(0, 10)} ·{' '}
+              {c.author} — {c.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   )
 }

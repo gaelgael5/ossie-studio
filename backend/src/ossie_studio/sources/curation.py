@@ -17,9 +17,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from ossie_studio.parsers.conventions import dump_schema
 from ossie_studio.sources.collect_core import RAW_DIR
-from ossie_studio.sources.paths import safe_assets_path, safe_source_path
+from ossie_studio.sources.paths import safe_assets_path, safe_review_path, safe_source_path
 
 ORIGIN_KEY = "x-origin"
 
@@ -449,5 +451,236 @@ def refresh_assets_fn(slug: str, paths: list[str] | None) -> Callable[[Path], No
         assets_dir = safe_assets_path(workdir, slug)
         for name, raw, asset in _refresh_pairs(workdir, slug, paths):
             (assets_dir / name).write_text(dump_schema(refresh_asset(raw, asset)), encoding="utf-8")
+
+    return write
+
+
+# --- Revue des changements du brut, limitée aux assets retenus ----------------
+#
+# La revue compare trois états par objet : le brut au **point de reprise**
+# (`raw@reprise`), le brut en tête de branche (`raw@HEAD`) et l'asset retenu.
+# Elle ne montre que ce qui mérite une décision humaine ; valider avance le point
+# de reprise (`review.yaml`). Le calcul est pur et testable ; l'écriture des
+# décisions se fait en un commit.
+
+
+@dataclass(frozen=True)
+class ReviewField:
+    name: str
+    change: str          # changed | appeared | disappeared
+    type: str
+    lost_enrichment: list[str]  # clés x- d'enrichissement perdues (disappeared)
+
+
+@dataclass(frozen=True)
+class ReviewObject:
+    path: str
+    title: str
+    status: str          # retained-touched | object-disappeared | new
+    fields: list[ReviewField]
+
+
+@dataclass(frozen=True)
+class ReviewResult:
+    objects: list[ReviewObject]
+
+
+@dataclass(frozen=True)
+class ReviewDecisions:
+    apply_fields: dict[str, list[str]]   # path → champs retenus à rafraîchir (changed)
+    take_fields: dict[str, list[str]]    # path → champs apparus à reprendre (appeared)
+    remove_fields: dict[str, list[str]]  # path → champs disparus à retirer (disappeared)
+    remove_objects: list[str]            # assets à retirer (objet disparu du brut)
+    retain_objects: list[str]            # objets bruts nouveaux à retenir en entier
+
+
+def read_review_point(workdir: Path, slug: str) -> str | None:
+    """Commit de `raw/` jusqu'où la source a été revue (point de reprise), ou None
+    si la source n'a jamais été revue. Lecture seule."""
+    try:
+        review_file = safe_review_path(workdir, slug)
+    except ValueError:
+        return None
+    if not review_file.is_file():
+        return None
+    try:
+        data = yaml.safe_load(review_file.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return None
+    sha = data.get("reviewed_commit") if isinstance(data, dict) else None
+    return str(sha) if sha else None
+
+
+def _write_review_point(workdir: Path, slug: str, sha: str) -> None:
+    review_file = safe_review_path(workdir, slug)
+    review_file.parent.mkdir(parents=True, exist_ok=True)
+    review_file.write_text(
+        yaml.safe_dump({"reviewed_commit": sha}, sort_keys=True, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
+def read_source_trees(
+    workdir: Path, slug: str
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """(brut, assets) d'une source tels qu'ils sont dans l'arbre de travail, à
+    HEAD. Lecture seule."""
+    try:
+        raw_dir = safe_source_path(workdir, slug) / RAW_DIR
+        assets_dir = safe_assets_path(workdir, slug)
+    except ValueError:
+        return {}, {}
+    return _read_json_dir(raw_dir), _read_json_dir(assets_dir)
+
+
+def parse_schema_texts(text_map: dict[str, str]) -> dict[str, dict[str, Any]]:
+    """Parse une table {fichier: texte JSON} (le brut au point de reprise) en
+    {fichier: schéma}, en ignorant un fichier illisible."""
+    out: dict[str, dict[str, Any]] = {}
+    for name, text in text_map.items():
+        if not is_schema_file(name):
+            continue
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            out[name] = data
+    return out
+
+
+def _lost_enrichment(node: dict[str, Any]) -> list[str]:
+    return sorted(k for k in node if k in _ENRICHMENT_X)
+
+
+def _review_fields(
+    rb: dict[str, Any] | None, rh: dict[str, Any] | None, asset: dict[str, Any]
+) -> list[ReviewField]:
+    base = (rb or {}).get("properties") or {}
+    head = (rh or {}).get("properties") or {}
+    aprops = asset.get("properties") or {}
+    out: list[ReviewField] = []
+    for name in sorted(set(base) | set(head) | set(aprops)):
+        in_b, in_h, in_a = name in base, name in head, name in aprops
+        hp = head[name] if isinstance(head.get(name), dict) else {}
+        ap = aprops[name] if isinstance(aprops.get(name), dict) else {}
+        if in_a and in_h:
+            # Champ retenu encore présent : « changé » si le rafraîchissement
+            # modifierait sa structure (on ignore les clés x-).
+            if _structural(ap) != _structural(hp):
+                label, _ = _field_type(hp)
+                out.append(ReviewField(name=name, change="changed", type=label, lost_enrichment=[]))
+        elif in_a and not in_h and in_b:
+            # Champ retenu disparu du brut dans la fenêtre : on montre ce qui serait perdu.
+            label, _ = _field_type(ap)
+            out.append(
+                ReviewField(
+                    name=name, change="disappeared", type=label,
+                    lost_enrichment=_lost_enrichment(ap),
+                )
+            )
+        elif in_h and not in_a and not in_b:
+            # Champ apparu dans la fenêtre sur un objet retenu, pas encore repris.
+            label, _ = _field_type(hp)
+            out.append(ReviewField(name=name, change="appeared", type=label, lost_enrichment=[]))
+    return out
+
+
+def _structural(node: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in node.items() if not k.startswith("x-")}
+
+
+def build_review(
+    raw_base: dict[str, dict[str, Any]],
+    raw_head: dict[str, dict[str, Any]],
+    assets: dict[str, dict[str, Any]],
+) -> ReviewResult:
+    """Décisions à présenter, par objet, en comparant brut@reprise, brut@HEAD et
+    assets. Ne remonte que le bruit utile ; déterministe (tri). `raw_base` vide =
+    première revue (tout le brut est nouveau)."""
+    objects: list[ReviewObject] = []
+    for name in sorted(set(raw_base) | set(raw_head) | set(assets)):
+        rb = raw_base.get(name)
+        rh = raw_head.get(name)
+        asset = assets.get(name)
+        if asset is not None:
+            if rh is None:
+                if rb is not None:  # retenu, existait à la reprise, disparu à HEAD
+                    objects.append(
+                        ReviewObject(
+                            path=name,
+                            title=str(asset.get("title") or asset.get("$id") or name),
+                            status="object-disappeared", fields=[],
+                        )
+                    )
+                continue
+            fields = _review_fields(rb, rh, asset)
+            if fields:
+                objects.append(
+                    ReviewObject(
+                        path=name,
+                        title=str(rh.get("title") or rh.get("$id") or name),
+                        status="retained-touched", fields=fields,
+                    )
+                )
+        elif rh is not None and rb is None:  # nouvel objet apparu dans la fenêtre
+            objects.append(
+                ReviewObject(
+                    path=name,
+                    title=str(rh.get("title") or rh.get("$id") or name),
+                    status="new", fields=[],
+                )
+            )
+    return ReviewResult(objects=objects)
+
+
+def apply_review_fn(
+    slug: str, head_sha: str, decisions: ReviewDecisions
+) -> Callable[[Path], None]:
+    """Applique les décisions de revue **et** avance le point de reprise à
+    `head_sha`, le tout en un seul commit. Un changement non décidé est laissé tel
+    quel (le point de reprise avance quand même). Déterministe (`dump_schema`)."""
+
+    def write(workdir: Path) -> None:
+        raw_dir = safe_source_path(workdir, slug) / RAW_DIR
+        assets_dir = safe_assets_path(workdir, slug)
+        raws = _read_json_dir(raw_dir)
+        edited = (
+            set(decisions.apply_fields) | set(decisions.take_fields) | set(decisions.remove_fields)
+        )
+        for path in sorted(edited):
+            asset_file = assets_dir / path
+            if not asset_file.is_file():
+                continue
+            asset = json.loads(asset_file.read_text(encoding="utf-8"))
+            raw = raws.get(path) or {}
+            rprops = raw.get("properties") or {}
+            props: dict[str, Any] = asset.setdefault("properties", {})
+            for field_name in decisions.apply_fields.get(path, []):
+                if isinstance(props.get(field_name), dict) and isinstance(
+                    rprops.get(field_name), dict
+                ):
+                    props[field_name] = _merge_structural(rprops[field_name], props[field_name])
+            for field_name in decisions.take_fields.get(path, []):
+                if isinstance(rprops.get(field_name), dict):
+                    props[field_name] = dict(rprops[field_name])
+            for field_name in decisions.remove_fields.get(path, []):
+                props.pop(field_name, None)
+            required = sorted(r for r in (raw.get("required") or []) if r in props)
+            if required:
+                asset["required"] = required
+            else:
+                asset.pop("required", None)
+            asset_file.write_text(dump_schema(asset), encoding="utf-8")
+        for path in decisions.remove_objects:
+            (assets_dir / path).unlink(missing_ok=True)
+        for path in decisions.retain_objects:
+            new_raw = raws.get(path)
+            if new_raw is None:
+                continue
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            asset = build_asset(new_raw, None, None, f"{RAW_DIR}/{path}")
+            (assets_dir / path).write_text(dump_schema(asset), encoding="utf-8")
+        _write_review_point(workdir, slug, head_sha)
 
     return write

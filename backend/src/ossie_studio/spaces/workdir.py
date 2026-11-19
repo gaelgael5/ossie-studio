@@ -231,11 +231,15 @@ class WorkdirManager:
         author_email: str,
         message: str,
         write_fn: Callable[[Path], None],
+        *,
+        expect_head: str | None = None,
     ) -> str | None:
         """Écrit dans la copie d'une branche de travail et produit un commit
         local (auteur = le compte déclencheur, message préfixé `ossie: `), sans
         pousser. Jamais de commit vide : renvoie le sha du commit, ou None si
-        l'écriture n'a rien changé."""
+        l'écriture n'a rien changé. `expect_head` (optionnel) : le commit attendu
+        en tête ; s'il a bougé (collecte concurrente), on refuse avant d'écrire
+        (`review_stale`) — l'écriture reste cohérente avec ce qui a été décidé."""
         ref = f"{WORK_PREFIX}{slug}"
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
@@ -244,6 +248,8 @@ class WorkdirManager:
             if not await self._remote_branch_exists(workdir, ref, env):
                 raise WorkdirError("branch_not_found")
             await self._checkout_branch(workdir, ref, env)
+            if expect_head is not None and await self._sha(workdir, "HEAD", env) != expect_head:
+                raise WorkdirError("review_stale")
             # L'écriture ne touche que l'arborescence sous la copie.
             write_fn(workdir)
             await run_git(["add", "-A"], workdir, env)
@@ -288,6 +294,119 @@ class WorkdirManager:
                 raise WorkdirError("branch_not_found")
             await self._checkout_branch(workdir, ref, env)
             return read_fn(workdir)
+
+    async def _tree_text(
+        self, workdir: Path, sha: str, rel: str, env: dict[str, str]
+    ) -> dict[str, str]:
+        """Texte des fichiers `.json` **directement** sous `rel` à un commit donné
+        (nom de fichier → contenu). Sert à relire `raw/` au point de reprise."""
+        code, out, _ = await run_git(
+            ["ls-tree", "-r", "--name-only", sha, "--", rel], workdir, env
+        )
+        if code != 0:
+            return {}
+        prefix = f"{rel}/"
+        files: dict[str, str] = {}
+        for path in out.splitlines():
+            path = path.strip()
+            if not path.startswith(prefix):
+                continue
+            name = path[len(prefix):]
+            if "/" in name or not name.endswith(".json"):
+                continue
+            code2, text, _ = await run_git(["show", f"{sha}:{path}"], workdir, env)
+            if code2 == 0:
+                files[name] = text
+        return files
+
+    async def review_inputs(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        raw_rel: str,
+        base_sha_fn: Callable[[Path], str | None],
+        tree_fn: Callable[[Path], _T],
+    ) -> tuple[str, str | None, dict[str, str], _T]:
+        """Entrées d'une revue, prises sur **une seule copie cohérente** : le sha
+        de HEAD, le point de reprise (`base_sha_fn` lit `review.yaml` dans l'arbre),
+        le texte de `raw/` au point de reprise (via git), et ce que `tree_fn` lit
+        dans l'arbre de travail (brut et assets à HEAD). Lecture seule."""
+        ref = f"{WORK_PREFIX}{slug}"
+        workdir = self._dir(space_id, slug)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            if not await self._remote_branch_exists(workdir, ref, env):
+                raise WorkdirError("branch_not_found")
+            await self._checkout_branch(workdir, ref, env)
+            head_sha = await self._sha(workdir, "HEAD", env) or ""
+            base_sha = base_sha_fn(workdir)
+            raw_base = await self._tree_text(workdir, base_sha, raw_rel, env) if base_sha else {}
+            tree = tree_fn(workdir)
+            return head_sha, base_sha, raw_base, tree
+
+    async def file_history(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        rel_path: str,
+        limit: int = 50,
+    ) -> list[UnpublishedCommit]:
+        """Historique Git d'un fichier (du plus récent au plus ancien) : les
+        versions précédentes d'un schéma `raw`. Lecture seule."""
+        ref = f"{WORK_PREFIX}{slug}"
+        workdir = self._dir(space_id, slug)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            if not await self._remote_branch_exists(workdir, ref, env):
+                raise WorkdirError("branch_not_found")
+            await self._checkout_branch(workdir, ref, env)
+            fmt = _UNIT_SEP.join(["%H", "%an", "%aI", "%s"])
+            code, out, err = await run_git(
+                ["log", f"--pretty=format:{fmt}", f"--max-count={int(limit)}", "--", rel_path],
+                workdir, env,
+            )
+            if code != 0:
+                raise WorkdirError(_access_code(classify(err)))
+            commits: list[UnpublishedCommit] = []
+            for line in out.splitlines():
+                if not line.strip():
+                    continue
+                sha, author, date, message = line.split(_UNIT_SEP, 3)
+                commits.append(
+                    UnpublishedCommit(sha=sha, author=author, date=date, message=message)
+                )
+            return commits
+
+    async def file_at(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        sha: str,
+        rel_path: str,
+    ) -> str | None:
+        """Contenu d'un fichier à un commit donné (version précédente d'un schéma),
+        ou None s'il n'existait pas. Lecture seule."""
+        ref = f"{WORK_PREFIX}{slug}"
+        workdir = self._dir(space_id, slug)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            if not await self._remote_branch_exists(workdir, ref, env):
+                raise WorkdirError("branch_not_found")
+            await self._checkout_branch(workdir, ref, env)
+            code, out, _ = await run_git(["show", f"{sha}:{rel_path}"], workdir, env)
+            return out if code == 0 else None
 
     async def _count(self, workdir: Path, rev_range: str, env: dict[str, str]) -> int:
         code, out, _ = await run_git(["rev-list", "--count", rev_range], workdir, env)

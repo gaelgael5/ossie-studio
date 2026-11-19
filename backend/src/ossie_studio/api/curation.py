@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Annotated
 
@@ -8,10 +9,11 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
-from ossie_studio.api.common import CurationRead, CurationWrite
+from ossie_studio.api.common import CurationRead, CurationReview, CurationWrite
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_workdir_manager
 from ossie_studio.errors import ApiError
+from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
     AssetNotRetainedError,
     AssetOriginMissingError,
@@ -19,19 +21,28 @@ from ossie_studio.sources.curation import (
     CurationObject,
     EnrichScope,
     EnrichView,
+    ReviewDecisions,
+    ReviewObject,
+    apply_review_fn,
+    build_review,
     enrich_asset_fn,
     get_object_detail,
     is_schema_file,
     list_curation,
+    parse_schema_texts,
     read_enrichment,
+    read_review_point,
+    read_source_trees,
     refresh_assets_fn,
     refresh_targets,
     remove_asset_fn,
     retain_asset_fn,
 )
-from ossie_studio.sources.paths import is_valid_source_slug
+from ossie_studio.sources.paths import is_valid_source_slug, source_rel_dir
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
+
+_SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 
 log = structlog.get_logger(__name__)
 
@@ -55,6 +66,22 @@ class RemoveBody(BaseModel):
 class RefreshBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     paths: list[str] | None = None  # None = tous les assets retenus
+
+
+class ReviewFieldRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    name: str
+
+
+class ReviewApplyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    head_sha: str
+    apply_fields: list[ReviewFieldRef] = []    # champs retenus changés à rafraîchir
+    take_fields: list[ReviewFieldRef] = []     # champs apparus à reprendre
+    remove_fields: list[ReviewFieldRef] = []   # champs disparus à retirer
+    remove_objects: list[str] = []             # objets disparus : retirer l'asset
+    retain_objects: list[str] = []             # objets nouveaux : retenir en entier
 
 
 class EnrichValues(BaseModel):
@@ -335,3 +362,186 @@ async def refresh_source_assets(
         raise _workdir_error(exc) from None
     log.info("curation_refresh", author=user.email, slug=slug, count=len(changed))
     return {"ok": True, "commit": commit, "refreshed": changed}
+
+
+# --- Revue des changements (réservée à l'administrateur, curation:review) ------
+
+
+def _review_object_payload(obj: ReviewObject) -> dict[str, object]:
+    return {
+        "path": obj.path,
+        "title": obj.title,
+        "status": obj.status,
+        "fields": [
+            {
+                "name": f.name, "change": f.change, "type": f.type,
+                "lost_enrichment": f.lost_enrichment,
+            }
+            for f in obj.fields
+        ],
+    }
+
+
+async def _review_divergence_or_refuse(
+    workdir: WorkdirManager, space_id: uuid.UUID, slug: str, repo_url: str,
+    username: str, token: str | None,
+) -> None:
+    try:
+        ahead, behind = await workdir.divergence(space_id, slug, repo_url, username, token)
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    if ahead > 0 and behind > 0:
+        # Base périmée : comme la collecte, on refuse plutôt que de revoir à l'aveugle.
+        raise ApiError("review_branch_behind", status_code=409)
+
+
+@router.get("/review")
+async def get_source_review(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: CurationReview,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    if not is_valid_source_slug(slug):
+        raise ApiError("curation_path_invalid", status_code=400)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    await _review_divergence_or_refuse(
+        workdir, space.id, branch_slug, space.repo_url, username, token
+    )
+    raw_rel = f"{source_rel_dir(slug)}/{RAW_DIR}"
+    try:
+        head_sha, base_sha, raw_base_text, trees = await workdir.review_inputs(
+            space.id, branch_slug, space.repo_url, username, token,
+            raw_rel,
+            lambda wc: read_review_point(wc, slug),
+            lambda wc: read_source_trees(wc, slug),
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    raw_head, assets = trees
+    result = build_review(parse_schema_texts(raw_base_text), raw_head, assets)
+    return {
+        "base_sha": base_sha,
+        "head_sha": head_sha,
+        "up_to_date": base_sha == head_sha,
+        "objects": [_review_object_payload(o) for o in result.objects],
+    }
+
+
+def _group(refs: list[ReviewFieldRef]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for ref in refs:
+        grouped.setdefault(ref.path, []).append(ref.name)
+    return grouped
+
+
+@router.post("/review/apply")
+async def apply_source_review(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationReview,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: ReviewApplyBody,
+) -> dict[str, object]:
+    if not is_valid_source_slug(slug) or not _SHA_RE.match(body.head_sha):
+        raise ApiError("curation_path_invalid", status_code=400)
+    field_paths = [r.path for r in (*body.apply_fields, *body.take_fields, *body.remove_fields)]
+    all_paths = (*field_paths, *body.remove_objects, *body.retain_objects)
+    if not all(is_schema_file(p) for p in all_paths):
+        raise ApiError("curation_path_invalid", status_code=400)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    await _review_divergence_or_refuse(
+        workdir, space.id, branch_slug, space.repo_url, username, token
+    )
+    decisions = ReviewDecisions(
+        apply_fields=_group(body.apply_fields),
+        take_fields=_group(body.take_fields),
+        remove_fields=_group(body.remove_fields),
+        remove_objects=list(dict.fromkeys(body.remove_objects)),
+        retain_objects=list(dict.fromkeys(body.retain_objects)),
+    )
+    try:
+        commit = await workdir.commit_to_branch(
+            space.id, branch_slug, space.repo_url, username, token,
+            user.email, user.email, f"curation {slug} : revue validée",
+            apply_review_fn(slug, body.head_sha, decisions),
+            expect_head=body.head_sha,
+        )
+    except WorkdirError as exc:
+        if exc.code == "review_stale":
+            raise ApiError("review_stale", status_code=409) from None
+        raise _workdir_error(exc) from None
+    # Journalisation de la revue validée : auteur, source, volume des décisions.
+    log.info(
+        "curation_review_apply", author=user.email, slug=slug, commit=commit,
+        apply=len(body.apply_fields), take=len(body.take_fields),
+        remove=len(body.remove_fields), remove_objects=len(body.remove_objects),
+        retain=len(body.retain_objects),
+    )
+    return {"ok": True, "commit": commit}
+
+
+@router.get("/review/history")
+async def get_source_review_history(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: CurationReview,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    path: str,
+) -> dict[str, object]:
+    _check(slug, path)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    rel = f"{source_rel_dir(slug)}/{RAW_DIR}/{path}"
+    try:
+        commits = await workdir.file_history(
+            space.id, branch_slug, space.repo_url, username, token, rel
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    return {
+        "commits": [
+            {"sha": c.sha, "author": c.author, "date": c.date, "message": c.message}
+            for c in commits
+        ],
+    }
+
+
+@router.get("/review/raw-at")
+async def get_source_raw_at(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: CurationReview,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    path: str,
+    sha: str,
+) -> dict[str, object]:
+    _check(slug, path)
+    if not _SHA_RE.match(sha):
+        raise ApiError("curation_path_invalid", status_code=400)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    rel = f"{source_rel_dir(slug)}/{RAW_DIR}/{path}"
+    try:
+        content = await workdir.file_at(
+            space.id, branch_slug, space.repo_url, username, token, sha, rel
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    if content is None:
+        raise ApiError("asset_origin_missing", status_code=404, path=path)
+    return {"path": path, "sha": sha, "content": content}

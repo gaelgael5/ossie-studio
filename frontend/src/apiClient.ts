@@ -299,6 +299,48 @@ export interface EnrichView {
   fields: EnrichScope[]
 }
 
+export interface ReviewFieldChange {
+  name: string
+  change: 'changed' | 'appeared' | 'disappeared'
+  type: string
+  lost_enrichment: string[]
+}
+
+export interface ReviewObjectItem {
+  path: string
+  title: string
+  status: 'retained-touched' | 'object-disappeared' | 'new'
+  fields: ReviewFieldChange[]
+}
+
+export interface ReviewResult {
+  base_sha: string | null
+  head_sha: string
+  up_to_date: boolean
+  objects: ReviewObjectItem[]
+}
+
+export interface ReviewFieldRef {
+  path: string
+  name: string
+}
+
+export interface ReviewApplyBody {
+  head_sha: string
+  apply_fields: ReviewFieldRef[]
+  take_fields: ReviewFieldRef[]
+  remove_fields: ReviewFieldRef[]
+  remove_objects: string[]
+  retain_objects: string[]
+}
+
+export interface ReviewHistoryCommit {
+  sha: string
+  author: string
+  date: string
+  message: string
+}
+
 export interface RailLine {
   ref: string
   name: string
@@ -639,6 +681,19 @@ export const api = {
     apiFetch<{ ok: boolean; commit: string | null; refreshed: string[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/refresh`,
       { method: 'POST', body: JSON.stringify({ paths }) },
+    ),
+  getReview: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<ReviewResult>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/review`,
+    ),
+  applyReview: (spaceId: string, branchId: string, slug: string, body: ReviewApplyBody) =>
+    apiFetch<{ ok: boolean; commit: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/review/apply`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  getReviewHistory: (spaceId: string, branchId: string, slug: string, path: string) =>
+    apiFetch<{ commits: ReviewHistoryCommit[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/review/history?path=${encodeURIComponent(path)}`,
     ),
   listCodePlugins: () =>
     apiFetch<{ plugins: { id: string; label: string; globs: string[] }[] }>(
