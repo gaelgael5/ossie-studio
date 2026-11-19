@@ -178,6 +178,32 @@ export interface SourceInput {
   parametres: Record<string, unknown>
 }
 
+export interface CollectReport {
+  source_commit: string
+  local_commit: string | null
+  added: number
+  modified: number
+  deleted: number
+  unchanged: number
+  read: number
+  retained: number
+  duration_ms: number
+  errors: { source: string; cause: string }[]
+}
+export interface CollectionRun {
+  id: string
+  author: string
+  source_commit: string
+  local_commit: string | null
+  added: number
+  modified: number
+  deleted: number
+  unchanged: number
+  error_count: number
+  duration_ms: number
+  created_at: string
+}
+
 export interface RailLine {
   ref: string
   name: string
@@ -431,6 +457,15 @@ export const api = {
     apiFetch(`/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}`, {
       method: 'DELETE',
     }),
+  collectSource: (spaceId: string, branchId: string, slug: string, force: boolean) =>
+    apiFetch<CollectReport>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/collect?force=${force}`,
+      { method: 'POST' },
+    ),
+  listCollections: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ collections: CollectionRun[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/collections`,
+    ),
   listUnpublished: (spaceId: string, branchId: string) =>
     apiFetch<{
       commits: { sha: string; author: string; date: string; message: string }[]

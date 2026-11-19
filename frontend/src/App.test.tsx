@@ -660,3 +660,73 @@ test('sources : liste les sources déclarées de la branche regardée', async ()
   // Le sélecteur d'espace de l'en-tête est fonctionnel.
   expect(screen.getByRole('option', { name: 'Espace : modele' })).toBeInTheDocument()
 })
+
+test('détail source : collecte une source Git et affiche le rapport', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
+      },
+    },
+    '/api/spaces': {
+      body: {
+        spaces: [
+          { id: 'sp1', name: 'modele', connection_id: 'c1', repo_url: '', last_probe_status: 'valid', last_probe_at: null },
+        ],
+      },
+    },
+    '/api/spaces/sp1/branches': {
+      body: {
+        branches: [
+          { id: 'br1', label: 'Principale', slug: 'principale', kind: 'base', git_ref: 'work/principale' },
+        ],
+        viewed_branch_id: 'br1',
+      },
+    },
+    '/api/spaces/sp1/branches/br1/sources': {
+      body: {
+        sources: [
+          {
+            slug: 'api-boutique',
+            ok: true,
+            label: 'API boutique',
+            type: 'git',
+            connexion: { slug: 'github', label: 'GitHub', kind: 'forge', forge: 'github' },
+            parametres: { depot: 'org/api', branche: 'main' },
+          },
+        ],
+      },
+    },
+    '/api/spaces/sp1/branches/br1/sources/api-boutique/collections': {
+      body: { collections: [] },
+    },
+    'POST /api/spaces/sp1/branches/br1/sources/api-boutique/collect?force=false': {
+      body: {
+        source_commit: 'abcdef123456',
+        local_commit: 'fedcba654321',
+        added: 2,
+        modified: 1,
+        deleted: 0,
+        unchanged: 3,
+        read: 3,
+        retained: 6,
+        duration_ms: 42,
+        errors: [],
+      },
+    },
+  })
+  renderAt('/sources/api-boutique')
+  // L'en-tête nomme la source ; l'onglet Collectes est actif par défaut.
+  await screen.findByText('API boutique')
+  await waitFor(() => expect(screen.getByText('Aucune collecte enregistrée pour cette source.')).toBeInTheDocument())
+  // Lancer la collecte affiche le rapport (étapes + commit source).
+  await userEvent.click(screen.getByRole('button', { name: 'Collecter' }))
+  await waitFor(() => expect(screen.getByText('Dernière collecte')).toBeInTheDocument())
+  expect(screen.getByText(/Code source au commit abcdef1/)).toBeInTheDocument()
+  // Un commit local a été écrit → l'action « Publier la branche » est proposée.
+  expect(screen.getByRole('button', { name: 'Publier la branche' })).toBeInTheDocument()
+})

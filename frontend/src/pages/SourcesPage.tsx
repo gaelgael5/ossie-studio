@@ -1,6 +1,7 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../apiClient'
 import type { SourceInput, SourceItem } from '../apiClient'
 import { errorMessages } from '../errors'
@@ -39,6 +40,7 @@ type Editing =
 export function SourcesPage() {
   const { t } = useTranslation()
   const ws = useWorkspace()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [menuOpen, setMenuOpen] = useState(false)
   const [editing, setEditing] = useState<Editing>(null)
@@ -157,7 +159,9 @@ export function SourcesPage() {
                   <td>
                     {source.ok ? (
                       <>
-                        <strong>{source.label}</strong>
+                        <Link to={`/sources/${source.slug}`} className="link-strong">
+                          {source.label}
+                        </Link>
                         <div className="muted mono" style={{ fontSize: '0.82rem' }}>
                           {source.slug}
                         </div>
@@ -196,6 +200,11 @@ export function SourcesPage() {
                   </td>
                   <td>
                     <div className="row">
+                      {source.ok && source.type === 'git' ? (
+                        <Link to={`/sources/${source.slug}`} className="btn btn-sm btn-primary">
+                          {t('collect')}
+                        </Link>
+                      ) : null}
                       {source.ok ? (
                         <button
                           type="button"
@@ -243,6 +252,11 @@ export function SourcesPage() {
           onSaved={async () => {
             setEditing(null)
             await invalidate()
+          }}
+          onDeclaredCollect={async (slug) => {
+            setEditing(null)
+            await invalidate()
+            navigate(`/sources/${slug}`)
           }}
         />
       ) : null}
@@ -346,12 +360,14 @@ function GitSourceModal({
   source,
   onClose,
   onSaved,
+  onDeclaredCollect,
 }: {
   spaceId: string
   branchId: string
   source?: SourceItem
   onClose: () => void
   onSaved: () => void
+  onDeclaredCollect: (slug: string) => void
 }) {
   const { t } = useTranslation()
   const editMode = source !== undefined
@@ -405,6 +421,7 @@ function GitSourceModal({
   const connSlug = forges.find((c) => c.id === connexion)?.slug ?? ''
   const preview = { slug, label, type: 'git', connexion: connSlug, parametres }
 
+  const collectAfter = useRef(false)
   const save = useMutation({
     mutationFn: () => {
       const body: SourceInput = { slug, label, type: 'git', connexion: connSlug, parametres }
@@ -416,9 +433,10 @@ function GitSourceModal({
           })
         : api.declareSource(spaceId, branchId, body)
     },
-    onSuccess: onSaved,
+    onSuccess: (saved) => (collectAfter.current ? onDeclaredCollect(saved.slug) : onSaved()),
     onError: (err) => setMessages(errorMessages(t, err)),
   })
+  const disabled = save.isPending || !label || !slug || !connexion || !depot || !branche
 
   return (
     <Modal
@@ -429,12 +447,27 @@ function GitSourceModal({
           <button type="button" className="btn" onClick={onClose}>
             {t('cancelEdit')}
           </button>
+          {!editMode ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={disabled}
+              onClick={() => {
+                setMessages([])
+                collectAfter.current = true
+                save.mutate()
+              }}
+            >
+              {t('declareAndCollect')}
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn-primary"
-            disabled={save.isPending || !label || !slug || !connexion || !depot || !branche}
+            disabled={disabled}
             onClick={() => {
               setMessages([])
+              collectAfter.current = false
               save.mutate()
             }}
           >

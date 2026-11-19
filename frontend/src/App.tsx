@@ -17,6 +17,7 @@ import { GovernanceCertificationsPage } from './pages/GovernanceCertificationsPa
 import { GovernanceClassificationsPage } from './pages/GovernanceClassificationsPage'
 import { GovernanceInvalidValuesPage } from './pages/GovernanceInvalidValuesPage'
 import { SourcesPage } from './pages/SourcesPage'
+import { SourceDetailPage } from './pages/SourceDetailPage'
 import { WorkspaceProvider } from './workspace'
 import { ProfilesPage } from './pages/ProfilesPage'
 import { UsersPage } from './pages/UsersPage'
@@ -97,6 +98,7 @@ function AppRoutes() {
           }
         />
         <Route path="/sources" element={gate('sources:read', <SourcesPage />)} />
+        <Route path="/sources/:slug" element={gate('sources:read', <SourceDetailPage />)} />
         <Route path="/secrets" element={gate('secrets:read', <SecretsPage />)} />
         <Route path="/oidc/connectors" element={gate('oidc:read', <ConnectorsPage />)} />
         <Route path="/forges" element={gate('connections:read', <ForgesPage />)} />

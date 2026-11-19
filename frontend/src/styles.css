@@ -200,6 +200,14 @@ a {
   font-size: 0.85rem;
   margin-bottom: 4px;
 }
+.link-strong {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+.link-strong:hover {
+  text-decoration: underline;
+}
 .page-title {
   font-size: 1.9rem;
   margin: 0;
