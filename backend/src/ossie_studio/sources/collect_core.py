@@ -146,11 +146,27 @@ def run_collection(
     dirty = {path for path in handled if is_dirty(path)}
     deleted_sources = [s for s in previous.entries if s not in handled]
 
-    # Groupes de régénération : par destination connue, l'ensemble des sources
-    # qui la composent ; plus les nouvelles sources, parsées seules.
+    # Destination connue par source (pour grouper les fichiers qui composent un
+    # même objet, p. ex. des classes partielles). Pour une source déjà vue, on
+    # relit le manifeste ; pour une source **nouvelle**, on la parse une fois pour
+    # découvrir ses destinations, afin de grouper les parties dès la 1re collecte.
+    dest_of: dict[str, set[str]] = {}
+    for path in handled:
+        old = previous.entries.get(path)
+        if old is not None:
+            dest_of[path] = set(old.destinations)
+        elif path in dirty:
+            try:
+                produced = handled[path].parse({path: source_files[path]})
+            except ParserError:
+                produced = []
+            dest_of[path] = {_destination_name(o.key) for o in produced}
+        else:
+            dest_of[path] = set()
+
     dest_to_sources: dict[str, set[str]] = {}
-    for source, entry in previous.entries.items():
-        for dest in entry.destinations:
+    for source, dests in dest_of.items():
+        for dest in dests:
             dest_to_sources.setdefault(dest, set()).add(source)
 
     groups: list[set[str]] = []
@@ -158,11 +174,9 @@ def run_collection(
     for source in sorted(dirty):
         if source in seen:
             continue
-        old = previous.entries.get(source)
         group: set[str] = {source}
-        if old is not None:
-            for dest in old.destinations:
-                group |= {s for s in dest_to_sources.get(dest, set()) if s in handled}
+        for dest in dest_of.get(source, set()):
+            group |= {s for s in dest_to_sources.get(dest, set()) if s in handled}
         groups.append(group)
         seen |= group
 
@@ -249,13 +263,21 @@ def run_collection(
     return plan
 
 
+def schema_index_name(parser_id: str) -> str:
+    """Nom du fichier d'index **propre à un plugin** dans `raw/`. Namespacé par
+    l'identifiant du plugin : deux parseurs de schémas sur une même source (C# et
+    un autre) ne se marchent jamais dessus."""
+    return f"manifest-{parser_id}.yaml"
+
+
 def schema_plugin_run(
-    context: PluginContext, parser: Parser, *, index_name: str = TECH_MANIFEST_NAME
+    context: PluginContext, parser: Parser, *, index_name: str = ""
 ) -> PluginResult:
     """Adapte le moteur incrémental de schémas au contrat de plugin : lit l'index
     du plugin et ses sorties `.json` dans `raw/`, applique `run_collection`, et
     rend des actions d'écriture (dont l'index régénéré). Les plugins de schémas
     (démo, OpenAPI, C#…) délèguent ici ; chacun garde **son** fichier d'index."""
+    index_name = index_name or schema_index_name(parser.id)
     prev_text = context.raw.read_index(index_name)
     previous = parse_tech_manifest(prev_text) if prev_text else TechManifest()
     existing = {

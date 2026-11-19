@@ -106,7 +106,29 @@ async def test_premiere_collecte_ecrit_les_schemas(
     assert report.local_commit is not None
     raw = _raw(tmp_path, space)
     assert (raw / "a.json").is_file() and (raw / "b.json").is_file()
-    assert (raw / "manifest.yaml").is_file()
+    assert (raw / "manifest-jsonschema-demo.yaml").is_file()
+
+
+async def test_csharp_classes_partielles_une_seule_collecte(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    import json
+
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, _ = _make_bare_with(
+        tmp_path,
+        "src",
+        {
+            "foo1.cs": "namespace App; public partial class Foo { public int A { get; set; } }",
+            "foo2.cs": "namespace App; public partial class Foo { public int B { get; set; } }",
+        },
+    )
+    await _collect(collector, space, src)
+    raw = _raw(tmp_path, space)
+    # Les deux parties fusionnent en un seul schéma dès la première collecte.
+    schema = json.loads((raw / "app-foo.json").read_text(encoding="utf-8"))
+    assert set(schema["properties"]) == {"A", "B"}
 
 
 async def test_markdown_copie_les_documents_et_exclut_node_modules(

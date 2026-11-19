@@ -17,16 +17,19 @@ from typing import Any
 
 import yaml
 
+from ossie_studio.parsers.openapi import OPENAPI_PARSER_ID
 from ossie_studio.sources.collect_core import (
     RAW_DIR,
-    TECH_MANIFEST_NAME,
     checksum,
     dump_tech_manifest,
     parse_tech_manifest,
+    schema_index_name,
 )
 from ossie_studio.sources.paths import CONTRATS_INDEX, safe_contrats_path, safe_source_path
 
 CONTRATS_INDEX_VERSION = 1
+# Les contrats sont transformés par le plugin openapi : son index technique.
+_OPENAPI_INDEX = schema_index_name(OPENAPI_PARSER_ID)
 
 
 class ContractExistsError(Exception):
@@ -122,7 +125,7 @@ def read_contracts_view(workdir: Path, slug: str) -> list[ContractView]:
     except ValueError:
         return []
     entries = _read_index_dir(contrats_dir)
-    tech_file = safe_source_path(workdir, slug) / RAW_DIR / TECH_MANIFEST_NAME
+    tech_file = safe_source_path(workdir, slug) / RAW_DIR / _OPENAPI_INDEX
     tech = (
         parse_tech_manifest(tech_file.read_text(encoding="utf-8"))
         if tech_file.is_file()
@@ -198,7 +201,7 @@ def _drop_schemas(workdir: Path, slug: str, fichier: str) -> None:
     manifeste technique. Un schéma n'est supprimé que si plus aucune autre source
     ne le produit (il est version-scopé, donc propre au contrat)."""
     raw = safe_source_path(workdir, slug) / RAW_DIR
-    tech_file = raw / TECH_MANIFEST_NAME
+    tech_file = raw / _OPENAPI_INDEX
     if not tech_file.is_file():
         return
     tech = parse_tech_manifest(tech_file.read_text(encoding="utf-8"))
