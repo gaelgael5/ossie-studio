@@ -90,7 +90,8 @@ voir un objet `internal` ou `private`, pas le perdre.
 ## Métadonnées d'origine
 
 Sous des clefs `x-` : `x-source` (fichier, ligne ou objet de catalogue),
-`x-kind` (class, record, enum, table, view…), `x-language` ou `x-engine`, et
+`x-kind` (class, record, enum, table, view, materialized-view, json-content…),
+`x-language` ou `x-engine`, et
 `x-annotations` (attributs, décorateurs, annotations : `[Table]`, `@Entity`,
 `@Column`, `Field(...)`…). Ces annotations serviront à relier une classe à sa
 table.

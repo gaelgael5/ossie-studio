@@ -138,6 +138,13 @@ def _build_schema(data: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
+def build_object_schema(data: dict[str, Any]) -> dict[str, Any]:
+    """Construit le JSON Schema d'un objet normalisé (table/vue). Partagé avec le
+    parseur de projet SQL Server, qui enrichit `extra` et les fragments de
+    colonnes (x-engine, x-source, contentSchema, x-derived-from…)."""
+    return _build_schema(data)
+
+
 class SqlExtractor:
     """Extracteur de catalogue SQL pour un dialecte. Ne lit jamais les données :
     il transforme des objets normalisés déjà lus en JSON Schema."""

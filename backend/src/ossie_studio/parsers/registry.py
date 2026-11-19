@@ -7,6 +7,7 @@ from ossie_studio.parsers.kotlin_java import KotlinJavaParser
 from ossie_studio.parsers.markdown import MarkdownPlugin
 from ossie_studio.parsers.openapi import OpenApiParser
 from ossie_studio.parsers.python import PythonParser
+from ossie_studio.parsers.sqlserver_project import SqlServerProjectParser
 from ossie_studio.parsers.typescript import TypeScriptParser
 
 # Plugins **en dur** pour l'instant. L'interface et le registre sont pensés pour
@@ -17,16 +18,17 @@ _CSHARP = CSharpParser()
 _PYTHON = PythonParser()
 _TYPESCRIPT = TypeScriptParser()
 _KOTLIN_JAVA = KotlinJavaParser()
+_SQLSERVER_PROJECT = SqlServerProjectParser()
 _OPENAPI = OpenApiParser()
 
 # Plugins appliqués au **code** d'une source Git (choisis par le manifeste, défaut
 # : tous). Le plugin OpenAPI n'en fait pas partie : il ne tourne que sur les
 # sources `openapi`, sur les contrats déposés.
 _CODE_PLUGINS: tuple[Plugin, ...] = (
-    _CSHARP, _PYTHON, _TYPESCRIPT, _KOTLIN_JAVA, _DEMO, _MARKDOWN,
+    _CSHARP, _PYTHON, _TYPESCRIPT, _KOTLIN_JAVA, _SQLSERVER_PROJECT, _DEMO, _MARKDOWN,
 )
 _ALL_PLUGINS: tuple[Plugin, ...] = (
-    _CSHARP, _PYTHON, _TYPESCRIPT, _KOTLIN_JAVA, _DEMO, _MARKDOWN, _OPENAPI,
+    _CSHARP, _PYTHON, _TYPESCRIPT, _KOTLIN_JAVA, _SQLSERVER_PROJECT, _DEMO, _MARKDOWN, _OPENAPI,
 )
 
 
