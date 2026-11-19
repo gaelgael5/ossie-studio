@@ -5,6 +5,9 @@ import asyncio
 from typing import Any
 
 from ossie_studio.databases.base import (
+    CatalogColumn,
+    CatalogForeignKey,
+    CatalogObject,
     CatalogRead,
     DatabaseEngine,
     DbEngineError,
@@ -13,6 +16,189 @@ from ossie_studio.databases.base import (
     DbIdentity,
     DbTable,
 )
+
+# Longueur « sans limite » de VARCHAR dans Snowflake : pas de maxLength alors.
+_SF_MAX_TEXT = 16777216
+_SF_KIND = {
+    "BASE TABLE": "table",
+    "TABLE": "table",
+    "VIEW": "view",
+    "MATERIALIZED VIEW": "materialized-view",
+    "DYNAMIC TABLE": "dynamic-table",
+}
+
+
+def _sf_db_type(
+    data_type: str, char_len: int | None, precision: int | None, scale: int | None
+) -> str:
+    dt = data_type.upper()
+    if dt in ("TEXT", "VARCHAR", "STRING", "CHAR", "CHARACTER"):
+        return f"VARCHAR({char_len})" if char_len and char_len != _SF_MAX_TEXT else "VARCHAR"
+    if dt in ("NUMBER", "DECIMAL", "NUMERIC"):
+        return f"NUMBER({precision or 38},{scale or 0})"
+    return dt
+
+
+def _sf_type_fragment(
+    data_type: str, char_len: int | None, precision: int | None, scale: int | None
+) -> dict[str, Any]:
+    """Fragment JSON Schema d'une colonne Snowflake. Le type d'origine est gardé
+    en x-db-type."""
+    dt = data_type.upper()
+    frag: dict[str, Any]
+    if dt in ("TEXT", "VARCHAR", "STRING", "CHAR", "CHARACTER"):
+        frag = {"type": "string"}
+        if char_len and char_len != _SF_MAX_TEXT:
+            frag["maxLength"] = char_len
+    elif dt in ("NUMBER", "DECIMAL", "NUMERIC"):
+        frag = {"type": "integer"} if (scale or 0) == 0 else {"type": "number"}
+    elif dt in ("INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "BYTEINT"):
+        frag = {"type": "integer"}
+    elif dt in ("FLOAT", "FLOAT4", "FLOAT8", "DOUBLE", "DOUBLE PRECISION", "REAL"):
+        frag = {"type": "number"}
+    elif dt == "BOOLEAN":
+        frag = {"type": "boolean"}
+    elif dt == "DATE":
+        frag = {"type": "string", "format": "date"}
+    elif dt in ("TIMESTAMP", "DATETIME", "TIMESTAMP_NTZ", "TIMESTAMP_LTZ", "TIMESTAMP_TZ"):
+        frag = {"type": "string", "format": "date-time"}
+    elif dt == "TIME":
+        frag = {"type": "string", "format": "time"}
+    elif dt in ("VARIANT", "OBJECT"):
+        frag = {"type": "object", "x-semi-structured": True}
+    elif dt == "ARRAY":
+        frag = {"type": "array"}  # Snowflake : tableau sans structure d'items.
+    elif dt == "BINARY":
+        frag = {"type": "string"}
+    else:
+        frag = {}
+    frag["x-db-type"] = _sf_db_type(data_type, char_len, precision, scale)
+    return frag
+
+
+def _grouped_keys(
+    rows: list[dict[str, Any]], name_key: str
+) -> dict[tuple[str, str], list[list[str]]]:
+    """Regroupe des lignes de clefs par (schéma, table) puis par contrainte, en
+    respectant l'ordre des colonnes (`key_sequence`)."""
+    by_constraint: dict[tuple[str, str, str], list[tuple[int, str]]] = {}
+    for r in rows:
+        key = (str(r["schema"]), str(r["table"]), str(r.get(name_key) or ""))
+        by_constraint.setdefault(key, []).append((int(r.get("seq", 0)), str(r["column"])))
+    out: dict[tuple[str, str], list[list[str]]] = {}
+    for (schema, table, _name), cols in by_constraint.items():
+        ordered = [c for _, c in sorted(cols)]
+        out.setdefault((schema, table), []).append(ordered)
+    return out
+
+
+def build_catalog(
+    *,
+    tables: list[dict[str, Any]],
+    columns: list[dict[str, Any]],
+    primary_keys: list[dict[str, Any]] | None = None,
+    unique_keys: list[dict[str, Any]] | None = None,
+    foreign_keys: list[dict[str, Any]] | None = None,
+    dependencies: list[dict[str, Any]] | None = None,
+    schemas: list[str] | None = None,
+    exclusions: list[str] | None = None,
+    queries: int = 0,
+    errors: list[tuple[str, str]] | None = None,
+) -> CatalogRead:
+    """Construit le catalogue normalisé depuis des lignes de catalogue Snowflake
+    (INFORMATION_SCHEMA + SHOW …). **Pur** : testable sans instance."""
+    include = set(schemas) if schemas else None
+    exclude = set(exclusions or ())
+
+    def kept(schema: str) -> bool:
+        return (include is None or schema in include) and schema not in exclude
+
+    cols_by_obj: dict[tuple[str, str], list[CatalogColumn]] = {}
+    for c in columns:
+        schema, table = str(c["schema"]), str(c["table"])
+        if not kept(schema):
+            continue
+        fragment = _sf_type_fragment(
+            str(c["data_type"]), c.get("char_len"), c.get("precision"), c.get("scale")
+        )
+        cols_by_obj.setdefault((schema, table), []).append(
+            CatalogColumn(
+                name=str(c["name"]),
+                schema=fragment,
+                required=str(c.get("is_nullable", "YES")).upper() == "NO",
+                position=int(c.get("position", 0)),
+                default=c.get("default"),
+                description=str(c.get("comment") or ""),
+            )
+        )
+
+    pk = _grouped_keys([r for r in (primary_keys or []) if kept(str(r["schema"]))], "constraint")
+    uq = _grouped_keys([r for r in (unique_keys or []) if kept(str(r["schema"]))], "constraint")
+    fks_by_obj: dict[tuple[str, str], list[CatalogForeignKey]] = {}
+    for fk in _fk_groups([r for r in (foreign_keys or []) if kept(str(r["schema"]))]):
+        fks_by_obj.setdefault((fk[0], fk[1]), []).append(fk[2])
+    deps_by_obj: dict[tuple[str, str], list[str]] = {}
+    for d in dependencies or []:
+        if kept(str(d["schema"])):
+            deps_by_obj.setdefault((str(d["schema"]), str(d["name"])), []).append(
+                f"{d['ref_schema']}.{d['ref_name']}"
+            )
+
+    objects: list[CatalogObject] = []
+    for t in tables:
+        schema, name = str(t["schema"]), str(t["name"])
+        if not kept(schema):
+            continue
+        key = (schema, name)
+        columns_sorted = sorted(cols_by_obj.get(key, []), key=lambda c: c.position)
+        primary = tuple(pk.get(key, [[]])[0]) if key in pk else ()
+        uniques = tuple(tuple(u) for u in uq.get(key, []))
+        fks = tuple(fks_by_obj.get(key, []))
+        extra: dict[str, Any] = {}
+        if str(t.get("is_transient", "")).upper() == "YES":
+            extra["x-table-type"] = "transient"
+        # Clefs déclarées mais non appliquées dans Snowflake.
+        if primary or uniques or fks:
+            extra["x-enforced"] = False
+        objects.append(
+            CatalogObject(
+                schema=schema,
+                name=name,
+                kind=_SF_KIND.get(str(t.get("table_type", "")).upper(), "table"),
+                columns=tuple(columns_sorted),
+                description=str(t.get("comment") or ""),
+                primary_key=primary,
+                unique_keys=uniques,
+                foreign_keys=fks,
+                depends_on=tuple(deps_by_obj.get(key, [])),
+                extra=extra,
+            )
+        )
+    return CatalogRead(objects=objects, errors=list(errors or []), queries=queries)
+
+
+def _fk_groups(rows: list[dict[str, Any]]) -> list[tuple[str, str, CatalogForeignKey]]:
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for r in rows:
+        key = (str(r["schema"]), str(r["table"]), str(r.get("fk_name") or ""))
+        grouped.setdefault(key, []).append(r)
+    out: list[tuple[str, str, CatalogForeignKey]] = []
+    for (schema, table, _name), items in grouped.items():
+        items.sort(key=lambda r: int(r.get("seq", 0)))
+        out.append(
+            (
+                schema,
+                table,
+                CatalogForeignKey(
+                    columns=tuple(str(r["column"]) for r in items),
+                    ref_schema=str(items[0].get("ref_schema", "")),
+                    ref_object=str(items[0].get("ref_table", "")),
+                    ref_columns=tuple(str(r.get("ref_column", "")) for r in items),
+                    enforced=False,
+                ),
+            )
+        )
+    return out
 
 
 def _driver() -> Any:
@@ -93,9 +279,104 @@ class SnowflakeEngine(DatabaseEngine):
         schemas: list[str] | None,
         exclusions: list[str] | None,
     ) -> CatalogRead:
-        # L'extraction de catalogue Snowflake fait l'objet de son propre ticket
-        # (catalogue simulé en test, épreuve réelle sur un compte fourni par Gael).
-        raise DbEngineError("db_driver_unavailable")
+        def _work() -> CatalogRead:  # pragma: no cover - nécessite le pilote et une instance
+            cn = self._connect(params, secret_value)
+            errors: list[tuple[str, str]] = []
+            queries = 0
+            try:
+                cur = cn.cursor()
+
+                def q(sql: str) -> list[dict[str, Any]]:
+                    nonlocal queries
+                    queries += 1
+                    cur.execute(sql)
+                    names = [str(d[0]).lower() for d in cur.description]
+                    return [dict(zip(names, row, strict=False)) for row in cur.fetchall()]
+
+                def safe(sql: str, note: str) -> list[dict[str, Any]]:
+                    try:
+                        return q(sql)
+                    except Exception:
+                        # Droits insuffisants (dépendances, clefs) : on signale, on continue.
+                        errors.append((note, "insufficient_privilege"))
+                        return []
+
+                tables = [
+                    {
+                        "schema": r["table_schema"],
+                        "name": r["table_name"],
+                        "table_type": r.get("table_type"),
+                        "comment": r.get("comment"),
+                        "is_transient": r.get("is_transient"),
+                    }
+                    for r in q(
+                        "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, COMMENT, IS_TRANSIENT "
+                        "FROM INFORMATION_SCHEMA.TABLES "
+                        "WHERE TABLE_SCHEMA <> 'INFORMATION_SCHEMA'"
+                    )
+                ]
+                columns = [
+                    {
+                        "schema": r["table_schema"],
+                        "table": r["table_name"],
+                        "name": r["column_name"],
+                        "position": r.get("ordinal_position", 0),
+                        "is_nullable": r.get("is_nullable", "YES"),
+                        "default": r.get("column_default"),
+                        "data_type": r.get("data_type", ""),
+                        "char_len": r.get("character_maximum_length"),
+                        "precision": r.get("numeric_precision"),
+                        "scale": r.get("numeric_scale"),
+                        "comment": r.get("comment"),
+                    }
+                    for r in q(
+                        "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, "
+                        "IS_NULLABLE, COLUMN_DEFAULT, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, "
+                        "NUMERIC_PRECISION, NUMERIC_SCALE, COMMENT FROM INFORMATION_SCHEMA.COLUMNS "
+                        "WHERE TABLE_SCHEMA <> 'INFORMATION_SCHEMA'"
+                    )
+                ]
+                pks = [
+                    {"schema": r.get("schema_name"), "table": r.get("table_name"),
+                     "column": r.get("column_name"), "seq": r.get("key_sequence", 0),
+                     "constraint": r.get("constraint_name")}
+                    for r in safe("SHOW PRIMARY KEYS", "primary_keys")
+                ]
+                uqs = [
+                    {"schema": r.get("schema_name"), "table": r.get("table_name"),
+                     "column": r.get("column_name"), "seq": r.get("key_sequence", 0),
+                     "constraint": r.get("constraint_name")}
+                    for r in safe("SHOW UNIQUE KEYS", "unique_keys")
+                ]
+                fks = [
+                    {"schema": r.get("fk_schema_name"), "table": r.get("fk_table_name"),
+                     "column": r.get("fk_column_name"), "ref_schema": r.get("pk_schema_name"),
+                     "ref_table": r.get("pk_table_name"), "ref_column": r.get("pk_column_name"),
+                     "seq": r.get("key_sequence", 0), "fk_name": r.get("fk_name")}
+                    for r in safe("SHOW IMPORTED KEYS", "foreign_keys")
+                ]
+                deps = [
+                    {"schema": r.get("referencing_schema_name"),
+                     "name": r.get("referencing_object_name"),
+                     "ref_schema": r.get("referenced_schema_name"),
+                     "ref_name": r.get("referenced_object_name")}
+                    for r in safe(
+                        "SELECT referencing_schema_name, referencing_object_name, "
+                        "referenced_schema_name, referenced_object_name "
+                        "FROM SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES "
+                        "WHERE referencing_database = CURRENT_DATABASE()",
+                        "dependencies",
+                    )
+                ]
+            finally:
+                cn.close()
+            return build_catalog(
+                tables=tables, columns=columns, primary_keys=pks, unique_keys=uqs,
+                foreign_keys=fks, dependencies=deps, schemas=schemas, exclusions=exclusions,
+                queries=queries, errors=errors,
+            )
+
+        return await asyncio.to_thread(_work)
 
     def form_spec(self) -> DbEngineFormSpec:
         return DbEngineFormSpec(
