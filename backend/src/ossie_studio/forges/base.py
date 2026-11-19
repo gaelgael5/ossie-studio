@@ -75,6 +75,10 @@ class ForgeStrategy(Protocol):
         """Identifiant conventionnel passé à git avec le jeton en mot de passe."""
         ...
 
+    def git_clone_url(self, base_url: str, repo: str) -> str:
+        """URL de clone d'un dépôt (identifié par son full_name) sous cette forge."""
+        ...
+
     def form_spec(self) -> ForgeFormSpec:
         """Décrit le formulaire d'ajout de cette forge (URL par défaut, etc.)."""
         ...

@@ -100,6 +100,11 @@ class AzureDevOpsStrategy:
     def git_username(self) -> str:
         return "pat"
 
+    def git_clone_url(self, base_url: str, repo: str) -> str:
+        # full_name d'un dépôt Azure = "projet/depot" → .../projet/_git/depot
+        project, _, name = repo.partition("/")
+        return f"{base_url.rstrip('/')}/{project}/_git/{name or project}"
+
     def form_spec(self) -> ForgeFormSpec:
         # Pas de défaut : l'URL de l'organisation (https://dev.azure.com/<org>)
         # est propre à chaque client, donc obligatoire.

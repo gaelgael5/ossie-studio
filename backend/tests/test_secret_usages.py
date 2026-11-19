@@ -82,7 +82,8 @@ async def test_usage_apparu_pendant_la_suppression_bloque(app: FastAPI) -> None:
         async with a.transaction():
             # L'objet se met à utiliser le secret, sur une autre connexion.
             await b.execute(
-                "INSERT INTO connections (label, slug, forge, url, secret_slug, identity, last_status) "
+                "INSERT INTO connections "
+                "(label, slug, forge, url, secret_slug, identity, last_status) "
                 "VALUES ('Echo', 'echo', 'github', 'https://git/echo', 's-course', 'moi', 'valid')"
             )
             with pytest.raises(asyncpg.ForeignKeyViolationError):

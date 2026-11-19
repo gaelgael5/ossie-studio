@@ -16,10 +16,17 @@ from ossie_studio.connections.service import (
 )
 from ossie_studio.crypto import CryptoService
 from ossie_studio.databases.service import db_get_db_connection_by_slug
-from ossie_studio.deps import ConnDep, get_crypto, get_http_client_factory, get_workdir_manager
+from ossie_studio.deps import (
+    ConnDep,
+    get_crypto,
+    get_http_client_factory,
+    get_source_downloader,
+    get_workdir_manager,
+)
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.base import ForgeError
 from ossie_studio.forges.registry import get_strategy
+from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.sources.manifest import (
     DB_TYPES,
     GIT_TYPE,
@@ -44,6 +51,7 @@ router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/sources")
 
 CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 WorkdirDep = Annotated[WorkdirManager, Depends(get_workdir_manager)]
+DownloaderDep = Annotated[SourceDownloader, Depends(get_source_downloader)]
 HttpFactoryDep = Annotated[Callable[[], httpx.AsyncClient], Depends(get_http_client_factory)]
 
 
@@ -291,6 +299,7 @@ async def delete_branch_source(
     crypto: CryptoDep,
     user: SourcesDeclare,
     workdir: WorkdirDep,
+    downloader: DownloaderDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
     slug: str,
@@ -307,3 +316,5 @@ async def delete_branch_source(
         raise ApiError("source_not_found", status_code=404, slug=slug) from None
     except WorkdirError as exc:
         raise _workdir_http_error(exc) from None
+    # Le code descendu sur le volume des sources part avec la source.
+    await downloader.remove(space_id, slug)

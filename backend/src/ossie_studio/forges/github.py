@@ -77,5 +77,8 @@ class GitHubStrategy:
     def git_username(self) -> str:
         return "x-access-token"
 
+    def git_clone_url(self, base_url: str, repo: str) -> str:
+        return f"{base_url.rstrip('/')}/{repo}.git"
+
     def form_spec(self) -> ForgeFormSpec:
         return ForgeFormSpec(forge="github", default_url=_GITHUB_COM, url_required=False)

@@ -12,6 +12,7 @@ from starlette.applications import Starlette
 from ossie_studio.auth.service import db_count_users, db_get_user_by_id
 from ossie_studio.crypto import CryptoService
 from ossie_studio.models import User
+from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.spaces.git_probe import ProbeResult
 from ossie_studio.spaces.workdir import WorkdirManager
 
@@ -72,3 +73,8 @@ def get_git_probe(request: Request) -> GitProbe:
 def get_workdir_manager(request: Request) -> WorkdirManager:
     manager: WorkdirManager = request.app.state.workdir_manager
     return manager
+
+
+def get_source_downloader(request: Request) -> SourceDownloader:
+    downloader: SourceDownloader = request.app.state.source_downloader
+    return downloader
