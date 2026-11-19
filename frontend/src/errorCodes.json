@@ -87,5 +87,7 @@
   "plugin_not_found",
   "plugin_param_not_found",
   "parseur_unknown",
-  "parseur_conflict"
+  "parseur_conflict",
+  "asset_origin_missing",
+  "curation_path_invalid"
 ]

@@ -98,6 +98,8 @@ ERROR_CODES: tuple[str, ...] = (
     "plugin_param_not_found",
     "parseur_unknown",
     "parseur_conflict",
+    "asset_origin_missing",
+    "curation_path_invalid",
 )
 
 

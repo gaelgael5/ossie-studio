@@ -257,6 +257,27 @@ export interface ScanFileItem {
   scanned_at: string
 }
 
+export interface CurationObjectItem {
+  path: string
+  title: string
+  kind: string
+  fields: number
+  retained: 'none' | 'partial' | 'full'
+}
+
+export interface CurationField {
+  name: string
+  type: string
+  retained: boolean
+  ref: boolean
+}
+
+export interface CurationObjectDetail {
+  path: string
+  title: string
+  fields: CurationField[]
+}
+
 export interface RailLine {
   ref: string
   name: string
@@ -549,6 +570,30 @@ export const api = {
   listSourceScan: (spaceId: string, branchId: string, slug: string) =>
     apiFetch<{ fichiers: ScanFileItem[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/scan`,
+    ),
+  listCuration: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ objects: CurationObjectItem[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation`,
+    ),
+  getCurationObject: (spaceId: string, branchId: string, slug: string, path: string) =>
+    apiFetch<CurationObjectDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/object?path=${encodeURIComponent(path)}`,
+    ),
+  retainAsset: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    path: string,
+    fields: string[] | null,
+  ) =>
+    apiFetch<{ ok: boolean; commit: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/retain`,
+      { method: 'POST', body: JSON.stringify({ path, fields }) },
+    ),
+  removeAsset: (spaceId: string, branchId: string, slug: string, path: string) =>
+    apiFetch<{ ok: boolean; commit: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/remove`,
+      { method: 'POST', body: JSON.stringify({ path }) },
     ),
   listCodePlugins: () =>
     apiFetch<{ plugins: { id: string; label: string; globs: string[] }[] }>(

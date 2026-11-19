@@ -3,12 +3,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../apiClient'
-import type { CollectReport, CollectionRun, ContractAnalysis, SourceItem } from '../apiClient'
+import type {
+  CollectReport,
+  CollectionRun,
+  ContractAnalysis,
+  CurationField,
+  CurationObjectItem,
+  SourceItem,
+} from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { useWorkspace } from '../workspace'
 
-type Tab = 'overview' | 'contrats' | 'collectes' | 'scan' | 'manifeste' | 'raw'
+type Tab = 'overview' | 'contrats' | 'collectes' | 'scan' | 'curation' | 'manifeste' | 'raw'
 
 function sourceMeta(s: SourceItem, t: (k: string) => string): string {
   const p = s.parametres ?? {}
@@ -43,8 +50,8 @@ export function SourceDetailPage() {
   const isOpenapi = source?.type === 'openapi'
   const collectable = source?.type === 'git' || isOpenapi
   const tabList: Tab[] = isOpenapi
-    ? ['overview', 'contrats', 'collectes', 'scan', 'manifeste', 'raw']
-    : ['overview', 'collectes', 'scan', 'manifeste', 'raw']
+    ? ['overview', 'contrats', 'collectes', 'scan', 'curation', 'manifeste', 'raw']
+    : ['overview', 'collectes', 'scan', 'curation', 'manifeste', 'raw']
   const effectiveTab: Tab = tab ?? (isOpenapi ? 'contrats' : 'collectes')
   const collections = useQuery({
     queryKey: ['collections', ws.spaceId, ws.branchId, slug],
@@ -125,9 +132,11 @@ export function SourceDetailPage() {
                     ? 'tabCollectes'
                     : id === 'scan'
                       ? 'tabScan'
-                      : id === 'manifeste'
-                        ? 'tabManifeste'
-                        : 'tabRawExplorer',
+                      : id === 'curation'
+                        ? 'tabCuration'
+                        : id === 'manifeste'
+                          ? 'tabManifeste'
+                          : 'tabRawExplorer',
             )}
           </button>
         ))}
@@ -159,6 +168,10 @@ export function SourceDetailPage() {
 
       {effectiveTab === 'scan' ? (
         <ScanPanel spaceId={ws.spaceId as string} branchId={ws.branchId as string} slug={slug} />
+      ) : null}
+
+      {effectiveTab === 'curation' ? (
+        <CurationTab spaceId={ws.spaceId as string} branchId={ws.branchId as string} slug={slug} />
       ) : null}
 
       {effectiveTab === 'manifeste' ? (
@@ -641,6 +654,232 @@ function ScanPanel({
       ) : (
         <div className="empty-note">{t('noScan')}</div>
       )}
+    </div>
+  )
+}
+
+const _RETAINED_KEY: Record<string, string> = {
+  none: 'retainedNone',
+  partial: 'retainedPartial',
+  full: 'retainedFull',
+}
+
+function CurationTab({
+  spaceId,
+  branchId,
+  slug,
+}: {
+  spaceId: string
+  branchId: string
+  slug: string
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<'all' | 'retained' | 'none'>('all')
+  const [selected, setSelected] = useState<string | null>(null)
+  const [messages, setMessages] = useState<string[]>([])
+
+  const list = useQuery({
+    queryKey: ['curation', spaceId, branchId, slug],
+    queryFn: () => api.listCuration(spaceId, branchId, slug),
+    retry: false,
+  })
+  const objects = list.data?.objects ?? []
+  const query = search.trim().toLowerCase()
+  const filtered = objects.filter((o: CurationObjectItem) => {
+    if (query && !o.title.toLowerCase().includes(query) && !o.path.toLowerCase().includes(query)) {
+      return false
+    }
+    if (filter === 'retained' && o.retained === 'none') return false
+    if (filter === 'none' && o.retained !== 'none') return false
+    return true
+  })
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ['curation', spaceId, branchId, slug] })
+
+  const retain = useMutation({
+    mutationFn: (vars: { path: string; fields: string[] | null }) =>
+      api.retainAsset(spaceId, branchId, slug, vars.path, vars.fields),
+    onSuccess: async () => {
+      setMessages([])
+      setSelected(null)
+      await invalidate()
+    },
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
+  const remove = useMutation({
+    mutationFn: (path: string) => api.removeAsset(spaceId, branchId, slug, path),
+    onSuccess: async () => {
+      setMessages([])
+      await invalidate()
+    },
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
+
+  return (
+    <div className="panel">
+      <p className="muted" style={{ fontSize: '0.88rem' }}>
+        {t('curationIntro')}
+      </p>
+      <div className="toolbar" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t('curationSearch')}
+          aria-label={t('curationSearch')}
+        />
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as 'all' | 'retained' | 'none')}
+          aria-label={t('curationFilter')}
+        >
+          <option value="all">{t('curationFilterAll')}</option>
+          <option value="retained">{t('curationFilterRetained')}</option>
+          <option value="none">{t('curationFilterNone')}</option>
+        </select>
+      </div>
+
+      <ErrorList messages={messages} />
+
+      {filtered.length > 0 ? (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>{t('curationColObject')}</th>
+              <th>{t('curationColKind')}</th>
+              <th>{t('curationColFields')}</th>
+              <th>{t('curationColRetained')}</th>
+              <th>{t('curationColActions')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((o) => (
+              <tr key={o.path}>
+                <td>
+                  {o.title}
+                  <div className="mono muted" style={{ fontSize: '0.78rem' }}>
+                    {o.path}
+                  </div>
+                </td>
+                <td className="mono">{o.kind}</td>
+                <td>{o.fields}</td>
+                <td>{t(_RETAINED_KEY[o.retained] ?? 'retainedNone')}</td>
+                <td>
+                  <button
+                    type="button"
+                    onClick={() => retain.mutate({ path: o.path, fields: null })}
+                    disabled={retain.isPending}
+                  >
+                    {t('curationRetainAll')}
+                  </button>{' '}
+                  <button type="button" onClick={() => setSelected(o.path)}>
+                    {t('curationChooseFields')}
+                  </button>{' '}
+                  {o.retained !== 'none' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(t('curationConfirmRemove'))) remove.mutate(o.path)
+                      }}
+                      disabled={remove.isPending}
+                    >
+                      {t('curationRemove')}
+                    </button>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <div className="empty-note">{t('curationEmpty')}</div>
+      )}
+
+      {selected ? (
+        <FieldPanel
+          spaceId={spaceId}
+          branchId={branchId}
+          slug={slug}
+          path={selected}
+          onClose={() => setSelected(null)}
+          onSave={(fields) => retain.mutate({ path: selected, fields })}
+          pending={retain.isPending}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function FieldPanel({
+  spaceId,
+  branchId,
+  slug,
+  path,
+  onClose,
+  onSave,
+  pending,
+}: {
+  spaceId: string
+  branchId: string
+  slug: string
+  path: string
+  onClose: () => void
+  onSave: (fields: string[]) => void
+  pending: boolean
+}) {
+  const { t } = useTranslation()
+  const detail = useQuery({
+    queryKey: ['curationObject', spaceId, branchId, slug, path],
+    queryFn: () => api.getCurationObject(spaceId, branchId, slug, path),
+    retry: false,
+  })
+  const fields = detail.data?.fields ?? []
+  const [checked, setChecked] = useState<Record<string, boolean> | null>(null)
+  const current: Record<string, boolean> =
+    checked ?? Object.fromEntries(fields.map((f: CurationField) => [f.name, f.retained]))
+
+  return (
+    <div className="panel" style={{ marginTop: '0.75rem' }}>
+      <p className="panel-label">
+        {t('curationFieldsFor', { title: detail.data?.title ?? path })}
+      </p>
+      {fields.length > 0 ? (
+        <ul style={{ listStyle: 'none', padding: 0 }}>
+          {fields.map((f) => (
+            <li key={f.name}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={current[f.name] ?? false}
+                  onChange={() => setChecked({ ...current, [f.name]: !current[f.name] })}
+                />{' '}
+                <span className="mono">{f.name}</span>{' '}
+                <span className="muted" style={{ fontSize: '0.8rem' }}>
+                  {f.type}
+                </span>{' '}
+                {f.ref ? <span className="badge">{t('curationFieldRef')}</span> : null}
+              </label>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">{t('curationNoFields')}</p>
+      )}
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <button
+          type="button"
+          onClick={() => onSave(fields.filter((f) => current[f.name]).map((f) => f.name))}
+          disabled={pending}
+        >
+          {t('curationSaveFields')}
+        </button>
+        <button type="button" onClick={onClose}>
+          {t('cancel')}
+        </button>
+      </div>
     </div>
   )
 }

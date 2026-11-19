@@ -9,6 +9,8 @@ MANIFEST_FILENAME = "manifest.yaml"
 # Contrats déposés d'une source OpenAPI, versionnés dans l'espace.
 CONTRATS_DIR = "contrats"
 CONTRATS_INDEX = "contrats.yaml"
+# Assets curés : copie choisie des schémas de raw/, enrichie par l'humain.
+ASSETS_DIR = "assets"
 
 # Un slug de source : minuscules, chiffres et tirets, sans tiret en bord ni
 # double tiret. Volontairement strict : il devient un nom de répertoire.
@@ -49,3 +51,9 @@ def safe_contrats_path(workdir: Path, slug: str) -> Path:
     """Répertoire `contrats/` d'une source, sous `sources/<slug>/` (garde de
     traversée héritée de safe_source_path)."""
     return safe_source_path(workdir, slug) / CONTRATS_DIR
+
+
+def safe_assets_path(workdir: Path, slug: str) -> Path:
+    """Répertoire `assets/` d'une source, sous `sources/<slug>/` (garde de
+    traversée héritée de safe_source_path)."""
+    return safe_source_path(workdir, slug) / ASSETS_DIR
