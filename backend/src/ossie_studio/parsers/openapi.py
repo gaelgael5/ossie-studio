@@ -16,7 +16,6 @@ en v2 donnent deux schémas distincts, parce que les deux versions coexistent.
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -34,6 +33,7 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
+from ossie_studio.parsers.conventions import STANDARD_KEYWORDS, dump_schema
 
 OPENAPI_PARSER_ID = "openapi"
 OPENAPI_PARSER_VERSION = "1.0"
@@ -245,24 +245,56 @@ def _convert(node: Any, *, major: str, version: str, names: set[str]) -> Any:
                     skip.add(bound)
                 else:
                     skip.add(ex_key)
-        if "example" in node:
-            override["examples"] = [node["example"]]
-            skip.add("example")
+    # `example` (singulier, OpenAPI) → `examples` (standard 2020-12), quel que soit
+    # le major, pour rester conforme aux conventions.
+    if "example" in node:
+        override["examples"] = [node["example"]]
+        skip.add("example")
 
     out: dict[str, Any] = {}
     for key, value in node.items():
         if key in skip:
             continue
-        if key in override:
-            out[key] = override[key]  # valeur de donnée (borne), pas un sous-schéma
-            continue
-        out[key] = _convert(value, major=major, version=version, names=names)
+        source = override[key] if key in override else value
+        out[_norm_key(key)] = _convert_value(key, source, major=major, version=version, names=names)
     for key, value in override.items():
-        out.setdefault(key, value)
+        out.setdefault(_norm_key(key), value)
 
     if nullable:
         out = _apply_null(out)
     return out
+
+
+# Positions de (sous-)schémas, pour descendre sans toucher aux noms de propriétés
+# ni aux valeurs de données (enum, const, type, required…).
+_SCHEMA_VALUE = ("items", "additionalProperties", "not", "if", "then", "else", "contains",
+                 "propertyNames", "unevaluatedItems", "unevaluatedProperties", "contentSchema")
+_SCHEMA_LIST = ("allOf", "anyOf", "oneOf", "prefixItems")
+_SCHEMA_MAP = ("properties", "patternProperties", "$defs", "dependentSchemas")
+
+
+def _convert_value(key: str, value: Any, *, major: str, version: str, names: set[str]) -> Any:
+    """Transforme la valeur d'une clef selon sa position : sous-schéma, liste de
+    sous-schémas, carte nom→sous-schéma, ou donnée (laissée telle quelle)."""
+    if key in _SCHEMA_MAP and isinstance(value, dict):
+        return {
+            name: _convert(sub, major=major, version=version, names=names)
+            for name, sub in value.items()
+        }
+    if key in _SCHEMA_LIST and isinstance(value, list):
+        return [_convert(item, major=major, version=version, names=names) for item in value]
+    if key in _SCHEMA_VALUE:
+        return _convert(value, major=major, version=version, names=names)
+    # Donnée (type, enum, required, examples…) ou clef inconnue : valeur gardée.
+    return value
+
+
+def _norm_key(key: str) -> str:
+    """Toute clef non standard (ni mot-clef 2020-12, ni `$`, ni `x-`) — p. ex.
+    `discriminator`, `xml` — est préfixée `x-` pour respecter les conventions."""
+    if key in STANDARD_KEYWORDS or key.startswith(("$", "x-")):
+        return key
+    return f"x-{key}"
 
 
 def _apply_null(schema: dict[str, Any]) -> dict[str, Any]:
@@ -305,9 +337,12 @@ def _contract_schemas(filename: str, raw: bytes) -> list[ParsedObject]:
         body["x-source"] = {"fichier": filename, "pointeur": f"{_SCHEMA_REF_PREFIX}{name}"}
         if name in used_by:
             body["x-used-by"] = sorted(used_by[name])
-        schema = json.dumps(body, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
         objects.append(
-            ParsedObject(key=f"{_slug(version)}-{_slug(name)}", sources=[filename], schema=schema)
+            ParsedObject(
+                key=f"{_slug(version)}-{_slug(name)}",
+                sources=[filename],
+                schema=dump_schema(body),
+            )
         )
     return objects
 

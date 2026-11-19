@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,6 +18,7 @@ from ossie_studio.parsers.base import (
     PluginError,
     PluginResult,
 )
+from ossie_studio.parsers.conventions import ConventionError, validate_schema
 
 TECH_MANIFEST_VERSION = 1
 RAW_DIR = "raw"
@@ -186,6 +188,21 @@ def run_collection(
         except ParserError as exc:
             for source in sorted(group):
                 plan.errors.append(CollectError(source=source, cause=exc.code))
+                plan.statuses[source] = STATUT_ERREUR
+            continue
+        # Validateur partagé des conventions : un schéma non conforme fait échouer
+        # la lecture du fichier concerné ; il n'est jamais écrit.
+        try:
+            for obj in objects:
+                validate_schema(json.loads(obj.schema))
+        except ConventionError as exc:
+            for source in sorted(group):
+                plan.errors.append(CollectError(source=source, cause=f"convention:{exc.rule}"))
+                plan.statuses[source] = STATUT_ERREUR
+            continue
+        except json.JSONDecodeError:
+            for source in sorted(group):
+                plan.errors.append(CollectError(source=source, cause="convention:not_json"))
                 plan.statuses[source] = STATUT_ERREUR
             continue
         by_source: dict[str, list[str]] = {s: [] for s in group}

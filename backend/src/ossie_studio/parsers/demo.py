@@ -12,6 +12,7 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
+from ossie_studio.parsers.conventions import dump_schema
 from ossie_studio.sources.collect_core import schema_plugin_run
 
 _KEY_CLEAN = re.compile(r"[^a-zA-Z0-9]+")
@@ -60,7 +61,10 @@ class DemoJsonSchemaParser:
                 raise ParserError("unreadable") from exc
             except json.JSONDecodeError as exc:
                 raise ParserError("syntax") from exc
-            # Sortie déterministe : clés triées, indentation fixe, newline final.
-            schema = json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
-            objects.append(ParsedObject(key=_key_from_path(path), sources=[path], schema=schema))
+            if not isinstance(data, dict):
+                raise ParserError("syntax")
+            key = _key_from_path(path)
+            # Identité stable : $id = nom du fichier schéma (conventions).
+            data["$id"] = f"{key}.json"
+            objects.append(ParsedObject(key=key, sources=[path], schema=dump_schema(data)))
         return objects

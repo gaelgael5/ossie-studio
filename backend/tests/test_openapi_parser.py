@@ -274,9 +274,10 @@ def test_31_type_tableau_inchange() -> None:
         },
     )
     schema = _schema_of(OpenApiParser(), "v1.yaml", raw, "v1-commande")
-    # 3.1 : déjà du 2020-12, on ne convertit pas example → examples.
+    # 3.1 : type tableau gardé ; example (OpenAPI) normalisé en examples (standard).
     assert schema["type"] == ["string", "null"]
-    assert schema["example"] == "x"
+    assert schema["examples"] == ["x"]
+    assert "example" not in schema
 
 
 def test_sortie_deterministe() -> None:
