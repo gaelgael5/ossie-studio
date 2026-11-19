@@ -7,6 +7,7 @@ import asyncpg
 import structlog
 
 from ossie_studio.models import DbConnection
+from ossie_studio.slugs import slugify
 
 log = structlog.get_logger(__name__)
 
@@ -27,6 +28,22 @@ async def db_get_db_connection(
     return DbConnection.from_row(row) if row is not None else None
 
 
+async def db_get_db_connection_by_slug(
+    conn: asyncpg.Connection, slug: str
+) -> DbConnection | None:
+    row = await conn.fetchrow("SELECT * FROM db_connections WHERE slug = $1", slug)
+    return DbConnection.from_row(row) if row is not None else None
+
+
+async def _free_db_slug(conn: asyncpg.Connection, base: str) -> str:
+    slug = base
+    counter = 2
+    while await conn.fetchval("SELECT 1 FROM db_connections WHERE slug = $1", slug):
+        slug = f"{base}-{counter}"
+        counter += 1
+    return slug
+
+
 async def db_create_db_connection(
     conn: asyncpg.Connection,
     *,
@@ -40,12 +57,14 @@ async def db_create_db_connection(
 ) -> DbConnection:
     """Enregistre la connexion, qui désigne un secret existant par son slug. La
     clé étrangère garantit que le secret existe. Doublon → rien n'est écrit."""
+    slug = await _free_db_slug(conn, slugify(label, fallback="base"))
     try:
         row = await conn.fetchrow(
-            "INSERT INTO db_connections (label, engine, target, params, secret_slug, identity, "
-            "server_version, last_status, last_checked_at) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, 'valid', $8) RETURNING *",
+            "INSERT INTO db_connections (label, slug, engine, target, params, secret_slug, "
+            "identity, server_version, last_status, last_checked_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'valid', $9) RETURNING *",
             label,
+            slug,
             engine,
             target,
             params,

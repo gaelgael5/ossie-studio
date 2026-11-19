@@ -9,6 +9,7 @@ import structlog
 from ossie_studio.crypto import CryptoService, SecretValue
 from ossie_studio.forges.base import ForgeIdentity
 from ossie_studio.models import Connection
+from ossie_studio.slugs import slugify
 
 log = structlog.get_logger(__name__)
 
@@ -33,6 +34,21 @@ async def db_get_connection(
     return Connection.from_row(row) if row is not None else None
 
 
+async def db_get_connection_by_slug(conn: asyncpg.Connection, slug: str) -> Connection | None:
+    row = await conn.fetchrow("SELECT * FROM connections WHERE slug = $1", slug)
+    return Connection.from_row(row) if row is not None else None
+
+
+async def _free_connection_slug(conn: asyncpg.Connection, base: str) -> str:
+    """Rend un slug libre, en suffixant d'un compteur au besoin."""
+    slug = base
+    counter = 2
+    while await conn.fetchval("SELECT 1 FROM connections WHERE slug = $1", slug):
+        slug = f"{base}-{counter}"
+        counter += 1
+    return slug
+
+
 async def db_create_connection(
     conn: asyncpg.Connection,
     *,
@@ -46,12 +62,14 @@ async def db_create_connection(
     la catégorie de la forge). La valeur du jeton n'est jamais touchée ici : elle
     vit dans la table des secrets. Doublon (forge, url, identité) → rien n'est
     écrit. La clé étrangère garantit que le secret existe."""
+    slug = await _free_connection_slug(conn, slugify(label, fallback="connexion"))
     try:
         row = await conn.fetchrow(
-            "INSERT INTO connections (label, forge, url, secret_slug, identity, "
-            "last_status, last_checked_at) VALUES ($1, $2, $3, $4, $5, 'valid', $6) "
+            "INSERT INTO connections (label, slug, forge, url, secret_slug, identity, "
+            "last_status, last_checked_at) VALUES ($1, $2, $3, $4, $5, $6, 'valid', $7) "
             "RETURNING *",
             label,
+            slug,
             forge,
             url,
             secret_slug,

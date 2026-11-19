@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
@@ -359,7 +359,9 @@ function GitSourceModal({
   const [label, setLabel] = useState(source?.label ?? '')
   const [slug, setSlug] = useState(source?.slug ?? '')
   const [slugTouched, setSlugTouched] = useState(editMode)
-  const [connexion, setConnexion] = useState(source?.connexion?.id ?? '')
+  // On garde l'id de la connexion dans l'état (pour lister dépôts et branches) ;
+  // le manifeste, lui, reçoit le slug.
+  const [connexion, setConnexion] = useState('')
   const [depot, setDepot] = useState(String(p.depot ?? ''))
   const [branche, setBranche] = useState(String(p.branche ?? ''))
   const [dirs, setDirs] = useState(asList(p.repertoires).join(', '))
@@ -379,9 +381,19 @@ function GitSourceModal({
     retry: false,
   })
 
+  const forges = useMemo(() => connections.data?.connections ?? [], [connections.data])
+
   useEffect(() => {
     if (!slugTouched) setSlug(slugify(label))
   }, [label, slugTouched])
+
+  // Édition : retrouver l'id de la connexion à partir du slug mémorisé.
+  useEffect(() => {
+    if (editMode && !connexion && source?.connexion?.slug) {
+      const match = forges.find((c) => c.slug === source.connexion?.slug)
+      if (match) setConnexion(match.id)
+    }
+  }, [editMode, connexion, forges, source])
 
   const parametres: Record<string, unknown> = {
     depot,
@@ -390,16 +402,16 @@ function GitSourceModal({
       ? { repertoires: dirs.split(',').map((d) => d.trim()).filter(Boolean) }
       : {}),
   }
-  const connLabel = connections.data?.connections.find((c) => c.id === connexion)?.label ?? connexion
-  const preview = { slug, label, type: 'git', connexion: connLabel, parametres }
+  const connSlug = forges.find((c) => c.id === connexion)?.slug ?? ''
+  const preview = { slug, label, type: 'git', connexion: connSlug, parametres }
 
   const save = useMutation({
     mutationFn: () => {
-      const body: SourceInput = { slug, label, type: 'git', connexion, parametres }
+      const body: SourceInput = { slug, label, type: 'git', connexion: connSlug, parametres }
       return editMode
         ? api.updateSource(spaceId, branchId, source!.slug, {
             label,
-            connexion,
+            connexion: connSlug,
             parametres,
           })
         : api.declareSource(spaceId, branchId, body)
@@ -407,8 +419,6 @@ function GitSourceModal({
     onSuccess: onSaved,
     onError: (err) => setMessages(errorMessages(t, err)),
   })
-
-  const forges = connections.data?.connections ?? []
 
   return (
     <Modal
@@ -564,21 +574,29 @@ function SqlSourceModal({
   const [label, setLabel] = useState(source?.label ?? '')
   const [slug, setSlug] = useState(source?.slug ?? '')
   const [slugTouched, setSlugTouched] = useState(editMode)
-  const [connexion, setConnexion] = useState(source?.connexion?.id ?? '')
+  const [connexion, setConnexion] = useState('')
   const [base, setBase] = useState(String(p.base ?? ''))
   const [schemas, setSchemas] = useState(asList(p.schemas).join(', '))
   const [exclusions, setExclusions] = useState(asList(p.exclusions).join(', '))
   const [messages, setMessages] = useState<string[]>([])
 
   const connections = useQuery({ queryKey: ['db-connections'], queryFn: api.listDbConnections })
+  const dbs = useMemo(() => connections.data?.connections ?? [], [connections.data])
 
   useEffect(() => {
     if (!slugTouched) setSlug(slugify(label))
   }, [label, slugTouched])
 
-  const dbs = connections.data?.connections ?? []
+  useEffect(() => {
+    if (editMode && !connexion && source?.connexion?.slug) {
+      const match = dbs.find((c) => c.slug === source.connexion?.slug)
+      if (match) setConnexion(match.id)
+    }
+  }, [editMode, connexion, dbs, source])
+
   const chosen = dbs.find((c) => c.id === connexion)
   const engine = source?.type ?? chosen?.engine ?? ''
+  const connSlug = chosen?.slug ?? ''
   const parametres: Record<string, unknown> = {
     base,
     ...(schemas.trim() ? { schemas: schemas.split(',').map((s) => s.trim()).filter(Boolean) } : {}),
@@ -586,13 +604,13 @@ function SqlSourceModal({
       ? { exclusions: exclusions.split(',').map((s) => s.trim()).filter(Boolean) }
       : {}),
   }
-  const preview = { slug, label, type: engine || 'postgres', connexion: chosen?.label ?? connexion, parametres }
+  const preview = { slug, label, type: engine || 'postgres', connexion: connSlug, parametres }
 
   const save = useMutation({
     mutationFn: () => {
-      const body: SourceInput = { slug, label, type: engine, connexion, parametres }
+      const body: SourceInput = { slug, label, type: engine, connexion: connSlug, parametres }
       return editMode
-        ? api.updateSource(spaceId, branchId, source!.slug, { label, connexion, parametres })
+        ? api.updateSource(spaceId, branchId, source!.slug, { label, connexion: connSlug, parametres })
         : api.declareSource(spaceId, branchId, body)
     },
     onSuccess: onSaved,

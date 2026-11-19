@@ -86,6 +86,7 @@ export interface OidcConnectorItem {
 export interface Connection {
   id: string
   label: string
+  slug: string
   forge: string
   url: string
   identity: string
@@ -109,6 +110,7 @@ export interface ForgeSpec {
 export interface DbConnectionItem {
   id: string
   label: string
+  slug: string
   engine: string
   target: string
   identity: string
@@ -153,7 +155,7 @@ export interface GitSpace {
 }
 
 export interface SourceConnectionRef {
-  id: string
+  slug: string
   label?: string
   kind: string
   forge?: string

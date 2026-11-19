@@ -183,8 +183,8 @@ async def test_suppression_secret_partage_conserve(
     # Une seconde connexion partage le secret (même forge, URL, identité différente).
     async with app.state.pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO connections (label, forge, url, secret_slug, identity, last_status) "
-            "VALUES ('B', 'github', $1, $2, 'autre', 'valid')",
+            "INSERT INTO connections (label, slug, forge, url, secret_slug, identity, last_status) "
+            "VALUES ('B', 'b-conn', 'github', $1, $2, 'autre', 'valid')",
             URL,
             slug,
         )

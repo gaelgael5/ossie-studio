@@ -52,6 +52,7 @@ def _payload(c: Connection) -> dict[str, object]:
     return {
         "id": str(c.id),
         "label": c.label,
+        "slug": c.slug,
         "forge": c.forge,
         "url": c.url,
         "identity": c.identity,

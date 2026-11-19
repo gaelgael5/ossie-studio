@@ -50,6 +50,7 @@ def _payload(c: DbConnection) -> dict[str, object]:
     return {
         "id": str(c.id),
         "label": c.label,
+        "slug": c.slug,
         "engine": c.engine,
         "target": c.target,
         "identity": c.identity,

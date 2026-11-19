@@ -10,9 +10,12 @@ from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import SourcesDeclare, SourcesRead
-from ossie_studio.connections.service import db_get_connection, resolve_connection_token
+from ossie_studio.connections.service import (
+    db_get_connection_by_slug,
+    resolve_connection_token,
+)
 from ossie_studio.crypto import CryptoService
-from ossie_studio.databases.service import db_get_db_connection
+from ossie_studio.databases.service import db_get_db_connection_by_slug
 from ossie_studio.deps import ConnDep, get_crypto, get_http_client_factory, get_workdir_manager
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.base import ForgeError
@@ -74,22 +77,21 @@ async def _branch_slug(conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID)
 async def _resolve_connection(
     conn: ConnDep, source_type: str, connexion: str
 ) -> dict[str, object]:
-    """Vérifie que la connexion existe et est du bon genre pour le type de source,
-    et rend de quoi l'afficher. Jamais de valeur secrète."""
-    try:
-        connection_id = uuid.UUID(connexion)
-    except ValueError:
-        raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"]) from None
+    """Vérifie que la connexion (désignée par son slug) existe et est du bon genre
+    pour le type de source, et rend de quoi l'afficher. Jamais de valeur secrète."""
+    slug = connexion.strip()
+    if not slug:
+        raise ApiError("invalid_request", status_code=400, fields=["connexion_required"])
     if source_type == GIT_TYPE:
-        forge = await db_get_connection(conn, connection_id)
+        forge = await db_get_connection_by_slug(conn, slug)
         if forge is None:
             raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
-        return {"id": str(forge.id), "label": forge.label, "kind": "forge", "forge": forge.forge}
+        return {"slug": forge.slug, "label": forge.label, "kind": "forge", "forge": forge.forge}
     # Type base : connexion de base du même moteur.
-    db = await db_get_db_connection(conn, connection_id)
+    db = await db_get_db_connection_by_slug(conn, slug)
     if db is None or db.engine != source_type:
         raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
-    return {"id": str(db.id), "label": db.label, "kind": "db", "engine": db.engine}
+    return {"slug": db.slug, "label": db.label, "kind": "db", "engine": db.engine}
 
 
 async def _build_manifest(
@@ -110,7 +112,7 @@ async def _build_manifest(
                 "slug": slug,
                 "label": label,
                 "type": source_type,
-                "connexion": connection_info["id"],
+                "connexion": connection_info["slug"],
                 "parametres": parametres,
             }
         )
@@ -129,7 +131,7 @@ async def _validate_git_branch(
 ) -> None:
     """Une source Git suit une **branche** du dépôt source : on refuse une branche
     inexistante (et donc un nom de tag ou de commit)."""
-    connection = await db_get_connection(conn, uuid.UUID(connexion))
+    connection = await db_get_connection_by_slug(conn, connexion.strip())
     assert connection is not None  # déjà validée par _resolve_connection
     token = (await resolve_connection_token(conn, crypto, connection)).reveal()
     strategy = get_strategy(connection.forge)
@@ -151,7 +153,7 @@ def _entry_payload(entry: SourceEntry, connection: dict[str, object] | None) -> 
         "ok": True,
         "label": manifest.label,
         "type": manifest.type,
-        "connexion": connection or {"id": manifest.connexion, "kind": "missing"},
+        "connexion": connection or {"slug": manifest.connexion, "kind": "missing"},
         "parametres": manifest.parametres,
     }
 

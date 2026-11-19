@@ -146,19 +146,20 @@ async def branch(
             "secret_slug": "gh",
         },
     )
-    connection_id = (await client.get("/api/connections")).json()["connections"][0]["id"]
+    connection = (await client.get("/api/connections")).json()["connections"][0]
     url = _seed_bare(tmp_path / "git")
     async with app.state.pool.acquire() as conn:
         space_id = await conn.fetchval(
             "INSERT INTO git_spaces (name, connection_id, repo_url, last_probe_status) "
             "VALUES ($1, $2, $3, 'valid') RETURNING id",
             "modele",
-            uuid.UUID(connection_id),
+            uuid.UUID(connection["id"]),
             url,
         )
     base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
     branch_id = base.json()["id"]
-    return client, str(space_id), str(branch_id), connection_id
+    # La source référence la connexion par son slug (lisible et stable).
+    return client, str(space_id), str(branch_id), connection["slug"]
 
 
 def _git_body(connection_id: str, **over: object) -> dict[str, object]:

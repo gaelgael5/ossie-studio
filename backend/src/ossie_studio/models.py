@@ -164,6 +164,7 @@ class Team:
 class Connection:
     id: uuid.UUID
     label: str
+    slug: str
     forge: str
     url: str
     secret_slug: str
@@ -178,6 +179,7 @@ class Connection:
         return cls(
             id=row["id"],
             label=row["label"],
+            slug=row["slug"],
             forge=row["forge"],
             url=row["url"],
             secret_slug=row["secret_slug"],
@@ -193,6 +195,7 @@ class Connection:
 class DbConnection:
     id: uuid.UUID
     label: str
+    slug: str
     engine: str
     target: str
     params: dict[str, object]
@@ -209,6 +212,7 @@ class DbConnection:
         return cls(
             id=row["id"],
             label=row["label"],
+            slug=row["slug"],
             engine=row["engine"],
             target=row["target"],
             params=dict(row["params"] or {}),

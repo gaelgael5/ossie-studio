@@ -26,8 +26,8 @@ async def _secret(app: FastAPI, slug: str, category: str = "github") -> None:
 async def _connection(app: FastAPI, secret_slug: str, label: str) -> None:
     async with app.state.pool.acquire() as conn:
         await conn.execute(
-            "INSERT INTO connections (label, forge, url, secret_slug, identity, last_status) "
-            "VALUES ($1, 'github', $2, $3, 'moi', 'valid')",
+            "INSERT INTO connections (label, slug, forge, url, secret_slug, identity, last_status) "
+            "VALUES ($1, $1, 'github', $2, $3, 'moi', 'valid')",
             label,
             f"https://git/{label}",
             secret_slug,
@@ -82,8 +82,8 @@ async def test_usage_apparu_pendant_la_suppression_bloque(app: FastAPI) -> None:
         async with a.transaction():
             # L'objet se met à utiliser le secret, sur une autre connexion.
             await b.execute(
-                "INSERT INTO connections (label, forge, url, secret_slug, identity, last_status) "
-                "VALUES ('Echo', 'github', 'https://git/echo', 's-course', 'moi', 'valid')"
+                "INSERT INTO connections (label, slug, forge, url, secret_slug, identity, last_status) "
+                "VALUES ('Echo', 'echo', 'github', 'https://git/echo', 's-course', 'moi', 'valid')"
             )
             with pytest.raises(asyncpg.ForeignKeyViolationError):
                 await a.execute("DELETE FROM secrets WHERE slug = 's-course'")
