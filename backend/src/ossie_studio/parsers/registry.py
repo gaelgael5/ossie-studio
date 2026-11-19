@@ -5,19 +5,21 @@ from ossie_studio.parsers.csharp import CSharpParser
 from ossie_studio.parsers.demo import DemoJsonSchemaParser
 from ossie_studio.parsers.markdown import MarkdownPlugin
 from ossie_studio.parsers.openapi import OpenApiParser
+from ossie_studio.parsers.python import PythonParser
 
 # Plugins **en dur** pour l'instant. L'interface et le registre sont pensés pour
 # qu'on puisse en brancher d'autres plus tard sans relivrer l'application.
 _DEMO = DemoJsonSchemaParser()
 _MARKDOWN = MarkdownPlugin()
 _CSHARP = CSharpParser()
+_PYTHON = PythonParser()
 _OPENAPI = OpenApiParser()
 
 # Plugins appliqués au **code** d'une source Git (choisis par le manifeste, défaut
 # : tous). Le plugin OpenAPI n'en fait pas partie : il ne tourne que sur les
 # sources `openapi`, sur les contrats déposés.
-_CODE_PLUGINS: tuple[Plugin, ...] = (_CSHARP, _DEMO, _MARKDOWN)
-_ALL_PLUGINS: tuple[Plugin, ...] = (_CSHARP, _DEMO, _MARKDOWN, _OPENAPI)
+_CODE_PLUGINS: tuple[Plugin, ...] = (_CSHARP, _PYTHON, _DEMO, _MARKDOWN)
+_ALL_PLUGINS: tuple[Plugin, ...] = (_CSHARP, _PYTHON, _DEMO, _MARKDOWN, _OPENAPI)
 
 
 def all_plugins() -> tuple[Plugin, ...]:

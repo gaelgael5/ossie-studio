@@ -21,6 +21,18 @@ from tree_sitter import Language, Node, Parser, Tree
 # Grammaires installées : identifiant de langage → module Python de la grammaire.
 GRAMMARS: dict[str, str] = {
     "csharp": "tree_sitter_c_sharp",
+    "python": "tree_sitter_python",
+    "java": "tree_sitter_java",
+    "kotlin": "tree_sitter_kotlin",
+    "typescript": "tree_sitter_typescript",
+    "tsx": "tree_sitter_typescript",
+}
+
+# Nom de la fonction d'entrée de la grammaire, quand ce n'est pas `language`
+# (le paquet TypeScript expose deux grammaires dans un même module).
+_LANGUAGE_FUNCS: dict[str, str] = {
+    "typescript": "language_typescript",
+    "tsx": "language_tsx",
 }
 
 
@@ -38,7 +50,8 @@ def _language(language: str) -> Language:
     if module_name is None:
         raise GrammarUnavailable(language)
     module = importlib.import_module(module_name)
-    return Language(module.language())
+    func = getattr(module, _LANGUAGE_FUNCS.get(language, "language"))
+    return Language(func())
 
 
 def grammar_version(language: str) -> str:
