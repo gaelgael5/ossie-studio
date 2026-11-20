@@ -16,19 +16,46 @@
   --border: #e6e9ef;
   --border-strong: #d4d9e2;
   --text: #1b2430;
-  --muted: #6c7684;
+  /* Texte secondaire : lisible (AA, ≥ 4.5) sur --bg, --panel et --surface-muted. */
+  --muted: #626c7a;
+  /* Fond neutre discret (puces, étiquettes) : un cran sous --bg. */
+  --surface-muted: #eceff4;
 
   --primary: #3b5bdb;
   --primary-hover: #314fc4;
   --primary-fg: #ffffff;
+  --link: var(--primary);
+
+  /*
+   * Couleurs d'état. Par état : la teinte vive (bordures, aplats), `-fg` pour
+   * du TEXTE sur fond clair ou teinté (AA), `-bg` pour le fond teinté.
+   */
   --danger: #e03131;
+  --danger-fg: #b42318;
   --danger-bg: #fdecec;
+  --success: #137333;
+  --success-bg: #e6f4ea;
   --warn-bg: #fdf6e3;
   --warn-fg: #8a6d1a;
   --warn-border: #f0e2bb;
 
   --chip-bg: #e8edfd;
   --chip-fg: #3449b5;
+
+  /* Anneau de focus clavier ; redéfini sur les fonds sombres (nav). */
+  --focus-ring: var(--primary);
+
+  /*
+   * Alias historiques : noms employés par des styles inline de pages plus
+   * anciennes. Ils pointent vers les tokens canoniques ci-dessus ; ne pas les
+   * utiliser dans du code nouveau.
+   */
+  --ok: var(--success);
+  --ok-bg: var(--success-bg);
+  --ko: var(--danger-fg);
+  --ko-bg: var(--danger-bg);
+  --warn: var(--warn-fg);
+  --muted-bg: var(--surface-muted);
 
   --radius: 14px;
   --radius-sm: 8px;
@@ -48,7 +75,29 @@ body {
 }
 
 a {
-  color: var(--primary);
+  color: var(--link);
+}
+
+/* ---------- Focus clavier ---------- */
+/*
+ * Un seul anneau pour toute l'application, au lieu du contour par défaut de
+ * chaque navigateur. `:focus-visible` : visible au clavier, pas au clic souris.
+ */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.topnav,
+.topbar-plain {
+  --focus-ring: var(--nav-accent);
+}
+/* Le menu déroulant est clair, bien que posé dans la nav sombre. */
+.topnav-dropdown-menu {
+  --focus-ring: var(--primary);
+}
+/* Les items occupent toute la hauteur de la nav : anneau rentré, sinon rogné. */
+.topnav-item:focus-visible {
+  outline-offset: -4px;
 }
 
 /* ---------- Shell d'application ---------- */
@@ -201,7 +250,7 @@ a {
   margin-bottom: 4px;
 }
 .link-strong {
-  color: var(--primary);
+  color: var(--link);
   font-weight: 600;
   text-decoration: none;
 }
@@ -256,7 +305,7 @@ a {
 }
 .tab-count {
   background: var(--danger-bg);
-  color: var(--danger);
+  color: var(--danger-fg);
   border-radius: 999px;
   font-size: 0.7rem;
   font-weight: 700;
@@ -291,7 +340,7 @@ a {
   background: var(--primary-hover);
 }
 .btn-danger {
-  color: var(--danger);
+  color: var(--danger-fg);
   border-color: var(--danger);
   background: var(--panel);
 }
@@ -398,7 +447,8 @@ a {
   color: #fff;
 }
 .badge-warn {
-  background: #b7791f;
+  /* Même teinte que le texte d'avertissement : blanc lisible dessus (AA). */
+  background: var(--warn-fg);
   color: #fff;
 }
 .badge-prefix {
@@ -485,7 +535,7 @@ a {
 }
 .banner-danger {
   background: var(--danger-bg);
-  color: #b42318;
+  color: var(--danger-fg);
 }
 .banner-warn {
   background: var(--warn-bg);

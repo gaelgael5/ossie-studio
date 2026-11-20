@@ -13,5 +13,8 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test-setup.ts',
+    // Vitest vide les CSS importés. Exception : l'import en texte (`?raw`),
+    // dont styles.test.ts a besoin pour lire les tokens.
+    css: { include: /\.css\?raw$/ },
   },
 })

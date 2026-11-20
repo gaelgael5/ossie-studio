@@ -45,7 +45,7 @@ export function LoginPage() {
               {t('loginWith', { label: c.label })}
             </a>
           ))}
-          <p style={{ textAlign: 'center', color: '#94a3b8' }}>{t('orLocalAccount')}</p>
+          <p className="muted" style={{ textAlign: 'center' }}>{t('orLocalAccount')}</p>
         </div>
       )}
       <form
