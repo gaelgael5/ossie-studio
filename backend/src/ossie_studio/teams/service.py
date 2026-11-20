@@ -204,52 +204,46 @@ async def apply_team_mapping(
     claims: object,
     user_id: uuid.UUID,
 ) -> None:
-    """À la connexion, le claim désigne l'équipe OIDC de la personne.
+    """À la connexion, le claim de groupe (**multi-valué**) définit l'ensemble des
+    équipes d'**origine OIDC** de la personne.
 
-    Ce ticket garde le comportement d'aujourd'hui pour l'OIDC — **une seule**
-    équipe OIDC (la **première** valeur si le claim en porte plusieurs ; le cas est
-    journalisé) ; la synchro multi-valuée est un ticket suivant. Les rattachements
-    vivent désormais dans `user_teams`.
-
-    - Une personne qui a **au moins un** rattachement **manuel** est considérée comme
-      surchargée à la main : l'OIDC ne change rien (préserve l'ancien « épinglé »).
-    - Une valeur jamais vue **crée** l'équipe (origine OIDC), rattachée au connecteur.
-    - Claim absent, vide ou de forme inattendue : rattachements **conservés**.
+    - **Chaque valeur** du claim = une équipe (créée si jamais vue, origine OIDC,
+      rattachée au connecteur) ; une valeur déjà connue réutilise l'équipe existante.
+    - Synchro de l'ensemble : les rattachements OIDC manquants sont **ajoutés**, ceux
+      qui ont disparu du claim sont **retirés**. Les rattachements **manuels** ne sont
+      **jamais** touchés (ni ajoutés, ni retirés, ni rétrogradés).
+    - Claim **absent, vide ou de forme inattendue** : rattachements **conservés**.
+    - **Idempotent** : deux connexions de suite avec le même claim ne changent rien.
     """
-    memberships = memberships_from_claims(claims, team_claim)
-    if not memberships:
+    values = memberships_from_claims(claims, team_claim)
+    if not values:
         return  # claim absent / vide / forme inattendue → rattachements conservés
-    value = memberships[0]
-    if len(memberships) > 1:
-        log.info(
-            "oidc_team_claim_multiple_values",
-            user_id=str(user_id),
-            kept=value,
-            count=len(memberships),
-        )
     if await conn.fetchval("SELECT 1 FROM users WHERE id = $1", user_id) is None:
         return
-    # Surcharge manuelle : l'OIDC n'intervient pas (préserve « fixé à la main »).
-    if await conn.fetchval(
-        "SELECT 1 FROM user_teams WHERE user_id = $1 AND origin = 'manual' LIMIT 1", user_id
-    ):
-        return
-    target = await db_get_or_create_team_by_name(
-        conn, value, origin="oidc", source_connector_id=connector_id
-    )
+    # Équipes cibles (chaque valeur = une équipe OIDC ; créée si jamais vue).
+    target_ids: list[uuid.UUID] = []
+    for value in values:
+        team_id = await db_get_or_create_team_by_name(
+            conn, value, origin="oidc", source_connector_id=connector_id
+        )
+        if team_id not in target_ids:
+            target_ids.append(team_id)
     async with conn.transaction():
+        # Ajoute les rattachements OIDC manquants (un rattachement manuel existant
+        # reste manuel : ON CONFLICT DO NOTHING ne le rétrograde pas).
+        for team_id in target_ids:
+            await conn.execute(
+                "INSERT INTO user_teams (user_id, team_id, origin) VALUES ($1, $2, 'oidc') "
+                "ON CONFLICT (user_id, team_id) DO NOTHING",
+                user_id,
+                team_id,
+            )
+        # Retire les rattachements OIDC qui ne sont plus dans le claim ; ne touche
+        # jamais un rattachement manuel.
         await conn.execute(
-            "INSERT INTO user_teams (user_id, team_id, origin) VALUES ($1, $2, 'oidc') "
-            "ON CONFLICT (user_id, team_id) DO NOTHING",
+            "DELETE FROM user_teams WHERE user_id = $1 AND origin = 'oidc' "
+            "AND team_id <> ALL($2::uuid[])",
             user_id,
-            target,
+            target_ids,
         )
-        # Une seule équipe OIDC (comportement actuel) : on retire les autres OIDC.
-        await conn.execute(
-            "DELETE FROM user_teams WHERE user_id = $1 AND origin = 'oidc' AND team_id <> $2",
-            user_id,
-            target,
-        )
-    log.info(
-        "oidc_team_applied", user_id=str(user_id), new_team=str(target), new_team_name=value
-    )
+    log.info("oidc_teams_synced", user_id=str(user_id), count=len(target_ids))

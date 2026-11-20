@@ -140,40 +140,65 @@ async def test_claim_designe_et_cree_equipe(app: FastAPI) -> None:
     assert team["membership"] == "oidc"  # rattachement venu de l'OIDC
 
 
-async def test_plusieurs_valeurs_premiere_gagne_et_journalise(
-    app: FastAPI, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Ce ticket garde « une seule équipe OIDC, la première l'emporte » (cas journalisé).
-    spy = _LogSpy()
-    monkeypatch.setattr("ossie_studio.teams.service.log", spy)
+async def test_toutes_les_valeurs_du_claim_deviennent_equipes(app: FastAPI) -> None:
+    # Critère 1 : chaque valeur du claim = une équipe OIDC (créée si absente).
     cid = await _connector(app)
     user = await _user(app, "u2@example.org")
     async with app.state.pool.acquire() as conn:
         await apply_team_mapping(conn, cid, "groups", {"groups": ["equipe-a", "equipe-b"]}, user)
-    assert await _memberships(app, user) == [("equipe-a", "oidc")]
-    assert spy.find("oidc_team_claim_multiple_values")["kept"] == "equipe-a"
+    assert await _memberships(app, user) == [("equipe-a", "oidc"), ("equipe-b", "oidc")]
 
 
-async def test_equipe_oidc_suit_le_claim_une_seule(app: FastAPI) -> None:
-    # L'équipe OIDC suit le jeton : une seconde valeur remplace la première.
+async def test_sync_ajoute_et_retire_les_oidc(app: FastAPI) -> None:
+    # Critère 2 : claim [A,B] puis [A] → B (OIDC) retiré, A conservé.
     cid = await _connector(app)
-    free = await _user(app, "free@example.org")
+    user = await _user(app, "sync@example.org")
     async with app.state.pool.acquire() as conn:
-        await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-1"}, free)
-        await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-2"}, free)
-    assert await _memberships(app, free) == [("equipe-2", "oidc")]
+        await apply_team_mapping(conn, cid, "g", {"g": ["equipe-a", "equipe-b"]}, user)
+        await apply_team_mapping(conn, cid, "g", {"g": ["equipe-a"]}, user)
+    assert await _memberships(app, user) == [("equipe-a", "oidc")]
 
 
-async def test_rattachement_manuel_bloque_l_oidc(app: FastAPI) -> None:
-    # Une personne avec un rattachement MANUEL n'est pas touchée par l'OIDC.
+async def test_oidc_coexiste_avec_les_manuels(app: FastAPI) -> None:
+    # Critère 3 : un rattachement manuel absent du claim est conservé ; l'OIDC gère
+    # ses propres rattachements à côté.
     cid = await _connector(app)
     async with app.state.pool.acquire() as conn:
         fixed = await db_create_team_manual(conn, "equipe-fixe")
-    pinned = await _user(app, "pin@example.org")
-    await _seed_membership(app, pinned, fixed.id, "manual")
+    user = await _user(app, "mix@example.org")
+    await _seed_membership(app, user, fixed.id, "manual")
     async with app.state.pool.acquire() as conn:
-        await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-autre"}, pinned)
-    assert await _team_ids(app, pinned) == {fixed.id}  # conservé, rien d'OIDC ajouté
+        await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-autre"}, user)
+    assert await _memberships(app, user) == [("equipe-autre", "oidc"), ("equipe-fixe", "manual")]
+    # Un nouveau claim retire l'OIDC mais garde le manuel.
+    async with app.state.pool.acquire() as conn:
+        await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-encore"}, user)
+    assert await _memberships(app, user) == [("equipe-encore", "oidc"), ("equipe-fixe", "manual")]
+
+
+async def test_claim_membre_du_claim_ne_degrade_pas_le_manuel(app: FastAPI) -> None:
+    # Un rattachement manuel à une équipe AUSSI dans le claim reste manuel.
+    cid = await _connector(app)
+    async with app.state.pool.acquire() as conn:
+        shared = await db_get_or_create_team_by_name(
+            conn, "equipe-partagee", origin="oidc", source_connector_id=cid
+        )
+    user = await _user(app, "share@example.org")
+    await _seed_membership(app, user, shared, "manual")
+    async with app.state.pool.acquire() as conn:
+        await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-partagee"}, user)
+    assert await _memberships(app, user) == [("equipe-partagee", "manual")]
+
+
+async def test_sync_idempotent(app: FastAPI) -> None:
+    # Critère 5 : même claim deux fois → aucun changement.
+    cid = await _connector(app)
+    user = await _user(app, "idem@example.org")
+    async with app.state.pool.acquire() as conn:
+        await apply_team_mapping(conn, cid, "g", {"g": ["equipe-a", "equipe-b"]}, user)
+        first = await _memberships(app, user)
+        await apply_team_mapping(conn, cid, "g", {"g": ["equipe-a", "equipe-b"]}, user)
+    assert await _memberships(app, user) == first == [("equipe-a", "oidc"), ("equipe-b", "oidc")]
 
 
 async def test_claim_absent_ou_inattendu_conserve(
@@ -200,19 +225,18 @@ async def test_claim_absent_ou_inattendu_conserve(
     assert "oidc_team_claim_unexpected_shape" in spy.names()
 
 
-async def test_changement_journalise_user_et_equipe(
+async def test_synchro_journalisee(
     app: FastAPI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Un rattachement OIDC posé journalise la personne et l'équipe.
+    # La synchro OIDC journalise la personne et le nombre d'équipes.
     spy = _LogSpy()
     monkeypatch.setattr("ossie_studio.teams.service.log", spy)
     cid = await _connector(app)
     user = await _user(app, "log@example.org")
     async with app.state.pool.acquire() as conn:
-        await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-x"}, user)
-    entry = spy.find("oidc_team_applied")
-    assert entry["user_id"] == str(user)
-    assert entry["new_team_name"] == "equipe-x"
+        await apply_team_mapping(conn, cid, "g", {"g": ["equipe-x", "equipe-y"]}, user)
+    entry = spy.find("oidc_teams_synced")
+    assert entry["user_id"] == str(user) and entry["count"] == 2
 
 
 async def test_equipe_ne_change_aucun_droit(app: FastAPI) -> None:
@@ -292,15 +316,18 @@ async def test_plusieurs_equipes_a_la_main(app: FastAPI) -> None:
     assert await _team_ids(app, user) == {b.id}  # Beta intacte
 
 
-async def test_manuel_resiste_au_claim_puis_retrait_rend_la_main(app: FastAPI) -> None:
-    # Le rattachement manuel résiste au claim ; une fois retiré, l'OIDC reprend.
+async def test_manuel_conserve_puis_retrait_laisse_l_oidc(app: FastAPI) -> None:
+    # Le rattachement manuel est conservé et l'OIDC gère les siens à côté ; une fois
+    # le manuel retiré, il ne reste que l'OIDC du claim.
     cid = await _connector(app)
     async with app.state.pool.acquire() as conn:
         manuelle = await db_create_team_manual(conn, "equipe-manuelle")
         user = await _user(app, "surcharge@example.org")
         await db_add_user_team(conn, user, manuelle.id)
         await apply_team_mapping(conn, cid, "dep", {"dep": "equipe-claim"}, user)
-    assert await _team_ids(app, user) == {manuelle.id}  # claim bloqué par le manuel
+    assert await _memberships(app, user) == [
+        ("equipe-claim", "oidc"), ("equipe-manuelle", "manual")
+    ]
 
     async with app.state.pool.acquire() as conn:
         assert await db_remove_user_team(conn, user, manuelle.id) is True
