@@ -30,6 +30,10 @@ class TeamNotFoundError(Exception):
     """Équipe cible absente du référentiel."""
 
 
+class TeamNameTakenError(Exception):
+    """Nom d'équipe déjà pris (le nom est unique dans le référentiel)."""
+
+
 def slugify(name: str) -> str:
     """Slug d'affichage (replié, tirets). Non unique : l'identité d'une équipe est
     son **nom** (valeur exacte du claim), pas son slug."""
@@ -91,6 +95,53 @@ async def db_create_team_manual(conn: asyncpg.Connection, name: str) -> Team:
     row = await conn.fetchrow("SELECT * FROM teams WHERE id = $1", team_id)
     assert row is not None
     return Team.from_row(row)
+
+
+async def db_list_teams_detail(conn: asyncpg.Connection) -> list[dict[str, str | None]]:
+    """Équipes avec leur profil (pour l'écran de gestion) : id, name, slug, origin,
+    profile_id, profile_name. Lecture seule."""
+    rows = await conn.fetch(
+        "SELECT t.id, t.name, t.slug, t.origin, t.profile_id, p.name AS profile_name "
+        "FROM teams t LEFT JOIN profiles p ON p.id = t.profile_id ORDER BY t.name"
+    )
+    return [
+        {
+            "id": str(r["id"]), "name": r["name"], "slug": r["slug"], "origin": r["origin"],
+            "profile_id": str(r["profile_id"]) if r["profile_id"] else None,
+            "profile_name": r["profile_name"],
+        }
+        for r in rows
+    ]
+
+
+async def db_set_team_profile(
+    conn: asyncpg.Connection, team_id: uuid.UUID, profile_id: uuid.UUID | None
+) -> None:
+    """Associe un profil à une équipe, ou le retire (`profile_id` None). Lève
+    TeamNotFoundError si l'équipe n'existe pas. L'existence du profil cible est
+    vérifiée en amont (API)."""
+    if await conn.fetchval("SELECT 1 FROM teams WHERE id = $1", team_id) is None:
+        raise TeamNotFoundError
+    await conn.execute("UPDATE teams SET profile_id = $2 WHERE id = $1", team_id, profile_id)
+
+
+async def db_rename_team(conn: asyncpg.Connection, team_id: uuid.UUID, name: str) -> None:
+    """Renomme une équipe. Lève TeamNotFoundError / TeamNameTakenError."""
+    if await conn.fetchval("SELECT 1 FROM teams WHERE id = $1", team_id) is None:
+        raise TeamNotFoundError
+    try:
+        await conn.execute(
+            "UPDATE teams SET name = $2, slug = $3 WHERE id = $1", team_id, name, slugify(name)
+        )
+    except asyncpg.UniqueViolationError:
+        raise TeamNameTakenError from None
+
+
+async def db_delete_team(conn: asyncpg.Connection, team_id: uuid.UUID) -> bool:
+    """Supprime une équipe (les rattachements partent en cascade). Rend True si une
+    équipe a été supprimée."""
+    result: str = await conn.execute("DELETE FROM teams WHERE id = $1", team_id)
+    return result != "DELETE 0"
 
 
 async def db_add_user_team(

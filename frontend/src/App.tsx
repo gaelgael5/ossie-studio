@@ -21,6 +21,7 @@ import { SourceDetailPage } from './pages/SourceDetailPage'
 import { ParsingPluginsPage } from './pages/ParsingPluginsPage'
 import { WorkspaceProvider } from './workspace'
 import { ProfilesPage } from './pages/ProfilesPage'
+import { TeamsPage } from './pages/TeamsPage'
 import { UsersPage } from './pages/UsersPage'
 import { StatusPage } from './StatusPage'
 
@@ -120,6 +121,7 @@ function AppRoutes() {
           element={gate('governance:read', <GovernanceInvalidValuesPage />)}
         />
         <Route path="/profiles" element={gate('profiles:read', <ProfilesPage />)} />
+        <Route path="/teams" element={gate('users:read', <TeamsPage />)} />
         <Route path="/users" element={gate('users:read', <UsersPage />)} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

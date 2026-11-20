@@ -135,7 +135,8 @@ class OidcRoleMapping:
 
 @dataclass(frozen=True)
 class Team:
-    """Équipe du référentiel local. AFFICHAGE SEULEMENT : ne porte aucun droit."""
+    """Équipe du référentiel local. Elle **porte un profil** (ou aucun) : appartenir
+    à l'équipe donne les capacités de ce profil (union avec le profil personnel)."""
 
     id: uuid.UUID
     name: str
@@ -143,6 +144,7 @@ class Team:
     origin: str  # 'oidc' (venue de l'annuaire) | 'manual' (créée à la main)
     source_connector_id: uuid.UUID | None
     created_at: datetime
+    profile_id: uuid.UUID | None = None
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> Team:
@@ -153,6 +155,7 @@ class Team:
             origin=row["origin"],
             source_connector_id=row["source_connector_id"],
             created_at=row["created_at"],
+            profile_id=row["profile_id"] if "profile_id" in row else None,
         )
 
 

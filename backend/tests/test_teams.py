@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from ossie_studio.authz.catalog import ALL_CAPABILITIES
 from ossie_studio.models import User
 from ossie_studio.oidc.roles import extract_memberships, memberships_from_claims
 from ossie_studio.profiles.service import load_capabilities
@@ -15,6 +16,7 @@ from ossie_studio.teams.service import (
     db_create_team_manual,
     db_get_or_create_team_by_name,
     db_remove_user_team,
+    db_set_team_profile,
     slugify,
 )
 from tests.conftest import bootstrap_admin, create_plain_user, login
@@ -365,3 +367,146 @@ async def test_api_equipe_reserve_a_users_write(client: AsyncClient, app: FastAP
     assert (
         await client.delete(f"/api/users/{user}/teams/{uuid.uuid4()}")
     ).status_code == 403
+
+
+# ===== Une équipe porte un profil ; capacités = union ========================
+
+
+async def _profile(
+    app: FastAPI, name: str, caps: list[str], *, is_admin: bool = False
+) -> uuid.UUID:
+    async with app.state.pool.acquire() as conn:
+        value = await conn.fetchval(
+            "INSERT INTO profiles (name, capabilities, is_admin) VALUES ($1, $2, $3) RETURNING id",
+            name, caps, is_admin,
+        )
+    assert isinstance(value, uuid.UUID)
+    return value
+
+
+async def _caps(app: FastAPI, user_id: uuid.UUID) -> set[str]:
+    async with app.state.pool.acquire() as conn:
+        user = User.from_row(await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id))
+        return await load_capabilities(conn, user)
+
+
+async def test_equipe_porte_profil_donne_capacites(app: FastAPI) -> None:
+    # Critère 1 : membre d'une équipe au profil « Curation » → capacités en plus ;
+    # l'équipe perd le profil → la personne les perd.
+    perso = await _profile(app, "Perso", ["oidc:read"])
+    curation = await _profile(app, "Curation", ["curation:read", "curation:write"])
+    async with app.state.pool.acquire() as conn:
+        team = await db_create_team_manual(conn, "Équipe Curation")
+        await db_set_team_profile(conn, team.id, curation)
+    user = await _user(app, "membre@example.org", profile_id=perso)
+    await _seed_membership(app, user, team.id, "manual")
+    assert await _caps(app, user) == {"oidc:read", "curation:read", "curation:write"}
+    # L'équipe perd le profil → plus que le profil perso.
+    async with app.state.pool.acquire() as conn:
+        await db_set_team_profile(conn, team.id, None)
+    assert await _caps(app, user) == {"oidc:read"}
+
+
+async def test_union_de_deux_equipes(app: FastAPI) -> None:
+    # Critère 2 : deux équipes aux profils différents → union des capacités.
+    pa = await _profile(app, "PA", ["sources:read"])
+    pb = await _profile(app, "PB", ["secrets:read"])
+    async with app.state.pool.acquire() as conn:
+        a = await db_create_team_manual(conn, "A")
+        b = await db_create_team_manual(conn, "B")
+        await db_set_team_profile(conn, a.id, pa)
+        await db_set_team_profile(conn, b.id, pb)
+    user = await _user(app, "deux@example.org")  # pas de profil perso
+    await _seed_membership(app, user, a.id, "manual")
+    await _seed_membership(app, user, b.id, "oidc")
+    assert await _caps(app, user) == {"sources:read", "secrets:read"}
+
+
+async def test_equipe_admin_rend_admin(app: FastAPI) -> None:
+    # Critère 3 : une équipe au profil Administrateur rend ses membres admins.
+    async with app.state.pool.acquire() as conn:
+        admin_profile = await conn.fetchval("SELECT id FROM profiles WHERE is_admin")
+        team = await db_create_team_manual(conn, "Admins")
+        await db_set_team_profile(conn, team.id, admin_profile)
+    user = await _user(app, "chef@example.org")  # aucun profil perso
+    await _seed_membership(app, user, team.id, "manual")
+    assert await _caps(app, user) == set(ALL_CAPABILITIES)
+
+
+async def test_equipe_sans_profil_n_ajoute_rien(app: FastAPI) -> None:
+    # Critère 4 : une équipe sans profil n'ajoute aucune capacité.
+    perso = await _profile(app, "Seul", ["oidc:read"])
+    async with app.state.pool.acquire() as conn:
+        team = await db_create_team_manual(conn, "Sans profil")
+    user = await _user(app, "neutre@example.org", profile_id=perso)
+    await _seed_membership(app, user, team.id, "manual")
+    assert await _caps(app, user) == {"oidc:read"}
+
+
+async def test_suppression_profil_laisse_equipe_sans_profil(app: FastAPI) -> None:
+    # Critère 6 : supprimer un profil associé à une équipe → équipe sans profil,
+    # aucune capacité fantôme (ON DELETE SET NULL).
+    pid = await _profile(app, "Éphémère", ["curation:read"])
+    async with app.state.pool.acquire() as conn:
+        team = await db_create_team_manual(conn, "Dépendante")
+        await db_set_team_profile(conn, team.id, pid)
+    user = await _user(app, "fantome@example.org")
+    await _seed_membership(app, user, team.id, "manual")
+    assert await _caps(app, user) == {"curation:read"}
+    async with app.state.pool.acquire() as conn:
+        await conn.execute("DELETE FROM profiles WHERE id = $1", pid)
+        left = await conn.fetchval("SELECT profile_id FROM teams WHERE id = $1", team.id)
+    assert left is None  # référence mise à NULL, pas cassée
+    assert await _caps(app, user) == set()  # plus aucune capacité
+
+
+async def test_set_team_profile_idempotent(app: FastAPI) -> None:
+    # Critère 7 : rejouer l'association ne change rien et ne duplique rien.
+    pid = await _profile(app, "Idem", ["oidc:read"])
+    async with app.state.pool.acquire() as conn:
+        team = await db_create_team_manual(conn, "Idempotente")
+        await db_set_team_profile(conn, team.id, pid)
+        await db_set_team_profile(conn, team.id, pid)
+        current = await conn.fetchval("SELECT profile_id FROM teams WHERE id = $1", team.id)
+    assert current == pid
+
+
+async def test_api_set_profil_reserve_a_profiles_write(
+    admin: AsyncClient, app: FastAPI
+) -> None:
+    # Critère 5 : associer un profil à une équipe exige le droit FORT (profiles:write),
+    # pas la simple gestion des utilisateurs.
+    # (`admin` partage la session de `client` : on agit d'abord en admin, puis on
+    # ouvre la session restreinte sur le même client.)
+    team_id = (await admin.post("/api/teams", json={"name": "Équipe X"})).json()["id"]
+    pid = str(await _profile(app, "Lecteur", ["oidc:read"]))
+
+    # L'administrateur (profiles:write compris) peut associer le profil.
+    assert (
+        await admin.put(f"/api/teams/{team_id}/profile", json={"profile_id": pid})
+    ).status_code == 200
+
+    # Un profil qui gère les utilisateurs mais PAS les profils est refusé.
+    only_users = await _profile(app, "Gestion users", ["users:read", "users:write"])
+    await create_plain_user(app, "gest@example.org", "mot-de-passe-solide")
+    async with app.state.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE users SET profile_id = $2 WHERE email = $1", "gest@example.org", only_users
+        )
+    await login(admin, "gest@example.org", "mot-de-passe-solide")
+    assert (
+        await admin.put(f"/api/teams/{team_id}/profile", json={"profile_id": pid})
+    ).status_code == 403
+
+
+async def test_api_renommer_et_supprimer_equipe(admin: AsyncClient, app: FastAPI) -> None:
+    a = (await admin.post("/api/teams", json={"name": "Un"})).json()["id"]
+    (await admin.post("/api/teams", json={"name": "Deux"})).json()
+    # Renommer vers un nom pris → refusé (409).
+    assert (await admin.put(f"/api/teams/{a}", json={"name": "Deux"})).status_code == 409
+    # Renommer vers un nom libre → ok.
+    assert (await admin.put(f"/api/teams/{a}", json={"name": "Trois"})).status_code == 200
+    # Supprimer.
+    assert (await admin.delete(f"/api/teams/{a}")).status_code == 200
+    names = [t["name"] for t in (await admin.get("/api/teams")).json()["teams"]]
+    assert "Trois" not in names and "Deux" in names

@@ -23,18 +23,29 @@ class ProfileNotFoundError(Exception):
 
 async def load_capabilities(conn: asyncpg.Connection, user: User) -> set[str]:
     """Capacités effectives d'un utilisateur, relues à chaque requête (jamais
-    figées en session). Le profil administrateur a toutes les capacités, y
-    compris celles ajoutées après coup."""
-    if user.profile_id is None:
-        return set()
-    row = await conn.fetchrow(
-        "SELECT is_admin, capabilities FROM profiles WHERE id = $1", user.profile_id
+    figées en session). **Union** du profil personnel et des profils portés par
+    **toutes** ses équipes : une équipe ajoute des droits, jamais n'en retire.
+    Administrateur si **au moins un** de ces profils est administrateur (il a alors
+    toutes les capacités, y compris celles ajoutées après coup)."""
+    rows = await conn.fetch(
+        # Profil personnel (ignoré si NULL) + profils des équipes de la personne.
+        "SELECT p.is_admin, p.capabilities FROM profiles p WHERE p.id = $1 "
+        "UNION ALL "
+        "SELECT p.is_admin, p.capabilities FROM user_teams ut "
+        "JOIN teams t ON t.id = ut.team_id "
+        "JOIN profiles p ON p.id = t.profile_id "
+        "WHERE ut.user_id = $2",
+        user.profile_id,
+        user.id,
     )
-    if row is None:
+    if not rows:
         return set()
-    if row["is_admin"]:
+    if any(row["is_admin"] for row in rows):
         return set(ALL_CAPABILITIES)
-    return set(row["capabilities"] or [])
+    caps: set[str] = set()
+    for row in rows:
+        caps.update(row["capabilities"] or [])
+    return caps
 
 
 async def db_list_profiles(conn: asyncpg.Connection) -> list[Profile]:

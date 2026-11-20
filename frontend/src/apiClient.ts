@@ -61,6 +61,8 @@ export interface TeamItem {
   name: string
   slug: string
   origin: string
+  profile_id?: string | null
+  profile_name?: string | null
 }
 
 export interface RoleMapping {
@@ -876,6 +878,18 @@ export const api = {
     apiFetch<{ id: string; name: string; origin: string }>('/api/teams', {
       method: 'POST',
       body: JSON.stringify({ name }),
+    }),
+  renameTeam: (teamId: string, name: string) =>
+    apiFetch<{ ok: boolean }>(`/api/teams/${teamId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name }),
+    }),
+  deleteTeam: (teamId: string) =>
+    apiFetch<{ ok: boolean }>(`/api/teams/${teamId}`, { method: 'DELETE' }),
+  setTeamProfile: (teamId: string, profileId: string | null) =>
+    apiFetch<{ ok: boolean }>(`/api/teams/${teamId}/profile`, {
+      method: 'PUT',
+      body: JSON.stringify({ profile_id: profileId }),
     }),
   addUserTeam: (userId: string, teamId: string) =>
     apiFetch<{ ok: boolean }>(`/api/users/${userId}/teams`, {
