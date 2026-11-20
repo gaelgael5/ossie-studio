@@ -1,28 +1,60 @@
 /*
- * Socle visuel d'Ossie-studio : shell d'application (nav sombre, canvas large)
- * et composants partagés par les pages Gouvernance. Les couleurs sont des
- * tokens, repris des maquettes, pour rester cohérents d'une page à l'autre.
+ * Polices de l'identité, embarquées avec l'application (aucun appel externe).
+ * Ne charger que les graisses réellement employées ci-dessous.
+ */
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-sans/700.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+@import '@fontsource/ibm-plex-mono/600.css';
+
+/*
+ * Socle visuel d'Ossie Studio : shell d'application (nav sombre, canvas large)
+ * et composants partagés par les pages.
+ *
+ * Identité « Cartographe » : la couche sémantique est une carte. L'interface
+ * emprunte au plan technique et au plan de métro — une ligne et ses stations
+ * (nav, onglets), un lettrage en chasse fixe pour les étiquettes et les
+ * identifiants, une trame de points sur le fond, des angles vifs et des
+ * traits nets plutôt que des ombres. Les règles d'usage sont dans
+ * docs/identite-visuelle.md.
+ *
+ * Les couleurs sont des tokens : aucune couleur d'interface ne s'écrit en dur
+ * dans une page (styles.test.ts le vérifie pour les tokens référencés).
  */
 :root {
-  --nav-bg: #0f1b2d;
-  --nav-fg: #aeb8c7;
+  --font-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Chasse fixe : identifiants (tags, slugs, références) et lettrage d'étiquettes. */
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --nav-bg: #0b1a24;
+  --nav-fg: #9fb3c0;
   --nav-fg-active: #ffffff;
-  --nav-accent: #5b7cfa;
-  --nav-chip-bg: #1c2a40;
-  --nav-chip-fg: #c7d0dd;
+  /* Turquoise : la couleur de la ligne, réservée aux fonds sombres. */
+  --nav-accent: #2dd4bf;
+  /* Le rail : filet continu au bas de la nav, que l'entrée active rallume. */
+  --nav-line: #1c3a49;
+  --nav-chip-bg: #132b38;
+  --nav-chip-fg: #d2e4ea;
+  --nav-chip-border: #25475a;
 
-  --bg: #f4f6f9;
+  --bg: #f1f5f7;
+  /* Points de la trame posée sur --bg. */
+  --grid-dot: rgba(13, 28, 38, 0.11);
   --panel: #ffffff;
-  --border: #e6e9ef;
-  --border-strong: #d4d9e2;
-  --text: #1b2430;
+  --border: #d3dde3;
+  --border-strong: #b4c3cc;
+  --text: #0d1c26;
   /* Texte secondaire : lisible (AA, ≥ 4.5) sur --bg, --panel et --surface-muted. */
-  --muted: #626c7a;
+  --muted: #4f626e;
   /* Fond neutre discret (puces, étiquettes) : un cran sous --bg. */
-  --surface-muted: #eceff4;
+  --surface-muted: #e6edf1;
 
-  --primary: #3b5bdb;
-  --primary-hover: #314fc4;
+  /* Sarcelle : la même ligne que --nav-accent, en version lisible sur clair. */
+  --primary: #0b6e6a;
+  --primary-hover: #095955;
   --primary-fg: #ffffff;
   --link: var(--primary);
 
@@ -36,11 +68,11 @@
   --success: #137333;
   --success-bg: #e6f4ea;
   --warn-bg: #fdf6e3;
-  --warn-fg: #8a6d1a;
+  --warn-fg: #7b6115;
   --warn-border: #f0e2bb;
 
-  --chip-bg: #e8edfd;
-  --chip-fg: #3449b5;
+  --chip-bg: #dcf1ee;
+  --chip-fg: #0a5a56;
 
   /* Anneau de focus clavier ; redéfini sur les fonds sombres (nav). */
   --focus-ring: var(--primary);
@@ -57,10 +89,11 @@
   --warn: var(--warn-fg);
   --muted-bg: var(--surface-muted);
 
-  --radius: 14px;
-  --radius-sm: 8px;
-  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.1);
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Angles vifs. */
+  --radius: 4px;
+  --radius-sm: 3px;
+  /* Ombre réservée à ce qui flotte (menus) : les panneaux n'en ont pas. */
+  --shadow: 0 6px 18px rgba(13, 28, 38, 0.14);
 }
 
 * {
@@ -69,9 +102,12 @@
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-ui);
   color: var(--text);
-  background: var(--bg);
+  background-color: var(--bg);
+  /* Trame de points : le papier d'un plan. */
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
+  background-size: 22px 22px;
 }
 
 a {
@@ -116,28 +152,60 @@ a {
   padding: 0 24px;
   min-height: 56px;
   flex-wrap: wrap;
+  box-shadow: inset 0 -2px 0 var(--nav-line);
 }
 
+/* Marque : le nom en chasse fixe, précédé du pictogramme (composant Brand). */
 .topnav-brand {
-  font-weight: 700;
-  color: #fff;
-  font-size: 1.05rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nav-fg-active);
   margin-right: 12px;
+  /* Garde de l'air quand la barre passe sur plusieurs lignes. */
+  padding: 10px 0;
   white-space: nowrap;
 }
+/* Pictogramme : une ligne et ses trois stations, la dernière pleine. */
+.brand-mark {
+  width: 26px;
+  height: 18px;
+  flex-shrink: 0;
+  fill: var(--nav-bg);
+  stroke: var(--nav-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand-mark path {
+  fill: none;
+}
+.brand-mark-end {
+  fill: var(--nav-accent);
+}
 
+/*
+ * `flex: 1 1 auto` (et non `flex: 1`) : le menu garde sa largeur naturelle
+ * tant qu'il y a la place. Quand la barre manque de place, c'est le bloc de
+ * droite qui passe à la ligne ; le menu ne se replie qu'en dernier recours.
+ */
 .topnav-menu {
   display: flex;
   align-items: stretch;
   gap: 4px;
-  flex: 1;
+  flex: 1 1 auto;
   flex-wrap: wrap;
 }
 
 .topnav-item {
   color: var(--nav-fg);
   text-decoration: none;
-  padding: 18px 14px;
+  padding: 18px 12px;
   border-bottom: 2px solid transparent;
   white-space: nowrap;
   background: none;
@@ -145,6 +213,7 @@ a {
   border-left: none;
   border-right: none;
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
 }
 .topnav-item:hover {
@@ -159,19 +228,50 @@ a {
   cursor: not-allowed;
 }
 
+/*
+ * Motif « station » : l'entrée active d'une ligne (nav, onglets) porte un
+ * anneau posé sur son trait, comme une station sur un plan de métro.
+ */
+.topnav-item.active,
+.tab.active {
+  position: relative;
+}
+.topnav-item.active::after,
+.tab.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  border: 2px solid var(--nav-accent);
+  background: var(--nav-bg);
+}
+.tab.active::after {
+  border-color: var(--primary);
+  background: var(--panel);
+}
+
 .topnav-right {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  /* Garde de l'air quand ce bloc passe sur sa propre ligne. */
+  padding: 8px 0;
 }
 
+/* Contexte (espace, branche, langue) : des cartouches en chasse fixe. */
 .ctx-chip {
   background: var(--nav-chip-bg);
   color: var(--nav-chip-fg);
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 0.85rem;
+  border: 1px solid var(--nav-chip-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
   white-space: nowrap;
 }
 .ctx-chip[aria-disabled="true"] {
@@ -181,11 +281,12 @@ a {
 .ctx-select {
   background: var(--nav-chip-bg);
   color: var(--nav-chip-fg);
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 6px 12px;
+  border: 1px solid var(--nav-chip-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
   font: inherit;
-  font-size: 0.85rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
   max-width: 240px;
   cursor: pointer;
 }
@@ -193,9 +294,29 @@ a {
   opacity: 0.6;
   cursor: not-allowed;
 }
+/* Sélecteur de langue : libellé + cartouche, dans les deux barres hautes. */
+.lang-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--nav-fg);
+  font-size: 0.85rem;
+}
+/*
+ * Dans la nav connectée la place est comptée : le cartouche (« Français »)
+ * se suffit, le libellé visible est omis. Le nom accessible reste porté par
+ * l'attribut aria-label du sélecteur.
+ */
+.topnav .lang-select > span {
+  display: none;
+}
 
 .topnav-user {
-  color: #fff;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--nav-fg-active);
   font-size: 0.9rem;
   white-space: nowrap;
 }
@@ -206,11 +327,12 @@ a {
 }
 .topnav-dropdown-menu {
   position: absolute;
-  top: 100%;
+  /* Décalé sous le rail, pour ne pas recouvrir l'anneau de la station active. */
+  top: calc(100% + 6px);
   right: 0;
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
   box-shadow: var(--shadow);
   min-width: 200px;
   padding: 6px;
@@ -222,7 +344,7 @@ a {
   color: var(--text);
   text-decoration: none;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 .topnav-dropdown-menu a:hover {
   background: var(--bg);
@@ -246,7 +368,10 @@ a {
 }
 .breadcrumb {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   margin-bottom: 4px;
 }
 .link-strong {
@@ -258,7 +383,9 @@ a {
   text-decoration: underline;
 }
 .page-title {
-  font-size: 1.9rem;
+  font-size: 2.1rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
   margin: 0;
 }
 .page-sub {
@@ -274,10 +401,11 @@ a {
 }
 
 /* ---------- Onglets ---------- */
+/* Une ligne ; l'onglet actif en est la station (motif défini plus haut). */
 .tabs {
   display: flex;
   gap: 24px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--border);
   margin: 20px 0 24px;
   flex-wrap: wrap;
 }
@@ -291,7 +419,7 @@ a {
   font: inherit;
   font-weight: 600;
   cursor: pointer;
-  margin-bottom: -1px;
+  margin-bottom: -2px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -306,7 +434,7 @@ a {
 .tab-count {
   background: var(--danger-bg);
   color: var(--danger-fg);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   font-weight: 700;
   padding: 1px 7px;
@@ -323,6 +451,7 @@ a {
   background: var(--panel);
   color: var(--text);
   white-space: nowrap;
+  text-decoration: none;
 }
 .btn:hover {
   background: var(--bg);
@@ -351,23 +480,30 @@ a {
   padding: 5px 10px;
   font-size: 0.85rem;
 }
+/* Bouton (ou lien-bouton) sur toute la largeur de son conteneur. */
+.btn-block {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
 
 /* ---------- Panneaux / cartes ---------- */
+/* Un trait net, pas d'ombre. */
 .panel {
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
   padding: 20px;
 }
 .panel + .panel {
   margin-top: 20px;
 }
 .panel-label {
+  font-family: var(--mono);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--muted);
   margin: 0 0 12px;
 }
@@ -396,7 +532,7 @@ a {
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   border: none;
   background: none;
@@ -415,20 +551,23 @@ a {
 }
 .tree-count {
   color: var(--muted);
+  font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   font-size: 0.85rem;
 }
 
 /* ---------- Chips / badges ---------- */
+/* Un tag est un identifiant : chasse fixe. */
 .tag-chip {
   display: inline-flex;
   align-items: center;
   background: var(--chip-bg);
   color: var(--chip-fg);
-  border-radius: 999px;
-  padding: 3px 12px;
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font-family: var(--mono);
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
 }
 .tag-chip.unmanaged {
@@ -440,7 +579,7 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 2px 9px;
   font-size: 0.8rem;
   font-weight: 700;
@@ -460,8 +599,9 @@ a {
   display: inline-block;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 2px 8px;
+  font-family: var(--mono);
   font-size: 0.78rem;
   color: var(--muted);
 }
@@ -474,32 +614,33 @@ a {
 }
 .cert-card {
   background: var(--panel);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   padding: 16px;
   cursor: pointer;
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  box-shadow: var(--shadow);
   text-align: left;
   font: inherit;
   color: var(--text);
   width: 100%;
 }
+/* Sélection : la carte prend la couleur de la ligne, avec un filet à gauche. */
 .cert-card.selected {
-  border-color: #d9b84a;
-  box-shadow: 0 0 0 2px #f3e3a8;
+  border-color: var(--primary);
+  box-shadow: inset 4px 0 0 var(--primary);
 }
 .cert-rank {
   width: 34px;
   height: 34px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
+  font-family: var(--mono);
+  font-weight: 600;
   flex-shrink: 0;
 }
 
@@ -510,6 +651,8 @@ a {
 }
 .table th {
   text-align: left;
+  font-family: var(--mono);
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   font-size: 0.72rem;
@@ -542,10 +685,15 @@ a {
   color: var(--warn-fg);
   border: 1px solid var(--warn-border);
 }
+/* Liste de messages d'erreur (composant ErrorList). */
+.error-list {
+  color: var(--danger-fg);
+  padding-left: 20px;
+}
 .empty-note {
   color: var(--muted);
   font-size: 0.9rem;
-  background: var(--bg);
+  background: var(--panel);
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-sm);
   padding: 14px 16px;
@@ -561,7 +709,7 @@ a {
   display: block;
   width: 100%;
   text-align: center;
-  border: 1.5px dashed var(--border);
+  border: 1.5px dashed var(--border-strong);
   border-radius: var(--radius);
   background: var(--chip-bg);
   color: var(--text);
@@ -578,9 +726,12 @@ a {
   flex-direction: column;
   gap: 4px;
 }
+/* Libellé de champ : le lettrage d'une cote sur un plan. */
 .field-label {
-  font-weight: 600;
-  font-size: 0.85rem;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: var(--muted);
 }
 .field-hint {
   color: var(--muted);
@@ -625,12 +776,43 @@ a {
   gap: 14px;
 }
 
-/* Barre haute minimale (avant connexion) */
+/* ---------- Avant connexion ---------- */
+/* Barre haute minimale : la marque et la langue, sur le même rail que la nav. */
 .topbar-plain {
   background: var(--nav-bg);
-  color: #fff;
+  color: var(--nav-fg-active);
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 12px 24px;
+  box-shadow: inset 0 -2px 0 var(--nav-line);
+}
+/* Carte centrée des écrans de connexion et de création d'administrateur. */
+.auth-card {
+  max-width: 420px;
+  margin: 48px auto 0;
+  padding: 28px;
+}
+.auth-card .page-title {
+  font-size: 1.6rem;
+}
+/* L'espacement vient de `.stack` : pas de marge propre aux paragraphes. */
+.auth-card p {
+  margin: 0;
+}
+/* Séparateur « ou » entre deux façons de se connecter. */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
 }

@@ -476,10 +476,10 @@ function ManifestPreview({ manifest }: { manifest: Record<string, unknown> }) {
       <pre
         className="mono"
         style={{
-          background: '#0f1b2d',
-          color: '#c7d0dd',
+          background: 'var(--nav-bg)',
+          color: 'var(--nav-chip-fg)',
           padding: 14,
-          borderRadius: 8,
+          borderRadius: 'var(--radius)',
           overflow: 'auto',
           fontSize: '0.82rem',
         }}

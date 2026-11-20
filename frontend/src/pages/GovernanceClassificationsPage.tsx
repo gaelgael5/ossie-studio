@@ -23,7 +23,7 @@ function LevelBadge({ level, prefix }: { level: ClassificationLevel; prefix?: st
   return (
     <span>
       {prefix ? <span className="badge-prefix">{prefix}</span> : null}
-      <span className="badge" style={{ background: level.color || '#3b5bdb' }}>
+      <span className="badge" style={{ background: level.color || 'var(--primary)' }}>
         {level.short_name || level.name}
       </span>
     </span>

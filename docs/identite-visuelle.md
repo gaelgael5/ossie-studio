@@ -1,0 +1,67 @@
+# Identité visuelle — « Cartographe »
+
+Ce document fixe **le parti pris visuel** d'Ossie Studio et les règles à suivre
+pour qu'une nouvelle page lui ressemble. Tout vit dans un seul fichier,
+`frontend/src/styles.css` ; ce document dit *pourquoi* et *comment s'en servir*.
+
+## Le parti pris
+
+Ossie Studio construit une couche sémantique : des objets, des relations, une
+ontologie. **C'est une carte.** L'interface emprunte donc au plan technique et
+au plan de métro, comme le fait déjà le plan de lignes des branches (`RailMap`).
+
+## Les cinq motifs
+
+| Motif | Où | Règle |
+|---|---|---|
+| **La ligne et ses stations** | nav, onglets, pictogramme de la marque | L'entrée active porte un anneau posé sur son trait. Un seul élément actif par ligne. |
+| **Le lettrage en chasse fixe** | fil d'Ariane, étiquettes de panneau, en-têtes de tableau, libellés de champ, tags, cartouches de contexte | Réservé aux **étiquettes courtes** et aux **identifiants** (tag, slug, référence). Jamais pour une phrase. |
+| **La trame de points** | fond de page | Uniquement sur le fond. Un panneau est toujours plein (blanc). |
+| **Angles vifs, traits nets** | panneaux, boutons, champs, badges | Rayons de 3 à 4 px, bordure d'un pixel. **Pas d'ombre**, sauf ce qui flotte (menus). |
+| **Une couleur de ligne** | boutons principaux, liens, sélection | Sarcelle sur fond clair (`--primary`), turquoise sur fond sombre (`--nav-accent`). C'est la même ligne. |
+
+## Couleurs
+
+Toutes les couleurs sont des **tokens** déclarés dans `:root` de `styles.css`.
+
+- Une page n'écrit **aucune couleur d'interface en dur** : elle utilise un token
+  (`var(--primary)`, `var(--muted)`, `var(--danger-fg)`…).
+- Seules les **couleurs de données** s'écrivent en dur ou viennent de la base :
+  couleur d'un niveau de classification, médailles Or / Argent / Bronze, palette
+  des lignes de `RailMap`.
+- Couleurs d'état : la teinte vive pour les bordures et aplats (`--danger`),
+  `-fg` pour du **texte** (`--danger-fg`, `--success`, `--warn-fg`), `-bg` pour
+  un fond teinté.
+- Les noms `--ok`, `--ko`, `--ok-bg`, `--ko-bg`, `--warn`, `--muted-bg` sont des
+  **alias historiques** : ne pas les employer dans du code nouveau.
+
+## Polices
+
+IBM Plex Sans (interface) et IBM Plex Mono (chasse fixe), **embarquées** avec
+l'application par les paquets `@fontsource/*` : aucun appel externe. Les
+graisses chargées sont listées en tête de `styles.css` (Sans 400/500/600/700,
+Mono 400/500/600). Employer une autre graisse demande d'ajouter son `@import`,
+sinon le navigateur la simule et le rendu se dégrade.
+
+## Écrire une nouvelle page
+
+1. Reprendre les classes du socle : `page-head`, `page-title`, `tabs`, `panel`,
+   `panel-label`, `btn`, `field` + `field-label` + `input`, `table`, `tag-chip`,
+   `badge`, `banner`, `empty-note`.
+2. Pas de `style={{…}}` pour une couleur, une bordure, un rayon ou une police.
+   Le style inline reste acceptable pour une valeur pilotée par la donnée
+   (`background: level.color`) ou un ajustement de mise en page ponctuel.
+3. Un besoin que le socle ne couvre pas : ajouter une classe à `styles.css`,
+   pas un style inline dans la page.
+4. La marque passe par le composant `Brand`, jamais par un texte écrit à la main.
+
+## Garde-fous automatiques
+
+`frontend/src/styles.test.ts` échoue si :
+
+- un token référencé par `var(--x)` n'est pas défini (sinon la valeur de secours
+  s'applique en silence et une palette parallèle s'installe) ;
+- un couple texte/fond du système passe sous le seuil de contraste WCAG AA
+  (4.5 pour le texte, 3 pour l'anneau de focus).
+
+Changer une couleur du socle, c'est donc relancer `npm test`.
