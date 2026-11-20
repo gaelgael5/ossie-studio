@@ -47,10 +47,13 @@ export interface UserItem {
   profile_id: string | null
   profile_name: string | null
   profile_pinned: boolean
-  team_id: string | null
-  team_name: string | null
-  team_origin: string | null
-  team_pinned: boolean
+  teams: UserTeam[]
+}
+
+export interface UserTeam {
+  id: string
+  name: string
+  origin: string
 }
 
 export interface TeamItem {
@@ -874,13 +877,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ name }),
     }),
-  assignUserTeam: (userId: string, teamId: string) =>
-    apiFetch<{ ok: boolean }>(`/api/users/${userId}/team`, {
-      method: 'PUT',
+  addUserTeam: (userId: string, teamId: string) =>
+    apiFetch<{ ok: boolean }>(`/api/users/${userId}/teams`, {
+      method: 'POST',
       body: JSON.stringify({ team_id: teamId }),
     }),
-  removeUserTeamPin: (userId: string) =>
-    apiFetch(`/api/users/${userId}/team-pin`, { method: 'DELETE' }),
+  removeUserTeam: (userId: string, teamId: string) =>
+    apiFetch<{ ok: boolean; removed: boolean }>(`/api/users/${userId}/teams/${teamId}`, {
+      method: 'DELETE',
+    }),
 
   listConnectors: () =>
     apiFetch<{

@@ -55,16 +55,17 @@ async def db_search_users(
 ) -> tuple[list[asyncpg.Record], int]:
     has_query = query.strip() != ""
     term = _like_term(query)
+    # Filtre « équipe » : la personne est **membre** de l'équipe (appartenance
+    # multiple dans user_teams), au lieu de l'ancienne équipe unique.
     rows = await conn.fetch(
         "SELECT u.id, u.email, u.display_name, (u.password_hash IS NULL) AS is_oidc, "
         "u.last_login_at, u.profile_id, u.profile_pinned, "
-        "p.name AS profile_name, p.is_admin AS profile_is_admin, "
-        "u.team_id, u.team_pinned, tm.name AS team_name, tm.origin AS team_origin "
+        "p.name AS profile_name, p.is_admin AS profile_is_admin "
         "FROM users u LEFT JOIN profiles p ON p.id = u.profile_id "
-        "LEFT JOIN teams tm ON tm.id = u.team_id "
         "WHERE (NOT $1 OR u.search_key LIKE $2 ESCAPE '\\') "
         "AND ($3::uuid IS NULL OR u.profile_id = $3) "
-        "AND ($6::uuid IS NULL OR u.team_id = $6) "
+        "AND ($6::uuid IS NULL OR EXISTS ("
+        "  SELECT 1 FROM user_teams ut WHERE ut.user_id = u.id AND ut.team_id = $6)) "
         "ORDER BY u.email LIMIT $4 OFFSET $5",
         has_query,
         term,
@@ -77,7 +78,8 @@ async def db_search_users(
         "SELECT count(*) FROM users u "
         "WHERE (NOT $1 OR u.search_key LIKE $2 ESCAPE '\\') "
         "AND ($3::uuid IS NULL OR u.profile_id = $3) "
-        "AND ($4::uuid IS NULL OR u.team_id = $4)",
+        "AND ($4::uuid IS NULL OR EXISTS ("
+        "  SELECT 1 FROM user_teams ut WHERE ut.user_id = u.id AND ut.team_id = $4)) ",
         has_query,
         term,
         profile_id,

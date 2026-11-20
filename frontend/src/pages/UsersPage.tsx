@@ -37,21 +37,22 @@ export function UsersPage() {
     onSuccess: invalidateUsers,
     onError: onMutationError,
   })
-  const assignTeam = useMutation({
+  const addTeam = useMutation({
     mutationFn: ({ userId, teamId }: { userId: string; teamId: string }) =>
-      api.assignUserTeam(userId, teamId),
+      api.addUserTeam(userId, teamId),
     onSuccess: invalidateUsers,
     onError: onMutationError,
   })
-  const removeTeamPin = useMutation({
-    mutationFn: (userId: string) => api.removeUserTeamPin(userId),
+  const removeTeam = useMutation({
+    mutationFn: ({ userId, teamId }: { userId: string; teamId: string }) =>
+      api.removeUserTeam(userId, teamId),
     onSuccess: invalidateUsers,
     onError: onMutationError,
   })
-  const createAndAssignTeam = useMutation({
+  const createAndAddTeam = useMutation({
     mutationFn: async ({ userId, name }: { userId: string; name: string }) => {
       const team = await api.createTeam(name)
-      await api.assignUserTeam(userId, team.id)
+      await api.addUserTeam(userId, team.id)
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['teams'] })
@@ -173,37 +174,55 @@ export function UsersPage() {
                     ) : null}
                   </td>
                   <td>
+                    {u.teams.length > 0 ? (
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {u.teams.map((team) => (
+                          <li key={team.id} style={{ marginBottom: 2 }}>
+                            {team.name}{' '}
+                            {team.origin === 'oidc' ? (
+                              <span title={t('teamFromOidcHint')}>{t('teamOidcBadge')}</span>
+                            ) : (
+                              <span title={t('teamManualHint')}>{t('teamManualBadge')}</span>
+                            )}{' '}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMessages([])
+                                removeTeam.mutate({ userId: u.id, teamId: team.id })
+                              }}
+                            >
+                              {t('teamRemove')}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
                     <select
-                      value={u.team_id ?? ''}
+                      value=""
+                      aria-label={t('teamAdd')}
                       onChange={(e) => {
                         setMessages([])
                         const value = e.target.value
                         if (value === CREATE_TEAM) {
                           const name = window.prompt(t('createTeamPrompt'))?.trim()
-                          if (name) createAndAssignTeam.mutate({ userId: u.id, name })
+                          if (name) createAndAddTeam.mutate({ userId: u.id, name })
                           return
                         }
-                        if (value) assignTeam.mutate({ userId: u.id, teamId: value })
+                        if (value) addTeam.mutate({ userId: u.id, teamId: value })
                       }}
                     >
-                      {u.team_id === null ? <option value="">—</option> : null}
-                      {teamList.map((team) => (
-                        <option key={team.id} value={team.id}>
-                          {team.name}
-                        </option>
-                      ))}
+                      <option value="">{t('teamAdd')}</option>
+                      {teamList
+                        .filter((team) => !u.teams.some((ut) => ut.id === team.id))
+                        .map((team) => (
+                          <option key={team.id} value={team.id}>
+                            {team.name}
+                          </option>
+                        ))}
                       <option value={CREATE_TEAM}>{t('createTeamOption')}</option>
-                    </select>{' '}
-                    {u.team_pinned ? (
-                      <>
-                        <span title={t('teamPinnedHint')}>{t('teamPinnedBadge')}</span>{' '}
-                        <button type="button" onClick={() => removeTeamPin.mutate(u.id)}>
-                          {t('removePin')}
-                        </button>
-                      </>
-                    ) : u.team_origin === 'oidc' ? (
-                      <span title={t('teamFromOidcHint')}>{t('teamOidcBadge')}</span>
-                    ) : null}
+                    </select>
                   </td>
                 </tr>
               ))}

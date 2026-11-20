@@ -506,7 +506,7 @@ test('utilisateurs : liste, recherche et assignation de profil', async () => {
     '/api/users?q=&profile_id=&team_id=&limit=50&offset=0': {
       body: {
         users: [
-          { id: 'u1', email: 'jose@example.org', display_name: 'José Pérez', is_oidc: true, last_login_at: '2026-01-02T00:00:00Z', profile_id: 'p1', profile_name: 'Lecteur', profile_pinned: false, team_id: 't1', team_name: 'equipe-data', team_origin: 'oidc', team_pinned: false },
+          { id: 'u1', email: 'jose@example.org', display_name: 'José Pérez', is_oidc: true, last_login_at: '2026-01-02T00:00:00Z', profile_id: 'p1', profile_name: 'Lecteur', profile_pinned: false, teams: [{ id: 't1', name: 'equipe-data', origin: 'oidc' }] },
         ],
         total: 1,
       },

@@ -369,8 +369,11 @@ export const fr = {
     teamPinnedBadge: '📌 fixée à la main',
     teamPinnedHint: 'Le claim OIDC ne remplace pas cette équipe. Affichage seulement : aucun droit.',
     teamOidcBadge: 'OIDC',
-    teamFromOidcHint:
-      'Équipe venue de l’annuaire (claim OIDC). Affichage seulement : aucun droit.',
+    teamFromOidcHint: 'Rattachement venu de l’annuaire (claim OIDC).',
+    teamManualBadge: 'manuel',
+    teamManualHint: 'Rattachement ajouté à la main ; la synchro OIDC ne le retire pas.',
+    teamRemove: 'Retirer',
+    teamAdd: 'Ajouter une équipe…',
     previous: 'Précédent',
     next: 'Suivant',
     usersTotal: '{{count}} utilisateur(s)',

@@ -1,8 +1,14 @@
-"""Référentiel des équipes et attribution d'équipe à la connexion OIDC.
+"""Référentiel des équipes et rattachements personne↔équipe.
 
-**Rappel de la décision de Gael : l'équipe sert à l'AFFICHAGE seulement.** Elle ne
-donne ni ne retire aucun droit et ne rattache rien. Rien ici ne lit ni n'écrit une
-capacité : ce module ne touche jamais `profile_id` ni `capabilities`.
+**Appartenance multiple** (décision de Gael, 20 novembre 2026) : une personne peut
+appartenir à plusieurs équipes ; les rattachements vivent dans `user_teams`, chacun
+avec son **origine** (`oidc` ou `manual`). Un rattachement manuel ne doit jamais
+être retiré par une synchronisation OIDC.
+
+Ce module gère le **rattachement** et sa synchro OIDC ; il ne lit ni n'écrit aucune
+capacité (`profile_id`, `capabilities`). L'effet des équipes sur les droits — une
+équipe qui porte un profil — est un ticket suivant et vit ailleurs (contrôle
+d'accès), pas ici.
 """
 
 from __future__ import annotations
@@ -87,33 +93,57 @@ async def db_create_team_manual(conn: asyncpg.Connection, name: str) -> Team:
     return Team.from_row(row)
 
 
-async def db_assign_team(
+async def db_add_user_team(
     conn: asyncpg.Connection, user_id: uuid.UUID, team_id: uuid.UUID
-) -> uuid.UUID | None:
-    """Assigne une équipe à la main (SURCHARGE) : marque `team_pinned`, pour que le
-    claim ne la remplace plus. Rend l'ancienne équipe. Une personne n'a qu'une
-    équipe : assigner remplace la précédente. Affichage seulement : aucun droit
-    n'est touché (ce service n'écrit jamais profile_id ni capabilities)."""
+) -> None:
+    """Ajoute un rattachement **manuel** d'une personne à une équipe (surcharge :
+    un rattachement manuel n'est jamais retiré par la synchro OIDC). Idempotent ; un
+    rattachement déjà présent (même venu de l'OIDC) devient manuel. Lève
+    UserNotFoundError / TeamNotFoundError si la personne ou l'équipe n'existe pas."""
     async with conn.transaction():
-        current = await conn.fetchrow("SELECT team_id FROM users WHERE id = $1", user_id)
-        if current is None:
+        if await conn.fetchval("SELECT 1 FROM users WHERE id = $1", user_id) is None:
             raise UserNotFoundError
         if await conn.fetchval("SELECT 1 FROM teams WHERE id = $1", team_id) is None:
             raise TeamNotFoundError
-        old_team_id: uuid.UUID | None = current["team_id"]
         await conn.execute(
-            "UPDATE users SET team_id = $2, team_pinned = true WHERE id = $1", user_id, team_id
+            "INSERT INTO user_teams (user_id, team_id, origin) VALUES ($1, $2, 'manual') "
+            "ON CONFLICT (user_id, team_id) DO UPDATE SET origin = 'manual'",
+            user_id,
+            team_id,
         )
-    return old_team_id
 
 
-async def db_remove_team_pin(conn: asyncpg.Connection, user_id: uuid.UUID) -> bool:
-    """Retire la marque : à la connexion suivante, le claim reprend la main. On
-    laisse l'équipe actuelle en place jusque-là."""
+async def db_remove_user_team(
+    conn: asyncpg.Connection, user_id: uuid.UUID, team_id: uuid.UUID
+) -> bool:
+    """Retire un rattachement d'une personne à une équipe (décision humaine, quelle
+    que soit son origine). Rend True si un rattachement a été retiré, False sinon."""
     result: str = await conn.execute(
-        "UPDATE users SET team_pinned = false WHERE id = $1", user_id
+        "DELETE FROM user_teams WHERE user_id = $1 AND team_id = $2", user_id, team_id
     )
-    return result != "UPDATE 0"
+    return result != "DELETE 0"
+
+
+async def db_teams_for_users(
+    conn: asyncpg.Connection, user_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[dict[str, str]]]:
+    """Rattachements de plusieurs personnes : `{user_id: [{id, name, origin}]}`,
+    trié par nom d'équipe. `origin` est l'origine du **rattachement** (`oidc` |
+    `manual`), à ne pas confondre avec l'origine de l'équipe elle-même."""
+    out: dict[uuid.UUID, list[dict[str, str]]] = {}
+    if not user_ids:
+        return out
+    rows = await conn.fetch(
+        "SELECT ut.user_id, t.id, t.name, ut.origin "
+        "FROM user_teams ut JOIN teams t ON t.id = ut.team_id "
+        "WHERE ut.user_id = ANY($1::uuid[]) ORDER BY t.name",
+        list(user_ids),
+    )
+    for row in rows:
+        out.setdefault(row["user_id"], []).append(
+            {"id": str(row["id"]), "name": row["name"], "origin": row["origin"]}
+        )
+    return out
 
 
 async def apply_team_mapping(
@@ -123,17 +153,21 @@ async def apply_team_mapping(
     claims: object,
     user_id: uuid.UUID,
 ) -> None:
-    """À la connexion : le claim désigne l'équipe de l'utilisateur.
+    """À la connexion, le claim désigne l'équipe OIDC de la personne.
 
-    - Une personne appartient à **une seule** équipe : si le claim porte plusieurs
-      valeurs, la **première** l'emporte (le cas est journalisé).
+    Ce ticket garde le comportement d'aujourd'hui pour l'OIDC — **une seule**
+    équipe OIDC (la **première** valeur si le claim en porte plusieurs ; le cas est
+    journalisé) ; la synchro multi-valuée est un ticket suivant. Les rattachements
+    vivent désormais dans `user_teams`.
+
+    - Une personne qui a **au moins un** rattachement **manuel** est considérée comme
+      surchargée à la main : l'OIDC ne change rien (préserve l'ancien « épinglé »).
     - Une valeur jamais vue **crée** l'équipe (origine OIDC), rattachée au connecteur.
-    - Claim absent, vide ou de forme inattendue : l'équipe actuelle est **conservée**.
-    - Une équipe **fixée à la main** (`team_pinned`) n'est jamais remplacée.
+    - Claim absent, vide ou de forme inattendue : rattachements **conservés**.
     """
     memberships = memberships_from_claims(claims, team_claim)
     if not memberships:
-        return  # claim absent / vide / forme inattendue → équipe conservée
+        return  # claim absent / vide / forme inattendue → rattachements conservés
     value = memberships[0]
     if len(memberships) > 1:
         log.info(
@@ -142,19 +176,29 @@ async def apply_team_mapping(
             kept=value,
             count=len(memberships),
         )
-    row = await conn.fetchrow("SELECT team_id, team_pinned FROM users WHERE id = $1", user_id)
-    if row is None or row["team_pinned"]:
+    if await conn.fetchval("SELECT 1 FROM users WHERE id = $1", user_id) is None:
+        return
+    # Surcharge manuelle : l'OIDC n'intervient pas (préserve « fixé à la main »).
+    if await conn.fetchval(
+        "SELECT 1 FROM user_teams WHERE user_id = $1 AND origin = 'manual' LIMIT 1", user_id
+    ):
         return
     target = await db_get_or_create_team_by_name(
         conn, value, origin="oidc", source_connector_id=connector_id
     )
-    if target == row["team_id"]:
-        return
-    await conn.execute("UPDATE users SET team_id = $2 WHERE id = $1", user_id, target)
+    async with conn.transaction():
+        await conn.execute(
+            "INSERT INTO user_teams (user_id, team_id, origin) VALUES ($1, $2, 'oidc') "
+            "ON CONFLICT (user_id, team_id) DO NOTHING",
+            user_id,
+            target,
+        )
+        # Une seule équipe OIDC (comportement actuel) : on retire les autres OIDC.
+        await conn.execute(
+            "DELETE FROM user_teams WHERE user_id = $1 AND origin = 'oidc' AND team_id <> $2",
+            user_id,
+            target,
+        )
     log.info(
-        "oidc_team_applied",
-        user_id=str(user_id),
-        old_team=str(row["team_id"]) if row["team_id"] else None,
-        new_team=str(target),
-        new_team_name=value,
+        "oidc_team_applied", user_id=str(user_id), new_team=str(target), new_team_name=value
     )

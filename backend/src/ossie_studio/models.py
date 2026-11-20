@@ -21,8 +21,6 @@ class User:
     profile_id: uuid.UUID | None = None
     display_name: str = ""
     last_login_at: datetime | None = None
-    team_id: uuid.UUID | None = None
-    team_pinned: bool = False
     language: str = ""
 
     @classmethod
@@ -37,8 +35,6 @@ class User:
             profile_id=row["profile_id"] if "profile_id" in row else None,
             display_name=row["display_name"] if "display_name" in row else "",
             last_login_at=row["last_login_at"] if "last_login_at" in row else None,
-            team_id=row["team_id"] if "team_id" in row else None,
-            team_pinned=row["team_pinned"] if "team_pinned" in row else False,
             language=(row["language"] or "") if "language" in row else "",
         )
 
