@@ -84,28 +84,39 @@ function DbEnginePopup({
     <section
       role="dialog"
       aria-label={t('newConnectionFor', { forge: engineName(t, spec.engine) })}
-      style={{ border: '2px solid var(--border, #2563eb)', borderRadius: 8, padding: 16, marginTop: 12, maxWidth: 480 }}
+      className="panel panel-form stack"
     >
-      <h3>
-        {t('newConnectionFor', { forge: engineName(t, spec.engine) })}{' '}
-        <button type="button" onClick={onClose}>
+      <div className="panel-head">
+        <h3 className="panel-title">{t('newConnectionFor', { forge: engineName(t, spec.engine) })}</h3>
+        <button type="button" className="btn btn-sm" onClick={onClose}>
           {t('cancel')}
         </button>
-      </h3>
+      </div>
       <form
+        className="stack"
         onSubmit={(e) => {
           e.preventDefault()
           create.mutate()
         }}
-        style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
       >
-        <label htmlFor="db-label">{t('colLabel')}</label>
-        <input id="db-label" value={label} onChange={(e) => setLabel(e.target.value)} />
+        <div className="field">
+          <label className="field-label" htmlFor="db-label">
+            {t('colLabel')}
+          </label>
+          <input id="db-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
+        </div>
         {spec.fields.map((f) => (
-          <span key={f.name} style={{ display: 'flex', flexDirection: 'column' }}>
-            <label htmlFor={`db-${f.name}`}>{t(`dbField_${f.name}`)}</label>
+          <div key={f.name} className="field">
+            <label className="field-label" htmlFor={`db-${f.name}`}>
+              {t(`dbField_${f.name}`)}
+            </label>
             {f.kind === 'select' ? (
-              <select id={`db-${f.name}`} value={params[f.name] ?? ''} onChange={(e) => setParam(f.name, e.target.value)}>
+              <select
+                id={`db-${f.name}`}
+                className="select"
+                value={params[f.name] ?? ''}
+                onChange={(e) => setParam(f.name, e.target.value)}
+              >
                 {f.options.map((o) => (
                   <option key={o} value={o}>
                     {o}
@@ -115,59 +126,99 @@ function DbEnginePopup({
             ) : (
               <input
                 id={`db-${f.name}`}
+                className="input"
                 type={f.kind === 'number' ? 'number' : 'text'}
                 value={params[f.name] ?? ''}
                 onChange={(e) => setParam(f.name, e.target.value)}
               />
             )}
-          </span>
+          </div>
         ))}
-        <label htmlFor="db-secret">{t('dbSecretLabel')}</label>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <select id="db-secret" value={secretSlug} onChange={(e) => setSecretSlug(e.target.value)} style={{ flex: 1 }}>
-            <option value="">{engineSecrets.length > 0 ? t('chooseSecret') : t('noSecretForForge')}</option>
-            {engineSecrets.map((s) => (
-              <option key={s.slug} value={s.slug}>
-                {s.label} ({s.slug})
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={() => setShowNew((v) => !v)}>
-            +
-          </button>
+        <div className="field">
+          <label className="field-label" htmlFor="db-secret">
+            {t('dbSecretLabel')}
+          </label>
+          <div className="field-inline">
+            <select id="db-secret" className="select" value={secretSlug} onChange={(e) => setSecretSlug(e.target.value)}>
+              <option value="">{engineSecrets.length > 0 ? t('chooseSecret') : t('noSecretForForge')}</option>
+              {engineSecrets.map((s) => (
+                <option key={s.slug} value={s.slug}>
+                  {s.label} ({s.slug})
+                </option>
+              ))}
+            </select>
+            <button type="button" className="btn" onClick={() => setShowNew((v) => !v)}>
+              +
+            </button>
+          </div>
         </div>
         {showNew ? (
-          <fieldset style={{ border: '1px solid var(--border, #ddd)' }}>
+          <fieldset className="fieldset">
             <legend>{t('newSecretTitle')}</legend>
-            <label htmlFor="db-ns-label">{t('colLabel')}</label>
-            <input id="db-ns-label" value={nsLabel} onChange={(e) => setNsLabel(e.target.value)} />
-            <label htmlFor="db-ns-slug">{t('slugLabel')}</label>
-            <input id="db-ns-slug" value={nsSlug} onChange={(e) => setNsSlug(e.target.value)} />
+            <div className="field">
+              <label className="field-label" htmlFor="db-ns-label">
+                {t('colLabel')}
+              </label>
+              <input id="db-ns-label" className="input" value={nsLabel} onChange={(e) => setNsLabel(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor="db-ns-slug">
+                {t('slugLabel')}
+              </label>
+              <input id="db-ns-slug" className="input" value={nsSlug} onChange={(e) => setNsSlug(e.target.value)} />
+            </div>
             {isKeyfile ? (
               <>
-                <label htmlFor="db-ns-key">{t('keyFileLabel')}</label>
-                <input id="db-ns-key" type="file" onChange={(e) => onKeyFile(e.target.files?.[0])} />
-                <label htmlFor="db-ns-pass">{t('passphraseLabel')}</label>
-                <input id="db-ns-pass" type="password" value={nsPassphrase} onChange={(e) => setNsPassphrase(e.target.value)} />
+                <div className="field">
+                  <label className="field-label" htmlFor="db-ns-key">
+                    {t('keyFileLabel')}
+                  </label>
+                  <input id="db-ns-key" type="file" onChange={(e) => onKeyFile(e.target.files?.[0])} />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="db-ns-pass">
+                    {t('passphraseLabel')}
+                  </label>
+                  <input
+                    id="db-ns-pass"
+                    className="input"
+                    type="password"
+                    value={nsPassphrase}
+                    onChange={(e) => setNsPassphrase(e.target.value)}
+                  />
+                </div>
               </>
             ) : (
-              <>
-                <label htmlFor="db-ns-value">{t('valueLabel')}</label>
-                <input id="db-ns-value" type="password" value={nsValue} onChange={(e) => setNsValue(e.target.value)} />
-              </>
+              <div className="field">
+                <label className="field-label" htmlFor="db-ns-value">
+                  {t('valueLabel')}
+                </label>
+                <input
+                  id="db-ns-value"
+                  className="input"
+                  type="password"
+                  value={nsValue}
+                  onChange={(e) => setNsValue(e.target.value)}
+                />
+              </div>
             )}
-            <button
-              type="button"
-              disabled={createSecret.isPending || !nsSlug.trim() || (isKeyfile ? !nsKeyFile : !nsValue)}
-              onClick={() => createSecret.mutate()}
-            >
-              {t('createAndSelect')}
-            </button>
+            <div>
+              <button
+                type="button"
+                className="btn"
+                disabled={createSecret.isPending || !nsSlug.trim() || (isKeyfile ? !nsKeyFile : !nsValue)}
+                onClick={() => createSecret.mutate()}
+              >
+                {t('createAndSelect')}
+              </button>
+            </div>
           </fieldset>
         ) : null}
-        <button type="submit" disabled={create.isPending}>
-          {t('verifyAndSave')}
-        </button>
+        <div>
+          <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+            {t('verifyAndSave')}
+          </button>
+        </div>
       </form>
     </section>
   )
@@ -211,102 +262,148 @@ export function DatabasesSection() {
   const connections = list.data?.connections ?? []
 
   return (
-    <section style={{ marginTop: 24 }}>
-      <h2>{t('databasesList')}</h2>
-      <ErrorList messages={messages} />
-      <div style={{ position: 'relative', display: 'inline-block' }}>
-        <button type="button" onClick={() => { setMenuOpen((v) => !v); setPopupEngine(null) }}>
-          {t('addDatabase')}
-        </button>
-        {menuOpen ? (
-          <div style={{ border: '1px solid var(--border, #ddd)', borderRadius: 8, padding: 8, marginTop: 4, maxWidth: 360 }}>
-            <input aria-label={t('searchEngine')} placeholder={t('searchEngine')} value={menuSearch} onChange={(e) => setMenuSearch(e.target.value)} />
-            <ul style={{ listStyle: 'none', padding: 0 }}>
-              {menuEngines.map((e) => (
-                <li key={e.engine}>
-                  <button
-                    type="button"
-                    style={{ display: 'block', width: '100%', textAlign: 'left' }}
-                    onClick={() => { setMessages([]); setPopupEngine(e); setMenuOpen(false); setMenuSearch('') }}
-                  >
-                    {engineName(t, e.engine)} — {t(`dbPrecision_${e.engine}`)}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+    <section className="page-section">
+      <div className="section-head">
+        <h2 className="section-title">{t('databasesList')}</h2>
+        <div className="menu-anchor">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              setMenuOpen((v) => !v)
+              setPopupEngine(null)
+            }}
+          >
+            {t('addDatabase')}
+          </button>
+          {menuOpen ? (
+            <div className="menu-popover">
+              <input
+                className="input"
+                aria-label={t('searchEngine')}
+                placeholder={t('searchEngine')}
+                value={menuSearch}
+                onChange={(e) => setMenuSearch(e.target.value)}
+              />
+              <ul className="list-plain">
+                {menuEngines.map((e) => (
+                  <li key={e.engine}>
+                    <button
+                      type="button"
+                      className="menu-item"
+                      onClick={() => {
+                        setMessages([])
+                        setPopupEngine(e)
+                        setMenuOpen(false)
+                        setMenuSearch('')
+                      }}
+                    >
+                      {engineName(t, e.engine)} — {t(`dbPrecision_${e.engine}`)}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
       </div>
+      <ErrorList messages={messages} />
 
       {popupEngine ? (
         <DbEnginePopup spec={popupEngine} onClose={() => setPopupEngine(null)} invalidate={invalidate} onError={onError} />
       ) : null}
 
       {connections.length > 0 ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th>{t('colLabel')}</th>
-              <th>{t('colEngine')}</th>
-              <th>{t('colTarget')}</th>
-              <th>{t('colIdentity')}</th>
-              <th>{t('colServerVersion')}</th>
-              <th>{t('colStatus')}</th>
-              <th>{t('colLastCheck')}</th>
-              <th>{t('colActions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {connections.map((c) => (
-              <tr key={c.id}>
-                <td>{c.label}</td>
-                <td>{engineName(t, c.engine)}</td>
-                <td>
-                  <code>{c.target}</code>
-                </td>
-                <td>{c.identity}</td>
-                <td>{c.server_version}</td>
-                <td>
-                  {c.last_status === 'valid'
-                    ? t('statusValid')
-                    : t(`errors.${c.last_error_code}`, { defaultValue: t('statusError') })}
-                </td>
-                <td>{formatDate(c.last_checked_at)}</td>
-                <td>
-                  <button type="button" onClick={() => test.mutate(c.id)}>
-                    {t('test')}
-                  </button>{' '}
-                  {deleting === c.id ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {c.secret_used_by_others > 0 ? (
-                        <span>{t('deleteConnectionSecretShared', { slug: c.secret_slug, count: c.secret_used_by_others })}</span>
-                      ) : (
-                        <label>
-                          <input type="checkbox" checked={alsoDeleteSecret} onChange={(e) => setAlsoDeleteSecret(e.target.checked)} />{' '}
-                          {t('deleteAlsoSecretNamed', { label: c.secret_label, slug: c.secret_slug })}
-                        </label>
-                      )}
-                      <span>
-                        <button type="button" onClick={() => remove.mutate({ id: c.id, deleteSecret: alsoDeleteSecret })}>
-                          {t('confirmDelete')}
-                        </button>{' '}
-                        <button type="button" onClick={() => setDeleting('')}>
-                          {t('cancel')}
-                        </button>
-                      </span>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => { setMessages([]); setAlsoDeleteSecret(false); setDeleting(c.id) }}>
-                      {t('delete')}
-                    </button>
-                  )}
-                </td>
+        <div className="panel table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>{t('colLabel')}</th>
+                <th>{t('colEngine')}</th>
+                <th>{t('colTarget')}</th>
+                <th>{t('colIdentity')}</th>
+                <th>{t('colServerVersion')}</th>
+                <th>{t('colStatus')}</th>
+                <th>{t('colLastCheck')}</th>
+                <th>{t('colActions')}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {connections.map((c) => (
+                <tr key={c.id}>
+                  <td>{c.label}</td>
+                  <td>{engineName(t, c.engine)}</td>
+                  <td>
+                    <code>{c.target}</code>
+                  </td>
+                  <td>{c.identity}</td>
+                  <td>{c.server_version}</td>
+                  <td>
+                    {c.last_status === 'valid' ? (
+                      <span className="text-ok">{t('statusValid')}</span>
+                    ) : (
+                      <span className="text-danger">
+                        {t(`errors.${c.last_error_code}`, { defaultValue: t('statusError') })}
+                      </span>
+                    )}
+                  </td>
+                  <td>{formatDate(c.last_checked_at)}</td>
+                  <td>
+                    <div className="actions">
+                      <button type="button" className="btn btn-sm" onClick={() => test.mutate(c.id)}>
+                        {t('test')}
+                      </button>
+                      {deleting === c.id ? (
+                        <div className="stack stack-tight">
+                          {c.secret_used_by_others > 0 ? (
+                            <span>
+                              {t('deleteConnectionSecretShared', { slug: c.secret_slug, count: c.secret_used_by_others })}
+                            </span>
+                          ) : (
+                            <label className="check">
+                              <input
+                                type="checkbox"
+                                checked={alsoDeleteSecret}
+                                onChange={(e) => setAlsoDeleteSecret(e.target.checked)}
+                              />
+                              {t('deleteAlsoSecretNamed', { label: c.secret_label, slug: c.secret_slug })}
+                            </label>
+                          )}
+                          <span className="actions">
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-danger"
+                              onClick={() => remove.mutate({ id: c.id, deleteSecret: alsoDeleteSecret })}
+                            >
+                              {t('confirmDelete')}
+                            </button>
+                            <button type="button" className="btn btn-sm" onClick={() => setDeleting('')}>
+                              {t('cancel')}
+                            </button>
+                          </span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          onClick={() => {
+                            setMessages([])
+                            setAlsoDeleteSecret(false)
+                            setDeleting(c.id)
+                          }}
+                        >
+                          {t('delete')}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
-        <p>{t('noDatabases')}</p>
+        <div className="empty-note">{t('noDatabases')}</div>
       )}
     </section>
   )

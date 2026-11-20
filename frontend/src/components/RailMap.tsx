@@ -103,7 +103,12 @@ export function RailMap({ data, selected, onSelectVersion, onLoadOlder, formatDa
       <div
         style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}
       >
-        <button type="button" aria-pressed={versionsOnly} onClick={() => setVersionsOnly((v) => !v)}>
+        <button
+          type="button"
+          className="btn btn-sm"
+          aria-pressed={versionsOnly}
+          onClick={() => setVersionsOnly((v) => !v)}
+        >
           {versionsOnly ? t('showAll') : t('versionsOnly')}
         </button>
         <ul
@@ -129,8 +134,9 @@ export function RailMap({ data, selected, onSelectVersion, onLoadOlder, formatDa
         style={{
           overflow: 'auto',
           maxHeight: 460,
-          border: '1px solid var(--border, #ddd)',
-          borderRadius: 8,
+          border: '1px solid var(--border-strong)',
+          borderRadius: 'var(--radius)',
+          background: 'var(--panel)',
         }}
       >
         <svg width={width} height={height} role="img" aria-label={t('railmapAria')} style={{ display: 'block' }}>
@@ -206,7 +212,7 @@ export function RailMap({ data, selected, onSelectVersion, onLoadOlder, formatDa
       </div>
 
       {data.has_more ? (
-        <button type="button" onClick={onLoadOlder} style={{ marginTop: 8 }}>
+        <button type="button" className="btn btn-sm" onClick={onLoadOlder} style={{ marginTop: 8 }}>
           {t('loadOlder')}
         </button>
       ) : null}

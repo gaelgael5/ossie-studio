@@ -154,7 +154,7 @@ export function GovernanceCertificationsPage() {
                   {cert.name}
                   {cert.restricted ? ' 🔒' : ''}
                 </strong>
-                <div className="muted mono" style={{ fontSize: '0.82rem' }}>
+                <div className="muted mono small">
                   {t('rankShort', { rank: cert.rank })} · {cert.tag}
                 </div>
                 <div className="muted" style={{ fontSize: '0.85rem', marginTop: 4 }}>

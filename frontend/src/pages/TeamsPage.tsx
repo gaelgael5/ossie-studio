@@ -5,6 +5,7 @@ import { api } from '../apiClient'
 import type { TeamItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 export function TeamsPage() {
   const { t } = useTranslation()
@@ -58,96 +59,106 @@ export function TeamsPage() {
 
   return (
     <main>
-      <h1 className="page-title">{t('teamsTitle')}</h1>
-      <p className="muted" style={{ fontSize: '0.88rem' }}>
-        {t('teamsIntro')}
-      </p>
+      <PageHeader breadcrumb={<SettingsCrumb />} title={t('teamsTitle')} subtitle={t('teamsIntro')} />
       <ErrorList messages={messages} />
 
-      <form
-        style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}
-        onSubmit={(e) => {
-          e.preventDefault()
-          const name = newName.trim()
-          if (name) create.mutate(name)
-        }}
-      >
-        <input
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          placeholder={t('teamsCreatePlaceholder')}
-          aria-label={t('teamsCreatePlaceholder')}
-        />
-        <button type="submit" disabled={create.isPending || !newName.trim()}>
-          {t('teamsCreate')}
-        </button>
-      </form>
+      <div className="page-body stack">
+        <form
+          className="field-inline"
+          style={{ maxWidth: 480 }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            const name = newName.trim()
+            if (name) create.mutate(name)
+          }}
+        >
+          <input
+            className="input"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder={t('teamsCreatePlaceholder')}
+            aria-label={t('teamsCreatePlaceholder')}
+          />
+          <button type="submit" className="btn btn-primary" disabled={create.isPending || !newName.trim()}>
+            {t('teamsCreate')}
+          </button>
+        </form>
 
-      {teamList.length > 0 ? (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>{t('teamsColName')}</th>
-              <th>{t('teamsColProfile')}</th>
-              <th>{t('teamsColActions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {teamList.map((team: TeamItem) => (
-              <tr key={team.id}>
-                <td>
-                  {team.name}{' '}
-                  {team.origin === 'oidc' ? (
-                    <span title={t('teamFromOidcHint')}>{t('teamOidcBadge')}</span>
-                  ) : null}
-                </td>
-                <td>
-                  <select
-                    value={team.profile_id ?? ''}
-                    aria-label={t('teamsColProfile')}
-                    onChange={(e) => {
-                      setMessages([])
-                      setProfile.mutate({ teamId: team.id, profileId: e.target.value || null })
-                    }}
-                  >
-                    <option value="">{t('teamsProfileNone')}</option>
-                    {profileList.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMessages([])
-                      const name = window.prompt(t('teamsRenamePrompt'), team.name)?.trim()
-                      if (name && name !== team.name) rename.mutate({ teamId: team.id, name })
-                    }}
-                  >
-                    {t('teamsRename')}
-                  </button>{' '}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMessages([])
-                      if (window.confirm(t('teamsConfirmDelete', { name: team.name }))) {
-                        remove.mutate(team.id)
-                      }
-                    }}
-                  >
-                    {t('teamsDelete')}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <div className="empty-note">{t('teamsEmpty')}</div>
-      )}
+        {teamList.length > 0 ? (
+          <div className="panel table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t('teamsColName')}</th>
+                  <th>{t('teamsColProfile')}</th>
+                  <th>{t('teamsColActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamList.map((team: TeamItem) => (
+                  <tr key={team.id}>
+                    <td>
+                      {team.name}{' '}
+                      {team.origin === 'oidc' ? (
+                        <span className="pill" title={t('teamFromOidcHint')}>
+                          {t('teamOidcBadge')}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>
+                      <select
+                        className="select"
+                        value={team.profile_id ?? ''}
+                        aria-label={t('teamsColProfile')}
+                        onChange={(e) => {
+                          setMessages([])
+                          setProfile.mutate({ teamId: team.id, profileId: e.target.value || null })
+                        }}
+                      >
+                        <option value="">{t('teamsProfileNone')}</option>
+                        {profileList.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <div className="actions">
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => {
+                            setMessages([])
+                            const name = window.prompt(t('teamsRenamePrompt'), team.name)?.trim()
+                            if (name && name !== team.name) rename.mutate({ teamId: team.id, name })
+                          }}
+                        >
+                          {t('teamsRename')}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          onClick={() => {
+                            setMessages([])
+                            if (window.confirm(t('teamsConfirmDelete', { name: team.name }))) {
+                              remove.mutate(team.id)
+                            }
+                          }}
+                        >
+                          {t('teamsDelete')}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-note">{t('teamsEmpty')}</div>
+        )}
+      </div>
     </main>
   )
 }

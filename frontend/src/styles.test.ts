@@ -7,7 +7,10 @@ import css from './styles.css?raw'
  *  1. tout token référencé par `var(--x)` est réellement défini — sinon c'est
  *     la valeur de secours écrite en dur qui s'applique, en silence, et une
  *     palette parallèle s'installe ;
- *  2. les couples texte/fond du système restent lisibles (WCAG 2.1 AA).
+ *  2. les couples texte/fond du système restent lisibles (WCAG 2.1 AA) ;
+ *  3. aucune page ne pose un bouton, un champ, un tableau ou un titre de page
+ *     « brut » : chacun porte une classe du socle, sinon il s'affiche au style
+ *     par défaut du navigateur.
  */
 
 // Code source de l'interface, hors tests.
@@ -120,4 +123,34 @@ test.each(UI_PAIRS)('contraste interface : --%s sur --%s', (fg, bg) => {
   const tokens = declaredTokens()
   const ratio = contrast(resolveColor(fg, tokens), resolveColor(bg, tokens))
   expect(ratio).toBeGreaterThanOrEqual(3)
+})
+
+/** Balise ouvrante JSX commençant à `start`, attributs entre accolades compris. */
+function openingTag(code: string, start: number): string {
+  let depth = 0
+  for (let i = start; i < code.length; i += 1) {
+    const ch = code[i]
+    if (ch === '{') depth += 1
+    else if (ch === '}') depth -= 1
+    else if (ch === '>' && depth === 0) return code.slice(start, i + 1)
+  }
+  return code.slice(start)
+}
+
+// Cases, boutons radio, sélecteurs de fichier et de couleur restent natifs.
+const NATIVE_INPUT = /type="(checkbox|radio|file|color|hidden)"/
+
+test('aucun bouton, champ, tableau ou titre de page sans classe du socle', () => {
+  const raw: string[] = []
+  for (const [file, code] of Object.entries(sources)) {
+    for (const match of code.matchAll(/<(button|input|select|textarea|table|h1)\b/g)) {
+      const start = match.index ?? 0
+      const tag = openingTag(code, start)
+      if (tag.includes('className')) continue
+      if (match[1] === 'input' && NATIVE_INPUT.test(tag)) continue
+      const line = code.slice(0, start).split('\n').length
+      raw.push(`${file}:${line} <${match[1]}>`)
+    }
+  }
+  expect(raw, 'éléments sans classe du socle').toEqual([])
 })

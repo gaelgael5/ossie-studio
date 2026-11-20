@@ -39,21 +39,40 @@ Toutes les couleurs sont des **tokens** déclarés dans `:root` de `styles.css`.
 
 IBM Plex Sans (interface) et IBM Plex Mono (chasse fixe), **embarquées** avec
 l'application par les paquets `@fontsource/*` : aucun appel externe. Les
-graisses chargées sont listées en tête de `styles.css` (Sans 400/500/600/700,
-Mono 400/500/600). Employer une autre graisse demande d'ajouter son `@import`,
+graisses chargées sont listées en tête de `styles.css` (Sans 400/500/600/700 et
+400 italique, Mono 400/500/600). Employer une autre graisse demande d'ajouter son `@import`,
 sinon le navigateur la simule et le rendu se dégrade.
 
 ## Écrire une nouvelle page
 
-1. Reprendre les classes du socle : `page-head`, `page-title`, `tabs`, `panel`,
-   `panel-label`, `btn`, `field` + `field-label` + `input`, `table`, `tag-chip`,
-   `badge`, `banner`, `empty-note`.
-2. Pas de `style={{…}}` pour une couleur, une bordure, un rayon ou une police.
+Page de référence à imiter : `frontend/src/pages/ForgesPage.tsx`.
+
+1. **En-tête** : le composant `PageHeader` (fil d'Ariane, titre, sous-titre,
+   actions). Les pages Gouvernance passent par `GovernanceFrame`.
+2. **Aucun élément brut** : un bouton, un champ, un tableau ou un titre porte
+   toujours une classe du socle.
+
+   | Besoin | Classes |
+   |---|---|
+   | Section d'une page | `page-section`, `section-head`, `section-title` |
+   | Panneau | `panel`, `panel-label`, `panel-head`, `panel-title`, `panel-form` |
+   | Bouton | `btn`, `btn-primary`, `btn-danger`, `btn-sm`, `btn-block`, `btn-link` |
+   | Champ | `field` + `field-label` + `input` / `select` / `textarea`, `field-hint`, `field-inline`, `fieldset`, `check` |
+   | Tableau | `panel table-wrap` autour de `table` ; cellule d'actions : `actions` |
+   | Barre de filtres | `toolbar` |
+   | Menu flottant | `menu-anchor`, `menu-popover`, `menu-item` |
+   | Mise en page | `stack`, `stack-tight`, `row`, `push-right`, `list-plain` |
+   | États | `empty-note`, `info-note`, `banner`, `text-ok`, `text-danger`, `text-warn`, `muted`, `small` |
+   | Étiquettes | `badge`, `badge-warn`, `badge-muted`, `pill`, `tag-chip` |
+
+   Les cases à cocher, boutons radio et sélecteurs de fichier restent natifs
+   (sans classe `input`).
+3. Pas de `style={{…}}` pour une couleur, une bordure, un rayon ou une police.
    Le style inline reste acceptable pour une valeur pilotée par la donnée
    (`background: level.color`) ou un ajustement de mise en page ponctuel.
-3. Un besoin que le socle ne couvre pas : ajouter une classe à `styles.css`,
+4. Un besoin que le socle ne couvre pas : ajouter une classe à `styles.css`,
    pas un style inline dans la page.
-4. La marque passe par le composant `Brand`, jamais par un texte écrit à la main.
+5. La marque passe par le composant `Brand`, jamais par un texte écrit à la main.
 
 ## Garde-fous automatiques
 

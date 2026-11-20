@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate } from 'react-router-dom'
 import { api, type SessionUser } from '../apiClient'
+import { PageHeader } from '../components/PageHeader'
 
 export function HomePage({
   user,
@@ -38,23 +39,29 @@ export function HomePage({
 
   return (
     <main>
-      <h1>{t('appName')}</h1>
-      <p>{t('homeLoggedInAs', { email: user.email, role: user.role })}</p>
-      {visible.length > 0 ? (
-        <nav style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          {visible.map(([, to, key]) => (
-            <Link key={to} to={to}>
-              {t(key)}
-            </Link>
-          ))}
-        </nav>
-      ) : (
-        <p>{t('noAccessYet')}</p>
-      )}
-      <p>{t('semanticSoon')}</p>
-      <button type="button" onClick={() => logout.mutate()}>
-        {t('logout')}
-      </button>
+      <PageHeader
+        title={t('appName')}
+        subtitle={t('homeLoggedInAs', { email: user.email, role: user.role })}
+        actions={
+          <button type="button" className="btn" onClick={() => logout.mutate()}>
+            {t('logout')}
+          </button>
+        }
+      />
+      <div className="page-body">
+        {visible.length > 0 ? (
+          <nav className="row">
+            {visible.map(([, to, key]) => (
+              <Link key={to} to={to} className="btn">
+                {t(key)}
+              </Link>
+            ))}
+          </nav>
+        ) : (
+          <div className="empty-note">{t('noAccessYet')}</div>
+        )}
+        <p className="muted">{t('semanticSoon')}</p>
+      </div>
     </main>
   )
 }

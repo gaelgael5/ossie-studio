@@ -6,6 +6,7 @@ import type { TFunction } from 'i18next'
 import { api } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { PageHeader } from '../components/PageHeader'
 
 function probeFailureMessages(t: TFunction, err: unknown): string[] {
   if (err instanceof ApiRequestError && err.body.error === 'space_probe_failed') {
@@ -61,87 +62,121 @@ export function SpacesPage() {
 
   return (
     <main>
-      <nav>
-        <Link to="/">{t('home')}</Link>
-      </nav>
-      <h1>{t('spacesTitle')}</h1>
-      <p>{t('spacesIntro')}</p>
+      <PageHeader
+        breadcrumb={<Link to="/">{t('home')}</Link>}
+        title={t('spacesTitle')}
+        subtitle={t('spacesIntro')}
+      />
       <ErrorList messages={messages} />
 
-      {spaces.data && spaces.data.spaces.length > 0 ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th>{t('colLabel')}</th>
-              <th>{t('connectionSelectLabel')}</th>
-              <th>{t('colRepo')}</th>
-              <th>{t('colStatus')}</th>
-              <th>{t('colProbe')}</th>
-              <th>{t('colActions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {spaces.data.spaces.map((s) => (
-              <tr key={s.id}>
-                <td>{s.name}</td>
-                <td>{connLabel(s.connection_id)}</td>
-                <td>
-                  <code>{s.repo_url}</code>
-                </td>
-                <td>{s.last_probe_status === 'valid' ? t('statusValid') : t('statusError')}</td>
-                <td>{formatDate(s.last_probe_at)}</td>
-                <td>
-                  <Link to={`/spaces/${s.id}`}>{t('openSpace')}</Link>{' '}
-                  <button type="button" onClick={() => prove.mutate(s.id)}>
-                    {t('prove')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (window.confirm(t('deleteSpaceConfirm'))) remove.mutate(s.id)
-                    }}
-                  >
-                    {t('delete')}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p>{t('noSpaces')}</p>
-      )}
+      <div className="page-body">
+        {spaces.data && spaces.data.spaces.length > 0 ? (
+          <div className="panel table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t('colLabel')}</th>
+                  <th>{t('connectionSelectLabel')}</th>
+                  <th>{t('colRepo')}</th>
+                  <th>{t('colStatus')}</th>
+                  <th>{t('colProbe')}</th>
+                  <th>{t('colActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {spaces.data.spaces.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.name}</td>
+                    <td>{connLabel(s.connection_id)}</td>
+                    <td>
+                      <code>{s.repo_url}</code>
+                    </td>
+                    <td>
+                      {s.last_probe_status === 'valid' ? (
+                        <span className="text-ok">{t('statusValid')}</span>
+                      ) : (
+                        <span className="text-danger">{t('statusError')}</span>
+                      )}
+                    </td>
+                    <td>{formatDate(s.last_probe_at)}</td>
+                    <td>
+                      <div className="actions">
+                        <Link to={`/spaces/${s.id}`} className="btn btn-sm">
+                          {t('openSpace')}
+                        </Link>
+                        <button type="button" className="btn btn-sm" onClick={() => prove.mutate(s.id)}>
+                          {t('prove')}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-danger"
+                          onClick={() => {
+                            if (window.confirm(t('deleteSpaceConfirm'))) remove.mutate(s.id)
+                          }}
+                        >
+                          {t('delete')}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-note">{t('noSpaces')}</div>
+        )}
+      </div>
 
-      <h2>{t('addSpace')}</h2>
-      <p>{t('probeHint')}</p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          setMessages([])
-          create.mutate()
-        }}
-        style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 440 }}
-      >
-        <label htmlFor="name">{t('spaceNameLabel')}</label>
-        <input id="name" value={name} onChange={(e) => setName(e.target.value)} />
-        <label htmlFor="connection">{t('connectionSelectLabel')}</label>
-        <select
-          id="connection"
-          value={selected}
-          onChange={(e) => setConnectionId(e.target.value)}
+      <section className="page-section">
+        <div className="section-head">
+          <h2 className="section-title">{t('addSpace')}</h2>
+        </div>
+        <p className="muted">{t('probeHint')}</p>
+        <form
+          className="panel panel-form stack"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setMessages([])
+            create.mutate()
+          }}
         >
-          {conns.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-        <label htmlFor="repo">{t('repoUrlLabel')}</label>
-        <input id="repo" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} />
-        <button type="submit" disabled={create.isPending}>
-          {t('createSpace')}
-        </button>
-      </form>
+          <div className="field">
+            <label className="field-label" htmlFor="name">
+              {t('spaceNameLabel')}
+            </label>
+            <input id="name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="connection">
+              {t('connectionSelectLabel')}
+            </label>
+            <select
+              id="connection"
+              className="select"
+              value={selected}
+              onChange={(e) => setConnectionId(e.target.value)}
+            >
+              {conns.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="repo">
+              {t('repoUrlLabel')}
+            </label>
+            <input id="repo" className="input" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} />
+          </div>
+          <div>
+            <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+              {t('createSpace')}
+            </button>
+          </div>
+        </form>
+      </section>
     </main>
   )
 }

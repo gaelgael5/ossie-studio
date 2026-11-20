@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 type SecretItem = {
   slug: string
@@ -55,35 +55,48 @@ function SecretRow({
         <code>{secret.slug}</code>
       </td>
       <td>
-        <input
-          aria-label={t('colLabel')}
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-        />{' '}
-        <button type="button" disabled={rename.isPending || !label.trim()} onClick={() => rename.mutate()}>
-          {t('renameSecret')}
-        </button>
+        <div className="field-inline">
+          <input
+            className="input"
+            aria-label={t('colLabel')}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={rename.isPending || !label.trim()}
+            onClick={() => rename.mutate()}
+          >
+            {t('renameSecret')}
+          </button>
+        </div>
       </td>
       <td>{categoryName}</td>
       <td>{t('usedByValue', { count: secret.used_by })}</td>
       <td>
-        <input
-          type="password"
-          aria-label={t('newValuePlaceholder')}
-          placeholder={t('newValuePlaceholder')}
-          value={newValue}
-          onChange={(e) => setNewValue(e.target.value)}
-        />{' '}
-        <button
-          type="button"
-          disabled={replaceValue.isPending || !newValue}
-          onClick={() => replaceValue.mutate()}
-        >
-          {t('replace')}
-        </button>{' '}
-        <button type="button" onClick={() => remove.mutate()}>
-          {t('delete')}
-        </button>
+        {/* Un champ et ses boutons : alignés sur le champ, comme la colonne du libellé. */}
+        <div className="field-inline">
+          <input
+            type="password"
+            className="input"
+            aria-label={t('newValuePlaceholder')}
+            placeholder={t('newValuePlaceholder')}
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+          />
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={replaceValue.isPending || !newValue}
+            onClick={() => replaceValue.mutate()}
+          >
+            {t('replace')}
+          </button>
+          <button type="button" className="btn btn-sm btn-danger" onClick={() => remove.mutate()}>
+            {t('delete')}
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -118,69 +131,103 @@ export function SecretsPage() {
 
   return (
     <main>
-      <nav>
-        <Link to="/">{t('home')}</Link>
-      </nav>
-      <h1>{t('secretsTitle')}</h1>
-      <p>{t('secretsIntro')}</p>
+      <PageHeader breadcrumb={<SettingsCrumb />} title={t('secretsTitle')} subtitle={t('secretsIntro')} />
       <ErrorList messages={messages} />
-      {list.data && list.data.secrets.length > 0 ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th>{t('colSlug')}</th>
-              <th>{t('colLabel')}</th>
-              <th>{t('colCategory')}</th>
-              <th>{t('colUsedBy')}</th>
-              <th>{t('colActions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.data.secrets.map((s) => (
-              <SecretRow
-                key={s.slug}
-                secret={s}
-                categoryName={categories[s.category] ?? s.category}
-                invalidate={invalidate}
-                onError={(err) => {
-                  setMessages([])
-                  onError(err)
-                }}
-              />
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p>{t('noSecrets')}</p>
-      )}
 
-      <h2>{t('addSecret')}</h2>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          setMessages([])
-          create.mutate()
-        }}
-        style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 360 }}
-      >
-        <label htmlFor="slug">{t('slugLabel')}</label>
-        <input id="slug" value={slug} onChange={(e) => setSlug(e.target.value)} />
-        <label htmlFor="label">{t('colLabel')}</label>
-        <input id="label" value={label} onChange={(e) => setLabel(e.target.value)} />
-        <label htmlFor="category">{t('categoryLabel')}</label>
-        <select id="category" value={defaultCategory} onChange={(e) => setCategory(e.target.value)}>
-          {Object.entries(categories).map(([slugCat, name]) => (
-            <option key={slugCat} value={slugCat}>
-              {name}
-            </option>
-          ))}
-        </select>
-        <label htmlFor="value">{t('valueLabel')}</label>
-        <input id="value" type="password" value={value} onChange={(e) => setValue(e.target.value)} />
-        <button type="submit" disabled={create.isPending}>
-          {t('save')}
-        </button>
-      </form>
+      <div className="page-body">
+        {list.data && list.data.secrets.length > 0 ? (
+          <div className="panel table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t('colSlug')}</th>
+                  <th>{t('colLabel')}</th>
+                  <th>{t('colCategory')}</th>
+                  <th>{t('colUsedBy')}</th>
+                  <th>{t('colActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.data.secrets.map((s) => (
+                  <SecretRow
+                    key={s.slug}
+                    secret={s}
+                    categoryName={categories[s.category] ?? s.category}
+                    invalidate={invalidate}
+                    onError={(err) => {
+                      setMessages([])
+                      onError(err)
+                    }}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-note">{t('noSecrets')}</div>
+        )}
+      </div>
+
+      <section className="page-section">
+        <div className="section-head">
+          <h2 className="section-title">{t('addSecret')}</h2>
+        </div>
+        <form
+          className="panel panel-form stack"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setMessages([])
+            create.mutate()
+          }}
+        >
+          <div className="field">
+            <label className="field-label" htmlFor="slug">
+              {t('slugLabel')}
+            </label>
+            <input id="slug" className="input" value={slug} onChange={(e) => setSlug(e.target.value)} />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="label">
+              {t('colLabel')}
+            </label>
+            <input id="label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="category">
+              {t('categoryLabel')}
+            </label>
+            <select
+              id="category"
+              className="select"
+              value={defaultCategory}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              {Object.entries(categories).map(([slugCat, name]) => (
+                <option key={slugCat} value={slugCat}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="value">
+              {t('valueLabel')}
+            </label>
+            <input
+              id="value"
+              className="input"
+              type="password"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </div>
+          <div>
+            <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+              {t('save')}
+            </button>
+          </div>
+        </form>
+      </section>
     </main>
   )
 }

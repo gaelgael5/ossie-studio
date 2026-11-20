@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import type { OidcConnectorItem, ProfileItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 function ConnectorMappings({
   connector,
@@ -58,87 +58,122 @@ function ConnectorMappings({
   }
 
   return (
-    <section style={{ marginTop: 16, borderTop: '1px solid var(--border, #ddd)', paddingTop: 12 }}>
-      <h3>{`${t('roleMappingTitle')} — ${connector.label}`}</h3>
+    <section className="panel stack">
+      <h3 className="panel-title">{`${t('roleMappingTitle')} — ${connector.label}`}</h3>
       <form
         onSubmit={(e) => {
           e.preventDefault()
           saveClaim.mutate()
         }}
-        style={{ display: 'flex', gap: 8, alignItems: 'flex-end', maxWidth: 520 }}
+        className="measure"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-          <label htmlFor={`claim-${connector.id}`}>{t('rolesClaimLabel')}</label>
-          <input id={`claim-${connector.id}`} value={claim} onChange={(e) => setClaim(e.target.value)} />
+        <div className="field">
+          <label className="field-label" htmlFor={`claim-${connector.id}`}>
+            {t('rolesClaimLabel')}
+          </label>
+          <div className="field-inline">
+            <input
+              id={`claim-${connector.id}`}
+              className="input"
+              value={claim}
+              onChange={(e) => setClaim(e.target.value)}
+            />
+            <button type="submit" className="btn" disabled={saveClaim.isPending}>
+              {t('save')}
+            </button>
+          </div>
         </div>
-        <button type="submit" disabled={saveClaim.isPending}>
-          {t('save')}
-        </button>
       </form>
 
       {connector.mappings.length > 0 ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8 }}>
-          <thead>
-            <tr>
-              <th>{t('colOrder')}</th>
-              <th>{t('colRoleValue')}</th>
-              <th>{t('colAssignedProfile')}</th>
-              <th>{t('colActions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {connector.mappings.map((m, index) => (
-              <tr key={m.id}>
-                <td>{index + 1}</td>
-                <td>
-                  <code>{m.role_value}</code>
-                </td>
-                <td>{m.profile_name ?? m.profile_id}</td>
-                <td>
-                  <button type="button" onClick={() => move(index, -1)}>
-                    {t('moveUp')}
-                  </button>{' '}
-                  <button type="button" onClick={() => move(index, 1)}>
-                    {t('moveDown')}
-                  </button>{' '}
-                  <button type="button" onClick={() => removeMapping.mutate(m.id)}>
-                    {t('delete')}
-                  </button>
-                </td>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>{t('colOrder')}</th>
+                <th>{t('colRoleValue')}</th>
+                <th>{t('colAssignedProfile')}</th>
+                <th>{t('colActions')}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {connector.mappings.map((m, index) => (
+                <tr key={m.id}>
+                  <td>{index + 1}</td>
+                  <td>
+                    <code>{m.role_value}</code>
+                  </td>
+                  <td>{m.profile_name ?? m.profile_id}</td>
+                  <td>
+                    <div className="actions">
+                      <button type="button" className="btn btn-sm" onClick={() => move(index, -1)}>
+                        {t('moveUp')}
+                      </button>
+                      <button type="button" className="btn btn-sm" onClick={() => move(index, 1)}>
+                        {t('moveDown')}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={() => removeMapping.mutate(m.id)}
+                      >
+                        {t('delete')}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
 
       <form
+        className="stack"
         onSubmit={(e) => {
           e.preventDefault()
           addMapping.mutate()
         }}
-        style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 8 }}
       >
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <label htmlFor={`rv-${connector.id}`}>{t('roleValueLabel')}</label>
-          <input id={`rv-${connector.id}`} value={roleValue} onChange={(e) => setRoleValue(e.target.value)} />
+        <div className="form-grid">
+          <div className="field">
+            <label className="field-label" htmlFor={`rv-${connector.id}`}>
+              {t('roleValueLabel')}
+            </label>
+            <input
+              id={`rv-${connector.id}`}
+              className="input"
+              value={roleValue}
+              onChange={(e) => setRoleValue(e.target.value)}
+            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor={`pf-${connector.id}`}>
+              {t('colAssignedProfile')}
+            </label>
+            <select
+              id={`pf-${connector.id}`}
+              className="select"
+              value={profileId}
+              onChange={(e) => setProfileId(e.target.value)}
+            >
+              {profiles.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <label htmlFor={`pf-${connector.id}`}>{t('colAssignedProfile')}</label>
-          <select id={`pf-${connector.id}`} value={profileId} onChange={(e) => setProfileId(e.target.value)}>
-            {profiles.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+        <div>
+          <button type="submit" className="btn" disabled={addMapping.isPending || !roleValue.trim()}>
+            {t('addMapping')}
+          </button>
         </div>
-        <button type="submit" disabled={addMapping.isPending || !roleValue.trim()}>
-          {t('addMapping')}
-        </button>
       </form>
 
-      <p style={{ color: 'var(--muted, #666)' }}>{t('roleMappingOrderHint')}</p>
-      <p style={{ color: 'var(--muted, #666)' }}>{t('roleMappingPinnedHint', { count: pinnedCount })}</p>
+      <p className="muted">{t('roleMappingOrderHint')}</p>
+      <p className="muted">{t('roleMappingPinnedHint', { count: pinnedCount })}</p>
     </section>
   )
 }
@@ -162,56 +197,43 @@ function ConnectorTeam({
   })
 
   return (
-    <section style={{ marginTop: 16, borderTop: '1px solid var(--border, #ddd)', paddingTop: 12 }}>
-      <h3>
-        {`${t('teamBlockTitle')} — ${connector.label}`}{' '}
-        <span
-          style={{
-            fontSize: '0.75em',
-            fontWeight: 'normal',
-            padding: '2px 8px',
-            borderRadius: 10,
-            background: 'var(--muted-bg, #eee)',
-            color: 'var(--muted, #666)',
-          }}
-        >
-          {t('teamDisplayOnlyBadge')}
-        </span>
-      </h3>
-      <p style={{ color: 'var(--muted, #666)', maxWidth: 560 }}>{t('teamClaimRulesHint')}</p>
+    <section className="panel stack">
+      <div className="row">
+        <h3 className="panel-title">{`${t('teamBlockTitle')} — ${connector.label}`}</h3>
+        <span className="pill">{t('teamDisplayOnlyBadge')}</span>
+      </div>
+      <p className="muted measure">
+        {t('teamClaimRulesHint')}
+      </p>
       <form
         onSubmit={(e) => {
           e.preventDefault()
           saveClaim.mutate()
         }}
-        style={{ display: 'flex', gap: 8, alignItems: 'flex-end', maxWidth: 520 }}
+        className="measure"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-          <label htmlFor={`team-claim-${connector.id}`}>{t('teamClaimLabel')}</label>
-          <input
-            id={`team-claim-${connector.id}`}
-            value={claim}
-            onChange={(e) => setClaim(e.target.value)}
-          />
+        <div className="field">
+          <label className="field-label" htmlFor={`team-claim-${connector.id}`}>
+            {t('teamClaimLabel')}
+          </label>
+          <div className="field-inline">
+            <input
+              id={`team-claim-${connector.id}`}
+              className="input"
+              value={claim}
+              onChange={(e) => setClaim(e.target.value)}
+            />
+            <button type="submit" className="btn" disabled={saveClaim.isPending}>
+              {t('save')}
+            </button>
+          </div>
         </div>
-        <button type="submit" disabled={saveClaim.isPending}>
-          {t('save')}
-        </button>
       </form>
-      <p style={{ marginTop: 8 }}>
-        <span style={{ color: 'var(--muted, #666)' }}>{t('teamsFromConnector')}</span>{' '}
+      <p className="row">
+        <span className="muted">{t('teamsFromConnector')}</span>
         {connector.teams.length > 0
           ? connector.teams.map((team) => (
-              <span
-                key={team.id}
-                style={{
-                  display: 'inline-block',
-                  margin: '2px 4px',
-                  padding: '2px 8px',
-                  borderRadius: 10,
-                  background: 'var(--muted-bg, #eee)',
-                }}
-              >
+              <span key={team.id} className="pill">
                 {team.name}
               </span>
             ))
@@ -318,229 +340,282 @@ export function ConnectorsPage() {
 
   return (
     <main>
-      <nav>
-        <Link to="/">{t('home')}</Link>
-      </nav>
-      <h1>{t('connectorsTitle')}</h1>
-      <p>{t('connectorsIntro')}</p>
+      <PageHeader breadcrumb={<SettingsCrumb />} title={t('connectorsTitle')} subtitle={t('connectorsIntro')} />
       <ErrorList messages={messages} />
-      {list.data && list.data.connectors.length > 0 ? (
-        <>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th>{t('colLabel')}</th>
-                <th>{t('colIssuer')}</th>
-                <th>{t('colClientSecret')}</th>
-                <th>{t('colAccounts')}</th>
-                <th>{t('colActions')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.data.connectors.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    {c.label}
-                    {discoveryStatus[c.id] ? (
-                      <>
-                        {' '}
-                        <span
-                          style={{
-                            fontSize: '0.75em',
-                            padding: '2px 8px',
-                            borderRadius: 10,
-                            background:
-                              discoveryStatus[c.id] === 'ok'
-                                ? 'var(--ok-bg, #e6f4ea)'
-                                : 'var(--ko-bg, #fde8e8)',
-                          }}
-                        >
-                          {discoveryStatus[c.id] === 'ok'
-                            ? t('discoveryOk')
-                            : t('discoveryUnreachable')}
-                        </span>
-                      </>
-                    ) : null}
-                  </td>
-                  <td>
-                    <code>{c.issuer}</code>
-                  </td>
-                  <td>
-                    <code>{c.client_secret_slug}</code>
-                    <br />
-                    <small style={{ color: 'var(--muted, #666)' }}>{t('secretReplaceHint')}</small>
-                  </td>
-                  <td>{c.accounts}</td>
-                  <td>
-                    {deleting === c.id ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span>{t('deleteConnectorReminder', { count: c.accounts })}</span>
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={alsoDeleteSecret}
-                            onChange={(e) => setAlsoDeleteSecret(e.target.checked)}
-                          />{' '}
-                          {t('deleteAlsoSecret')}
-                        </label>
-                        <label htmlFor={`del-${c.id}`}>{t('deleteTypeLabel', { label: c.label })}</label>
-                        <input
-                          id={`del-${c.id}`}
-                          value={deleteLabel}
-                          onChange={(e) => setDeleteLabel(e.target.value)}
-                        />
-                        <span>
-                          <button
-                            type="button"
-                            disabled={deleteLabel !== c.label}
-                            onClick={() =>
-                              remove.mutate({ id: c.id, deleteSecret: alsoDeleteSecret })
-                            }
-                          >
-                            {t('confirmDelete')}
-                          </button>{' '}
-                          <button type="button" onClick={() => setDeleting('')}>
-                            {t('cancel')}
-                          </button>
-                        </span>
-                      </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMessages([])
-                          setAlsoDeleteSecret(false)
-                          setDeleteLabel('')
-                          setDeleting(c.id)
-                        }}
-                      >
-                        {t('delete')}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {list.data.connectors.map((c) => (
-            <ConnectorMappings
-              key={c.id}
-              connector={c}
-              profiles={profileList}
-              pinnedCount={pinnedCount}
-              invalidate={invalidate}
-              onError={onError}
-            />
-          ))}
-          {list.data.connectors.map((c) => (
-            <ConnectorTeam key={c.id} connector={c} invalidate={invalidate} onError={onError} />
-          ))}
-        </>
-      ) : (
-        <p>{t('noConnectors')}</p>
-      )}
 
-      <h2>{t('addConnector')}</h2>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          setMessages([])
-          create.mutate()
-        }}
-        style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 420 }}
-      >
-        <label htmlFor="label">{t('labelFieldLabel')}</label>
-        <input id="label" value={label} onChange={(e) => setLabel(e.target.value)} />
-        <label htmlFor="issuer">{t('issuerLabel')}</label>
-        <input id="issuer" value={issuer} onChange={(e) => setIssuer(e.target.value)} />
-        <label htmlFor="clientId">{t('clientIdLabel')}</label>
-        <input id="clientId" value={clientId} onChange={(e) => setClientId(e.target.value)} />
-        <label htmlFor="secretSlug">{t('clientSecretLabel')}</label>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <select
-            id="secretSlug"
-            value={secretSlug}
-            onChange={(e) => setSecretSlug(e.target.value)}
-            style={{ flex: 1 }}
-          >
-            <option value="">
-              {oidcSecrets.length > 0 ? t('chooseSecret') : t('noOidcSecret')}
-            </option>
-            {oidcSecrets.map((s) => (
-              <option key={s.slug} value={s.slug}>
-                {s.label} ({s.slug})
-              </option>
+      <div className="page-body">
+        {list.data && list.data.connectors.length > 0 ? (
+          <>
+            <div className="panel table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{t('colLabel')}</th>
+                    <th>{t('colIssuer')}</th>
+                    <th>{t('colClientSecret')}</th>
+                    <th>{t('colAccounts')}</th>
+                    <th>{t('colActions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.data.connectors.map((c) => (
+                    <tr key={c.id}>
+                      <td>
+                        {c.label}
+                        {discoveryStatus[c.id] ? (
+                          <>
+                            {' '}
+                            <span className={discoveryStatus[c.id] === 'ok' ? 'pill text-ok' : 'pill text-danger'}>
+                              {discoveryStatus[c.id] === 'ok'
+                                ? t('discoveryOk')
+                                : t('discoveryUnreachable')}
+                            </span>
+                          </>
+                        ) : null}
+                      </td>
+                      <td>
+                        <code>{c.issuer}</code>
+                      </td>
+                      <td>
+                        <code>{c.client_secret_slug}</code>
+                        <div className="field-hint">{t('secretReplaceHint')}</div>
+                      </td>
+                      <td>{c.accounts}</td>
+                      <td>
+                        <div className="actions">
+                          {deleting === c.id ? (
+                            <div className="stack stack-tight">
+                              <span>{t('deleteConnectorReminder', { count: c.accounts })}</span>
+                              <label className="check">
+                                <input
+                                  type="checkbox"
+                                  checked={alsoDeleteSecret}
+                                  onChange={(e) => setAlsoDeleteSecret(e.target.checked)}
+                                />
+                                {t('deleteAlsoSecret')}
+                              </label>
+                              <div className="field">
+                                <label className="field-label" htmlFor={`del-${c.id}`}>
+                                  {t('deleteTypeLabel', { label: c.label })}
+                                </label>
+                                <input
+                                  id={`del-${c.id}`}
+                                  className="input"
+                                  value={deleteLabel}
+                                  onChange={(e) => setDeleteLabel(e.target.value)}
+                                />
+                              </div>
+                              <span className="actions">
+                                <button
+                                  type="button"
+                                  className="btn btn-sm btn-danger"
+                                  disabled={deleteLabel !== c.label}
+                                  onClick={() =>
+                                    remove.mutate({ id: c.id, deleteSecret: alsoDeleteSecret })
+                                  }
+                                >
+                                  {t('confirmDelete')}
+                                </button>
+                                <button type="button" className="btn btn-sm" onClick={() => setDeleting('')}>
+                                  {t('cancel')}
+                                </button>
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-danger"
+                              onClick={() => {
+                                setMessages([])
+                                setAlsoDeleteSecret(false)
+                                setDeleteLabel('')
+                                setDeleting(c.id)
+                              }}
+                            >
+                              {t('delete')}
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {list.data.connectors.map((c) => (
+              <ConnectorMappings
+                key={c.id}
+                connector={c}
+                profiles={profileList}
+                pinnedCount={pinnedCount}
+                invalidate={invalidate}
+                onError={onError}
+              />
             ))}
-          </select>
-          <button type="button" onClick={() => setShowNewSecret((v) => !v)}>
-            +
-          </button>
+            {list.data.connectors.map((c) => (
+              <ConnectorTeam key={c.id} connector={c} invalidate={invalidate} onError={onError} />
+            ))}
+          </>
+        ) : (
+          <div className="empty-note">{t('noConnectors')}</div>
+        )}
+      </div>
+
+      <section className="page-section">
+        <div className="section-head">
+          <h2 className="section-title">{t('addConnector')}</h2>
         </div>
-        {showNewSecret ? (
-          <fieldset style={{ border: '1px solid var(--border, #ddd)' }}>
-            <legend>{t('newSecretBlockTitle')}</legend>
-            <label htmlFor="nsLabel">{t('colLabel')}</label>
+        <form
+          className="panel stack measure"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setMessages([])
+            create.mutate()
+          }}
+        >
+          <div className="field">
+            <label className="field-label" htmlFor="label">
+              {t('labelFieldLabel')}
+            </label>
+            <input id="label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="issuer">
+              {t('issuerLabel')}
+            </label>
+            <input id="issuer" className="input" value={issuer} onChange={(e) => setIssuer(e.target.value)} />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="clientId">
+              {t('clientIdLabel')}
+            </label>
             <input
-              id="nsLabel"
-              value={newSecretLabel}
-              onChange={(e) => setNewSecretLabel(e.target.value)}
+              id="clientId"
+              className="input"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
             />
-            <label htmlFor="nsSlug">{t('slugLabel')}</label>
-            <input
-              id="nsSlug"
-              value={newSecretSlug}
-              onChange={(e) => setNewSecretSlug(e.target.value)}
-            />
-            <label htmlFor="nsValue">{t('valueLabel')}</label>
-            <input
-              id="nsValue"
-              type="password"
-              value={newSecretValue}
-              onChange={(e) => setNewSecretValue(e.target.value)}
-            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="secretSlug">
+              {t('clientSecretLabel')}
+            </label>
+            <div className="field-inline">
+              <select
+                id="secretSlug"
+                className="select"
+                value={secretSlug}
+                onChange={(e) => setSecretSlug(e.target.value)}
+              >
+                <option value="">
+                  {oidcSecrets.length > 0 ? t('chooseSecret') : t('noOidcSecret')}
+                </option>
+                {oidcSecrets.map((s) => (
+                  <option key={s.slug} value={s.slug}>
+                    {s.label} ({s.slug})
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="btn" onClick={() => setShowNewSecret((v) => !v)}>
+                +
+              </button>
+            </div>
+          </div>
+          {showNewSecret ? (
+            <fieldset className="fieldset">
+              <legend>{t('newSecretBlockTitle')}</legend>
+              <div className="field">
+                <label className="field-label" htmlFor="nsLabel">
+                  {t('colLabel')}
+                </label>
+                <input
+                  id="nsLabel"
+                  className="input"
+                  value={newSecretLabel}
+                  onChange={(e) => setNewSecretLabel(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="nsSlug">
+                  {t('slugLabel')}
+                </label>
+                <input
+                  id="nsSlug"
+                  className="input"
+                  value={newSecretSlug}
+                  onChange={(e) => setNewSecretSlug(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="nsValue">
+                  {t('valueLabel')}
+                </label>
+                <input
+                  id="nsValue"
+                  className="input"
+                  type="password"
+                  value={newSecretValue}
+                  onChange={(e) => setNewSecretValue(e.target.value)}
+                />
+              </div>
+              <div>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={createSecret.isPending || !newSecretSlug.trim() || !newSecretValue}
+                  onClick={() => {
+                    setMessages([])
+                    createSecret.mutate()
+                  }}
+                >
+                  {t('createAndSelect')}
+                </button>
+              </div>
+            </fieldset>
+          ) : null}
+          <div className="field">
+            <label className="field-label" htmlFor="scopes">
+              {t('scopesLabel')}
+            </label>
+            <input id="scopes" className="input" value={scopes} onChange={(e) => setScopes(e.target.value)} />
+          </div>
+          <div className="row">
             <button
               type="button"
-              disabled={createSecret.isPending || !newSecretSlug.trim() || !newSecretValue}
+              className="btn"
+              disabled={check.isPending || !issuer.trim()}
               onClick={() => {
-                setMessages([])
-                createSecret.mutate()
+                setCheckResult(null)
+                check.mutate()
               }}
             >
-              {t('createAndSelect')}
+              {t('checkDiscovery')}
             </button>
-          </fieldset>
-        ) : null}
-        <label htmlFor="scopes">{t('scopesLabel')}</label>
-        <input id="scopes" value={scopes} onChange={(e) => setScopes(e.target.value)} />
-        <div>
-          <button
-            type="button"
-            disabled={check.isPending || !issuer.trim()}
-            onClick={() => {
-              setCheckResult(null)
-              check.mutate()
-            }}
-          >
-            {t('checkDiscovery')}
-          </button>{' '}
-          {checkResult === 'ok' ? (
-            <span style={{ color: 'var(--ok, #137333)' }}>{t('discoveryVerified')}</span>
-          ) : checkResult === 'ko' ? (
-            <span style={{ color: 'var(--ko, #c5221f)' }}>{t('discoveryFailed')}</span>
+            {checkResult === 'ok' ? (
+              <span className="text-ok">{t('discoveryVerified')}</span>
+            ) : checkResult === 'ko' ? (
+              <span className="text-danger">{t('discoveryFailed')}</span>
+            ) : null}
+          </div>
+          {callbackUrl ? (
+            <p className="muted">
+              {t('callbackUrlHint')} <code>{callbackUrl}</code>{' '}
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => navigator.clipboard?.writeText(callbackUrl)}
+              >
+                {t('copy')}
+              </button>
+            </p>
           ) : null}
-        </div>
-        {callbackUrl ? (
-          <p style={{ color: 'var(--muted, #666)' }}>
-            {t('callbackUrlHint')} <code>{callbackUrl}</code>{' '}
-            <button type="button" onClick={() => navigator.clipboard?.writeText(callbackUrl)}>
-              {t('copy')}
+          <div>
+            <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+              {t('verifyAndSave')}
             </button>
-          </p>
-        ) : null}
-        <button type="submit" disabled={create.isPending}>
-          {t('verifyAndSave')}
-        </button>
-      </form>
+          </div>
+        </form>
+      </section>
     </main>
   )
 }

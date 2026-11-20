@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { PageHeader } from '../components/PageHeader'
 import { RailMap } from '../components/RailMap'
 
 export function SpaceDetailPage() {
@@ -123,177 +124,215 @@ export function SpaceDetailPage() {
 
   return (
     <main>
-      <nav style={{ display: 'flex', gap: 16 }}>
-        <Link to="/">{t('home')}</Link>
-        <Link to="/spaces">{t('manageSpaces')}</Link>
-      </nav>
-      <h1>{t('branchesTitle')}</h1>
-      <p>{t('branchesIntro')}</p>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/">{t('home')}</Link> › <Link to="/spaces">{t('manageSpaces')}</Link>
+          </>
+        }
+        title={t('branchesTitle')}
+        subtitle={t('branchesIntro')}
+      />
       <ErrorList messages={messages} />
-      {notice ? <p role="status">{notice}</p> : null}
+      {notice ? (
+        <p role="status" className="info-note">
+          {notice}
+        </p>
+      ) : null}
 
       {data && data.branches.length > 0 ? (
         <>
-          <label htmlFor="viewed">{t('viewedBranchLabel')}</label>
-          <select
-            id="viewed"
-            value={data.viewed_branch_id ?? ''}
-            onChange={(e) => {
-              setNotice('')
-              setViewed.mutate(e.target.value)
-            }}
-          >
-            {data.branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.label}
-              </option>
-            ))}
-          </select>
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12 }}>
-            <thead>
-              <tr>
-                <th>{t('colLabel')}</th>
-                <th>{t('colKind')}</th>
-                <th>{t('colSlug')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.branches.map((b) => (
-                <tr key={b.id}>
-                  <td>{b.label}</td>
-                  <td>{b.kind === 'base' ? t('kindBase') : t('kindChild')}</td>
-                  <td>
-                    <code>{b.git_ref}</code>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="page-body stack">
+            <div className="field measure">
+              <label className="field-label" htmlFor="viewed">
+                {t('viewedBranchLabel')}
+              </label>
+              <select
+                id="viewed"
+                className="select"
+                value={data.viewed_branch_id ?? ''}
+                onChange={(e) => {
+                  setNotice('')
+                  setViewed.mutate(e.target.value)
+                }}
+              >
+                {data.branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="panel table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{t('colLabel')}</th>
+                    <th>{t('colKind')}</th>
+                    <th>{t('colSlug')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.branches.map((b) => (
+                    <tr key={b.id}>
+                      <td>{b.label}</td>
+                      <td>{b.kind === 'base' ? t('kindBase') : t('kindChild')}</td>
+                      <td>
+                        <code>{b.git_ref}</code>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {viewedId ? (
-            <section style={{ marginTop: 24 }}>
-              <h2>{t('unpublishedTitle')}</h2>
-              <p>{t('unpublishedIntro')}</p>
+            <section className="page-section">
+              <div className="section-head">
+                <h2 className="section-title">{t('unpublishedTitle')}</h2>
+              </div>
+              <p className="muted">{t('unpublishedIntro')}</p>
               {unpublished.data && unpublished.data.count > 0 ? (
-                <>
-                  <p>{t('unpublishedCount', { count: unpublished.data.count })}</p>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr>
-                        <th>{t('colMessage')}</th>
-                        <th>{t('colAuthor')}</th>
-                        <th>{t('colDate')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {unpublished.data.commits.map((c) => (
-                        <tr key={c.sha}>
-                          <td>{c.message}</td>
-                          <td>{c.author}</td>
-                          <td>{formatDate(c.date)}</td>
+                <div className="stack">
+                  <div>{t('unpublishedCount', { count: unpublished.data.count })}</div>
+                  <div className="panel table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>{t('colMessage')}</th>
+                          <th>{t('colAuthor')}</th>
+                          <th>{t('colDate')}</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <button
-                    type="button"
-                    disabled={publish.isPending}
-                    onClick={() => {
-                      setMessages([])
-                      publish.mutate()
-                    }}
-                    style={{ marginTop: 8 }}
-                  >
-                    {t('publishButton')}
-                  </button>
-                </>
+                      </thead>
+                      <tbody>
+                        {unpublished.data.commits.map((c) => (
+                          <tr key={c.sha}>
+                            <td>{c.message}</td>
+                            <td>{c.author}</td>
+                            <td>{formatDate(c.date)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={publish.isPending}
+                      onClick={() => {
+                        setMessages([])
+                        publish.mutate()
+                      }}
+                    >
+                      {t('publishButton')}
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <p>{t('noUnpublished')}</p>
+                <div className="empty-note">{t('noUnpublished')}</div>
               )}
             </section>
           ) : null}
 
           {viewedId ? (
-            <section style={{ marginTop: 24 }}>
-              <h2>{t('versionsTitle')}</h2>
-              <p>{t('versionsIntro')}</p>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  setMessages([])
-                  createVersion.mutate()
-                }}
-                style={{ display: 'flex', gap: 8, alignItems: 'flex-end', maxWidth: 520 }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
-                  <label htmlFor="versionLabel">{t('versionLabelField')}</label>
-                  <input
-                    id="versionLabel"
-                    value={versionLabel}
-                    onChange={(e) => setVersionLabel(e.target.value)}
-                  />
-                </div>
-                <button type="submit" disabled={createVersion.isPending}>
-                  {t('createVersionButton')}
-                </button>
-              </form>
-              {versionList.length > 0 ? (
-                <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 12 }}>
-                  <thead>
-                    <tr>
-                      <th>{t('colVersionNumber')}</th>
-                      <th>{t('colLabel')}</th>
-                      <th>{t('colCommit')}</th>
-                      <th>{t('colAuthor')}</th>
-                      <th>{t('colDate')}</th>
-                      <th>{t('colActions')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {versionList.map((v) => (
-                      <tr
-                        key={v.number}
-                        style={
-                          selectedVersion === v.number
-                            ? { outline: '2px solid currentColor' }
-                            : undefined
-                        }
-                      >
-                        <td>{v.number}</td>
-                        <td>{v.label}</td>
-                        <td>
-                          <code>{v.commit.slice(0, 8)}</code>
-                        </td>
-                        <td>{v.author}</td>
-                        <td>{formatDate(v.date)}</td>
-                        <td>
-                          <button
-                            type="button"
-                            disabled={restoreVersion.isPending}
-                            onClick={() => {
-                              setMessages([])
-                              if (window.confirm(t('restoreVersionConfirm', { number: v.number }))) {
-                                restoreVersion.mutate(v.number)
-                              }
-                            }}
+            <section className="page-section">
+              <div className="section-head">
+                <h2 className="section-title">{t('versionsTitle')}</h2>
+              </div>
+              <p className="muted">{t('versionsIntro')}</p>
+              <div className="stack">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    setMessages([])
+                    createVersion.mutate()
+                  }}
+                  className="measure"
+                >
+                  <div className="field">
+                    <label className="field-label" htmlFor="versionLabel">
+                      {t('versionLabelField')}
+                    </label>
+                    <div className="field-inline">
+                      <input
+                        id="versionLabel"
+                        className="input"
+                        value={versionLabel}
+                        onChange={(e) => setVersionLabel(e.target.value)}
+                      />
+                      <button type="submit" className="btn btn-primary" disabled={createVersion.isPending}>
+                        {t('createVersionButton')}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+                {versionList.length > 0 ? (
+                  <div className="panel table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>{t('colVersionNumber')}</th>
+                          <th>{t('colLabel')}</th>
+                          <th>{t('colCommit')}</th>
+                          <th>{t('colAuthor')}</th>
+                          <th>{t('colDate')}</th>
+                          <th>{t('colActions')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {versionList.map((v) => (
+                          <tr
+                            key={v.number}
+                            style={
+                              selectedVersion === v.number
+                                ? { outline: '2px solid currentColor' }
+                                : undefined
+                            }
                           >
-                            {t('restoreVersion')}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p>{t('noVersions')}</p>
-              )}
+                            <td>{v.number}</td>
+                            <td>{v.label}</td>
+                            <td>
+                              <code>{v.commit.slice(0, 8)}</code>
+                            </td>
+                            <td>{v.author}</td>
+                            <td>{formatDate(v.date)}</td>
+                            <td>
+                              <div className="actions">
+                                <button
+                                  type="button"
+                                  className="btn btn-sm"
+                                  disabled={restoreVersion.isPending}
+                                  onClick={() => {
+                                    setMessages([])
+                                    if (window.confirm(t('restoreVersionConfirm', { number: v.number }))) {
+                                      restoreVersion.mutate(v.number)
+                                    }
+                                  }}
+                                >
+                                  {t('restoreVersion')}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="empty-note">{t('noVersions')}</div>
+                )}
+              </div>
             </section>
           ) : null}
 
           {railmap.data && railmap.data.lines ? (
-            <section style={{ marginTop: 24 }}>
-              <h2>{t('railmapTitle')}</h2>
-              <p>{t('railmapIntro')}</p>
+            <section className="page-section">
+              <div className="section-head">
+                <h2 className="section-title">{t('railmapTitle')}</h2>
+              </div>
+              <p className="muted">{t('railmapIntro')}</p>
               <RailMap
                 data={railmap.data}
                 selected={selectedVersion}
@@ -305,40 +344,66 @@ export function SpaceDetailPage() {
           ) : null}
         </>
       ) : (
-        <p>{t('noBranches')}</p>
+        <div className="page-body">
+          <div className="empty-note">{t('noBranches')}</div>
+        </div>
       )}
 
-      {!hasBase ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            setMessages([])
-            createBase.mutate()
-          }}
-          style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 360, marginTop: 16 }}
-        >
-          <label htmlFor="baseLabel">{t('baseLabelField')}</label>
-          <input id="baseLabel" value={baseLabel} onChange={(e) => setBaseLabel(e.target.value)} />
-          <button type="submit" disabled={createBase.isPending}>
-            {t('createBaseButton')}
-          </button>
-        </form>
-      ) : (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            setMessages([])
-            createChild.mutate()
-          }}
-          style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 360, marginTop: 16 }}
-        >
-          <label htmlFor="childLabel">{t('childLabelField')}</label>
-          <input id="childLabel" value={childLabel} onChange={(e) => setChildLabel(e.target.value)} />
-          <button type="submit" disabled={createChild.isPending}>
-            {t('createChildButton')}
-          </button>
-        </form>
-      )}
+      <div className="page-section">
+        {!hasBase ? (
+          <form
+            className="panel panel-form stack"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setMessages([])
+              createBase.mutate()
+            }}
+          >
+            <div className="field">
+              <label className="field-label" htmlFor="baseLabel">
+                {t('baseLabelField')}
+              </label>
+              <input
+                id="baseLabel"
+                className="input"
+                value={baseLabel}
+                onChange={(e) => setBaseLabel(e.target.value)}
+              />
+            </div>
+            <div>
+              <button type="submit" className="btn btn-primary" disabled={createBase.isPending}>
+                {t('createBaseButton')}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form
+            className="panel panel-form stack"
+            onSubmit={(e) => {
+              e.preventDefault()
+              setMessages([])
+              createChild.mutate()
+            }}
+          >
+            <div className="field">
+              <label className="field-label" htmlFor="childLabel">
+                {t('childLabelField')}
+              </label>
+              <input
+                id="childLabel"
+                className="input"
+                value={childLabel}
+                onChange={(e) => setChildLabel(e.target.value)}
+              />
+            </div>
+            <div>
+              <button type="submit" className="btn btn-primary" disabled={createChild.isPending}>
+                {t('createChildButton')}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     </main>
   )
 }
