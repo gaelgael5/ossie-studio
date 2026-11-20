@@ -717,6 +717,8 @@ input[type='radio'] {
   font-family: var(--mono);
   font-size: 0.78rem;
   color: var(--muted);
+  /* Une pastille est un mot ou deux : elle ne se coupe pas. */
+  white-space: nowrap;
 }
 
 /* ---------- Cartes de certification ---------- */
@@ -784,6 +786,14 @@ input[type='radio'] {
 /* Tableau large : défile dans son conteneur plutôt que de pousser la page. */
 .table-wrap {
   overflow-x: auto;
+}
+/*
+ * Champ posé dans une cellule : une largeur minimale, pour que le tableau
+ * défile (table-wrap) au lieu d'écraser le champ sur un écran étroit.
+ */
+.table .input,
+.table .select {
+  min-width: 140px;
 }
 
 /* ---------- Bannières / états ---------- */

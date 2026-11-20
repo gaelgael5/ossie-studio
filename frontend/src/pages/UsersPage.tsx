@@ -76,7 +76,7 @@ export function UsersPage() {
       <ErrorList messages={messages} />
 
       <div className="page-body stack">
-        <div className="form-grid">
+        <div className="toolbar">
           <div className="field">
             <label className="field-label" htmlFor="q">
               {t('userSearchLabel')}
@@ -158,7 +158,8 @@ export function UsersPage() {
                       <td>{u.is_oidc ? t('accountOidc') : t('accountLocal')}</td>
                       <td>{formatDate(u.last_login_at)}</td>
                       <td>
-                        <div className="field-inline">
+                        {/* La marque sous la liste : sur une même ligne, elle écrase la liste. */}
+                        <div className="stack stack-tight">
                           <select
                             className="select"
                             value={u.profile_id ?? ''}
@@ -175,14 +176,14 @@ export function UsersPage() {
                             ))}
                           </select>
                           {u.profile_pinned ? (
-                            <>
+                            <div className="row">
                               <span className="pill" title={t('pinnedHint')}>
                                 {t('pinnedBadge')}
                               </span>
                               <button type="button" className="btn btn-sm" onClick={() => removePin.mutate(u.id)}>
                                 {t('removePin')}
                               </button>
-                            </>
+                            </div>
                           ) : null}
                         </div>
                       </td>

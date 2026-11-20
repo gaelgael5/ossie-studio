@@ -64,8 +64,7 @@ export function TeamsPage() {
 
       <div className="page-body stack">
         <form
-          className="field-inline"
-          style={{ maxWidth: 480 }}
+          className="field-inline measure"
           onSubmit={(e) => {
             e.preventDefault()
             const name = newName.trim()

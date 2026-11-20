@@ -61,7 +61,7 @@ Page de référence à imiter : `frontend/src/pages/ForgesPage.tsx`.
    | Tableau | `panel table-wrap` autour de `table` ; cellule d'actions : `actions` |
    | Barre de filtres | `toolbar` |
    | Menu flottant | `menu-anchor`, `menu-popover`, `menu-item` |
-   | Mise en page | `stack`, `stack-tight`, `row`, `push-right`, `list-plain` |
+   | Mise en page | `stack`, `stack-tight`, `row`, `push-right`, `measure`, `list-plain` |
    | États | `empty-note`, `info-note`, `banner`, `text-ok`, `text-danger`, `text-warn`, `muted`, `small` |
    | Étiquettes | `badge`, `badge-warn`, `badge-muted`, `pill`, `tag-chip` |
 
