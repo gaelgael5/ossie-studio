@@ -49,8 +49,36 @@ def _parse_uuid(value: str) -> uuid.UUID | None:
         return None
 
 
+async def db_space_rights_for_users(
+    conn: asyncpg.Connection, user_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[dict[str, str]]]:
+    """Droits par espace de chaque personne : espace, profil et équipe qui le donne."""
+    rows = await conn.fetch(
+        "SELECT ut.user_id, s.id AS space_id, s.name AS space_name, p.name AS profile_name, "
+        "t.name AS team_name FROM user_teams ut "
+        "JOIN space_team_profiles stp ON stp.team_id = ut.team_id "
+        "JOIN git_spaces s ON s.id = stp.space_id JOIN teams t ON t.id = ut.team_id "
+        "JOIN profiles p ON p.id = stp.profile_id "
+        "WHERE ut.user_id = ANY($1::uuid[]) ORDER BY s.name, t.name",
+        user_ids,
+    )
+    out: dict[uuid.UUID, list[dict[str, str]]] = {}
+    for r in rows:
+        out.setdefault(r["user_id"], []).append(
+            {
+                "space_id": str(r["space_id"]),
+                "space_name": r["space_name"],
+                "profile_name": r["profile_name"],
+                "team_name": r["team_name"],
+            }
+        )
+    return out
+
+
 def _user_payload(
-    row: asyncpg.Record, teams: list[dict[str, str]]
+    row: asyncpg.Record,
+    teams: list[dict[str, str]],
+    space_rights: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
     return {
         "id": str(row["id"]),
@@ -64,6 +92,8 @@ def _user_payload(
         # Appartenance multiple : liste d'équipes, chacune avec l'origine de son
         # rattachement (oidc | manual).
         "teams": teams,
+        # Droits par espace gagnés par ses équipes (espace, profil, équipe).
+        "space_rights": space_rights or [],
     }
 
 
@@ -85,9 +115,14 @@ async def list_users(
         max(0, offset),
         _parse_uuid(team_id),
     )
-    teams_by_user = await db_teams_for_users(conn, [r["id"] for r in rows])
+    ids = [r["id"] for r in rows]
+    teams_by_user = await db_teams_for_users(conn, ids)
+    rights_by_user = await db_space_rights_for_users(conn, ids)
     return {
-        "users": [_user_payload(r, teams_by_user.get(r["id"], [])) for r in rows],
+        "users": [
+            _user_payload(r, teams_by_user.get(r["id"], []), rights_by_user.get(r["id"]))
+            for r in rows
+        ],
         "total": total,
     }
 

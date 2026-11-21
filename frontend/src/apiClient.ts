@@ -21,7 +21,15 @@ export interface SessionState {
   authenticated: boolean
   user: SessionUser | null
   capabilities?: string[]
+  /** Capacités gagnées sur au moins un espace par une équipe rattachée. */
+  space_capabilities?: string[]
   language?: string
+}
+
+/** Capacités qui ouvrent un écran : globales + gagnées sur au moins un espace.
+ * Le serveur reste juge espace par espace ; l'écran ne fait que montrer. */
+export function sessionCapabilities(session: SessionState | undefined): string[] {
+  return [...(session?.capabilities ?? []), ...(session?.space_capabilities ?? [])]
 }
 
 export interface ProfileItem {
@@ -48,6 +56,21 @@ export interface UserItem {
   profile_name: string | null
   profile_pinned: boolean
   teams: UserTeam[]
+  space_rights: SpaceRight[]
+}
+
+export interface SpaceRight {
+  space_id: string
+  space_name: string
+  profile_name: string
+  team_name: string
+}
+
+export interface SpaceTeam {
+  team_id: string
+  team_name: string
+  profile_id: string
+  profile_name: string
 }
 
 export interface UserTeam {
@@ -574,6 +597,16 @@ export const api = {
     apiFetch(`/api/connections/${id}?delete_secret=${deleteSecret}`, { method: 'DELETE' }),
 
   listSpaces: () => apiFetch<{ spaces: GitSpace[] }>('/api/spaces'),
+  mySpaceCapabilities: (spaceId: string) =>
+    apiFetch<{ capabilities: string[] }>(`/api/spaces/${spaceId}/me`),
+  listSpaceTeams: (spaceId: string) => apiFetch<{ teams: SpaceTeam[] }>(`/api/spaces/${spaceId}/teams`),
+  attachSpaceTeam: (spaceId: string, teamId: string, profileId: string) =>
+    apiFetch<{ teams: SpaceTeam[] }>(`/api/spaces/${spaceId}/teams/${teamId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ profile_id: profileId }),
+    }),
+  detachSpaceTeam: (spaceId: string, teamId: string) =>
+    apiFetch(`/api/spaces/${spaceId}/teams/${teamId}`, { method: 'DELETE' }),
   listBranches: (spaceId: string) =>
     apiFetch<{
       branches: { id: string; label: string; slug: string; kind: string; git_ref: string }[]

@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { SUPPORTED_LANGUAGES } from './i18n'
 import { useSession } from './hooks'
+import { sessionCapabilities } from './apiClient'
 import { SetupPage } from './pages/SetupPage'
 import { LoginPage } from './pages/LoginPage'
 import { HomePage } from './pages/HomePage'
@@ -61,7 +62,7 @@ function AppRoutes() {
   }
 
   const { bootstrap_required, authenticated, user } = session.data
-  const caps = session.data.capabilities ?? []
+  const caps = sessionCapabilities(session.data)
   // Un utilisateur authentifié mais sans la capacité est renvoyé à l'accueil ;
   // la vraie protection est côté serveur (403). Le routage ne fait que masquer.
   const gate = (capability: string, element: JSX.Element) =>

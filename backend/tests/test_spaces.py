@@ -189,7 +189,10 @@ async def user_client(admin_client: AsyncClient, app: FastAPI) -> AsyncIterator[
 
 
 async def test_non_admin_refus_403(user_client: AsyncClient) -> None:
-    assert (await user_client.get("/api/spaces")).status_code == 403
+    # Droits par espace : la liste est filtrée (vide sans aucun droit), plus refusée.
+    listing = await user_client.get("/api/spaces")
+    assert listing.status_code == 200
+    assert listing.json()["spaces"] == []
     creation = await user_client.post(
         "/api/spaces",
         json={"name": "x", "connection_id": str(uuid.uuid4()), "repo_url": REPO},

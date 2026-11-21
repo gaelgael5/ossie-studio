@@ -5,7 +5,7 @@ import uuid
 import asyncpg
 import structlog
 
-from ossie_studio.authz.catalog import ALL_CAPABILITIES
+from ossie_studio.authz.catalog import ALL_CAPABILITIES, SPACE_SCOPED
 from ossie_studio.models import Profile, User
 
 log = structlog.get_logger(__name__)
@@ -21,12 +21,26 @@ class ProfileNotFoundError(Exception):
     pass
 
 
-async def load_capabilities(conn: asyncpg.Connection, user: User) -> set[str]:
+async def load_capabilities(
+    conn: asyncpg.Connection, user: User, space_id: uuid.UUID | None = None
+) -> set[str]:
     """Capacités effectives d'un utilisateur, relues à chaque requête (jamais
     figées en session). **Union** du profil personnel et des profils portés par
     **toutes** ses équipes : une équipe ajoute des droits, jamais n'en retire.
     Administrateur si **au moins un** de ces profils est administrateur (il a alors
-    toutes les capacités, y compris celles ajoutées après coup)."""
+    toutes les capacités, y compris celles ajoutées après coup).
+
+    Avec `space_id`, s'y ajoutent les capacités **déclinables par espace** des
+    profils de ses équipes rattachées à cet espace (`space_team_profiles`). Ce
+    terme ne donne jamais une capacité globale : un profil administrateur
+    rattaché vaut toutes les capacités déclinables, sur cet espace seulement."""
+    caps = await _global_capabilities(conn, user)
+    if space_id is not None:
+        caps |= await _space_capabilities(conn, user.id, space_id)
+    return caps
+
+
+async def _global_capabilities(conn: asyncpg.Connection, user: User) -> set[str]:
     rows = await conn.fetch(
         # Profil personnel (ignoré si NULL) + profils des équipes de la personne.
         "SELECT p.is_admin, p.capabilities FROM profiles p WHERE p.id = $1 "
@@ -46,6 +60,45 @@ async def load_capabilities(conn: asyncpg.Connection, user: User) -> set[str]:
     for row in rows:
         caps.update(row["capabilities"] or [])
     return caps
+
+
+def _scoped(rows: list[asyncpg.Record]) -> set[str]:
+    caps: set[str] = set()
+    for row in rows:
+        caps |= set(SPACE_SCOPED) if row["is_admin"] else set(row["capabilities"] or [])
+    return caps & SPACE_SCOPED
+
+
+async def _space_capabilities(
+    conn: asyncpg.Connection, user_id: uuid.UUID, space_id: uuid.UUID
+) -> set[str]:
+    rows = await conn.fetch(
+        "SELECT p.is_admin, p.capabilities FROM space_team_profiles stp "
+        "JOIN user_teams ut ON ut.team_id = stp.team_id "
+        "JOIN profiles p ON p.id = stp.profile_id "
+        "WHERE ut.user_id = $1 AND stp.space_id = $2",
+        user_id,
+        space_id,
+    )
+    return _scoped(rows)
+
+
+async def load_capabilities_by_space(
+    conn: asyncpg.Connection, user_id: uuid.UUID
+) -> dict[uuid.UUID, set[str]]:
+    """Capacités déclinables gagnées par rattachement d'équipe, espace par espace
+    (sans le profil de base)."""
+    rows = await conn.fetch(
+        "SELECT stp.space_id, p.is_admin, p.capabilities FROM space_team_profiles stp "
+        "JOIN user_teams ut ON ut.team_id = stp.team_id "
+        "JOIN profiles p ON p.id = stp.profile_id "
+        "WHERE ut.user_id = $1",
+        user_id,
+    )
+    by_space: dict[uuid.UUID, list[asyncpg.Record]] = {}
+    for row in rows:
+        by_space.setdefault(row["space_id"], []).append(row)
+    return {space: _scoped(space_rows) for space, space_rows in by_space.items()}
 
 
 async def db_list_profiles(conn: asyncpg.Connection) -> list[Profile]:

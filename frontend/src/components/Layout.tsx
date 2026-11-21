@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../apiClient'
+import { api, sessionCapabilities } from '../apiClient'
 import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
 import { useWorkspace } from '../workspace'
@@ -40,7 +40,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const session = useSession()
   const authenticated = session.data?.authenticated ?? false
   const user = session.data?.user
-  const caps = session.data?.capabilities ?? []
+  const caps = sessionCapabilities(session.data)
 
   if (!authenticated || !user) {
     return (

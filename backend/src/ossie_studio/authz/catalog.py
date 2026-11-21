@@ -44,6 +44,23 @@ ALL_CAPABILITIES: frozenset[str] = frozenset(
     cap for domain in CATALOG for cap in domain.capabilities
 )
 
+# Capacités « déclinables par espace » : une équipe rattachée à un espace peut
+# les donner sur cet espace seulement. Ce sont les gestes faits DANS un espace
+# (sa lecture, ses branches, sa publication, ses versions, et le travail qu'il
+# porte : sources, curation, gouvernance). Toutes les autres sont globales :
+# administration (secrets, connexions, OIDC, profils, utilisateurs, parseurs) et
+# création d'un espace, qui ne se fait pas depuis l'intérieur d'un espace.
+# Une capacité ajoutée au catalogue déclare ici sa portée.
+SPACE_SCOPED: frozenset[str] = frozenset(
+    {"spaces:read", "spaces:branch", "spaces:publish", "spaces:version"}
+    | {
+        cap
+        for domain in CATALOG
+        if domain.key in ("sources", "curation", "governance")
+        for cap in domain.capabilities
+    }
+)
+
 
 def is_known_capability(capability: str) -> bool:
     return capability in ALL_CAPABILITIES

@@ -21,6 +21,7 @@ from ossie_studio.api.profiles import router as api_profiles_router
 from ossie_studio.api.secrets import router as api_secrets_router
 from ossie_studio.api.session import router as api_session_router
 from ossie_studio.api.sources import router as api_sources_router
+from ossie_studio.api.space_teams import router as api_space_teams_router
 from ossie_studio.api.spaces import router as api_spaces_router
 from ossie_studio.api.teams import router as api_teams_router
 from ossie_studio.api.users import router as api_users_router
@@ -100,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_profiles_router)
     app.include_router(api_users_router)
     app.include_router(api_teams_router)
+    app.include_router(api_space_teams_router)
     # Flux OIDC : navigations du navigateur (redirections), pas de l'API JSON.
     app.include_router(oidc_login_router)
     return app

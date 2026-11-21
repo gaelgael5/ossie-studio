@@ -220,6 +220,11 @@ export function UsersPage() {
                           ) : (
                             <span className="muted">—</span>
                           )}
+                          {u.space_rights.map((r) => (
+                            <span key={`${r.space_id}-${r.team_name}`} className="muted small">
+                              {t('userSpaceRight', { space: r.space_name, profile: r.profile_name, team: r.team_name })}
+                            </span>
+                          ))}
                           <select
                             className="select"
                             value=""

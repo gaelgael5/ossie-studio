@@ -7,6 +7,8 @@ import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { PageHeader } from '../components/PageHeader'
 import { RailMap } from '../components/RailMap'
+import { useSession } from '../hooks'
+import { SpaceTeamsSection } from './SpaceTeamsSection'
 
 export function SpaceDetailPage() {
   const { t, i18n } = useTranslation()
@@ -19,6 +21,8 @@ export function SpaceDetailPage() {
   const [versionLabel, setVersionLabel] = useState('')
   const [railLimit, setRailLimit] = useState(200)
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
+  const session = useSession()
+  const canManageTeams = (session.data?.capabilities ?? []).includes('profiles:write')
 
   const branches = useQuery({
     queryKey: ['branches', spaceId],
@@ -326,6 +330,8 @@ export function SpaceDetailPage() {
               </div>
             </section>
           ) : null}
+
+          <SpaceTeamsSection spaceId={spaceId} canManage={canManageTeams} />
 
           {railmap.data && railmap.data.lines ? (
             <section className="page-section">

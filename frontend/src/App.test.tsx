@@ -506,7 +506,7 @@ test('utilisateurs : liste, recherche et assignation de profil', async () => {
     '/api/users?q=&profile_id=&team_id=&limit=50&offset=0': {
       body: {
         users: [
-          { id: 'u1', email: 'jose@example.org', display_name: 'José Pérez', is_oidc: true, last_login_at: '2026-01-02T00:00:00Z', profile_id: 'p1', profile_name: 'Lecteur', profile_pinned: false, teams: [{ id: 't1', name: 'equipe-data', origin: 'oidc' }] },
+          { id: 'u1', email: 'jose@example.org', display_name: 'José Pérez', is_oidc: true, last_login_at: '2026-01-02T00:00:00Z', profile_id: 'p1', profile_name: 'Lecteur', profile_pinned: false, teams: [{ id: 't1', name: 'equipe-data', origin: 'oidc' }], space_rights: [{ space_id: 's1', space_name: 'Entrepôt', profile_name: 'Contributeur', team_name: 'equipe-data' }] },
         ],
         total: 1,
       },
@@ -524,6 +524,7 @@ test('utilisateurs : liste, recherche et assignation de profil', async () => {
   renderAt('/users')
   await screen.findByText('Utilisateurs')
   await waitFor(() => expect(screen.getByText(/José Pérez — jose@example.org/)).toBeInTheDocument())
+  expect(screen.getByText('Entrepôt : Contributeur (via equipe-data)')).toBeInTheDocument()
   expect(screen.getByLabelText('Rechercher (nom ou email)')).toBeInTheDocument()
   // La fiche propose d'assigner un profil (select avec le profil Lecteur).
   expect(screen.getAllByRole('option', { name: 'Lecteur' }).length).toBeGreaterThan(0)

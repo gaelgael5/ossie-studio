@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
-from ossie_studio.api.common import SpacesCreate, SpacesRead
+from ossie_studio.api.common import CurrentUser, SpacesCreate, SpacesRead
+from ossie_studio.authz.catalog import SPACE_SCOPED
 from ossie_studio.connections.service import db_get_connection, resolve_connection_token
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import (
@@ -22,6 +23,7 @@ from ossie_studio.deps import (
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import GitSpace
+from ossie_studio.profiles.service import load_capabilities, load_capabilities_by_space
 from ossie_studio.spaces.branch_service import db_get_viewed_branch, db_list_branches
 from ossie_studio.spaces.forms import validate_space
 from ossie_studio.spaces.git_probe import ProbeResult
@@ -94,9 +96,26 @@ async def _run_probe(
 
 
 @router.get("")
-async def list_spaces(conn: ConnDep, _: SpacesRead) -> dict[str, object]:
+async def list_spaces(conn: ConnDep, user: CurrentUser) -> dict[str, object]:
+    # `spaces:read` du profil de base → tous les espaces ; sinon, seulement ceux
+    # où une équipe de la personne est rattachée avec ce droit (droits par espace).
     spaces = await db_list_spaces(conn)
+    if "spaces:read" not in await load_capabilities(conn, user):
+        by_space = await load_capabilities_by_space(conn, user.id)
+        spaces = [s for s in spaces if "spaces:read" in by_space.get(s.id, set())]
     return {"spaces": [_payload(s) for s in spaces]}
+
+
+@router.get("/{space_id}/me")
+async def my_space_capabilities(
+    conn: ConnDep, user: CurrentUser, space_id: uuid.UUID
+) -> dict[str, object]:
+    """Capacités de la personne sur cet espace (profil de base + équipes
+    rattachées) : l'écran de l'espace s'en sert pour montrer ses gestes."""
+    if await db_get_space(conn, space_id) is None:
+        raise ApiError("space_not_found", status_code=404)
+    caps = await load_capabilities(conn, user, space_id)
+    return {"capabilities": sorted(caps & SPACE_SCOPED)}
 
 
 @router.post("", status_code=201)

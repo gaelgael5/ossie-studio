@@ -15,7 +15,7 @@ from ossie_studio.auth.service import (
 from ossie_studio.deps import ConnDep, bootstrap_is_done, get_current_user
 from ossie_studio.errors import ApiError
 from ossie_studio.oidc.service import db_list_connectors
-from ossie_studio.profiles.service import load_capabilities
+from ossie_studio.profiles.service import load_capabilities, load_capabilities_by_space
 from ossie_studio.users.service import SUPPORTED_LANGUAGES, db_set_language
 
 log = structlog.get_logger(__name__)
@@ -40,6 +40,12 @@ async def session_state(request: Request, conn: ConnDep) -> dict[str, object]:
     user = await get_current_user(request, conn)
     bootstrap_done = await bootstrap_is_done(request.app)
     capabilities = sorted(await load_capabilities(conn, user)) if user is not None else []
+    # Capacités gagnées sur au moins un espace par rattachement d'équipe : le menu
+    # montre « Espaces » à qui n'a ce droit que par une équipe.
+    space_capabilities: set[str] = set()
+    if user is not None:
+        for caps in (await load_capabilities_by_space(conn, user.id)).values():
+            space_capabilities |= caps
     # Langue enregistrée sur le compte ; une valeur inconnue → "" (l'interface
     # retombe alors sur le socle i18n, c.-à-d. l'anglais à défaut).
     language = ""
@@ -50,6 +56,7 @@ async def session_state(request: Request, conn: ConnDep) -> dict[str, object]:
         "authenticated": user is not None,
         "user": user_payload(user) if user is not None else None,
         "capabilities": capabilities,
+        "space_capabilities": sorted(space_capabilities),
         "language": language,
     }
 
