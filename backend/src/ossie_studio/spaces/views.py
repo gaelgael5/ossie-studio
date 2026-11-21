@@ -109,7 +109,14 @@ class DraftViewManager:
                     await self._reset_to(view, head, env)
                     _apply(view, state.objects)
                     stamp.write_text(state.stamp(head), encoding="utf-8")
-            result, new_state = await fn(ViewContext(path=view, env=env, head=head))
+            try:
+                result, new_state = await fn(ViewContext(path=view, env=env, head=head))
+            except BaseException:
+                # Une écriture a pu laisser des fichiers dans la vue avant d'échouer :
+                # sans témoin, la vue sera reconstruite depuis la base au prochain usage
+                # (rien de non enregistré ne doit être vu ni capté plus tard).
+                stamp.unlink(missing_ok=True)
+                raise
             if new_state is not None:
                 stamp.write_text(new_state.stamp(head), encoding="utf-8")
             else:
@@ -136,6 +143,12 @@ class DraftViewManager:
         if code != 0:
             raise WorkdirError("git_failed")
         await run_git(["clean", "-q", "-fdx"], view, env)
+
+    def lock_for(self, space_id: uuid.UUID, slug: str, user_id: uuid.UUID) -> asyncio.Lock:
+        """Verrou de la vue d'un utilisateur : toute modification de son brouillon
+        (écriture, fusion, retrait après publication) le prend, pour qu'aucune ne
+        s'intercale entre la lecture d'un état et son enregistrement."""
+        return self._lock(str(self._view_dir(space_id, slug, user_id)))
 
     async def discard(self, space_id: uuid.UUID, slug: str, user_id: uuid.UUID) -> None:
         """Supprime la vue (publication, abandon du brouillon)."""

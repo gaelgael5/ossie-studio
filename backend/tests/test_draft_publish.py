@@ -3,6 +3,7 @@ jeton, sous verrou ; refus nommés ; reprise sûre."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 from pathlib import Path
@@ -300,3 +301,32 @@ async def test_sans_droit_de_publier_refuse(app: FastAPI, sp: ApiSpace) -> None:
         refused = await other.post(f"{sp.base}/draft/publish", json={"comment": "x"})
         assert refused.status_code == 409
         assert "no_publish_right" in refused.json()["error_args"]["reasons"]
+
+
+async def test_ecriture_pendant_le_push_reste_au_brouillon(
+    app: FastAPI, sp: ApiSpace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await draft_write(app, sp, OBJ, {"a": 1})
+    await set_credential(app, sp)
+    manager: WorkdirManager = app.state.workdir_manager
+    original = manager._commit_and_push
+
+    pending: list[asyncio.Task[None]] = []
+
+    async def push_with_concurrent_write(*args, **kwargs):  # type: ignore[no-untyped-def]
+        # Une autre requête écrit pendant le push : elle prend le verrou de son
+        # brouillon tout de suite et attend la copie de lecture tenue par le push.
+        pending.append(
+            asyncio.create_task(
+                draft_write(app, sp, "sources/s/raw/Pendant.json", {"pendant": True})
+            )
+        )
+        await asyncio.sleep(0.2)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "_commit_and_push", push_with_concurrent_write)
+    assert (await _publish(sp)).status_code == 200
+    await asyncio.gather(*pending)
+    draft = (await sp.client.get(f"{sp.base}/draft")).json()
+    assert [o["path"] for o in draft["objects"]] == ["sources/s/raw/Pendant.json"]
+    assert json.loads(forge_read(sp, OBJ) or "{}") == {"a": 1}

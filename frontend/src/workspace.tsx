@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type GitSpace } from './apiClient'
+import { api, setCurrentWorkspace, type GitSpace } from './apiClient'
 import { useSession } from './hooks'
 
 export interface WorkspaceBranch {
@@ -92,11 +92,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   useEffect(() => writeStored('ossie.space', spaceId), [spaceId])
   useEffect(() => {
     writeStored('ossie.branch', branchId)
+    setCurrentWorkspace(spaceId, branchId)
     // La gouvernance suit la branche choisie : ses écrans se relisent.
     void queryClient.invalidateQueries({
       predicate: (q) => ['governed-tags', 'certifications', 'schemes'].includes(String(q.queryKey[0])),
     })
-  }, [branchId, queryClient])
+  }, [spaceId, branchId, queryClient])
 
   const persistViewed = useMutation({
     mutationFn: ({ s, b }: { s: string; b: string }) => api.setViewedBranch(s, b),

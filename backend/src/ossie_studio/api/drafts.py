@@ -133,6 +133,13 @@ async def _merge_context(
     return draft, objects, versions
 
 
+async def _branch_slug(conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID) -> str:
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    return branch.slug
+
+
 def _json(value: Any) -> Any:
     return None if value is MISSING else value
 
@@ -274,13 +281,15 @@ async def post_merge(
     body: MergeBody,
 ) -> dict[str, object]:
     """Enregistre la version réconciliée dans le brouillon ; sa base devient la
-    version publiée actuelle (l'objet n'est plus en conflit)."""
-    draft, objects, versions = await _merge_context(conn, crypto, workdir, space_id, branch_id)
-    obj = _object(objects, body.path)
-    v = versions[body.path]
-    merged = merge_object(body.path, v.base, v.theirs, obj.content)
-    content = _resolved_content(body.path, merged, body, v.theirs)
-    await _rebase(conn, draft, body.path, v.current_blob, v.theirs, content)
+    version publiée actuelle (l'objet n'est plus en conflit). Sous le verrou du
+    brouillon : une écriture concurrente ne peut pas écraser la fusion."""
+    async with workdir.draft_lock(space_id, await _branch_slug(conn, space_id, branch_id)):
+        draft, objects, versions = await _merge_context(conn, crypto, workdir, space_id, branch_id)
+        obj = _object(objects, body.path)
+        v = versions[body.path]
+        merged = merge_object(body.path, v.base, v.theirs, obj.content)
+        content = _resolved_content(body.path, merged, body, v.theirs)
+        await _rebase(conn, draft, body.path, v.current_blob, v.theirs, content)
     log.info("draft_object_merged", draft_id=str(draft.id), kind=merged.kind)
     return {"path": body.path, "merged": True}
 
@@ -296,6 +305,18 @@ async def post_automerge(
 ) -> dict[str, object]:
     """Fusionne d'office tout objet changé côté publié sans conflit ; rend les
     chemins fusionnés et ceux qui demandent l'utilisateur."""
+    async with workdir.draft_lock(space_id, await _branch_slug(conn, space_id, branch_id)):
+        return await auto_merge(conn, crypto, workdir, space_id, branch_id)
+
+
+async def auto_merge(
+    conn: ConnDep,
+    crypto: CryptoService,
+    workdir: DraftWorkdir,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    """Fusion automatique (à appeler sous le verrou du brouillon)."""
     draft, objects, versions = await _merge_context(conn, crypto, workdir, space_id, branch_id)
     merged_paths: list[str] = []
     conflicts: list[str] = []

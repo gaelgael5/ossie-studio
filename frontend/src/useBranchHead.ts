@@ -11,7 +11,8 @@ export const HEAD_REFRESH_MS = 30_000
 // relecture des données ne les efface pas. Pas de temps réel (décision).
 export function useBranchHead(spaceId: string | null, branchId: string | null): void {
   const queryClient = useQueryClient()
-  const previous = useRef<string | null>(null)
+  // Tête vue pour CETTE branche : changer de branche n'est pas « la tête a bougé ».
+  const previous = useRef<{ branch: string | null; sha: string } | null>(null)
   const head = useQuery({
     queryKey: ['branch-head', spaceId, branchId],
     queryFn: () => api.branchHead(spaceId as string, branchId as string),
@@ -22,9 +23,10 @@ export function useBranchHead(spaceId: string | null, branchId: string | null): 
   const sha = head.data?.sha ?? null
   useEffect(() => {
     if (sha === null) return
-    if (previous.current !== null && previous.current !== sha) {
+    const last = previous.current
+    if (last !== null && last.branch === branchId && last.sha !== sha) {
       void queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'branch-head' })
     }
-    previous.current = sha
-  }, [sha, queryClient])
+    previous.current = { branch: branchId, sha }
+  }, [sha, branchId, queryClient])
 }

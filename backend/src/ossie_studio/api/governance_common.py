@@ -16,6 +16,7 @@ from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
+from ossie_studio.governance.repo import InvalidGovernanceId
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
 
@@ -43,6 +44,12 @@ class GovCtx:
             raise ApiError(exc.code, status_code=502) from None
 
     async def write(self, author: str, message: str, fn: Callable[[Path], None]) -> None:
+        def guarded(root: Path) -> None:
+            try:
+                fn(root)
+            except InvalidGovernanceId:
+                raise ApiError("not_found", status_code=404) from None
+
         try:
             await self.workdir.commit_to_branch(
                 self.space_id,
@@ -53,7 +60,7 @@ class GovCtx:
                 author,
                 author,
                 message,
-                fn,
+                guarded,
             )
         except WorkdirError as exc:
             raise ApiError(exc.code, status_code=502) from None

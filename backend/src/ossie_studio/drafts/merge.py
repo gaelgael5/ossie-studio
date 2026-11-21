@@ -185,9 +185,18 @@ def set_pointer(document: Any, pointer: str, value: Any) -> Any:
     parts = [p.replace("~1", "/").replace("~0", "~") for p in pointer.lstrip("/").split("/")]
     node = document
     for part in parts[:-1]:
-        node = node.setdefault(part, {})
+        node = node.setdefault(_key(node, part), {})
     if value is MISSING:
-        node.pop(parts[-1], None)
+        node.pop(_key(node, parts[-1]), None)
     else:
-        node[parts[-1]] = value
+        node[_key(node, parts[-1])] = value
     return document
+
+
+def _key(node: dict[Any, Any], part: str) -> Any:
+    """La clé existante dont la forme texte est `part` (une clé YAML peut être un
+    entier : `responses: {200: …}`), sinon `part` tel quel."""
+    for key in node:
+        if str(key) == part:
+            return key
+    return part

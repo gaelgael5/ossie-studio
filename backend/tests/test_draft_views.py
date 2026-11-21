@@ -287,3 +287,24 @@ async def test_ecriture_api_sans_capacite_403_avec_rattachement_201(
         created = await client.post(url, json=body)
     assert created.status_code == 201, created.text
     assert uuid.UUID(str(user_id))
+
+
+async def test_ecriture_ratee_ne_laisse_rien_dans_la_vue(app: FastAPI, tmp_path: Path) -> None:
+    workdir, space, _url = await _setup(app, tmp_path)
+    await _commit(workdir, space, _write("sources/a.yaml", "A"))
+
+    def half_then_fail(root: Path) -> None:
+        (root / "sources" / "fantome.yaml").write_text("à moitié")
+        raise RuntimeError("échec en cours d'écriture")
+
+    try:
+        await _commit(workdir, space, half_then_fail)
+    except RuntimeError:
+        pass
+    assert await _read_as(workdir, space, "sources/fantome.yaml") is None
+    await _commit(workdir, space, _write("sources/b.yaml", "B"))
+    async with app.state.pool.acquire() as conn:
+        draft = await db_get_draft(conn, workdir.user_id, workdir.branch_id)
+        assert draft is not None
+        paths = {o.path for o in await db_list_objects(conn, draft.id)}
+    assert paths == {"sources/a.yaml", "sources/b.yaml"}

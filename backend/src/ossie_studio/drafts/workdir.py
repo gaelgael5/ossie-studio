@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
@@ -83,6 +84,7 @@ class DraftWorkdir:
         branch_id: uuid.UUID,
         *,
         published_only: bool = False,
+        conn: asyncpg.Connection | None = None,
     ) -> None:
         self._manager = manager
         self._views = views
@@ -92,9 +94,21 @@ class DraftWorkdir:
         # Vue « publiée » demandée par l'écran (?view=published) : les lectures
         # ignorent le brouillon. Les écritures, elles, vont toujours au brouillon.
         self.published_only = published_only
+        # Connexion de la requête, réutilisée : en prendre une seconde au pool
+        # pendant que la requête tient déjà la sienne épuiserait le pool sous
+        # charge (interblocage). Hors requête (tests, outils), le pool sert.
+        self._conn = conn
+
+    @asynccontextmanager
+    async def _db(self) -> AsyncIterator[asyncpg.Connection]:
+        if self._conn is not None:
+            yield self._conn
+        else:
+            async with self._pool.acquire() as conn:
+                yield conn
 
     async def _state(self) -> DraftState:
-        async with self._pool.acquire() as conn:
+        async with self._db() as conn:
             draft = await db_get_draft(conn, self.user_id, self.branch_id)
             if draft is None:
                 return DraftState(draft_id=None, revision=0, objects=[])
@@ -108,11 +122,14 @@ class DraftWorkdir:
     def manager(self) -> WorkdirManager:
         return self._manager
 
+    def draft_lock(self, space_id: uuid.UUID, slug: str) -> asyncio.Lock:
+        return self._views.lock_for(space_id, slug, self.user_id)
+
     async def discard_view(self, space_id: uuid.UUID, slug: str) -> None:
         await self._views.discard(space_id, slug, self.user_id)
 
     async def has_draft(self) -> bool:
-        async with self._pool.acquire() as conn:
+        async with self._db() as conn:
             return await db_get_draft(conn, self.user_id, self.branch_id) is not None
 
     async def _store(
@@ -125,7 +142,7 @@ class DraftWorkdir:
         if previous == current:
             return False, before
         try:
-            async with self._pool.acquire() as conn:
+            async with self._db() as conn:
                 draft = await db_replace_draft(
                     conn,
                     user_id=self.user_id,

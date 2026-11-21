@@ -248,3 +248,45 @@ async def db_set_decision(
         key,
         fingerprint,
     )
+
+
+async def db_remove_published(
+    conn: asyncpg.Connection,
+    draft_id: uuid.UUID,
+    published: list[tuple[str, bytes | None, str | None]],
+) -> bool:
+    """Après publication, retire du brouillon les objets publiés **tels quels** ;
+    un objet modifié entre-temps reste, avec pour base la version qui vient
+    d'être publiée. `published` : (chemin, contenu publié, blob publié ou None
+    si supprimé). Rend True si le brouillon est désormais vide (et supprimé)."""
+    async with conn.transaction():
+        for path, content, blob in published:
+            removed = await conn.execute(
+                "DELETE FROM draft_objects WHERE draft_id = $1 AND path = $2 "
+                "AND content IS NOT DISTINCT FROM $3",
+                draft_id,
+                path,
+                content,
+            )
+            if removed == "DELETE 0":
+                await conn.execute(
+                    "UPDATE draft_objects SET base_blob = $3 WHERE draft_id = $1 AND path = $2",
+                    draft_id,
+                    path,
+                    blob,
+                )
+        if await conn.fetchval("SELECT 1 FROM draft_objects WHERE draft_id = $1", draft_id):
+            await conn.execute(
+                "UPDATE drafts SET revision = revision + 1, updated_at = now() WHERE id = $1",
+                draft_id,
+            )
+            return False
+        await conn.execute("DELETE FROM drafts WHERE id = $1", draft_id)
+        return True
+
+
+def git_blob_sha(content: bytes) -> str:
+    """Empreinte Git d'un contenu (blob), sans passer par git."""
+    import hashlib
+
+    return hashlib.sha1(b"blob %d\0" % len(content) + content, usedforsecurity=False).hexdigest()

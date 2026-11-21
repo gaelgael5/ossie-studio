@@ -23,6 +23,8 @@ from typing import Any
 
 import yaml
 
+from ossie_studio.governance.tags import is_valid_tag_id
+
 GOVERNANCE_DIR = "governance"
 TAGS_DIR = f"{GOVERNANCE_DIR}/tags"
 CERTIFICATIONS_DIR = f"{GOVERNANCE_DIR}/certifications"
@@ -112,7 +114,15 @@ def _remove(root: Path, rel: str) -> bool:
 # --- Tags ----------------------------------------------------------------------
 
 
+class InvalidGovernanceId(ValueError):
+    """Identifiant qui ne peut pas devenir un nom de fichier sûr."""
+
+
 def tag_path(tag_id: str) -> str:
+    # Garde de sécurité : l'id porte la hiérarchie par « / » ; seul un id valide
+    # (segments [a-z0-9_-], jamais « .. ») devient un chemin sous governance/tags.
+    if not is_valid_tag_id(tag_id):
+        raise InvalidGovernanceId(tag_id)
     return f"{TAGS_DIR}/{tag_id}.yaml"
 
 
@@ -156,8 +166,14 @@ def delete_tag(root: Path, tag_id: str) -> bool:
 # --- Certifications --------------------------------------------------------------
 
 
+def _safe_name(value: str) -> str:
+    if not value or "/" in value or "\\" in value or value.startswith("."):
+        raise InvalidGovernanceId(value)
+    return value
+
+
 def cert_path(cert_id: str) -> str:
-    return f"{CERTIFICATIONS_DIR}/{cert_id}.yaml"
+    return f"{CERTIFICATIONS_DIR}/{_safe_name(cert_id)}.yaml"
 
 
 def read_certs(root: Path) -> list[Cert]:
@@ -195,7 +211,7 @@ def delete_cert(root: Path, cert_id: str) -> bool:
 
 
 def scheme_path(scheme_id: str) -> str:
-    return f"{CLASSIFICATIONS_DIR}/{scheme_id}.yaml"
+    return f"{CLASSIFICATIONS_DIR}/{_safe_name(scheme_id)}.yaml"
 
 
 def _level(scheme_id: str, item: dict[str, Any], position: int) -> Level:

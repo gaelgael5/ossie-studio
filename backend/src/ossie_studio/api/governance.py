@@ -188,6 +188,8 @@ async def remove_tag(
     tag_id: str,
 ) -> None:
     normalized = normalize_tag_id(tag_id)
+    if validate_tag_fields(normalized, {}, {}):
+        raise ApiError("tag_not_found", status_code=404, tag_id=normalized)
 
     def write(root: Path) -> None:
         if not delete_tag(root, normalized):

@@ -22,7 +22,7 @@ from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import CurrentUser, SpacesRead
 from ossie_studio.api.drafts import (
     _merge_context,
-    _rebase,
+    auto_merge,
     changed_upstream,
     draft_impacts,
     draft_validation,
@@ -32,7 +32,12 @@ from ossie_studio.credentials.service import STATUS_VALID, resolve_personal_toke
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.merge import merge_object
-from ossie_studio.drafts.store import db_delete_draft, db_get_draft, db_list_objects
+from ossie_studio.drafts.store import (
+    db_get_draft,
+    db_list_objects,
+    db_remove_published,
+    git_blob_sha,
+)
 from ossie_studio.drafts.validation import blocking
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
@@ -70,15 +75,19 @@ def _lock_key(branch_id: uuid.UUID) -> str:
 
 
 async def _publish_in_progress(pool: asyncpg.Pool, branch_id: uuid.UUID) -> bool:
+    """Une publication tient-elle le verrou de la branche ? Lecture de pg_locks,
+    sans jamais prendre le verrou : une simple vérification ne doit pas faire
+    échouer une vraie publication (clé bigint = classid haut, objid bas)."""
     async with pool.acquire() as conn:
-        got = await conn.fetchval(
-            "SELECT pg_try_advisory_lock(hashtextextended($1, 0))", _lock_key(branch_id)
-        )
-        if got:
-            await conn.execute(
-                "SELECT pg_advisory_unlock(hashtextextended($1, 0))", _lock_key(branch_id)
+        return bool(
+            await conn.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_locks WHERE locktype = 'advisory' "
+                "AND granted AND objsubid = 1 "
+                "AND classid::bigint = ((hashtextextended($1, 0) >> 32) & 4294967295) "
+                "AND objid::bigint = (hashtextextended($1, 0) & 4294967295))",
+                _lock_key(branch_id),
             )
-        return not got
+        )
 
 
 async def _credential_reason(
@@ -157,18 +166,13 @@ async def _automerge(
     workdir: DraftWorkdir,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
+    slug: str,
 ) -> None:
     current = await db_get_draft(conn, workdir.user_id, branch_id)
     if current is None or current.space_id != space_id:
         return  # rien à fusionner : la vérification dira « brouillon vide »
-    draft, objects, versions = await _merge_context(conn, crypto, workdir, space_id, branch_id)
-    for obj in objects:
-        v = versions[obj.path]
-        if not changed_upstream(obj, v.current_blob):
-            continue
-        merged = merge_object(obj.path, v.base, v.theirs, obj.content)
-        if merged.kind in ("auto", "text"):
-            await _rebase(conn, draft, obj.path, v.current_blob, v.theirs, merged.result)
+    async with workdir.draft_lock(space_id, slug):
+        await auto_merge(conn, crypto, workdir, space_id, branch_id)
 
 
 def _message(comment: str, verified: list[str], accepted: list[str]) -> str:
@@ -231,15 +235,17 @@ async def _publish_locked(
     branch_id: uuid.UUID,
     comment: str,
 ) -> dict[str, object]:
-    await _automerge(conn, crypto, workdir, space_id, branch_id)
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    await _automerge(conn, crypto, workdir, space_id, branch_id, branch.slug)
     ready = await publish_readiness(request, conn, crypto, workdir, user, space_id, branch_id)
     # Le verrou est le nôtre : « publication en cours » ne bloque pas ici.
     reasons = [r for r in ready.reasons if r != "publish_in_progress"]
     if reasons:
         raise ApiError("publish_not_ready", status_code=409, reasons=reasons)
     draft = await db_get_draft(conn, user.id, branch_id)
-    branch = await db_get_branch(conn, branch_id)
-    assert draft is not None and branch is not None
+    assert draft is not None
     objects = await db_list_objects(conn, draft.id)
     _d, _o, impacts = await draft_impacts(conn, crypto, workdir, space_id, branch_id)
     _d2, log_entries = await draft_validation(conn, crypto, workdir, space_id, branch_id)
@@ -269,7 +275,18 @@ async def _publish_locked(
         )
     except WorkdirError as exc:
         raise _publish_error(exc) from None
-    await db_delete_draft(conn, draft.id)
-    await workdir.discard_view(space_id, branch.slug)
+    # Ne retirer du brouillon que ce qui vient d'être publié tel quel : une
+    # écriture faite pendant le push (collecte, autre onglet) reste au brouillon.
+    async with workdir.draft_lock(space_id, branch.slug):
+        emptied = await db_remove_published(
+            conn,
+            draft.id,
+            [
+                (o.path, o.content, git_blob_sha(o.content) if o.content is not None else None)
+                for o in objects
+            ],
+        )
+    if emptied:
+        await workdir.discard_view(space_id, branch.slug)
     log.info("draft_publication_done", space_id=str(space_id), objects=len(objects))
     return {"commit": sha, "published": len(objects)}

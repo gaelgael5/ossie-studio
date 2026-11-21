@@ -6,7 +6,17 @@ import { withDraftView } from './draftView'
 // (mémorisés par le contexte d'espace de travail).
 const GOVERNANCE = '/api/governance/'
 
+// Espace et branche de CET onglet, posés par le contexte d'espace de travail.
+// Pas le stockage local (partagé entre onglets) : un autre onglet qui change de
+// branche ne doit pas faire écrire celui-ci dans la mauvaise branche.
+let currentWorkspace: { space: string | null; branch: string | null } | null = null
+
+export function setCurrentWorkspace(space: string | null, branch: string | null): void {
+  currentWorkspace = { space, branch }
+}
+
 function storedWorkspace(): { space: string | null; branch: string | null } {
+  if (currentWorkspace) return currentWorkspace
   try {
     return { space: localStorage.getItem('ossie.space'), branch: localStorage.getItem('ossie.branch') }
   } catch {

@@ -93,13 +93,12 @@ def get_source_collector(request: Request) -> SourceCollector:
     return collector
 
 
-async def get_draft_workdir(request: Request) -> DraftWorkdir:
+async def get_draft_workdir(request: Request, conn: ConnDep) -> DraftWorkdir:
     """Copie de travail de la personne connectée sur la branche de la route
     (`branch_id`) : lectures avec son brouillon, écritures dans son brouillon."""
     from ossie_studio.errors import ApiError
 
-    async with request.app.state.pool.acquire() as conn:
-        user = await get_current_user(request, conn)
+    user = await get_current_user(request, conn)
     if user is None:
         raise ApiError("unauthenticated", status_code=401)
     try:
@@ -113,4 +112,5 @@ async def get_draft_workdir(request: Request) -> DraftWorkdir:
         user.id,
         branch_id,
         published_only=request.query_params.get("view") == "published",
+        conn=conn,
     )

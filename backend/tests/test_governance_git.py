@@ -142,3 +142,16 @@ async def test_espace_sans_gouvernance_pages_vides(gov: Rebased) -> None:
         assert response.status_code == 200
         assert next(iter(response.json().values())) == []
     assert uuid.UUID(gov.space.space_id)
+
+
+@pytest.mark.parametrize(
+    "evil", ["..%2F..%2Fsources%2Fs%2Fmanifest", "..%2F..%2F..%2Fx", "a/../../b"]
+)
+async def test_suppression_de_tag_hors_dossier_refusee(gov: Rebased, evil: str) -> None:
+    forge_edit(
+        gov.space, {"governance/tags/ok.yaml": "id: ok\n", "sources/s/manifest.yaml": "garde\n"}
+    )
+    response = await gov.client.delete(f"{gov.space.base}/governance/tags/{evil}")
+    assert response.status_code == 404
+    draft = (await gov.client.get(f"{gov.space.base}/draft")).json()
+    assert draft["count"] == 0  # rien n'a été supprimé, nulle part

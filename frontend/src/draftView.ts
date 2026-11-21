@@ -31,7 +31,8 @@ export function writeDraftView(branchId: string, mode: DraftViewMode): void {
 export function withDraftView(path: string, method: string | undefined): string {
   if ((method ?? 'GET') !== 'GET') return path
   const match = BRANCH_PATH.exec(path)
-  if (!match || path.includes('/draft')) return path
+  // Les routes du brouillon lui-même (…/branches/<id>/draft…) restent telles quelles.
+  if (!match || /\/branches\/[^/?]+\/draft(?:[/?]|$)/.test(path)) return path
   if (readDraftView(match[1] ?? null) !== 'published') return path
   return `${path}${path.includes('?') ? '&' : '?'}view=published`
 }

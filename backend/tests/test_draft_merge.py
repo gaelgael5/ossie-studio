@@ -93,3 +93,9 @@ def test_set_pointer() -> None:
         "properties": {"x": {"type": "integer"}}
     }
     assert set_pointer(doc, "/properties/x", MISSING) == {"properties": {}}
+
+
+def test_set_pointer_garde_le_type_des_cles_yaml() -> None:
+    doc = {"responses": {200: {"description": "ok"}}}
+    set_pointer(doc, "/responses/200/description", "OK")
+    assert doc == {"responses": {200: {"description": "OK"}}}
