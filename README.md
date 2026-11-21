@@ -15,6 +15,9 @@ Le backlog du projet vit dans docflow, workspace `ossie-studio`.
 - **Frontend** : React + Vite, TypeScript strict, TanStack Query, i18n
   (fr/en), Vitest, sous `frontend/`. Identité visuelle et règles d'écriture
   d'une page : [docs/identite-visuelle.md](docs/identite-visuelle.md).
+- **Données** : le travail vit dans le Git de l'espace, la base ne garde que
+  l'identité, les droits, la configuration et ce qui se recalcule :
+  [docs/regle-git-source-de-verite.md](docs/regle-git-source-de-verite.md).
 - **Livraison** : `docker compose` (PostgreSQL, backend, frontend) et
   `dev-deploy.sh` idempotent.
 
