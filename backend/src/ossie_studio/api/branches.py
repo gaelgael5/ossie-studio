@@ -316,3 +316,22 @@ async def restore_version(
         "already_current": result.already_current,
         "created": result.created,
     }
+
+
+@router.get("/{branch_id}/head")
+async def branch_head(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: SpacesRead,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, str]:
+    """Tête publiée de la branche (route légère, interrogée par les écrans)."""
+    branch = await _branch_in_space(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        sha = await workdir.published_head(space_id, branch.slug, space.repo_url, username, token)
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    return {"sha": sha}

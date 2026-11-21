@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -119,9 +120,15 @@ class WorkdirManager:
     le volume de travail, réalignées sur la tête distante à chaque geste, avec
     un verrou par répertoire pour que deux gestes ne se piétinent pas."""
 
+    # Délai minimal entre deux fetchs d'une même copie pour la vérification de
+    # tête des écrans : dix écrans ouverts ne fetchent pas dix fois la forge.
+    HEAD_FETCH_MIN_SECONDS = 10.0
+
     def __init__(self, root: Path) -> None:
         root.mkdir(parents=True, exist_ok=True)
         self._root = root
+        self._head_cache: dict[str, tuple[float, str]] = {}
+        self._clock: Callable[[], float] = time.monotonic
         self._askpass = write_askpass(root)
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -249,6 +256,21 @@ class WorkdirManager:
             await self._checkout_branch(workdir, ref, env)
             head = await self._sha(workdir, "HEAD", env) or ""
             yield workdir, env, head
+
+    async def published_head(
+        self, space_id: uuid.UUID, slug: str, repo_url: str, username: str, token: str | None
+    ) -> str:
+        """Sha de la tête publiée, pour que les écrans se rafraîchissent quand elle
+        bouge. Au plus un fetch toutes les HEAD_FETCH_MIN_SECONDS par copie ;
+        entre deux, la valeur en cache."""
+        key = str(self._dir(space_id, slug))
+        cached = self._head_cache.get(key)
+        now = self._clock()
+        if cached is not None and now - cached[0] < self.HEAD_FETCH_MIN_SECONDS:
+            return cached[1]
+        async with self.read_copy(space_id, slug, repo_url, username, token) as (_c, _e, head):
+            self._head_cache[key] = (now, head)
+            return head
 
     @property
     def root(self) -> Path:

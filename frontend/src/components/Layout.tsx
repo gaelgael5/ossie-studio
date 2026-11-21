@@ -7,6 +7,7 @@ import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
 import { useWorkspace } from '../workspace'
 import { DraftBar } from './DraftBar'
+import { useBranchHead } from '../useBranchHead'
 import { Brand } from './Brand'
 
 /** Un item du menu principal. `to` absent = module pas encore construit. */
@@ -70,6 +71,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
 function BranchDraftBar() {
   const ws = useWorkspace()
+  useBranchHead(ws.spaceId, ws.branchId)
   if (!ws.spaceId || !ws.branchId) return null
   return <DraftBar spaceId={ws.spaceId} branchId={ws.branchId} />
 }

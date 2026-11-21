@@ -899,6 +899,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ comment }),
     }),
+  branchHead: (spaceId: string, branchId: string) =>
+    apiFetch<{ sha: string }>(`/api/spaces/${spaceId}/branches/${branchId}/head`),
   myDraft: (spaceId: string, branchId: string) =>
     apiFetch<DraftSummary>(`/api/spaces/${spaceId}/branches/${branchId}/draft`),
   listVersions: (spaceId: string, branchId: string) =>
