@@ -190,3 +190,26 @@ async def test_azure_droit_non_verifiable() -> None:
             client, "https://dev.azure.com/o", "p/r", "t"
         )
     assert (check.login, check.can_write) == ("Alice Azure", None)
+
+
+async def test_azure_connection_data_en_preversion() -> None:
+    # Azure refuse connectionData en version non « preview » (400) : la
+    # vérification du jeton doit demander une préversion.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if not request.url.params.get("api-version", "").endswith("-preview.1"):
+            return httpx.Response(400, json={"message": "version under preview"})
+        return httpx.Response(200, json={"authenticatedUser": {"providerDisplayName": "Gaël"}})
+
+    async with _client(handler) as client:
+        identity = await AzureDevOpsStrategy().verify(client, "https://dev.azure.com/o", "t")
+    assert identity.username == "Gaël"
+
+
+async def test_azure_redirection_vers_la_connexion_jeton_refuse() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "https://login"}, text="<html>moved</html>")
+
+    async with _client(handler) as client:
+        with pytest.raises(ForgeError) as exc:
+            await AzureDevOpsStrategy().verify(client, "https://dev.azure.com/o", "mauvais")
+    assert exc.value.code == "connection_token_invalid"

@@ -7,6 +7,9 @@ import httpx
 from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo, WriteCheck
 
 _API_VERSION = "7.0"
+# connectionData (identité du jeton) n'existe qu'en préversion : sans le
+# suffixe « -preview », Azure répond 400 (« version under preview »).
+_CONNECTION_DATA_VERSION = "7.1-preview.1"
 _TOP = 100
 _CONTINUATION_HEADER = "x-ms-continuationtoken"
 
@@ -18,7 +21,9 @@ def _headers(token: str) -> dict[str, str]:
 
 
 def _classify(status: int) -> None:
-    if status in (401, 403, 203):
+    # 203 et 3xx : Azure renvoie vers sa page de connexion quand le jeton est
+    # refusé (ou absent) plutôt qu'un 401.
+    if status in (401, 403, 203) or 300 <= status < 400:
         raise ForgeError("connection_token_invalid")
     if status == 404:
         raise ForgeError("connection_azure_org_not_found")
@@ -33,12 +38,15 @@ class AzureDevOpsStrategy:
             response = await client.get(
                 f"{org}/_apis/connectionData",
                 headers=_headers(token),
-                params={"api-version": _API_VERSION},
+                params={"api-version": _CONNECTION_DATA_VERSION},
             )
         except httpx.HTTPError as exc:
             raise ForgeError("connection_url_unreachable") from exc
         _classify(response.status_code)
-        user = response.json().get("authenticatedUser", {})
+        try:
+            user = response.json().get("authenticatedUser", {})
+        except ValueError:
+            raise ForgeError("connection_token_invalid") from None
         name = user.get("providerDisplayName") or user.get("customDisplayName")
         if not name:
             raise ForgeError("connection_token_invalid")
