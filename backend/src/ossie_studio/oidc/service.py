@@ -17,6 +17,10 @@ class IssuerAlreadyDeclaredError(Exception):
     """Un connecteur existe déjà sur cet issuer."""
 
 
+class ConnectorSlugTakenError(Exception):
+    """Le slug désigne déjà un autre connecteur."""
+
+
 async def db_list_connectors(conn: asyncpg.Connection) -> list[OidcConnector]:
     rows = await conn.fetch("SELECT * FROM oidc_connectors ORDER BY label")
     return [OidcConnector.from_row(row) for row in rows]
@@ -36,18 +40,23 @@ async def db_create_connector(
     client_id: str,
     client_secret_slug: str,
     scopes: str,
+    slug: str | None = None,
 ) -> OidcConnector:
     try:
         row = await conn.fetchrow(
             "INSERT INTO oidc_connectors (label, issuer, client_id, client_secret_slug, "
-            "scopes) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            "scopes, slug) VALUES ($1, $2, $3, $4, $5, coalesce($6, gen_random_uuid()::text)) "
+            "RETURNING *",
             label,
             issuer,
             client_id,
             client_secret_slug,
             scopes,
+            slug,
         )
     except asyncpg.UniqueViolationError as exc:
+        if exc.constraint_name == "uq_oidc_connector_slug":
+            raise ConnectorSlugTakenError from exc
         raise IssuerAlreadyDeclaredError from exc
     return OidcConnector.from_row(row)
 

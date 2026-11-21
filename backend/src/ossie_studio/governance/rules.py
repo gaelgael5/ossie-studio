@@ -49,8 +49,12 @@ class GovernanceRule:
             for code in validate_tag_fields(tag.id, tag.links, tag.properties):
                 add(rel, code)
         seen_tags: dict[str, str] = {}
+        seen_slugs: set[str] = set()
         for cert in read_certs(view):
             rel = cert_path(cert.id)
+            if cert.slug and cert.slug in seen_slugs:
+                add(rel, "certification_slug_duplicate", slug=cert.slug)
+            seen_slugs.add(cert.slug)
             for code in validate_certification(cert.name, cert.rank, cert.tag):
                 add(rel, code)
             if cert.tag in seen_tags:

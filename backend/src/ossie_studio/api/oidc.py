@@ -25,6 +25,7 @@ from ossie_studio.oidc.mapping import (
 from ossie_studio.oidc.provider import DiscoveryError, discover
 from ossie_studio.oidc.redirect import public_callback_url
 from ossie_studio.oidc.service import (
+    ConnectorSlugTakenError,
     IssuerAlreadyDeclaredError,
     db_count_identities_for_issuer,
     db_create_connector,
@@ -35,6 +36,7 @@ from ossie_studio.oidc.service import (
 from ossie_studio.profiles.service import db_get_profile, db_list_profiles
 from ossie_studio.secretstore.service import db_get_secret
 from ossie_studio.secretstore.usages import db_delete_secret_if_unused
+from ossie_studio.slugs import free_slug, is_valid_slug, slugify
 from ossie_studio.teams.service import db_list_teams_for_connector, db_set_team_claim
 from ossie_studio.users.service import db_count_pinned_users
 
@@ -50,6 +52,8 @@ OIDC_SECRET_CATEGORY = "oidc"  # noqa: S105  (nom de catégorie, pas un secret)
 class ConnectorCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
+    # Optionnel : déduit du libellé par l'écran (règle libellé → slug), modifiable.
+    slug: str = ""
     issuer: str = ""
     client_id: str = ""
     client_secret_slug: str = ""
@@ -89,6 +93,7 @@ async def list_connectors(request: Request, conn: ConnDep, _: OidcRead) -> dict[
             {
                 "id": str(c.id),
                 "label": c.label,
+                "slug": c.slug,
                 "issuer": c.issuer,
                 "accounts": await db_count_identities_for_issuer(conn, c.issuer),
                 "client_secret_slug": c.client_secret_slug,
@@ -159,8 +164,17 @@ async def create_connector(
     body: ConnectorCreate,
 ) -> dict[str, str]:
     form = parse_connector(body.label, body.issuer, body.client_id, body.scopes)
+    connector_slug = body.slug.strip()
+    if connector_slug and not is_valid_slug(connector_slug):
+        form.errors.append("connector_slug_invalid")
     if form.errors:
         raise ApiError("invalid_request", status_code=400, fields=form.errors)
+    if not connector_slug:
+        connector_slug = await free_slug(
+            conn, "oidc_connectors", slugify(form.label, fallback="connecteur")
+        )
+    elif await conn.fetchval("SELECT 1 FROM oidc_connectors WHERE slug = $1", connector_slug):
+        raise ApiError("oidc_connector_slug_taken", status_code=409, slug=connector_slug)
 
     # Le client secret est un secret de catégorie « oidc », désigné par son slug
     # et jamais saisi ici. On vérifie qu'il existe et qu'il est bien de cette
@@ -181,8 +195,12 @@ async def create_connector(
 
     try:
         connector = await db_create_connector(
-            conn, form.label, form.issuer, form.client_id, slug, form.scopes
+            conn, form.label, form.issuer, form.client_id, slug, form.scopes, connector_slug
         )
+    except ConnectorSlugTakenError:
+        raise ApiError(
+            "oidc_connector_slug_taken", status_code=409, slug=connector_slug
+        ) from None
     except IssuerAlreadyDeclaredError:
         raise ApiError(
             "oidc_issuer_already_declared", status_code=409, issuer=form.issuer

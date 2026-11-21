@@ -17,6 +17,8 @@ export interface LabelSlug {
   setSlug: (value: string) => void
   /** Sortie du champ slug : vide, il se remet à suivre le libellé. */
   releaseIfEmpty: () => void
+  /** Charge un objet existant (édition) : son libellé et son slug figé. */
+  load: (label: string, slug: string) => void
   reset: () => void
 }
 
@@ -40,6 +42,10 @@ export function useLabelSlug(initial?: { label?: string; slug?: string }): Label
     setLabel,
     setSlug: (value) => setManualSlug(sanitizeSlugInput(value)),
     releaseIfEmpty: () => setManualSlug((current) => (current === '' ? null : current)),
+    load: (nextLabel, nextSlug) => {
+      setLabel(nextLabel)
+      setManualSlug(nextSlug || null)
+    },
     reset: () => {
       setLabel('')
       setManualSlug(null)

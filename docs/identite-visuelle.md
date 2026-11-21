@@ -80,7 +80,8 @@ Page de référence à imiter : `frontend/src/pages/ForgesPage.tsx`.
 
 Partout où l'on crée un objet qui porte un libellé et un slug — aujourd'hui :
 secret, connexion de forge, connexion de base, source, espace Git, branche
-(base et fille), équipe, schéma de classification (son identifiant) :
+(base et fille), équipe, profil, connecteur OIDC, certification, schéma de
+classification (son identifiant) :
 
 1. **Le libellé d'abord.** Le champ libellé précède le champ slug ; rien ne
    s'intercale entre eux, de sorte que **Tab** mène du libellé au slug.
@@ -93,9 +94,10 @@ secret, connexion de forge, connexion de base, source, espace Git, branche
    se remet à suivre le libellé.
 4. **En édition, le slug existant est figé** (il est référencé ailleurs) ; seul
    le libellé se modifie.
-5. Côté serveur, un slug fourni est **validé** (même motif) et **refusé s'il est
-   déjà pris** — jamais suffixé en silence ; absent, le serveur le déduit
-   lui-même du libellé.
+5. Côté serveur, un slug **saisi** est **validé** (même motif) et **refusé
+   s'il est déjà pris** — jamais suffixé en silence. Absent, le serveur le
+   déduit du libellé et le **suffixe** (`-2`, `-3`…) s'il est pris :
+   l'utilisateur ne reçoit jamais d'erreur sur ce qu'il n'a pas saisi.
 
 Mise en œuvre : `useLabelSlug` + `LabelSlugFields`
 (`frontend/src/components/LabelSlugFields.tsx`), règle de transformation dans

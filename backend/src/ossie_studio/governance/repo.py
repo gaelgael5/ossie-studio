@@ -50,6 +50,7 @@ class Cert:
     tag: str = ""
     icon: str = ""
     restricted: bool = False
+    slug: str = ""
 
 
 @dataclass
@@ -194,6 +195,7 @@ def read_certs(root: Path) -> list[Cert]:
                 tag=str(data.get("tag", "") or ""),
                 icon=str(data.get("icon", "") or ""),
                 restricted=bool(data.get("restricted", False)),
+                slug=str(data.get("slug", "") or ""),
             )
         )
     return sorted(certs, key=lambda c: (c.rank, c.name))

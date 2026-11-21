@@ -248,7 +248,7 @@ export function ConnectorsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
-  const [label, setLabel] = useState('')
+  const connector = useLabelSlug()
   const [issuer, setIssuer] = useState('')
   const [clientId, setClientId] = useState('')
   const [secretSlug, setSecretSlug] = useState('')
@@ -281,14 +281,15 @@ export function ConnectorsPage() {
   const create = useMutation({
     mutationFn: () =>
       api.createConnector({
-        label,
+        label: connector.label,
+        slug: connector.finalSlug,
         issuer,
         client_id: clientId,
         client_secret_slug: secretSlug,
         scopes,
       }),
     onSuccess: async () => {
-      setLabel('')
+      connector.reset()
       setIssuer('')
       setClientId('')
       setSecretSlug('')
@@ -361,6 +362,7 @@ export function ConnectorsPage() {
                     <tr key={c.id}>
                       <td>
                         {c.label}
+                        <div className="mono muted small">{c.slug}</div>
                         {discoveryStatus[c.id] ? (
                           <>
                             {' '}
@@ -472,12 +474,7 @@ export function ConnectorsPage() {
             create.mutate()
           }}
         >
-          <div className="field">
-            <label className="field-label" htmlFor="label">
-              {t('labelFieldLabel')}
-            </label>
-            <input id="label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-          </div>
+          <LabelSlugFields idPrefix="connector" state={connector} labelText={t('labelFieldLabel')} slugText={t('slugLabel')} />
           <div className="field">
             <label className="field-label" htmlFor="issuer">
               {t('issuerLabel')}

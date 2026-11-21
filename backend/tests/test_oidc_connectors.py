@@ -176,9 +176,7 @@ async def test_secret_absent_de_la_liste_admin(admin_client: AsyncClient) -> Non
     assert SECRET not in str(body)
 
 
-async def test_suppression_sans_secret_le_conserve(
-    admin_client: AsyncClient, app: FastAPI
-) -> None:
+async def test_suppression_sans_secret_le_conserve(admin_client: AsyncClient, app: FastAPI) -> None:
     slug = await _oidc_secret(admin_client, "oidc-garde")
     await _add(admin_client, secret_slug=slug)
     connector_id = await db_fetchval(app, "SELECT id FROM oidc_connectors")
@@ -193,16 +191,12 @@ async def test_suppression_avec_secret_le_retire(admin_client: AsyncClient, app:
     slug = await _oidc_secret(admin_client, "oidc-jette")
     await _add(admin_client, secret_slug=slug)
     connector_id = await db_fetchval(app, "SELECT id FROM oidc_connectors")
-    response = await admin_client.delete(
-        f"/api/oidc/connectors/{connector_id}?delete_secret=true"
-    )
+    response = await admin_client.delete(f"/api/oidc/connectors/{connector_id}?delete_secret=true")
     assert response.status_code == 204
     assert await db_fetchval(app, "SELECT count(*) FROM secrets WHERE slug = 'oidc-jette'") == 0
 
 
-async def test_suppression_secret_partage_conserve(
-    admin_client: AsyncClient, app: FastAPI
-) -> None:
+async def test_suppression_secret_partage_conserve(admin_client: AsyncClient, app: FastAPI) -> None:
     slug = await _oidc_secret(admin_client, "oidc-partage")
     await _add(admin_client, secret_slug=slug)
     connector_id = await db_fetchval(app, "SELECT id FROM oidc_connectors")
@@ -213,9 +207,7 @@ async def test_suppression_secret_partage_conserve(
             "VALUES ('Autre', 'http://autre.idp', 'c', $1)",
             slug,
         )
-    response = await admin_client.delete(
-        f"/api/oidc/connectors/{connector_id}?delete_secret=true"
-    )
+    response = await admin_client.delete(f"/api/oidc/connectors/{connector_id}?delete_secret=true")
     assert response.status_code == 204
     # Encore utilisé par l'autre connecteur → conservé.
     assert await db_fetchval(app, "SELECT count(*) FROM secrets WHERE slug = 'oidc-partage'") == 1
@@ -275,3 +267,26 @@ async def test_non_admin_refus_403(user_client: AsyncClient) -> None:
     )
     assert creation.status_code == 403
     assert (await user_client.delete(f"/api/oidc/connectors/{uuid.uuid4()}")).status_code == 403
+
+
+async def test_slug_du_connecteur_deduit_puis_liste(admin_client: AsyncClient) -> None:
+    await _add(admin_client, label="Keycloak Maison")
+    listing = (await admin_client.get("/api/oidc/connectors")).json()["connectors"]
+    assert listing[0]["slug"] == "keycloak-maison"
+
+
+async def test_slug_du_connecteur_invalide_refuse(admin_client: AsyncClient) -> None:
+    secret = await _oidc_secret(admin_client, slug="oidc-slug-test")
+    response = await admin_client.post(
+        "/api/oidc/connectors",
+        json={
+            "label": "X",
+            "slug": "Pas Bon",
+            "issuer": ISSUER,
+            "client_id": "c",
+            "client_secret_slug": secret,
+            "scopes": "openid",
+        },
+    )
+    assert response.status_code == 400
+    assert "connector_slug_invalid" in response.json()["error_args"]["fields"]

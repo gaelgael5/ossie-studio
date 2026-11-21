@@ -6,6 +6,7 @@ import { api } from '../apiClient'
 import type { ProfileItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 export function ProfilesPage() {
@@ -13,7 +14,7 @@ export function ProfilesPage() {
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [name, setName] = useState('')
+  const pair = useLabelSlug()
   const [description, setDescription] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
@@ -22,12 +23,12 @@ export function ProfilesPage() {
   const onError = (err: unknown) => setMessages(errorMessages(t, err))
   const reset = () => {
     setEditingId(null)
-    setName('')
+    pair.reset()
     setDescription('')
     setSelected(new Set())
   }
 
-  const body = () => ({ name, description, capabilities: [...selected] })
+  const body = () => ({ name: pair.label, slug: pair.finalSlug, description, capabilities: [...selected] })
   const create = useMutation({
     mutationFn: () => api.createProfile(body()),
     onSuccess: async () => {
@@ -63,7 +64,7 @@ export function ProfilesPage() {
   const startEdit = (profile: ProfileItem) => {
     setMessages([])
     setEditingId(profile.id)
-    setName(profile.name)
+    pair.load(profile.name, profile.slug)
     setDescription(profile.description)
     setSelected(new Set(profile.capabilities))
   }
@@ -109,6 +110,7 @@ export function ProfilesPage() {
                       {profile.name}{' '}
                       {profile.is_admin ? <span className="pill">{t('adminLocked')}</span> : null}{' '}
                       {profile.is_default ? <span className="pill">{t('defaultBadge')}</span> : null}
+                      <div className="mono muted small">{profile.slug}</div>
                     </td>
                     <td>{profile.user_count}</td>
                     <td>
@@ -170,12 +172,13 @@ export function ProfilesPage() {
             else create.mutate()
           }}
         >
-          <div className="field">
-            <label className="field-label" htmlFor="pname">
-              {t('profileNameLabel')}
-            </label>
-            <input id="pname" className="input" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
+          <LabelSlugFields
+            idPrefix="profile"
+            state={pair}
+            labelText={t('profileNameLabel')}
+            slugText={t('slugLabel')}
+            slugLocked={editingId !== null}
+          />
           <div className="field">
             <label className="field-label" htmlFor="pdesc">
               {t('profileDescriptionLabel')}

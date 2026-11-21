@@ -29,6 +29,7 @@ from ossie_studio.governance.repo import (
 )
 from ossie_studio.governance.tags import normalize_tag_id, validate_tag_fields
 from ossie_studio.governance.yaml_io import TagImportError, export_tags_yaml, parse_tags_yaml
+from ossie_studio.slugs import is_valid_slug, slugify
 
 log = structlog.get_logger(__name__)
 
@@ -205,6 +206,8 @@ async def remove_tag(
 class CertificationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = ""
+    # À la création seulement (déduit du nom par l'écran, modifiable) ; figé ensuite.
+    slug: str = ""
     rank: int = 1
     description: str = ""
     criteria: str = ""
@@ -216,6 +219,7 @@ class CertificationBody(BaseModel):
 def _cert_payload(cert: Cert) -> dict[str, object]:
     return {
         "id": cert.id,
+        "slug": cert.slug,
         "name": cert.name,
         "rank": cert.rank,
         "description": cert.description,
@@ -241,6 +245,11 @@ def _cert_from(cert_id: str, body: CertificationBody) -> Cert:
         body.icon.strip(),
         body.restricted,
     )
+
+
+def _check_slug_free(root: Path, cert: Cert) -> None:
+    if any(c.slug == cert.slug and c.id != cert.id for c in read_certs(root)):
+        raise ApiError("certification_slug_taken", status_code=409, slug=cert.slug)
 
 
 def _check_tag_free(root: Path, cert: Cert) -> None:
@@ -272,8 +281,22 @@ async def create_certification(
     body: CertificationBody,
 ) -> dict[str, object]:
     cert = _cert_from(new_id(), body)
+    given = body.slug.strip()
+    if given and not is_valid_slug(given):
+        raise ApiError("invalid_request", status_code=400, fields=["certification_slug_invalid"])
 
     def write(root: Path) -> None:
+        if given:
+            cert.slug = given
+            _check_slug_free(root, cert)
+        else:
+            # Déduit du nom : suffixé s'il est pris (jamais d'erreur sur ce que
+            # l'utilisateur n'a pas saisi).
+            taken = {c.slug for c in read_certs(root)}
+            base = slugify(cert.name, fallback="certification")
+            cert.slug, counter = base, 2
+            while cert.slug in taken:
+                cert.slug, counter = f"{base}-{counter}", counter + 1
         _check_tag_free(root, cert)
         write_cert(root, cert)
 
@@ -292,9 +315,11 @@ async def create_presets(
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
     def write(root: Path) -> None:
-        taken = {c.tag for c in read_certs(root)}
+        existing = read_certs(root)
+        taken = {c.tag for c in existing}
+        slugs = {c.slug for c in existing}
         for preset in PRESETS:
-            if str(preset["tag"]) in taken:
+            if str(preset["tag"]) in taken or slugify(str(preset["name"])) in slugs:
                 continue
             write_cert(
                 root,
@@ -307,6 +332,7 @@ async def create_presets(
                     str(preset["tag"]),
                     str(preset.get("icon", "")),
                     bool(preset.get("restricted", False)),
+                    slugify(str(preset["name"])),
                 ),
             )
 
@@ -329,8 +355,10 @@ async def update_certification(
     cert = _cert_from(cert_id, body)
 
     def write(root: Path) -> None:
-        if not any(c.id == cert_id for c in read_certs(root)):
+        current = next((c for c in read_certs(root) if c.id == cert_id), None)
+        if current is None:
             raise ApiError("certification_not_found", status_code=404)
+        cert.slug = current.slug  # figé à la création
         _check_tag_free(root, cert)
         write_cert(root, cert)
 

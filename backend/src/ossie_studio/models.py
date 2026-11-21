@@ -49,6 +49,7 @@ class Profile:
     is_default: bool
     created_at: datetime
     updated_at: datetime
+    slug: str = ""
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> Profile:
@@ -61,6 +62,7 @@ class Profile:
             is_default=row["is_default"] if "is_default" in row else False,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            slug=row["slug"] if "slug" in row else "",
         )
 
 
@@ -98,6 +100,7 @@ class OidcConnector:
     created_at: datetime
     roles_claim: str = ""
     team_claim: str = ""
+    slug: str = ""
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> OidcConnector:
@@ -111,6 +114,7 @@ class OidcConnector:
             created_at=row["created_at"],
             roles_claim=row["roles_claim"] if "roles_claim" in row else "",
             team_claim=row["team_claim"] if "team_claim" in row else "",
+            slug=row["slug"] if "slug" in row else "",
         )
 
 

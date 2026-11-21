@@ -17,6 +17,20 @@ class ProfileNameTakenError(Exception):
         self.name = name
 
 
+class ProfileSlugTakenError(Exception):
+    def __init__(self, slug: str) -> None:
+        super().__init__(slug)
+        self.slug = slug
+
+
+async def db_free_profile_slug(conn: asyncpg.Connection, base: str) -> str:
+    """Slug libre dérivé de `base` (suffixe -2, -3… au besoin) : pour une copie."""
+    slug, counter = base, 2
+    while await conn.fetchval("SELECT 1 FROM profiles WHERE slug = $1", slug):
+        slug, counter = f"{base}-{counter}", counter + 1
+    return slug
+
+
 class ProfileNotFoundError(Exception):
     pass
 
@@ -112,17 +126,24 @@ async def db_get_profile(conn: asyncpg.Connection, profile_id: uuid.UUID) -> Pro
 
 
 async def db_create_profile(
-    conn: asyncpg.Connection, name: str, description: str, capabilities: list[str]
+    conn: asyncpg.Connection,
+    name: str,
+    description: str,
+    capabilities: list[str],
+    slug: str | None = None,
 ) -> Profile:
     try:
         row = await conn.fetchrow(
-            "INSERT INTO profiles (name, description, capabilities) "
-            "VALUES ($1, $2, $3) RETURNING *",
+            "INSERT INTO profiles (name, description, capabilities, slug) "
+            "VALUES ($1, $2, $3, coalesce($4, gen_random_uuid()::text)) RETURNING *",
             name,
             description,
             capabilities,
+            slug,
         )
     except asyncpg.UniqueViolationError as exc:
+        if exc.constraint_name == "uq_profile_slug":
+            raise ProfileSlugTakenError(slug or "") from exc
         raise ProfileNameTakenError(name) from exc
     return Profile.from_row(row)
 

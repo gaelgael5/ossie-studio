@@ -15,14 +15,17 @@ from ossie_studio.oidc.mapping import db_count_mappings_for_profile
 from ossie_studio.profiles.service import (
     ProfileNameTakenError,
     ProfileNotFoundError,
+    ProfileSlugTakenError,
     db_count_users_with_profile,
     db_create_profile,
     db_delete_profile,
+    db_free_profile_slug,
     db_get_profile,
     db_list_profiles,
     db_set_default_profile,
     db_update_profile,
 )
+from ossie_studio.slugs import free_slug, is_valid_slug, slugify
 
 log = structlog.get_logger(__name__)
 
@@ -32,6 +35,9 @@ router = APIRouter(prefix="/api/profiles")
 class ProfileBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = ""
+    # À la création seulement (déduit du nom par l'écran, modifiable) ; ignoré à
+    # la modification : un slug est figé.
+    slug: str = ""
     description: str = ""
     capabilities: list[str] = []
 
@@ -52,6 +58,7 @@ def _payload(profile: Profile, user_count: int) -> dict[str, object]:
     return {
         "id": str(profile.id),
         "name": profile.name,
+        "slug": profile.slug,
         "description": profile.description,
         "capabilities": caps,
         "is_admin": profile.is_admin,
@@ -78,8 +85,15 @@ async def create_profile(
     if not name:
         raise ApiError("invalid_request", status_code=400, fields=["profile_name_required"])
     caps = _clean_capabilities(body.capabilities)
+    slug = body.slug.strip()
+    if slug and not is_valid_slug(slug):
+        raise ApiError("invalid_request", status_code=400, fields=["profile_slug_invalid"])
+    if not slug:
+        slug = await free_slug(conn, "profiles", slugify(name, fallback="profil"))
     try:
-        profile = await db_create_profile(conn, name, body.description.strip(), caps)
+        profile = await db_create_profile(conn, name, body.description.strip(), caps, slug)
+    except ProfileSlugTakenError:
+        raise ApiError("profile_slug_taken", status_code=409, slug=slug) from None
     except ProfileNameTakenError:
         raise ApiError("profile_name_taken", status_code=409, name=name) from None
     log.info("profile_created", profile_id=str(profile.id), author=user.email)
@@ -98,7 +112,10 @@ async def duplicate_profile(
     name, suffix = base, 2
     while True:
         try:
-            copy = await db_create_profile(conn, name, source.description, caps)
+            copy = await db_create_profile(
+                conn, name, source.description, caps,
+                await db_free_profile_slug(conn, f"{source.slug or 'profil'}-copie"),
+            )
             break
         except ProfileNameTakenError:
             name = f"{base} {suffix}"

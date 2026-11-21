@@ -66,6 +66,7 @@ export function sessionCapabilities(session: SessionState | undefined): string[]
 export interface ProfileItem {
   id: string
   name: string
+  slug: string
   description: string
   capabilities: string[]
   is_admin: boolean
@@ -200,6 +201,7 @@ export interface ConnectorTeam {
 export interface OidcConnectorItem {
   id: string
   label: string
+  slug: string
   issuer: string
   accounts: number
   client_secret_slug: string
@@ -538,6 +540,7 @@ export interface GovernedTagInput {
 
 export interface Certification {
   id: string
+  slug: string
   name: string
   rank: number
   description: string
@@ -550,6 +553,7 @@ export interface Certification {
 }
 export interface CertificationInput {
   name: string
+  slug?: string
   rank: number
   description: string
   criteria: string
@@ -1030,11 +1034,11 @@ export const api = {
 
   listProfiles: () =>
     apiFetch<{ profiles: ProfileItem[]; catalog: CapabilityDomain[] }>('/api/profiles'),
-  createProfile: (body: { name: string; description: string; capabilities: string[] }) =>
+  createProfile: (body: { name: string; slug: string; description: string; capabilities: string[] }) =>
     apiFetch<ProfileItem>('/api/profiles', { method: 'POST', body: JSON.stringify(body) }),
   updateProfile: (
     id: string,
-    body: { name: string; description: string; capabilities: string[] },
+    body: { name: string; slug?: string; description: string; capabilities: string[] },
   ) =>
     apiFetch<ProfileItem>(`/api/profiles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   duplicateProfile: (id: string) =>
@@ -1126,6 +1130,7 @@ export const api = {
     apiFetch(`/api/users/${userId}/pin`, { method: 'DELETE' }),
   createConnector: (body: {
     label: string
+    slug: string
     issuer: string
     client_id: string
     client_secret_slug: string
