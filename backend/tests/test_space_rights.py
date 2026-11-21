@@ -102,7 +102,9 @@ async def _as(app: FastAPI, email: str) -> AsyncIterator[AsyncClient]:
 
 
 async def test_equipe_rattachee_donne_publish_sur_cet_espace_seulement(app: FastAPI) -> None:
-    contrib = await _profile(app, "Contributeur", ["spaces:read", "spaces:publish"])
+    contrib = await _profile(
+        app, "Contributeur", ["spaces:read", "spaces:publish", "spaces:version"]
+    )
     e1, e2 = await _space(app, "e1"), await _space(app, "e2")
     alice, data = await _user_in_team(app, "alice@x.org", "data")
     await _attach(app, e1, data, contrib)
@@ -110,8 +112,12 @@ async def test_equipe_rattachee_donne_publish_sur_cet_espace_seulement(app: Fast
     assert "spaces:publish" not in await _caps(app, alice, e2)
     assert "spaces:publish" not in await _caps(app, alice, None)  # hors espace : inchangé
     async with _as(app, "alice@x.org") as client:
-        allowed = await client.post(f"/api/spaces/{e1}/branches/{uuid.uuid4()}/publish")
-        refused = await client.post(f"/api/spaces/{e2}/branches/{uuid.uuid4()}/publish")
+        allowed = await client.post(
+            f"/api/spaces/{e1}/branches/{uuid.uuid4()}/versions", json={"label": "v"}
+        )
+        refused = await client.post(
+            f"/api/spaces/{e2}/branches/{uuid.uuid4()}/versions", json={"label": "v"}
+        )
     assert allowed.status_code != 403  # passe la garde (puis branche introuvable)
     assert refused.status_code == 403
 
@@ -194,16 +200,16 @@ async def test_capacite_globale_du_profil_rattache_ignoree(app: FastAPI) -> None
 
 async def test_retrait_effectif_a_la_requete_suivante(client: AsyncClient, app: FastAPI) -> None:
     await bootstrap_admin(client)
-    contrib = await _profile(app, "Contrib", ["spaces:read", "spaces:publish"])
+    contrib = await _profile(app, "Contrib", ["spaces:read", "spaces:publish", "spaces:version"])
     e1 = await _space(app, "e1")
     _ines, data = await _user_in_team(app, "ines@x.org", "data")
     put = await client.put(f"/api/spaces/{e1}/teams/{data}", json={"profile_id": str(contrib)})
     assert put.status_code == 200, put.text
     async with _as(app, "ines@x.org") as user_client:
-        url = f"/api/spaces/{e1}/branches/{uuid.uuid4()}/publish"
-        assert (await user_client.post(url)).status_code != 403
+        url = f"/api/spaces/{e1}/branches/{uuid.uuid4()}/versions"
+        assert (await user_client.post(url, json={"label": "v"})).status_code != 403
         assert (await client.delete(f"/api/spaces/{e1}/teams/{data}")).status_code == 204
-        assert (await user_client.post(url)).status_code == 403
+        assert (await user_client.post(url, json={"label": "v"})).status_code == 403
 
 
 async def test_routes_de_rattachement(client: AsyncClient, app: FastAPI) -> None:

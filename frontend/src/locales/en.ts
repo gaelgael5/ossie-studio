@@ -212,6 +212,14 @@ export const en = {
     viewedBranchLabel: 'Viewed branch',
     noBranches: 'No working branch.',
     noBase: 'No base branch: create it first.',
+    draftTitle: 'My draft',
+    draftIntro:
+      'Your changes on this branch, not yet published. Only you see them; they will go out as one commit, under your name.',
+    draftCount: '{{count}} object(s) changed.',
+    draftEmpty: 'No change in progress on this branch.',
+    draftState_created: 'created',
+    draftState_modified: 'modified',
+    draftState_deleted: 'deleted',
     unpublishedTitle: 'Unpublished commits',
     unpublishedIntro:
       'Commits made in the viewed branch stay local until you publish them to the forge.',
@@ -903,6 +911,8 @@ export const en = {
         'The forge moved ahead and local commits are pending: publish or realign before reviewing.',
       review_stale:
         'A new collection arrived during the review: reopen it to start from the latest.',
+      draft_path_invalid: 'Path outside the repository: change refused.',
+      draft_object_too_large: 'Object too large for the draft (20 MB at most).',
       generic: 'Something went wrong ({{code}})',
       forbidden: 'Access denied.',
       unauthenticated: 'You must be signed in.',

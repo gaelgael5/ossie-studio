@@ -16,7 +16,8 @@ from ossie_studio.api.common import (
     CurationWrite,
 )
 from ossie_studio.crypto import CryptoService
-from ossie_studio.deps import ConnDep, get_crypto, get_workdir_manager
+from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
+from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
@@ -50,7 +51,7 @@ from ossie_studio.sources.manifest import ManifestError
 from ossie_studio.sources.paths import is_valid_source_slug, source_rel_dir
 from ossie_studio.sources.tri import TRI_KINDS, TRI_TARGETS, validate_tri_rules
 from ossie_studio.spaces.branch_service import db_get_branch
-from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
+from ossie_studio.spaces.workdir import WorkdirError
 
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 
@@ -59,7 +60,9 @@ log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/sources/{slug}/curation")
 
 CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
-WorkdirDep = Annotated[WorkdirManager, Depends(get_workdir_manager)]
+# Copie vue par la personne connectée : lectures avec son brouillon, écritures
+# dans son brouillon (jamais de commit).
+WorkdirDep = Annotated[DraftWorkdir, Depends(get_draft_workdir)]
 
 
 class RetainBody(BaseModel):
@@ -478,19 +481,6 @@ def _review_object_payload(obj: ReviewObject) -> dict[str, object]:
     }
 
 
-async def _review_divergence_or_refuse(
-    workdir: WorkdirManager, space_id: uuid.UUID, slug: str, repo_url: str,
-    username: str, token: str | None,
-) -> None:
-    try:
-        ahead, behind = await workdir.divergence(space_id, slug, repo_url, username, token)
-    except WorkdirError as exc:
-        raise _workdir_error(exc) from None
-    if ahead > 0 and behind > 0:
-        # Base périmée : comme la collecte, on refuse plutôt que de revoir à l'aveugle.
-        raise ApiError("review_branch_behind", status_code=409)
-
-
 @router.get("/review")
 async def get_source_review(
     conn: ConnDep,
@@ -505,9 +495,6 @@ async def get_source_review(
         raise ApiError("curation_path_invalid", status_code=400)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    await _review_divergence_or_refuse(
-        workdir, space.id, branch_slug, space.repo_url, username, token
-    )
     raw_rel = f"{source_rel_dir(slug)}/{RAW_DIR}"
     try:
         head_sha, base_sha, raw_base_text, bundle = await workdir.review_inputs(
@@ -554,9 +541,6 @@ async def apply_source_review(
         raise ApiError("curation_path_invalid", status_code=400)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    await _review_divergence_or_refuse(
-        workdir, space.id, branch_slug, space.repo_url, username, token
-    )
     decisions = ReviewDecisions(
         apply_fields=_group(body.apply_fields),
         take_fields=_group(body.take_fields),

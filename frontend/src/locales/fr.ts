@@ -213,6 +213,14 @@ export const fr = {
     viewedBranchLabel: 'Branche regardée',
     noBranches: 'Aucune branche de travail.',
     noBase: "Aucune branche de base : créez-la d'abord.",
+    draftTitle: 'Mon brouillon',
+    draftIntro:
+      'Vos modifications sur cette branche, pas encore publiées. Vous seul les voyez ; elles partiront en un commit, sous votre nom.',
+    draftCount: '{{count}} objet(s) modifié(s).',
+    draftEmpty: 'Aucune modification en cours sur cette branche.',
+    draftState_created: 'créé',
+    draftState_modified: 'modifié',
+    draftState_deleted: 'supprimé',
     unpublishedTitle: 'Commits non publiés',
     unpublishedIntro:
       'Les commits produits dans la branche regardée restent locaux tant que vous ne les publiez pas sur la forge.',
@@ -907,6 +915,8 @@ export const fr = {
         'La forge a avancé et des commits locaux sont en attente : publiez ou réalignez avant de revoir.',
       review_stale:
         'Une nouvelle collecte est arrivée pendant la revue : rouvrez-la pour repartir à jour.',
+      draft_path_invalid: 'Chemin hors du dépôt : modification refusée.',
+      draft_object_too_large: 'Objet trop volumineux pour le brouillon (20 Mo au plus).',
       generic: 'Une erreur est survenue ({{code}})',
       forbidden: 'Accès refusé.',
       unauthenticated: 'Vous devez être connecté.',

@@ -36,19 +36,11 @@ export function SpaceDetailPage() {
   }
 
   const viewedId = branches.data?.viewed_branch_id ?? null
-  const unpublished = useQuery({
-    queryKey: ['unpublished', spaceId, viewedId],
-    queryFn: () => api.listUnpublished(spaceId, viewedId as string),
+  // Mon brouillon sur la branche regardée : ce que j'ai modifié, pas encore publié.
+  const draft = useQuery({
+    queryKey: ['draft', spaceId, viewedId],
+    queryFn: () => api.myDraft(spaceId, viewedId as string),
     enabled: viewedId !== null,
-  })
-  const publish = useMutation({
-    mutationFn: () => api.publishBranch(spaceId, viewedId as string),
-    onSuccess: async (res) => {
-      setMessages([])
-      setNotice(t('published', { count: res.published }))
-      await queryClient.invalidateQueries({ queryKey: ['unpublished', spaceId, viewedId] })
-    },
-    onError,
   })
   const formatDate = (iso: string) =>
     new Intl.DateTimeFormat(i18n.resolvedLanguage, {
@@ -86,7 +78,7 @@ export function SpaceDetailPage() {
   const refreshVersionArea = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ['versions', spaceId, viewedId] }),
-      queryClient.invalidateQueries({ queryKey: ['unpublished', spaceId, viewedId] }),
+      queryClient.invalidateQueries({ queryKey: ['draft', spaceId, viewedId] }),
     ])
   const createVersion = useMutation({
     mutationFn: () => api.createVersion(spaceId, viewedId as string, versionLabel),
@@ -195,48 +187,23 @@ export function SpaceDetailPage() {
           {viewedId ? (
             <section className="page-section">
               <div className="section-head">
-                <h2 className="section-title">{t('unpublishedTitle')}</h2>
+                <h2 className="section-title">{t('draftTitle')}</h2>
               </div>
-              <p className="muted">{t('unpublishedIntro')}</p>
-              {unpublished.data && unpublished.data.count > 0 ? (
+              <p className="muted">{t('draftIntro')}</p>
+              {draft.data && draft.data.count > 0 ? (
                 <div className="stack">
-                  <div>{t('unpublishedCount', { count: unpublished.data.count })}</div>
-                  <div className="panel table-wrap">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>{t('colMessage')}</th>
-                          <th>{t('colAuthor')}</th>
-                          <th>{t('colDate')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {unpublished.data.commits.map((c) => (
-                          <tr key={c.sha}>
-                            <td>{c.message}</td>
-                            <td>{c.author}</td>
-                            <td>{formatDate(c.date)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={publish.isPending}
-                      onClick={() => {
-                        setMessages([])
-                        publish.mutate()
-                      }}
-                    >
-                      {t('publishButton')}
-                    </button>
-                  </div>
+                  <div>{t('draftCount', { count: draft.data.count })}</div>
+                  <ul className="list-plain stack stack-tight">
+                    {draft.data.objects.map((o) => (
+                      <li key={o.path} className="row">
+                        <code>{o.path}</code>
+                        <span className="pill">{t(`draftState_${o.state}`)}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : (
-                <div className="empty-note">{t('noUnpublished')}</div>
+                <div className="empty-note">{t('draftEmpty')}</div>
               )}
             </section>
           ) : null}

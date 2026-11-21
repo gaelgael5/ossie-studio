@@ -110,6 +110,8 @@ ERROR_CODES: tuple[str, ...] = (
     "asset_not_retained",
     "review_branch_behind",
     "review_stale",
+    "draft_path_invalid",
+    "draft_object_too_large",
 )
 
 

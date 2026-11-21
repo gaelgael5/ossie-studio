@@ -22,12 +22,13 @@ from ossie_studio.databases.service import db_get_db_connection_by_slug
 from ossie_studio.deps import (
     ConnDep,
     get_crypto,
+    get_draft_workdir,
     get_http_client_factory,
     get_settings,
     get_source_collector,
     get_source_downloader,
-    get_workdir_manager,
 )
+from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.base import ForgeError
 from ossie_studio.forges.registry import get_strategy
@@ -79,12 +80,14 @@ from ossie_studio.sources.service import (
     update_source,
 )
 from ossie_studio.spaces.branch_service import db_get_branch
-from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
+from ossie_studio.spaces.workdir import WorkdirError
 
 router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/sources")
 
 CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
-WorkdirDep = Annotated[WorkdirManager, Depends(get_workdir_manager)]
+# Copie vue par la personne connectée : lectures avec son brouillon, écritures
+# dans son brouillon (jamais de commit).
+WorkdirDep = Annotated[DraftWorkdir, Depends(get_draft_workdir)]
 DownloaderDep = Annotated[SourceDownloader, Depends(get_source_downloader)]
 CollectorDep = Annotated[SourceCollector, Depends(get_source_collector)]
 HttpFactoryDep = Annotated[Callable[[], httpx.AsyncClient], Depends(get_http_client_factory)]
@@ -321,7 +324,7 @@ async def declare_branch_source(
 async def _existing_manifest(
     conn: ConnDep,
     crypto: CryptoService,
-    workdir: WorkdirManager,
+    workdir: DraftWorkdir,
     space_id: uuid.UUID,
     branch_slug: str,
     slug: str,
@@ -466,6 +469,7 @@ async def collect_branch_source(
     if manifest.type == OPENAPI_TYPE:
         try:
             report = await collector.collect_openapi(
+                workdir=workdir,
                 space=space,
                 branch_slug=branch_slug,
                 branche_label=branch_slug,
@@ -487,6 +491,7 @@ async def collect_branch_source(
         source_token = (await resolve_connection_token(conn, crypto, connection)).reveal()
         try:
             report = await collector.collect(
+                workdir=workdir,
                 space=space,
                 branch_slug=branch_slug,
                 branche_label=branch_slug,
@@ -519,6 +524,7 @@ async def collect_branch_source(
         db_params["database"] = base
         try:
             report = await collector.collect_sql(
+                workdir=workdir,
                 space=space,
                 branch_slug=branch_slug,
                 branche_label=branch_slug,
@@ -653,7 +659,7 @@ def _contract_payload(view: ContractView) -> dict[str, object]:
 async def _require_openapi_source(
     conn: ConnDep,
     crypto: CryptoService,
-    workdir: WorkdirManager,
+    workdir: DraftWorkdir,
     space_id: uuid.UUID,
     branch_slug: str,
     slug: str,

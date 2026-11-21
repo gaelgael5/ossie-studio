@@ -77,6 +77,11 @@ export interface PersonalCredential {
   checked_at: string | null
 }
 
+export interface DraftObjectItem {
+  path: string
+  state: 'created' | 'modified' | 'deleted'
+}
+
 export interface SpaceTeam {
   team_id: string
   team_name: string
@@ -797,15 +802,10 @@ export const api = {
       `/api/parsing/plugins/${encodeURIComponent(pluginId)}/parameters/${encodeURIComponent(slug)}`,
       { method: 'PUT', body: JSON.stringify({ value }) },
     ),
-  listUnpublished: (spaceId: string, branchId: string) =>
-    apiFetch<{
-      commits: { sha: string; author: string; date: string; message: string }[]
-      count: number
-    }>(`/api/spaces/${spaceId}/branches/${branchId}/unpublished`),
-  publishBranch: (spaceId: string, branchId: string) =>
-    apiFetch<{ published: number }>(`/api/spaces/${spaceId}/branches/${branchId}/publish`, {
-      method: 'POST',
-    }),
+  myDraft: (spaceId: string, branchId: string) =>
+    apiFetch<{ count: number; revision: number; objects: DraftObjectItem[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/draft`,
+    ),
   listVersions: (spaceId: string, branchId: string) =>
     apiFetch<{
       versions: { number: number; label: string; commit: string; author: string; date: string }[]

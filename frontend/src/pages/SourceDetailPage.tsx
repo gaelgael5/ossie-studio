@@ -85,11 +85,8 @@ export function SourceDetailPage() {
     },
     onError: (err) => setMessages(errorMessages(t, err)),
   })
-  const publish = useMutation({
-    mutationFn: () => api.publishBranch(ws.spaceId as string, ws.branchId as string),
-    onSuccess: (r) => setNotice(t('published', { count: r.published })),
-    onError: (err) => setMessages(errorMessages(t, err)),
-  })
+  // La collecte va dans mon brouillon : on la publie depuis l'écran de publication.
+  const publishHref = `/spaces/${ws.spaceId}/branches/${ws.branchId}/publish`
 
   if (!ready) {
     return (
@@ -209,7 +206,7 @@ export function SourceDetailPage() {
       {effectiveTab === 'collectes' ? (
         <div className="master-detail">
           <div className="stack">
-            {report ? <ReportCard report={report} onPublish={() => publish.mutate()} publishing={publish.isPending} /> : null}
+            {report ? <ReportCard report={report} publishHref={publishHref} /> : null}
             {!report ? <div className="empty-note">{t('collectHint')}</div> : null}
           </div>
           <div className="panel">
@@ -257,12 +254,10 @@ function runResult(run: CollectionRun, t: (k: string, o?: Record<string, unknown
 
 function ReportCard({
   report,
-  onPublish,
-  publishing,
+  publishHref,
 }: {
   report: CollectReport
-  onPublish: () => void
-  publishing: boolean
+  publishHref: string
 }) {
   const { t } = useTranslation()
   const step = (label: string, detail: string) => (
@@ -328,9 +323,9 @@ function ReportCard({
           {t('openRawExplorer')}
         </span>
         {report.local_commit ? (
-          <button type="button" className="btn btn-sm btn-primary" onClick={onPublish} disabled={publishing}>
+          <Link to={publishHref} className="btn btn-sm btn-primary">
             {t('publishBranch')}
-          </button>
+          </Link>
         ) : null}
       </div>
     </div>

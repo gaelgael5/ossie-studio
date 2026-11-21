@@ -236,24 +236,15 @@ test('détail espace : liste les commits non publiés et les publie', async () =
         viewed_branch_id: 'b1',
       },
     },
-    '/api/spaces/s1/branches/b1/unpublished': {
-      body: {
-        commits: [
-          { sha: 'abc', author: 'Alice', date: '2026-01-02T10:00:00Z', message: 'ossie: ajoute data' },
-        ],
-        count: 1,
-      },
+    '/api/spaces/s1/branches/b1/draft': {
+      body: { count: 1, revision: 1, objects: [{ path: 'sources/data.txt', state: 'modified' }] },
     },
-    'POST /api/spaces/s1/branches/b1/publish': { body: { published: 1 } },
   })
   renderAt('/spaces/s1')
-  await screen.findByText('Commits non publiés')
-  // Le commit en attente apparaît avec son message préfixé.
-  await waitFor(() => expect(screen.getByText('ossie: ajoute data')).toBeInTheDocument())
-  await userEvent.click(screen.getByRole('button', { name: 'Publier' }))
-  await waitFor(() =>
-    expect(screen.getByText('1 commit(s) publié(s) sur la forge.')).toBeInTheDocument(),
-  )
+  await screen.findByText('Mon brouillon')
+  // L'objet modifié du brouillon apparaît avec son état.
+  await waitFor(() => expect(screen.getByText('sources/data.txt')).toBeInTheDocument())
+  expect(screen.getByText('modifié')).toBeInTheDocument()
 })
 
 test('détail espace : enregistre une version et liste les versions', async () => {
@@ -273,7 +264,7 @@ test('détail espace : enregistre une version et liste les versions', async () =
         viewed_branch_id: 'b1',
       },
     },
-    '/api/spaces/s1/branches/b1/unpublished': { body: { commits: [], count: 0 } },
+    '/api/spaces/s1/branches/b1/draft': { body: { count: 0, revision: 0, objects: [] } },
     '/api/spaces/s1/branches/b1/versions': {
       body: {
         versions: [
@@ -728,8 +719,11 @@ test('détail source : collecte une source Git et affiche le rapport', async () 
   await userEvent.click(screen.getByRole('button', { name: 'Collecter' }))
   await waitFor(() => expect(screen.getByText('Dernière collecte')).toBeInTheDocument())
   expect(screen.getByText(/Code source au commit abcdef1/)).toBeInTheDocument()
-  // Un commit local a été écrit → l'action « Publier la branche » est proposée.
-  expect(screen.getByRole('button', { name: 'Publier la branche' })).toBeInTheDocument()
+  // La collecte est allée dans le brouillon → un lien mène à l'écran de publication.
+  expect(screen.getByRole('link', { name: 'Publier la branche' })).toHaveAttribute(
+    'href',
+    '/spaces/sp1/branches/br1/publish',
+  )
 })
 
 test('détail source OpenAPI : dépôt d’un contrat, analyse avant enregistrement', async () => {

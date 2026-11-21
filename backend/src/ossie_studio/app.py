@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
+import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -14,6 +16,7 @@ from ossie_studio.api.connections import router as api_connections_router
 from ossie_studio.api.credentials import router as api_credentials_router
 from ossie_studio.api.curation import router as api_curation_router
 from ossie_studio.api.db_connections import router as api_db_connections_router
+from ossie_studio.api.drafts import router as api_drafts_router
 from ossie_studio.api.governance import certifications_router as api_certifications_router
 from ossie_studio.api.governance import router as api_governance_router
 from ossie_studio.api.oidc import router as api_oidc_router
@@ -37,11 +40,28 @@ from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.spaces.git_probe import prove_five_rights
+from ossie_studio.spaces.views import DraftViewManager
 from ossie_studio.spaces.workdir import WorkdirManager
+
+log = structlog.get_logger(__name__)
 
 
 def _default_http_client_factory() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=10.0)
+
+
+# Vues éphémères des brouillons : ramassées après 30 min d'inactivité, vérifiées
+# toutes les 5 min. Un échec de purge ne doit jamais arrêter l'application.
+_PURGE_EVERY_SECONDS = 300
+
+
+async def _purge_draft_views_forever(app: FastAPI) -> None:
+    while True:
+        await asyncio.sleep(_PURGE_EVERY_SECONDS)
+        try:
+            await app.state.draft_views.purge_idle()
+        except Exception:
+            log.warning("draft_views_purge_failed", exc_info=True)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -53,7 +73,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pool = await create_pool(settings.asyncpg_dsn())
         app.state.pool = pool
         await run_migrations(pool)
+        purge = asyncio.create_task(_purge_draft_views_forever(app))
         yield
+        purge.cancel()
         await pool.close()
 
     app = FastAPI(title="Ossie Studio", lifespan=lifespan)
@@ -68,10 +90,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.http_client_factory = _default_http_client_factory
     app.state.git_probe = prove_five_rights
     app.state.workdir_manager = WorkdirManager(settings.work_volume_path)
+    app.state.draft_views = DraftViewManager(app.state.workdir_manager)
     app.state.source_downloader = SourceDownloader(settings.sources_volume_path)
-    app.state.source_collector = SourceCollector(
-        app.state.workdir_manager, app.state.source_downloader
-    )
+    app.state.source_collector = SourceCollector(app.state.source_downloader)
 
     @app.get("/api/health")
     async def health(request: Request) -> Response:
@@ -104,6 +125,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_teams_router)
     app.include_router(api_space_teams_router)
     app.include_router(api_credentials_router)
+    app.include_router(api_drafts_router)
     # Flux OIDC : navigations du navigateur (redirections), pas de l'API JSON.
     app.include_router(oidc_login_router)
     return app

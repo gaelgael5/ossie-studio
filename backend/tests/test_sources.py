@@ -162,6 +162,13 @@ async def branch(
     return client, str(space_id), str(branch_id), connection["slug"]
 
 
+def _view(tmp_path: Path, space_id: str) -> Path:
+    """Ce que voit la personne : la branche publiée avec son brouillon (vue éphémère)."""
+    views = [p for p in (tmp_path / "work" / space_id / "principale.views").glob("*") if p.is_dir()]
+    assert views, "aucune vue de brouillon"
+    return views[0]
+
+
 def _git_body(connection_id: str, **over: object) -> dict[str, object]:
     body: dict[str, object] = {
         "slug": "api-boutique",
@@ -189,7 +196,7 @@ async def test_declarer_git_source_ecrit_le_manifeste(
     assert any(s["slug"] == "api-boutique" and s["ok"] for s in listed)
     # Le manifeste existe dans la copie de travail et ne contient aucun secret.
     manifest = (
-        tmp_path / "work" / space_id / "principale" / "sources" / "api-boutique" / "manifest.yaml"
+        _view(tmp_path, space_id) / "sources" / "api-boutique" / "manifest.yaml"
     )
     content = manifest.read_text(encoding="utf-8")
     assert "type: git" in content
@@ -370,7 +377,7 @@ async def test_declarer_openapi_sans_connexion(
     assert source["type"] == "openapi"
     assert source["connexion"] == {"kind": "none"}
     manifest = (
-        tmp_path / "work" / space_id / "principale" / "sources" / "api-paiement" / "manifest.yaml"
+        _view(tmp_path, space_id) / "sources" / "api-paiement" / "manifest.yaml"
     )
     assert "type: openapi" in manifest.read_text(encoding="utf-8")
 
@@ -392,7 +399,7 @@ async def test_analyse_avant_depot_ne_rien_ecrire(
     assert data["nb_operations"] == 1
     assert data["version_proposee"] == "v2"
     # Rien n'a été rangé.
-    contrats = tmp_path / "work" / space_id / "principale" / "sources" / "api-paiement" / "contrats"
+    contrats = _view(tmp_path, space_id) / "sources" / "api-paiement" / "contrats"
     assert not contrats.exists()
 
 
@@ -423,7 +430,7 @@ async def test_depot_collecte_telechargement_retrait(
     collect = await client.post(f"{base}/api-paiement/collect")
     assert collect.status_code == 200, collect.text
     assert collect.json()["added"] == 2
-    raw = tmp_path / "work" / space_id / "principale" / "sources" / "api-paiement" / "raw"
+    raw = _view(tmp_path, space_id) / "sources" / "api-paiement" / "raw"
     assert (raw / "v2-commande.json").is_file()
     after = (await client.get(f"{base}/api-paiement/contracts")).json()["contrats"]
     assert after[0]["collecte"] is True

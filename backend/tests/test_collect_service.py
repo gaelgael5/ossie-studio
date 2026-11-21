@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import subprocess
-import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 
 from ossie_studio.models import GitSpace
-from ossie_studio.sources.collect import CollectionError, SourceCollector
+from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
-from ossie_studio.spaces.workdir import WorkdirManager
+from tests.draft_helpers import DraftCollector, draft_workdir, view_dir
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -50,20 +49,10 @@ def _push(work: Path) -> None:
 
 
 @pytest.fixture
-def setup(tmp_path: Path) -> tuple[SourceCollector, GitSpace, Path, Path]:
-    workdir = WorkdirManager(tmp_path / "work")
-    downloader = SourceDownloader(tmp_path / "volume")
-    collector = SourceCollector(workdir, downloader)
+async def setup(app: FastAPI, tmp_path: Path) -> tuple[DraftCollector, GitSpace, Path, Path]:
     space_url, _ = _make_bare_with(tmp_path, "space", {"README.md": "x"})
-    space = GitSpace(
-        id=uuid.uuid4(),
-        name="modele",
-        connection_id=uuid.uuid4(),
-        repo_url=space_url,
-        last_probe_status="valid",
-        last_probe_at=None,
-        created_at=datetime.now(UTC),
-    )
+    manager, workdir, space = await draft_workdir(app, tmp_path, space_url)
+    collector = DraftCollector(SourceDownloader(tmp_path / "volume"), manager, workdir)
     return collector, space, tmp_path, Path(space_url.removeprefix("file://"))
 
 
@@ -72,7 +61,8 @@ async def _base_branch(collector: SourceCollector, space: GitSpace) -> None:
 
 
 def _raw(tmp_path: Path, space: GitSpace) -> Path:
-    return tmp_path / "work" / str(space.id) / "principale" / "sources" / "api" / "raw"
+    # Ce que voit l'utilisateur : la branche publiée avec son brouillon.
+    return view_dir(tmp_path, space) / "sources" / "api" / "raw"
 
 
 async def _collect(collector, space, source_url, *, force=False):
@@ -284,7 +274,7 @@ async def test_collect_sql_ecrit_les_schemas(
     )
     report = await _collect_sql(collector, space, _FakeEngine([obj]))
     assert report.added == 1
-    raw = tmp_path / "work" / str(space.id) / "principale" / "sources" / "db" / "raw"
+    raw = view_dir(tmp_path, space) / "sources" / "db" / "raw"
     assert (raw / "manifest-postgres.yaml").is_file()
     schema = json.loads((raw / "app-client.json").read_text(encoding="utf-8"))
     assert schema["x-kind"] == "table" and schema["x-primary-key"] == ["id"]
@@ -303,20 +293,3 @@ async def test_collect_sql_signale_les_schemas_inaccessibles(
     assert any(e.source == "prive" for e in report.errors)
 
 
-async def test_branche_en_retard_refuse(
-    setup: tuple[SourceCollector, GitSpace, Path, Path],
-) -> None:
-    collector, space, tmp_path, _ = setup
-    await _base_branch(collector, space)
-    src, _ = _make_bare_with(tmp_path, "src", {"a.schema.json": _schema("A")})
-    await _collect(collector, space, src)  # crée un commit local non publié
-    # La forge avance sur work/principale, par un autre clone.
-    other = tmp_path / "other"
-    _git(tmp_path, "clone", "-q", "-b", "work/principale", space.repo_url, str(other))
-    (other / "ailleurs.txt").write_text("x", encoding="utf-8")
-    _git(other, "add", "-A")
-    _git(other, "commit", "-q", "-m", "avance")
-    _git(other, "push", "-q", "origin", "work/principale")
-    with pytest.raises(CollectionError) as exc:
-        await _collect(collector, space, src)
-    assert exc.value.code == "branch_behind"

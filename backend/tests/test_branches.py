@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
@@ -147,57 +147,19 @@ async def test_espace_inexistant_404(space: tuple[AsyncClient, str, str]) -> Non
     assert response.json()["error"] == "space_not_found"
 
 
-def _writer(text: str) -> Callable[[Path], None]:
-    def write(workdir: Path) -> None:
-        (workdir / "sources" / "data.txt").write_text(text)
-
-    return write
-
-
-async def test_lister_puis_publier_les_commits(
-    space: tuple[AsyncClient, str, str], app: FastAPI
-) -> None:
-    client, space_id, url = space
-    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
-    branch_id = base.json()["id"]
-    # Un commit produit par le mécanisme interne (future descente de sources).
-    await app.state.workdir_manager.commit_to_branch(
-        uuid.UUID(space_id), "principale", url, "x", None,
-        "Alice", "alice@example.org", "ajoute data", _writer("v1"),
+def _push_commit(url: str, ref: str, text: str, tmp: Path) -> None:
+    """Un commit poussé sur la forge par un autre clone (la tête avance)."""
+    clone = tmp / f"clone-{uuid.uuid4().hex[:6]}"
+    run = lambda *a: subprocess.run(  # noqa: E731
+        ["git", "-c", "user.email=a@a", "-c", "user.name=a", *a],
+        check=True, capture_output=True, cwd=clone if clone.exists() else tmp,
     )
-
-    pending = await client.get(f"/api/spaces/{space_id}/branches/{branch_id}/unpublished")
-    assert pending.status_code == 200, pending.text
-    body = pending.json()
-    assert body["count"] == 1
-    assert body["commits"][0]["message"] == "ossie: ajoute data"
-    assert body["commits"][0]["author"] == "Alice"
-
-    published = await client.post(f"/api/spaces/{space_id}/branches/{branch_id}/publish")
-    assert published.status_code == 200, published.text
-    assert published.json()["published"] == 1
-    assert _ref_sha(url, "refs/heads/work/principale") is not None
-
-    after = await client.get(f"/api/spaces/{space_id}/branches/{branch_id}/unpublished")
-    assert after.json()["count"] == 0
-
-
-async def test_publier_rien_en_attente(space: tuple[AsyncClient, str, str]) -> None:
-    client, space_id, _ = space
-    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
-    branch_id = base.json()["id"]
-    published = await client.post(f"/api/spaces/{space_id}/branches/{branch_id}/publish")
-    assert published.status_code == 200
-    assert published.json()["published"] == 0
-
-
-async def test_unpublished_branche_inconnue_404(space: tuple[AsyncClient, str, str]) -> None:
-    client, space_id, _ = space
-    response = await client.get(
-        f"/api/spaces/{space_id}/branches/{uuid.uuid4()}/unpublished"
-    )
-    assert response.status_code == 404
-    assert response.json()["error"] == "branch_not_found"
+    run("clone", "-q", "-b", ref, url.removeprefix("file://"), str(clone))
+    (clone / "sources").mkdir(exist_ok=True)
+    (clone / "sources" / "data.txt").write_text(text)
+    run("add", "-A")
+    run("commit", "-q", "-m", "change")
+    run("push", "-q", "origin", ref)
 
 
 async def test_enregistrer_et_lister_une_version(space: tuple[AsyncClient, str, str]) -> None:
@@ -237,7 +199,7 @@ async def test_version_libelle_invalide(space: tuple[AsyncClient, str, str]) -> 
 
 
 async def test_revenir_a_une_version(
-    space: tuple[AsyncClient, str, str], app: FastAPI
+    space: tuple[AsyncClient, str, str], app: FastAPI, tmp_path: Path
 ) -> None:
     client, space_id, url = space
     base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
@@ -245,12 +207,8 @@ async def test_revenir_a_une_version(
     await client.post(
         f"/api/spaces/{space_id}/branches/{branch_id}/versions", json={"label": "Première"}
     )
-    # La tête avance et est publiée, sinon « revenir » serait déjà courant.
-    await app.state.workdir_manager.commit_to_branch(
-        uuid.UUID(space_id), "principale", url, "x", None,
-        "Alice", "a@a", "change", _writer("v2"),
-    )
-    await app.state.workdir_manager.publish(uuid.UUID(space_id), "principale", url, "x", None)
+    # La tête avance sur la forge, sinon « revenir » serait déjà courant.
+    _push_commit(url, "work/principale", "v2", tmp_path)
 
     restore = await client.post(
         f"/api/spaces/{space_id}/branches/{branch_id}/versions/1/restore"
@@ -258,29 +216,26 @@ async def test_revenir_a_une_version(
     assert restore.status_code == 200, restore.text
     assert restore.json()["created"] is True
     assert restore.json()["already_current"] is False
-    # Le retour est un commit local, à publier.
-    pending = await client.get(f"/api/spaces/{space_id}/branches/{branch_id}/unpublished")
-    assert pending.json()["count"] == 1
+    # Le retour va dans le brouillon de la personne (rien n'est poussé).
+    draft = await client.get(f"/api/spaces/{space_id}/branches/{branch_id}/draft")
+    assert draft.json()["objects"] == [{"path": "sources/data.txt", "state": "deleted"}]
 
 
 async def test_railmap_lignes_gare_et_non_publie(
-    space: tuple[AsyncClient, str, str], app: FastAPI
+    space: tuple[AsyncClient, str, str], app: FastAPI, tmp_path: Path
 ) -> None:
     client, space_id, url = space
     base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
     base_id = base.json()["id"]
     await client.post(f"/api/spaces/{space_id}/branches/child", json={"label": "Feature A"})
-    # Une version sur la tête publiée de la base, puis un commit local non publié.
+    # Une version sur la tête publiée de la base, puis la tête avance.
     await client.post(
         f"/api/spaces/{space_id}/branches/{base_id}/versions", json={"label": "Première"}
     )
     await client.put(
         f"/api/spaces/{space_id}/branches/viewed", json={"branch_id": base_id}
     )
-    await app.state.workdir_manager.commit_to_branch(
-        uuid.UUID(space_id), "principale", url, "x", None,
-        "Alice", "a@a", "en cours", _writer("v1"),
-    )
+    _push_commit(url, "work/principale", "v1", tmp_path)
 
     response = await client.get(f"/api/spaces/{space_id}/railmap")
     assert response.status_code == 200, response.text
@@ -289,9 +244,9 @@ async def test_railmap_lignes_gare_et_non_publie(
     slugs = {ln["slug"] for ln in body["lines"]}
     assert {"principale", "feature-a"} <= slugs
     assert any(ln["kind"] == "root" for ln in body["lines"])
-    # Une gare (version 1) et un arrêt non publié.
+    # Une gare (version 1) ; plus jamais d'arrêt « non publié » (pas de commit local).
     assert any(n["kind"] == "version" and n["number"] == 1 for n in body["nodes"])
-    assert any(n["kind"] == "unpublished" for n in body["nodes"])
+    assert not any(n["kind"] == "unpublished" for n in body["nodes"])
 
 
 async def test_railmap_non_admin_refuse(

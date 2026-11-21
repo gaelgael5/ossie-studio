@@ -7,6 +7,7 @@ from pathlib import Path
 
 import structlog
 
+from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.models import GitSpace
 from ossie_studio.sources.manifest import (
     ManifestError,
@@ -15,7 +16,6 @@ from ossie_studio.sources.manifest import (
     parse_manifest,
 )
 from ossie_studio.sources.paths import MANIFEST_FILENAME, SOURCES_DIR, safe_source_path
-from ossie_studio.spaces.workdir import WorkdirManager
 
 log = structlog.get_logger(__name__)
 
@@ -99,7 +99,7 @@ def _remove_source_fn(slug: str) -> Callable[[Path], None]:
 
 
 async def list_sources(
-    workdir: WorkdirManager, space: GitSpace, branch_slug: str, username: str, token: str | None
+    workdir: DraftWorkdir, space: GitSpace, branch_slug: str, username: str, token: str | None
 ) -> list[SourceEntry]:
     return await workdir.read_branch(
         space.id, branch_slug, space.repo_url, username, token, read_sources_tree
@@ -107,7 +107,7 @@ async def list_sources(
 
 
 async def declare_source(
-    workdir: WorkdirManager,
+    workdir: DraftWorkdir,
     space: GitSpace,
     branch_slug: str,
     username: str,
@@ -131,7 +131,7 @@ async def declare_source(
 
 
 async def update_source(
-    workdir: WorkdirManager,
+    workdir: DraftWorkdir,
     space: GitSpace,
     branch_slug: str,
     username: str,
@@ -155,7 +155,7 @@ async def update_source(
 
 
 async def delete_source(
-    workdir: WorkdirManager,
+    workdir: DraftWorkdir,
     space: GitSpace,
     branch_slug: str,
     username: str,

@@ -8,13 +8,19 @@ from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import (
     SpacesBranch,
-    SpacesPublish,
     SpacesRead,
     SpacesVersion,
 )
 from ossie_studio.connections.service import db_get_connection, resolve_connection_token
 from ossie_studio.crypto import CryptoService
-from ossie_studio.deps import ConnDep, get_crypto, get_current_user, get_workdir_manager
+from ossie_studio.deps import (
+    ConnDep,
+    get_crypto,
+    get_current_user,
+    get_draft_workdir,
+    get_workdir_manager,
+)
+from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import GitSpace, SpaceBranch
@@ -38,6 +44,8 @@ router = APIRouter(prefix="/api/spaces/{space_id}/branches")
 
 CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 WorkdirDep = Annotated[WorkdirManager, Depends(get_workdir_manager)]
+# Copie vue par la personne connectée : le retour à une version va dans SON brouillon.
+DraftWorkdirDep = Annotated[DraftWorkdir, Depends(get_draft_workdir)]
 
 
 class LabelBody(BaseModel):
@@ -179,15 +187,6 @@ async def set_viewed(
     return {"ok": True}
 
 
-def _publish_error(exc: WorkdirError) -> ApiError:
-    # L'accès perdu est transitoire (503) ; une branche qui a changé sur la
-    # forge est un conflit (409) ; le reste est une panne git (502).
-    status = {"branch_not_found": 404, "branch_changed": 409, "repo_access_lost": 503}.get(
-        exc.code, 502
-    )
-    return ApiError(exc.code, status_code=status)
-
-
 async def _branch_in_space(
     conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID
 ) -> SpaceBranch:
@@ -195,50 +194,6 @@ async def _branch_in_space(
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
     return branch
-
-
-@router.get("/{branch_id}/unpublished")
-async def list_unpublished(
-    conn: ConnDep,
-    crypto: CryptoDep,
-    _: SpacesRead,
-    workdir: WorkdirDep,
-    space_id: uuid.UUID,
-    branch_id: uuid.UUID,
-) -> dict[str, object]:
-    branch = await _branch_in_space(conn, space_id, branch_id)
-    space, username, token = await space_credentials(conn, crypto, space_id)
-    try:
-        commits = await workdir.list_unpublished(
-            space_id, branch.slug, space.repo_url, username, token
-        )
-    except WorkdirError as exc:
-        raise _publish_error(exc) from None
-    return {
-        "commits": [
-            {"sha": c.sha, "author": c.author, "date": c.date, "message": c.message}
-            for c in commits
-        ],
-        "count": len(commits),
-    }
-
-
-@router.post("/{branch_id}/publish")
-async def publish(
-    conn: ConnDep,
-    crypto: CryptoDep,
-    _: SpacesPublish,
-    workdir: WorkdirDep,
-    space_id: uuid.UUID,
-    branch_id: uuid.UUID,
-) -> dict[str, int]:
-    branch = await _branch_in_space(conn, space_id, branch_id)
-    space, username, token = await space_credentials(conn, crypto, space_id)
-    try:
-        count = await workdir.publish(space_id, branch.slug, space.repo_url, username, token)
-    except WorkdirError as exc:
-        raise _publish_error(exc) from None
-    return {"published": count}
 
 
 def _version_error(exc: WorkdirError) -> ApiError:
@@ -335,7 +290,7 @@ async def restore_version(
     conn: ConnDep,
     crypto: CryptoDep,
     user: SpacesVersion,
-    workdir: WorkdirDep,
+    workdir: DraftWorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
     number: int,

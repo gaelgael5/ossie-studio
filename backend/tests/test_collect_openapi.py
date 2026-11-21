@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import subprocess
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 
 from ossie_studio.models import GitSpace
 from ossie_studio.sources.collect import SourceCollector
@@ -18,7 +18,7 @@ from ossie_studio.sources.contracts import (
 from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.sources.manifest import SourceManifest
 from ossie_studio.sources.service import declare_source
-from ossie_studio.spaces.workdir import WorkdirManager
+from tests.draft_helpers import DraftCollector, draft_workdir, view_dir
 
 CONTRACT_V1 = """
 openapi: 3.0.3
@@ -75,31 +75,21 @@ def _make_bare(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-def setup(tmp_path: Path) -> tuple[SourceCollector, GitSpace, Path]:
-    workdir = WorkdirManager(tmp_path / "work")
-    downloader = SourceDownloader(tmp_path / "volume")
-    collector = SourceCollector(workdir, downloader)
-    space = GitSpace(
-        id=uuid.uuid4(),
-        name="modele",
-        connection_id=uuid.uuid4(),
-        repo_url=_make_bare(tmp_path),
-        last_probe_status="valid",
-        last_probe_at=None,
-        created_at=datetime.now(UTC),
-    )
+async def setup(app: FastAPI, tmp_path: Path) -> tuple[DraftCollector, GitSpace, Path]:
+    manager, workdir, space = await draft_workdir(app, tmp_path, _make_bare(tmp_path))
+    collector = DraftCollector(SourceDownloader(tmp_path / "volume"), manager, workdir)
     return collector, space, tmp_path
 
 
 def _raw(tmp_path: Path, space: GitSpace) -> Path:
-    return tmp_path / "work" / str(space.id) / "principale" / "sources" / "api" / "raw"
+    return view_dir(tmp_path, space) / "sources" / "api" / "raw"
 
 
 async def _prepare_source(collector: SourceCollector, space: GitSpace) -> None:
     await collector._workdir.create_base_branch(space.id, "principale", space.repo_url, "x", None)
     manifest = SourceManifest(slug="api", label="API", type="openapi", connexion="", parametres={})
     await declare_source(
-        collector._workdir, space, "principale", "x", None, "a@a", "a@a", manifest
+        collector.dw, space, "principale", "x", None, "a@a", "a@a", manifest
     )
 
 
@@ -118,7 +108,7 @@ def _entry(version: str) -> ContractEntry:
 
 
 async def _commit(collector: SourceCollector, space: GitSpace, write_fn, msg: str) -> None:
-    await collector._workdir.commit_to_branch(
+    await collector.dw.commit_to_branch(
         space.id, "principale", space.repo_url, "x", None, "a@a", "a@a", msg, write_fn
     )
 
@@ -191,7 +181,7 @@ async def test_retrait_contrat_supprime_ses_schemas(
     await _commit(collector, space, remove_contract_fn("api", "v1"), "retire v1")
     assert not (raw / "v1-commande.json").exists()
     assert not (raw / "v1-ligne.json").exists()
-    contrats = tmp_path / "work" / str(space.id) / "principale" / "sources" / "api" / "contrats"
+    contrats = view_dir(tmp_path, space) / "sources" / "api" / "contrats"
     assert not (contrats / "v1.yaml").exists()
 
 

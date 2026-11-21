@@ -115,104 +115,6 @@ def _clone_file(tmp_path: Path, url: str, ref: str, relpath: str, name: str) -> 
     return (clone / relpath).read_text()
 
 
-async def test_commit_puis_publie(tmp_path: Path) -> None:
-    url = _seed_bare(tmp_path)
-    manager = WorkdirManager(tmp_path / "vol")
-    space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-
-    created = await manager.commit_to_branch(
-        space_id, "principale", url, "x", None,
-        "Alice", "alice@example.org", "ajoute data",
-        _write("sources/data.txt", "v1"),
-    )
-    assert created is not None
-
-    pending = await manager.list_unpublished(space_id, "principale", url, "x", None)
-    assert len(pending) == 1
-    assert pending[0].author == "Alice"
-    assert pending[0].message == "ossie: ajoute data"
-
-    count = await manager.publish(space_id, "principale", url, "x", None)
-    assert count == 1
-    # Publié : plus rien en attente, et le contenu est bien sur la forge.
-    assert await manager.list_unpublished(space_id, "principale", url, "x", None) == []
-    assert _clone_file(tmp_path, url, "work/principale", "sources/data.txt", "a") == "v1"
-
-
-async def test_commit_vide_jamais_de_commit(tmp_path: Path) -> None:
-    url = _seed_bare(tmp_path)
-    manager = WorkdirManager(tmp_path / "vol")
-    space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    # Une écriture qui ne change rien ne doit produire aucun commit.
-    created = await manager.commit_to_branch(
-        space_id, "principale", url, "x", None, "Alice", "a@a", "rien", lambda _wd: None
-    )
-    assert created is None
-    assert await manager.list_unpublished(space_id, "principale", url, "x", None) == []
-
-
-async def test_publish_rien_a_publier(tmp_path: Path) -> None:
-    url = _seed_bare(tmp_path)
-    manager = WorkdirManager(tmp_path / "vol")
-    space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    assert await manager.publish(space_id, "principale", url, "x", None) == 0
-
-
-async def test_realignement_si_rien_en_attente(tmp_path: Path) -> None:
-    url = _seed_bare(tmp_path)
-    manager = WorkdirManager(tmp_path / "vol")
-    space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    # La forge avance alors qu'aucun commit local n'est en attente : la copie
-    # se recale, et un nouveau commit se publie en fast-forward.
-    _advance_forge(tmp_path, url, "work/principale", "x")
-    created = await manager.commit_to_branch(
-        space_id, "principale", url, "x", None, "Alice", "a@a", "après forge",
-        _write("sources/data.txt", "v2"),
-    )
-    assert created is not None
-    assert await manager.publish(space_id, "principale", url, "x", None) == 1
-    assert _clone_file(tmp_path, url, "work/principale", "x.txt", "b") == "forge"
-
-
-async def test_garde_les_commits_en_attente_et_refuse_si_branche_avancee(
-    tmp_path: Path,
-) -> None:
-    url = _seed_bare(tmp_path)
-    manager = WorkdirManager(tmp_path / "vol")
-    space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    # Un commit local en attente, puis la forge avance de son côté.
-    await manager.commit_to_branch(
-        space_id, "principale", url, "x", None, "Alice", "a@a", "un",
-        _write("sources/data.txt", "v1"),
-    )
-    _advance_forge(tmp_path, url, "work/principale", "x")
-    # Un second commit : le premier ne doit pas être perdu par la réconciliation.
-    await manager.commit_to_branch(
-        space_id, "principale", url, "x", None, "Alice", "a@a", "deux",
-        _write("sources/data2.txt", "v2"),
-    )
-    pending = await manager.list_unpublished(space_id, "principale", url, "x", None)
-    assert [c.message for c in pending] == ["ossie: deux", "ossie: un"]
-    # La branche a avancé sur la forge : publication refusée, rien de perdu.
-    with pytest.raises(WorkdirError) as exc:
-        await manager.publish(space_id, "principale", url, "x", None)
-    assert exc.value.code == "branch_changed"
-    assert len(await manager.list_unpublished(space_id, "principale", url, "x", None)) == 2
-
-
-async def test_list_unpublished_branche_absente(tmp_path: Path) -> None:
-    url = _seed_bare(tmp_path)
-    manager = WorkdirManager(tmp_path / "vol")
-    with pytest.raises(WorkdirError) as exc:
-        await manager.list_unpublished(uuid.uuid4(), "absente", url, "x", None)
-    assert exc.value.code == "branch_not_found"
-
-
 def _push_tag(tmp_path: Path, url: str, tagname: str, annotated: bool, name: str) -> None:
     # Pose un tag « à la main » sur la tête de la racine, sur la forge.
     bare = url.removeprefix("file://")
@@ -245,19 +147,6 @@ async def test_tag_version_cree_un_tag_annote(tmp_path: Path) -> None:
     assert listed[0].number == 1
     assert listed[0].label == "Première"
     assert listed[0].author == "Alice"
-
-
-async def test_tag_version_publication_requise(tmp_path: Path) -> None:
-    url = _seed_bare(tmp_path)
-    manager = WorkdirManager(tmp_path / "vol")
-    space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    await manager.commit_to_branch(
-        space_id, "principale", url, "x", None, "Alice", "a@a", "un", _write("sources/d.txt", "v1")
-    )
-    with pytest.raises(WorkdirError) as exc:
-        await manager.tag_version(space_id, "principale", url, "x", None, "X", "Alice", "a@a")
-    assert exc.value.code == "publish_required"
 
 
 async def test_tag_version_rien_a_figer(tmp_path: Path) -> None:
@@ -308,11 +197,8 @@ async def test_tag_version_numero_pris_refuse(
     space_id = uuid.uuid4()
     await manager.create_base_branch(space_id, "principale", url, "x", None)
     await manager.tag_version(space_id, "principale", url, "x", None, "A", "Alice", "a@a")
-    # La tête avance et est publiée (sinon « rien à figer »).
-    await manager.commit_to_branch(
-        space_id, "principale", url, "x", None, "Alice", "a@a", "un", _write("sources/d.txt", "v1")
-    )
-    await manager.publish(space_id, "principale", url, "x", None)
+    # La tête avance sur la forge (sinon « rien à figer »).
+    _advance_forge(tmp_path, url, "work/principale", "x")
 
     async def _stale(*_args: object, **_kwargs: object) -> list[int]:
         return []  # vue périmée : le manager croit que le numéro 1 est libre
@@ -325,57 +211,29 @@ async def test_tag_version_numero_pris_refuse(
     assert "refs/tags/version/1" in _refs(url)
 
 
-async def test_restore_version_cree_un_commit(tmp_path: Path) -> None:
+
+
+async def test_copie_de_lecture_jette_les_commits_locaux_herites(tmp_path: Path) -> None:
+    # Transition depuis l'ancien modèle : une copie qui porte un commit local non
+    # publié est réalignée sur la forge (le commit est jeté, et journalisé).
     url = _seed_bare(tmp_path)
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
     await manager.create_base_branch(space_id, "principale", url, "x", None)
-    await manager.commit_to_branch(
-        space_id, "principale", url, "x", None, "Alice", "a@a", "un", _write("sources/d.txt", "v1")
+    copy = manager.copy_dir(space_id, "principale")
+    (copy / "local.txt").write_text("hérité")
+    _local_commit(copy)
+    _advance_forge(tmp_path, url, "work/principale", "x")
+    seen = await manager.read_branch(
+        space_id, "principale", url, "x", None, lambda wc: sorted(p.name for p in wc.iterdir())
     )
-    await manager.publish(space_id, "principale", url, "x", None)
-    await manager.tag_version(space_id, "principale", url, "x", None, "snap", "Alice", "a@a")
-    # La tête avance : le contenu change et est publié.
-    await manager.commit_to_branch(
-        space_id, "principale", url, "x", None, "Alice", "a@a", "deux",
-        _write("sources/d.txt", "v2"),
-    )
-    await manager.publish(space_id, "principale", url, "x", None)
-
-    restored = await manager.restore_version(
-        space_id, "principale", url, "x", None, 1, "Bob", "b@b"
-    )
-    assert restored.created is True
-    assert restored.already_current is False
-    pending = await manager.list_unpublished(space_id, "principale", url, "x", None)
-    assert len(pending) == 1
-    assert "Retour à la version 1" in pending[0].message
-    await manager.publish(space_id, "principale", url, "x", None)
-    assert _clone_file(tmp_path, url, "work/principale", "sources/d.txt", "r") == "v1"
+    assert "local.txt" not in seen
+    assert "x.txt" in seen  # la tête distante est bien là
 
 
-async def test_restore_version_deja_courante(tmp_path: Path) -> None:
-    url = _seed_bare(tmp_path)
-    manager = WorkdirManager(tmp_path / "vol")
-    space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    await manager.commit_to_branch(
-        space_id, "principale", url, "x", None, "Alice", "a@a", "un", _write("sources/d.txt", "v1")
-    )
-    await manager.publish(space_id, "principale", url, "x", None)
-    await manager.tag_version(space_id, "principale", url, "x", None, "snap", "Alice", "a@a")
-    restored = await manager.restore_version(
-        space_id, "principale", url, "x", None, 1, "Bob", "b@b"
-    )
-    assert restored.already_current is True
-    assert restored.created is False
-
-
-async def test_restore_version_introuvable(tmp_path: Path) -> None:
-    url = _seed_bare(tmp_path)
-    manager = WorkdirManager(tmp_path / "vol")
-    space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    with pytest.raises(WorkdirError) as exc:
-        await manager.restore_version(space_id, "principale", url, "x", None, 99, "Bob", "b@b")
-    assert exc.value.code == "version_not_found"
+def _local_commit(copy: Path) -> None:
+    for args in (
+        ["add", "-A"],
+        ["-c", "user.email=a@a", "-c", "user.name=a", "commit", "-q", "-m", "hérité"],
+    ):
+        subprocess.run(["git", "-C", str(copy), *args], check=True, capture_output=True)
