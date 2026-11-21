@@ -109,6 +109,7 @@ export const fr = {
     colStatus: 'État',
     colLastCheck: 'Dernière vérification',
     statusValid: 'valide',
+    statusNeverTested: 'jamais testé',
     statusError: 'en erreur',
     neverChecked: 'jamais',
     test: 'Tester',

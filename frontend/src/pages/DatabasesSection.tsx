@@ -5,6 +5,7 @@ import { api } from '../apiClient'
 import type { DbEngineSpec } from '../apiClient'
 import { errorMessages } from '../errors'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { ConnectionStatus } from '../components/ConnectionStatus'
 import { ErrorList } from '../components/ErrorList'
 
 function engineName(t: (k: string) => string, e: string): string {
@@ -331,13 +332,7 @@ export function DatabasesSection() {
                   <td>{c.identity}</td>
                   <td>{c.server_version}</td>
                   <td>
-                    {c.last_status === 'valid' ? (
-                      <span className="text-ok">{t('statusValid')}</span>
-                    ) : (
-                      <span className="text-danger">
-                        {t(`errors.${c.last_error_code}`, { defaultValue: t('statusError') })}
-                      </span>
-                    )}
+                    <ConnectionStatus status={c.last_status} errorCode={c.last_error_code} />
                   </td>
                   <td>{formatDate(c.last_checked_at)}</td>
                   <td>

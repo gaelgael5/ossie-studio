@@ -29,7 +29,11 @@ from ossie_studio.secretstore.service import (
     db_replace_secret_value,
     db_update_secret_label,
 )
-from ossie_studio.secretstore.usages import db_count_secret_usages, db_list_secret_usages
+from ossie_studio.secretstore.usages import (
+    db_count_secret_usages,
+    db_list_secret_usages,
+    db_reset_status_for_secret,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -140,10 +144,14 @@ async def replace_value(
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
     try:
-        secret = await db_replace_secret_value(conn, slug, crypto.encrypt(SecretValue(body.value)))
+        async with conn.transaction():
+            secret = await db_replace_secret_value(
+                conn, slug, crypto.encrypt(SecretValue(body.value))
+            )
+            reset = await db_reset_status_for_secret(conn, slug)
     except SecretNotFoundError:
         raise ApiError("secret_not_found", status_code=404, slug=slug) from None
-    log.info("secret_value_replaced", slug=slug)
+    log.info("secret_value_replaced", slug=slug, usages_reset=reset)
     return _payload(secret)
 
 

@@ -108,6 +108,7 @@ export const en = {
     colStatus: 'Status',
     colLastCheck: 'Last check',
     statusValid: 'valid',
+    statusNeverTested: 'never tested',
     statusError: 'error',
     neverChecked: 'never',
     test: 'Test',

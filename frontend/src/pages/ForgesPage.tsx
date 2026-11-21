@@ -7,6 +7,7 @@ import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { ConnectionStatus } from '../components/ConnectionStatus'
 import { DatabasesSection } from './DatabasesSection'
 
 function forgeName(t: (k: string) => string, f: string): string {
@@ -373,13 +374,7 @@ export function ForgesPage() {
                     </td>
                     <td>{c.identity}</td>
                     <td>
-                      {c.last_status === 'valid' ? (
-                        <span className="text-ok">{t('statusValid')}</span>
-                      ) : (
-                        <span className="text-danger">
-                          {t(`errors.${c.last_error_code}`, { defaultValue: t('statusError') })}
-                        </span>
-                      )}
+                      <ConnectionStatus status={c.last_status} errorCode={c.last_error_code} />
                     </td>
                     <td>{formatDate(c.last_checked_at)}</td>
                     <td>

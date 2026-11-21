@@ -30,6 +30,30 @@ SECRET_USAGES: tuple[SecretUsage, ...] = (
     SecretUsage("db_connections", "secret_slug", "db_connection", "label"),
 )
 
+# État que prend un usager éprouvé quand la valeur de son secret change : le
+# nouveau secret n'a jamais été testé, afficher « valide » serait mentir.
+NEVER_TESTED = "never_tested"
+
+# Usagers qui portent un état de test (last_status / last_checked_at /
+# last_error_code). Les connecteurs OIDC n'en ont pas.
+TESTED_USAGES: tuple[str, ...] = ("connections", "db_connections")
+
+
+async def db_reset_status_for_secret(conn: asyncpg.Connection, secret_slug: str) -> int:
+    """Remet à « jamais testé » tout usager éprouvé qui désigne ce secret ; rend
+    le nombre de lignes touchées. À appeler dans la transaction qui change la
+    valeur, pour qu'aucun lecteur ne voie la nouvelle valeur avec l'ancien état."""
+    touched = 0
+    for table in TESTED_USAGES:
+        result: str = await conn.execute(
+            f"UPDATE {table} SET last_status = $2, last_checked_at = NULL, "  # noqa: S608
+            "last_error_code = NULL WHERE secret_slug = $1",
+            secret_slug,
+            NEVER_TESTED,
+        )
+        touched += int(result.split()[-1])
+    return touched
+
 
 async def db_count_secret_usages(
     conn: asyncpg.Connection,

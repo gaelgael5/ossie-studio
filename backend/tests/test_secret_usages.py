@@ -143,3 +143,62 @@ async def test_api_oidc_est_une_categorie_connue(admin: AsyncClient) -> None:
     payload = (await admin.get("/api/secrets")).json()
     assert "oidc" in payload["categories"]
     assert payload["category_inputs"]["oidc"] == "masked"
+
+
+# --- Changer la valeur d'un secret remet ses connexions à « jamais testé » -------
+
+
+async def _db_connection(app: FastAPI, secret_slug: str, label: str) -> None:
+    async with app.state.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO db_connections (label, slug, engine, target, params, secret_slug, "
+            "identity, server_version, last_status, last_checked_at) "
+            "VALUES ($1, $1, 'postgres', 'h', '{}'::jsonb, $2, 'moi', '16', 'valid', now())",
+            label,
+            secret_slug,
+        )
+
+
+async def _states(app: FastAPI) -> set[tuple[str, str, bool]]:
+    async with app.state.pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT 'forge' AS kind, last_status, last_checked_at IS NULL AS unchecked "
+            "FROM connections UNION ALL "
+            "SELECT 'base', last_status, last_checked_at IS NULL FROM db_connections"
+        )
+    return {(r["kind"], r["last_status"], r["unchecked"]) for r in rows}
+
+
+async def test_changer_la_valeur_remet_les_connexions_a_jamais_teste(
+    client: AsyncClient, app: FastAPI
+) -> None:
+    await bootstrap_admin(client)
+    await _secret(app, "s-tourne")
+    await _connection(app, "s-tourne", "Forge")
+    await _db_connection(app, "s-tourne", "Base")
+    response = await client.put("/api/secrets/s-tourne/value", json={"value": "nouvelle"})
+    assert response.status_code == 200, response.text
+    assert await _states(app) == {("forge", "never_tested", True), ("base", "never_tested", True)}
+
+
+async def test_changer_le_libelle_ne_touche_pas_l_etat(client: AsyncClient, app: FastAPI) -> None:
+    await bootstrap_admin(client)
+    await _secret(app, "s-libelle")
+    await _connection(app, "s-libelle", "Forge")
+    response = await client.put("/api/secrets/s-libelle/label", json={"label": "Autre"})
+    assert response.status_code == 200, response.text
+    async with app.state.pool.acquire() as conn:
+        assert await conn.fetchval("SELECT last_status FROM connections") == "valid"
+
+
+async def test_secret_inutilise_sans_effet_sur_les_autres(
+    client: AsyncClient, app: FastAPI
+) -> None:
+    await bootstrap_admin(client)
+    await _secret(app, "s-seul")
+    await _secret(app, "s-autre")
+    await _connection(app, "s-autre", "Forge")
+    response = await client.put("/api/secrets/s-seul/value", json={"value": "x"})
+    assert response.status_code == 200, response.text
+    async with app.state.pool.acquire() as conn:
+        assert await conn.fetchval("SELECT last_status FROM connections") == "valid"
