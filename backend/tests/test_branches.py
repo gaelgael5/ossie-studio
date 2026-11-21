@@ -218,7 +218,9 @@ async def test_revenir_a_une_version(
     assert restore.json()["already_current"] is False
     # Le retour va dans le brouillon de la personne (rien n'est poussé).
     draft = await client.get(f"/api/spaces/{space_id}/branches/{branch_id}/draft")
-    assert draft.json()["objects"] == [{"path": "sources/data.txt", "state": "deleted"}]
+    assert draft.json()["objects"] == [
+        {"path": "sources/data.txt", "state": "deleted", "changed_upstream": False}
+    ]
 
 
 async def test_railmap_lignes_gare_et_non_publie(

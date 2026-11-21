@@ -112,4 +112,5 @@ async def get_draft_workdir(request: Request) -> DraftWorkdir:
         request.app.state.pool,
         user.id,
         branch_id,
+        published_only=request.query_params.get("view") == "published",
     )

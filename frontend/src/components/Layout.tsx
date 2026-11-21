@@ -6,6 +6,7 @@ import { api, sessionCapabilities } from '../apiClient'
 import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
 import { useWorkspace } from '../workspace'
+import { DraftBar } from './DraftBar'
 import { Brand } from './Brand'
 
 /** Un item du menu principal. `to` absent = module pas encore construit. */
@@ -59,9 +60,18 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <AppNav userEmail={user.email} can={can} />
-      <div className="page">{children}</div>
+      <div className="page">
+        <BranchDraftBar />
+        {children}
+      </div>
     </div>
   )
+}
+
+function BranchDraftBar() {
+  const ws = useWorkspace()
+  if (!ws.spaceId || !ws.branchId) return null
+  return <DraftBar spaceId={ws.spaceId} branchId={ws.branchId} />
 }
 
 function WorkspaceChips() {

@@ -212,6 +212,13 @@ export const en = {
     viewedBranchLabel: 'Viewed branch',
     noBranches: 'No working branch.',
     noBase: 'No base branch: create it first.',
+    draftBarLabel: 'My draft on this branch',
+    draftViewLabel: 'Branch view',
+    draftView_merged: 'Merged',
+    draftView_published: 'Published',
+    draftView_draft: 'Draft',
+    draftChangedUpstream: '{{count}} object(s) changed on the published side since your draft.',
+    draftObjectChanged: 'changed on the published side',
     draftTitle: 'My draft',
     draftIntro:
       'Your changes on this branch, not yet published. Only you see them; they will go out as one commit, under your name.',

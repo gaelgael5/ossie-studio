@@ -213,6 +213,13 @@ export const fr = {
     viewedBranchLabel: 'Branche regardée',
     noBranches: 'Aucune branche de travail.',
     noBase: "Aucune branche de base : créez-la d'abord.",
+    draftBarLabel: 'Mon brouillon sur cette branche',
+    draftViewLabel: 'Vue de la branche',
+    draftView_merged: 'Fusionnée',
+    draftView_published: 'Publiée',
+    draftView_draft: 'Brouillon',
+    draftChangedUpstream: '{{count}} objet(s) ont changé côté publié depuis votre brouillon.',
+    draftObjectChanged: 'a changé côté publié',
     draftTitle: 'Mon brouillon',
     draftIntro:
       'Vos modifications sur cette branche, pas encore publiées. Vous seul les voyez ; elles partiront en un commit, sous votre nom.',

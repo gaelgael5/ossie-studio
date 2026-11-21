@@ -54,12 +54,17 @@ class DraftWorkdir:
         pool: asyncpg.Pool,
         user_id: uuid.UUID,
         branch_id: uuid.UUID,
+        *,
+        published_only: bool = False,
     ) -> None:
         self._manager = manager
         self._views = views
         self._pool = pool
         self.user_id = user_id
         self.branch_id = branch_id
+        # Vue « publiée » demandée par l'écran (?view=published) : les lectures
+        # ignorent le brouillon. Les écritures, elles, vont toujours au brouillon.
+        self.published_only = published_only
 
     async def _state(self) -> DraftState:
         async with self._pool.acquire() as conn:
@@ -119,7 +124,7 @@ class DraftWorkdir:
     ) -> _T:
         """Lit la branche telle que la voit l'utilisateur (avec son brouillon),
         ou telle qu'elle est publiée (`published=True`, ou pas de brouillon)."""
-        if published or not await self.has_draft():
+        if published or self.published_only or not await self.has_draft():
             return await self._manager.read_branch(
                 space_id, slug, repo_url, username, token, read_fn
             )
@@ -149,7 +154,7 @@ class DraftWorkdir:
         base_sha_fn: Callable[[Path], str | None],
         tree_fn: Callable[[Path], _T],
     ) -> tuple[str, str | None, dict[str, str], _T]:
-        if not await self.has_draft():
+        if self.published_only or not await self.has_draft():
             return await self._manager.review_inputs(
                 space_id, slug, repo_url, username, token, raw_rel, base_sha_fn, tree_fn
             )
@@ -173,6 +178,31 @@ class DraftWorkdir:
             load=self._state,
             fn=fn,
         )
+
+    async def published_blobs(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        paths: list[str],
+    ) -> dict[str, str]:
+        """Blob actuel de chaque chemin à la tête publiée (absent = n'y existe pas)."""
+        if not paths:
+            return {}
+        async with self._manager.read_copy(space_id, slug, repo_url, username, token) as (
+            copy,
+            env,
+            _head,
+        ):
+            code, out, _ = await run_git(["ls-tree", "-r", "-z", "HEAD", "--", *paths], copy, env)
+        blobs: dict[str, str] = {}
+        for line in out.split("\0") if code == 0 else []:
+            if line:
+                meta, path = line.split("\t", 1)
+                blobs[path] = meta.split()[2]
+        return blobs
 
     async def file_history(
         self,

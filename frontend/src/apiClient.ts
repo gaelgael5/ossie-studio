@@ -1,7 +1,8 @@
 import { ApiRequestError, type ApiErrorBody } from './errors'
+import { withDraftView } from './draftView'
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(withDraftView(path, init?.method), {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })
@@ -80,6 +81,14 @@ export interface PersonalCredential {
 export interface DraftObjectItem {
   path: string
   state: 'created' | 'modified' | 'deleted'
+  changed_upstream: boolean
+}
+
+export interface DraftSummary {
+  count: number
+  revision: number
+  changed_upstream_count: number
+  objects: DraftObjectItem[]
 }
 
 export interface SpaceTeam {
@@ -803,9 +812,7 @@ export const api = {
       { method: 'PUT', body: JSON.stringify({ value }) },
     ),
   myDraft: (spaceId: string, branchId: string) =>
-    apiFetch<{ count: number; revision: number; objects: DraftObjectItem[] }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/draft`,
-    ),
+    apiFetch<DraftSummary>(`/api/spaces/${spaceId}/branches/${branchId}/draft`),
   listVersions: (spaceId: string, branchId: string) =>
     apiFetch<{
       versions: { number: number; label: string; commit: string; author: string; date: string }[]
