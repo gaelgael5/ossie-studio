@@ -141,3 +141,38 @@ async def test_objet_hors_brouillon_404(app: FastAPI, sp: ApiSpace) -> None:
     await _draft_write(app, sp, OBJ, {"a": 2})
     response = await sp.client.get(f"{sp.base}/draft/merge", params={"path": "autre.json"})
     assert response.status_code == 404
+
+
+# --- Impacts (même fixture d'espace) -------------------------------------------
+
+RAW = "sources/s/raw/User.json"
+ASSET = "sources/s/assets/User.json"
+
+
+async def test_impacts_puis_verifie(app: FastAPI, sp: ApiSpace) -> None:
+    forge_edit(sp, {RAW: json.dumps({"title": "User"}), ASSET: json.dumps({"title": "User"})})
+    await _draft_write(app, sp, RAW, {"title": "User", "v": 2})
+    impacts = (await sp.client.get(f"{sp.base}/draft/impacts")).json()
+    assert impacts == {
+        "impacts": [{"path": ASSET, "reads": [RAW], "rules": ["raw_asset"], "verified": False}],
+        "pending": 1,
+    }
+    ok = await sp.client.post(f"{sp.base}/draft/impacts/verify", json={"path": ASSET})
+    assert ok.status_code == 200, ok.text
+    assert (await sp.client.get(f"{sp.base}/draft/impacts")).json()["pending"] == 0
+    # L'objet lu change encore : la vérification tombe.
+    await _draft_write(app, sp, RAW, {"title": "User", "v": 3})
+    assert (await sp.client.get(f"{sp.base}/draft/impacts")).json()["pending"] == 1
+
+
+async def test_corriger_l_impact_le_fait_entrer_au_brouillon(app: FastAPI, sp: ApiSpace) -> None:
+    forge_edit(sp, {RAW: json.dumps({"title": "User"}), ASSET: json.dumps({"title": "User"})})
+    await _draft_write(app, sp, RAW, {"title": "User", "v": 2})
+    await _draft_write(app, sp, ASSET, {"title": "User", "corrige": True})
+    assert (await sp.client.get(f"{sp.base}/draft/impacts")).json() == {"impacts": [], "pending": 0}
+
+
+async def test_verifier_un_impact_inconnu_404(app: FastAPI, sp: ApiSpace) -> None:
+    await _draft_write(app, sp, RAW, {"title": "User"})
+    response = await sp.client.post(f"{sp.base}/draft/impacts/verify", json={"path": "x.json"})
+    assert response.status_code == 404

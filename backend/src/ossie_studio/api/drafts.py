@@ -15,6 +15,7 @@ from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import SpacesRead
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
+from ossie_studio.drafts.impacts import Impact, compute_impacts, fingerprint
 from ossie_studio.drafts.merge import (
     MISSING,
     Conflict,
@@ -28,9 +29,11 @@ from ossie_studio.drafts.merge import (
 from ossie_studio.drafts.store import (
     Draft,
     DraftObject,
+    db_decisions,
     db_get_draft,
     db_list_objects,
     db_rebase_object,
+    db_set_decision,
 )
 from ossie_studio.drafts.workdir import DraftWorkdir, ObjectVersions
 from ossie_studio.errors import ApiError
@@ -306,3 +309,81 @@ async def post_automerge(
         else:
             conflicts.append(obj.path)
     return {"merged": merged_paths, "conflicts": conflicts}
+
+
+# --- Impacts -----------------------------------------------------------------
+
+
+class VerifyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str
+
+
+async def draft_impacts(
+    conn: ConnDep,
+    crypto: CryptoService,
+    workdir: DraftWorkdir,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> tuple[Draft | None, list[DraftObject], list[Impact]]:
+    """Impacts du brouillon de la personne (vide sans brouillon). Réutilisé par la
+    publication pour refuser tant qu'un impact n'est pas traité."""
+    draft = await db_get_draft(conn, workdir.user_id, branch_id)
+    if draft is None or draft.space_id != space_id:
+        return None, [], []
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    objects = await db_list_objects(conn, draft.id)
+    verified = await db_decisions(conn, draft.id, "impact_verified")
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        impacts = await workdir.read_branch(
+            space_id,
+            branch.slug,
+            space.repo_url,
+            username,
+            token,
+            lambda view: compute_impacts(view, objects, verified),
+        )
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    return draft, objects, impacts
+
+
+@router.get("/impacts")
+async def get_impacts(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: SpacesRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    _draft, _objects, impacts = await draft_impacts(conn, crypto, workdir, space_id, branch_id)
+    return {
+        "impacts": [i.payload() for i in impacts],
+        "pending": sum(1 for i in impacts if not i.verified),
+    }
+
+
+@router.post("/impacts/verify")
+async def verify_impact(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: SpacesRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: VerifyBody,
+) -> dict[str, object]:
+    """« Vérifié, rien à corriger » : la décision vaut tant que les objets lus ne
+    changent plus ; elle partira dans le message du commit."""
+    draft, objects, impacts = await draft_impacts(conn, crypto, workdir, space_id, branch_id)
+    impact = next((i for i in impacts if i.path == body.path), None)
+    if draft is None or impact is None:
+        raise ApiError("impact_not_found", status_code=404, path=body.path)
+    await db_set_decision(
+        conn, draft.id, "impact_verified", body.path, fingerprint(impact.reads, objects)
+    )
+    return {"path": body.path, "verified": True}

@@ -109,6 +109,13 @@ export interface MergeView {
 
 export type MergeChoice = 'theirs' | 'mine' | { value: unknown }
 
+export interface ImpactItem {
+  path: string
+  reads: string[]
+  rules: string[]
+  verified: boolean
+}
+
 export interface DraftSummary {
   count: number
   revision: number
@@ -853,6 +860,15 @@ export const api = {
     apiFetch<{ merged: string[]; conflicts: string[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/draft/automerge`,
       { method: 'POST' },
+    ),
+  draftImpacts: (spaceId: string, branchId: string) =>
+    apiFetch<{ impacts: ImpactItem[]; pending: number }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/draft/impacts`,
+    ),
+  verifyImpact: (spaceId: string, branchId: string, path: string) =>
+    apiFetch<{ path: string; verified: boolean }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/draft/impacts/verify`,
+      { method: 'POST', body: JSON.stringify({ path }) },
     ),
   myDraft: (spaceId: string, branchId: string) =>
     apiFetch<DraftSummary>(`/api/spaces/${spaceId}/branches/${branchId}/draft`),

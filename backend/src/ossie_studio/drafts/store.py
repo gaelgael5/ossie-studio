@@ -224,3 +224,27 @@ async def db_rebase_object(
 
 async def db_delete_draft(conn: asyncpg.Connection, draft_id: uuid.UUID) -> None:
     await conn.execute("DELETE FROM drafts WHERE id = $1", draft_id)
+
+
+async def db_decisions(conn: asyncpg.Connection, draft_id: uuid.UUID, kind: str) -> dict[str, str]:
+    """Décisions d'un type sur le brouillon : clé → empreinte au moment de la décision."""
+    rows = await conn.fetch(
+        "SELECT key, fingerprint FROM draft_decisions WHERE draft_id = $1 AND kind = $2",
+        draft_id,
+        kind,
+    )
+    return {r["key"]: r["fingerprint"] for r in rows}
+
+
+async def db_set_decision(
+    conn: asyncpg.Connection, draft_id: uuid.UUID, kind: str, key: str, fingerprint: str
+) -> None:
+    await conn.execute(
+        "INSERT INTO draft_decisions (draft_id, kind, key, fingerprint) VALUES ($1, $2, $3, $4) "
+        "ON CONFLICT (draft_id, kind, key) DO UPDATE SET fingerprint = EXCLUDED.fingerprint, "
+        "created_at = now()",
+        draft_id,
+        kind,
+        key,
+        fingerprint,
+    )
