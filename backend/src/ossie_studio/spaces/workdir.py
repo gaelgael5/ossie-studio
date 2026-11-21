@@ -86,6 +86,26 @@ class VersionRestored:
     created: bool
 
 
+@dataclass(frozen=True)
+class PublishObject:
+    """Un objet à publier : chemin, empreinte de sa base (None = créé), contenu
+    (None = supprimé)."""
+
+    path: str
+    base_blob: str | None
+    content: bytes | None
+
+
+def _write_objects(root: Path, objects: list[PublishObject]) -> None:
+    for obj in objects:
+        target = root / obj.path
+        if obj.content is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(obj.content)
+
+
 def _access_code(cause: str) -> str:
     # Les causes d'accès (identifiants, dépôt injoignable) désignent l'accès ;
     # les autres restent une erreur git générique.
@@ -239,6 +259,107 @@ class WorkdirManager:
 
     def env_for(self, username: str, token: str | None) -> dict[str, str]:
         return self._env(username, token)
+
+    async def push_objects(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        read_username: str,
+        read_token: str | None,
+        push_username: str,
+        push_token: str,
+        objects: list[PublishObject],
+        author_name: str,
+        author_email: str,
+        message: str,
+        max_attempts: int = 3,
+    ) -> str:
+        """Publie des objets en UN commit sur la tête de la branche, poussé avec
+        le jeton de la personne (jamais celui de l'espace), sans force. Le commit
+        se construit dans un worktree temporaire, supprimé quoi qu'il arrive.
+        Push refusé (la branche a bougé hors de l'application) : si aucun des
+        objets publiés n'a bougé (empreintes de base), on reconstruit sur la
+        nouvelle tête et on repousse ; sinon `branch_changed_conflict`.
+        Rend le sha du commit publié."""
+        ref = f"{WORK_PREFIX}{slug}"
+        copy = self._dir(space_id, slug)
+        async with self._lock(str(copy)):
+            read_env = self._env(read_username, read_token)
+            push_env = {
+                **self._env(push_username, push_token),
+                "GIT_AUTHOR_NAME": author_name,
+                "GIT_AUTHOR_EMAIL": author_email,
+                "GIT_COMMITTER_NAME": author_name,
+                "GIT_COMMITTER_EMAIL": author_email,
+            }
+            for attempt in range(1, max_attempts + 1):
+                await self._clone_or_refresh(copy, repo_url, read_env)
+                if not await self._remote_branch_exists(copy, ref, read_env):
+                    raise WorkdirError("branch_not_found")
+                head = await self._sha(copy, f"refs/remotes/origin/{ref}", read_env) or ""
+                if await self._objects_moved(copy, head, objects, read_env):
+                    raise WorkdirError("branch_changed_conflict")
+                sha, pushed, err = await self._commit_and_push(
+                    copy, head, ref, objects, message, push_env
+                )
+                if pushed:
+                    await self._checkout_branch(copy, ref, read_env)
+                    log.info("draft_published", space_id=str(space_id), ref=ref, attempt=attempt)
+                    return sha
+                low = err.lower()
+                if "non-fast-forward" not in low and "fetch first" not in low:
+                    cause = classify(err)
+                    if cause in ("auth_failed", "write_denied", "branch_protected"):
+                        # Le jeton de la personne est refusé (révoqué, sans droit) :
+                        # brouillon intact, à corriger dans « Saisir le secret ».
+                        raise WorkdirError("publish_credential_rejected")
+                    raise WorkdirError(_access_code(cause))
+                log.info("publish_retry_after_remote_move", ref=ref, attempt=attempt)
+            raise WorkdirError("branch_changed_conflict")
+
+    async def _objects_moved(
+        self, copy: Path, head: str, objects: list[PublishObject], env: dict[str, str]
+    ) -> bool:
+        paths = [o.path for o in objects]
+        code, out, _ = await run_git(["ls-tree", "-r", "-z", head, "--", *paths], copy, env)
+        current: dict[str, str] = {}
+        for line in out.split("\0") if code == 0 else []:
+            if line:
+                meta, path = line.split("\t", 1)
+                current[path] = meta.split()[2]
+        return any(current.get(o.path) != o.base_blob for o in objects)
+
+    async def _commit_and_push(
+        self,
+        copy: Path,
+        head: str,
+        ref: str,
+        objects: list[PublishObject],
+        message: str,
+        env: dict[str, str],
+    ) -> tuple[str, bool, str]:
+        tmp = copy.parent / f"{copy.name}.publish-{uuid.uuid4().hex[:8]}"
+        await run_git(["worktree", "prune"], copy, env)
+        code, _, err = await run_git(
+            ["worktree", "add", "-q", "--detach", str(tmp), head], copy, env
+        )
+        if code != 0:
+            raise WorkdirError("git_failed")
+        try:
+            _write_objects(tmp, objects)
+            await run_git(["add", "-A"], tmp, env)
+            code, _, err = await run_git(["commit", "-q", "-m", message], tmp, env)
+            if code != 0:
+                raise WorkdirError("git_failed")
+            sha = await self._sha(tmp, "HEAD", env) or ""
+            code, _, err = await run_git(
+                ["push", "-q", "origin", f"HEAD:refs/heads/{ref}"], tmp, env
+            )
+            return sha, code == 0, err
+        finally:
+            await run_git(["worktree", "remove", "--force", str(tmp)], copy, env)
+            await run_git(["worktree", "prune"], copy, env)
 
     async def tree_text(
         self, workdir: Path, sha: str, rel: str, env: dict[str, str]

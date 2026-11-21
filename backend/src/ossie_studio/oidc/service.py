@@ -102,7 +102,25 @@ async def resolve_federated_login(
         return LinkDecision(LinkOutcome.CREATED_NEW, new_id)
     if decision.outcome is LinkOutcome.LINKED_EXISTING and decision.user_id is not None:
         await db_touch_login(conn, decision.user_id)
+        await _db_refresh_display_name(conn, decision.user_id, claims)
     return decision
+
+
+async def _db_refresh_display_name(
+    conn: asyncpg.Connection, user_id: uuid.UUID, claims: VerifiedClaims
+) -> None:
+    """Le nom affiché suit l'annuaire à chaque connexion : c'est lui qui signe
+    les commits publiés. Un claim absent ne l'efface pas."""
+    name = (claims.name or "").strip()
+    if not name:
+        return
+    await conn.execute(
+        "UPDATE users SET display_name = $2, search_key = $3 "
+        "WHERE id = $1 AND display_name IS DISTINCT FROM $2",
+        user_id,
+        name,
+        search_key(name, claims.email or ""),
+    )
 
 
 async def _db_pin_identity(

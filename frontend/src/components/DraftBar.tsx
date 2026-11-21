@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import { readDraftView, writeDraftView, type DraftViewMode } from '../draftView'
 import { ImpactsSection } from './ImpactsSection'
@@ -43,6 +44,9 @@ export function DraftBar({ spaceId, branchId }: { spaceId: string; branchId: str
             </label>
           ))}
         </div>
+        <Link to={`/spaces/${spaceId}/branches/${branchId}/publish`} className="btn btn-sm btn-primary">
+          {t('draftPublishLink')}
+        </Link>
         {data.changed_upstream_count > 0 ? (
           <span className="text-warn">{t('draftChangedUpstream', { count: data.changed_upstream_count })}</span>
         ) : null}

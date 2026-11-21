@@ -116,6 +116,10 @@ ERROR_CODES: tuple[str, ...] = (
     "merge_unresolved",
     "impact_not_found",
     "warning_not_found",
+    "publish_in_progress",
+    "publish_not_ready",
+    "branch_changed_conflict",
+    "publish_credential_rejected",
 )
 
 

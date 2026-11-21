@@ -3,6 +3,7 @@ connexion GitHub (fausse forge), dépôt nu local, branche de base créée."""
 
 from __future__ import annotations
 
+import json
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from pathlib import Path
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from ossie_studio.crypto import SecretValue
+from ossie_studio.drafts.workdir import DraftWorkdir
 from tests.conftest import bootstrap_admin, wire_fake_idp
 from tests.fake_forge import GOOD_TOKEN, fake_github_app
 
@@ -104,3 +107,58 @@ async def make_api_space(client: AsyncClient, app: FastAPI, tmp: Path) -> ApiSpa
     base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
     assert base.status_code == 201, base.text
     return ApiSpace(client, str(space_id), base.json()["id"], url, tmp)
+
+
+async def admin_workdir(app: FastAPI, space: ApiSpace) -> DraftWorkdir:
+    async with app.state.pool.acquire() as conn:
+        admin_id = await conn.fetchval("SELECT id FROM users WHERE is_bootstrap")
+    return DraftWorkdir(
+        app.state.workdir_manager,
+        app.state.draft_views,
+        app.state.pool,
+        admin_id,
+        uuid.UUID(space.branch_id),
+    )
+
+
+async def draft_write(app: FastAPI, space: ApiSpace, rel: str, value: object | None) -> None:
+    """Écrit (ou supprime, None) un objet JSON dans le brouillon de l'administrateur."""
+    workdir = await admin_workdir(app, space)
+
+    def write(root: Path) -> None:
+        target = root / rel
+        if value is None:
+            target.unlink()
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(value))
+
+    await workdir.commit_to_branch(
+        uuid.UUID(space.space_id), "principale", space.url, "x", None, "a", "a", "écrit", write
+    )
+
+
+async def set_credential(
+    app: FastAPI, space: ApiSpace, status: str = "valide", email: str | None = None
+) -> None:
+    """Identifiant personnel de l'administrateur (ou de `email`) dans l'état voulu."""
+    async with app.state.pool.acquire() as conn:
+        user_id = await conn.fetchval(
+            "SELECT id FROM users WHERE is_bootstrap"
+            if email is None
+            else "SELECT id FROM users WHERE email = $1",
+            *([] if email is None else [email]),
+        )
+        connection_id = await conn.fetchval(
+            "SELECT connection_id FROM git_spaces WHERE id = $1", uuid.UUID(space.space_id)
+        )
+        value = None if status == "a_saisir" else app.state.crypto.encrypt(SecretValue(GOOD_TOKEN))
+        await conn.execute(
+            "INSERT INTO personal_credentials (user_id, connection_id, value_encrypted, status) "
+            "VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, connection_id) DO UPDATE SET "
+            "value_encrypted = EXCLUDED.value_encrypted, status = EXCLUDED.status",
+            user_id,
+            connection_id,
+            value,
+            status,
+        )

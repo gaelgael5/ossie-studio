@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import { DraftBar } from './DraftBar'
 import { withDraftView } from '../draftView'
 
@@ -16,7 +17,9 @@ function renderBar() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <DraftBar spaceId="s1" branchId="b1" />
+      <MemoryRouter>
+        <DraftBar spaceId="s1" branchId="b1" />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }

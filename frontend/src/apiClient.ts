@@ -890,6 +890,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ rule: entry.rule, path: entry.path, message_code: entry.message_code }),
     }),
+  publishReadiness: (spaceId: string, branchId: string) =>
+    apiFetch<{ ok: boolean; reasons: string[]; conflicts: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/draft/readiness`,
+    ),
+  publishDraft: (spaceId: string, branchId: string, comment: string) =>
+    apiFetch<{ commit: string; published: number }>(`/api/spaces/${spaceId}/branches/${branchId}/draft/publish`, {
+      method: 'POST',
+      body: JSON.stringify({ comment }),
+    }),
   myDraft: (spaceId: string, branchId: string) =>
     apiFetch<DraftSummary>(`/api/spaces/${spaceId}/branches/${branchId}/draft`),
   listVersions: (spaceId: string, branchId: string) =>

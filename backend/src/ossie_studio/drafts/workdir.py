@@ -104,6 +104,13 @@ class DraftWorkdir:
                 objects=await db_list_objects(conn, draft.id),
             )
 
+    @property
+    def manager(self) -> WorkdirManager:
+        return self._manager
+
+    async def discard_view(self, space_id: uuid.UUID, slug: str) -> None:
+        await self._views.discard(space_id, slug, self.user_id)
+
     async def has_draft(self) -> bool:
         async with self._pool.acquire() as conn:
             return await db_get_draft(conn, self.user_id, self.branch_id) is not None

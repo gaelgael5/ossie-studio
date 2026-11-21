@@ -13,6 +13,7 @@ import { ConnectorsPage } from './pages/ConnectorsPage'
 import { ForgesPage } from './pages/ForgesPage'
 import { SpacesPage } from './pages/SpacesPage'
 import { SpaceDetailPage } from './pages/SpaceDetailPage'
+import { PublishPage } from './pages/PublishPage'
 import { GovernanceTagsPage } from './pages/GovernanceTagsPage'
 import { GovernanceCertificationsPage } from './pages/GovernanceCertificationsPage'
 import { GovernanceClassificationsPage } from './pages/GovernanceClassificationsPage'
@@ -108,6 +109,10 @@ function AppRoutes() {
         <Route path="/parsing" element={gate('parsing:read', <ParsingPluginsPage />)} />
         <Route path="/spaces" element={gate('spaces:read', <SpacesPage />)} />
         <Route path="/spaces/:spaceId" element={gate('spaces:read', <SpaceDetailPage />)} />
+        <Route
+          path="/spaces/:spaceId/branches/:branchId/publish"
+          element={gate('spaces:read', <PublishPage />)}
+        />
         <Route path="/governance/tags" element={gate('governance:read', <GovernanceTagsPage />)} />
         <Route
           path="/governance/certifications"
