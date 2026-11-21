@@ -9,6 +9,13 @@
 #                                        (confirmation demandée)
 #   ./dev-deploy.sh --foreground ...     sans filet anti-raccrochage ni
 #                                        journal fichier (CI, débogage)
+#   ./dev-deploy.sh --exposer-seulement  stack supposée en place : contrôles
+#                                        de santé puis déclaration à l'annuaire
+#
+# Déclaration à l'annuaire du portail : active seulement si PORTAL_TOKEN est
+# dans l'environnement — code TOTP « <login>:<code> » de l'outil MCP
+# `totp_code`, valable 30 s, donc bien trop court pour un build : on déploie
+# d'abord, puis on déclare avec un code frais et --exposer-seulement.
 #
 # Prérequis assumés : réseau et accès au dépôt. Il n'existe pas de mode
 # « déploie ce qui est déjà là » : le script se met toujours à jour d'abord.
@@ -17,12 +24,14 @@ set -euo pipefail
 # --- Arguments ---------------------------------------------------------------
 FOREGROUND=0
 RESET_DB=0
+EXPOSE_ONLY=0
 BRANCH="dev"
 for arg in "$@"; do
   case "${arg}" in
     --foreground) FOREGROUND=1 ;;
     --reset-db) RESET_DB=1 ;;
-    -h|--help) sed -n '2,15p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --exposer-seulement) EXPOSE_ONLY=1 ;;
+    -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]}"; exit 0 ;;
     -*) echo "Option inconnue : ${arg}" >&2; exit 2 ;;
     *) BRANCH="${arg}" ;;
   esac
@@ -41,7 +50,7 @@ export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-ossie-studio}"
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
 RUNNING_TIMEOUT="${RUNNING_TIMEOUT:-90}"
 PRUNE_INTERVAL_DAYS=7
-TOTAL_STEPS=10
+TOTAL_STEPS=11
 
 cd "${APP_DIR}"
 mkdir -p "${LOG_DIR}" "${STATE_DIR}"
@@ -85,7 +94,9 @@ docker info >/dev/null 2>&1 \
 # Sans ré-exécution, on déploierait du code neuf avec un script, un compose et
 # des Dockerfile périmés. Garde anti-boucle : une seule ré-exécution.
 step 2 "mise à jour du dépôt (branche ${BRANCH})"
-if [ -z "${DEV_DEPLOY_REEXEC:-}" ]; then
+if [ "${EXPOSE_ONLY}" -eq 1 ]; then
+  echo "[dev-deploy] --exposer-seulement : pas de mise à jour (le code TOTP expire en 30 s)"
+elif [ -z "${DEV_DEPLOY_REEXEC:-}" ]; then
   git fetch origin "${BRANCH}"
   BEFORE="$(git rev-parse HEAD)"
   git checkout "${BRANCH}"
@@ -101,6 +112,9 @@ echo "[dev-deploy] version déployée : $(git rev-parse --short HEAD) ($(git log
 # --- Mode destructif isolé : remise à zéro de la base -------------------------
 # Jamais un effet de bord d'un passage ordinaire : drapeau explicite et
 # confirmation tapée. Après la remise à zéro, le déploiement normal reprend.
+if [ "${RESET_DB}" -eq 1 ] && [ "${EXPOSE_ONLY}" -eq 1 ]; then
+  die "--reset-db et --exposer-seulement sont incompatibles"
+fi
 if [ "${RESET_DB}" -eq 1 ]; then
   echo "[dev-deploy] --reset-db : la base du projet « ${COMPOSE_PROJECT_NAME} » va être SUPPRIMÉE."
   read -r -p "Taper le nom du projet pour confirmer : " answer </dev/tty || answer=""
@@ -144,8 +158,18 @@ _ensure_secret() {
 _ensure_secret POSTGRES_PASSWORD "$(openssl rand -hex 24)"
 _ensure_secret SESSION_SECRET "$(openssl rand -hex 32)"
 _ensure_secret SECRETS_MASTER_KEY "$(openssl rand -hex 32)"
+# Cible de la déclaration à l'annuaire (le jeton, lui, n'est jamais ici).
+[ -n "$(_env_get EXPOSE_PORTAL_URL)" ] || _env_set EXPOSE_PORTAL_URL "https://dev.yoops.org"
+[ -n "$(_env_get EXPOSE_WORKSPACE)" ] || _env_set EXPOSE_WORKSPACE "ossie"
 
 # --- 5. Construire, arrêter (orphelins compris), [ports], relancer ------------
+if [ "${EXPOSE_ONLY}" -eq 1 ]; then
+  echo "[dev-deploy] --exposer-seulement : étapes 5 à 7 sautées (stack supposée en place)"
+  BACKEND_DEV_PORT="$(_env_get BACKEND_DEV_PORT)"
+  FRONTEND_DEV_PORT="$(_env_get FRONTEND_DEV_PORT)"
+  [ -n "${BACKEND_DEV_PORT}" ] && [ -n "${FRONTEND_DEV_PORT}" ] \
+    || die "ports absents de .env : lancer d'abord un déploiement complet"
+else
 step 5 "construction des images"
 # La construction se fait depuis la copie du dépôt : c'est elle qui valide que
 # l'image se bâtit (fichier non versionné, dépendance manquante…). Un échec
@@ -201,6 +225,7 @@ while :; do
   fi
   sleep 2
 done
+fi
 
 # --- 8 + 9. Schéma à jour et santé, via /api/health ---------------------------
 # /api/health ne répond 200 que si la base est joignable, le schéma à la
@@ -225,14 +250,40 @@ curl -fsS "http://localhost:${FRONTEND_DEV_PORT}/api/health" >/dev/null \
   || die "le frontend ne relaie pas /api/health (port ${FRONTEND_DEV_PORT}). Diagnostic : docker compose -p ${COMPOSE_PROJECT_NAME} logs frontend"
 echo "[dev-deploy] OK : instance en ligne — frontend :${FRONTEND_DEV_PORT}, backend :${BACKEND_DEV_PORT}"
 
+# --- 10. Déclaration à l'annuaire du portail (best-effort) --------------------
+# Après la santé : on ne publie pas une stack qui ne répond pas. On déclare le
+# frontend, seul point d'entrée (il relaie /api et /auth). Nom du service = nom
+# de la stack. Voie --me : enregistrée sous le workspace de l'appelant
+# authentifié par son TOTP, jamais par un jeton admin. Le jeton n'est jamais
+# affiché ni passé en argument (lu par le script dans l'environnement).
+step 10 "déclaration à l'annuaire"
+if [ -n "${PORTAL_TOKEN:-}" ]; then
+  # Le portail n'accepte qu'une IP du mesh (100.64.0.0/10) ou celle d'une
+  # machine qu'il connaît — l'IP LAN est refusée (422).
+  ips="$(hostname -I 2>/dev/null || true)"
+  TARGET_HOST="$(tr ' ' '\n' <<<"${ips}" | grep -E '^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.' | head -1 || true)"
+  [ -n "${TARGET_HOST}" ] || TARGET_HOST="$(awk '{print $1}' <<<"${ips}")"
+  bash "${APP_DIR}/scripts/declarer-exposition.sh" --me \
+    --portal "$(_env_get EXPOSE_PORTAL_URL)" \
+    --workspace "$(_env_get EXPOSE_WORKSPACE)" \
+    --service "${COMPOSE_PROJECT_NAME}" \
+    --target-host "${TARGET_HOST}" \
+    --target-port "${FRONTEND_DEV_PORT}" \
+    --host "$(hostname)"
+else
+  echo "[dev-deploy] PORTAL_TOKEN absent : pas de déclaration (relancer avec un code TOTP et --exposer-seulement)"
+fi
+
 # --- 10. Récupération d'espace disque, au plus une fois par semaine -----------
 # Chaque déploiement laisse des couches détaggées que rien ne récupère. Bornes :
 # fréquence (témoin horodaté), position (après la santé), portée (cache de
 # build + images détaggées, jamais les volumes ni une purge globale), et un
 # échec de purge ne fait jamais échouer le déploiement.
-step 10 "purge disque hebdomadaire"
+step 11 "purge disque hebdomadaire"
 STAMP="${STATE_DIR}/last-prune"
-if [ -f "${STAMP}" ] && [ -n "$(find "${STAMP}" -mtime -"${PRUNE_INTERVAL_DAYS}" 2>/dev/null)" ]; then
+if [ "${EXPOSE_ONLY}" -eq 1 ]; then
+  echo "[dev-deploy] --exposer-seulement : pas de purge"
+elif [ -f "${STAMP}" ] && [ -n "$(find "${STAMP}" -mtime -"${PRUNE_INTERVAL_DAYS}" 2>/dev/null)" ]; then
   echo "[dev-deploy] dernière purge le $(date -r "${STAMP}" '+%F %T') : rien à faire"
 else
   {

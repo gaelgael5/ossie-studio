@@ -37,7 +37,13 @@ Ensuite, toujours et uniquement :
 ./dev-deploy.sh            # branche dev
 ./dev-deploy.sh --reset-db # SUPPRIME la base puis redéploie (confirmation)
 ./dev-deploy.sh --foreground  # sans filet anti-raccrochage ni journal (CI)
+PORTAL_TOKEN=<login>:<code> ./dev-deploy.sh --exposer-seulement
+                              # déclare le frontend à l'annuaire du portail
 ```
+
+La déclaration à l'annuaire (`scripts/declarer-exposition.sh`, copie du script
+de référence du portail) s'authentifie par un code TOTP de 30 s (outil MCP
+`totp_code`) : on déploie d'abord, puis on déclare avec un code frais.
 
 Le script est idempotent et se relance sans danger après un échec partiel :
 mise à jour du dépôt puis ré-exécution dans sa version fraîche, secrets
