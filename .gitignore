@@ -19,3 +19,7 @@ dist/
 
 # Divers
 .DS_Store
+
+# Déploiement (dev-deploy.sh)
+/logs/
+/.deploy-state/
