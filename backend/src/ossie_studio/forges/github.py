@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import httpx
 
-from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo
+from ossie_studio.forges.base import (
+    ForgeError,
+    ForgeFormSpec,
+    ForgeIdentity,
+    ForgeRepo,
+    WriteCheck,
+)
 
 _PER_PAGE = 100
 _GITHUB_COM = "https://github.com"
@@ -73,6 +79,22 @@ class GitHubStrategy:
             if len(batch) < _PER_PAGE:
                 return names
             page += 1
+
+    async def verify_write(
+        self, client: httpx.AsyncClient, url: str, repo: str, token: str
+    ) -> WriteCheck:
+        identity = await self.verify(client, url, token)
+        try:
+            response = await client.get(f"{_api_base(url)}/repos/{repo}", headers=_headers(token))
+        except httpx.HTTPError as exc:
+            raise ForgeError("connection_url_unreachable") from exc
+        if response.status_code == 404:
+            # Dépôt invisible pour ce compte : il ne peut pas y pousser.
+            return WriteCheck(login=identity.username, can_write=False)
+        if response.status_code >= 400:
+            raise ForgeError("connection_url_unreachable")
+        permissions = response.json().get("permissions") or {}
+        return WriteCheck(login=identity.username, can_write=bool(permissions.get("push")))
 
     def git_username(self) -> str:
         return "x-access-token"

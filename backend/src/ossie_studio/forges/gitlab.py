@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 import httpx
 
-from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo
+from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo, WriteCheck
 
 _PER_PAGE = 100
 
@@ -16,6 +16,10 @@ def _api(url: str) -> str:
 def _headers(token: str) -> dict[str, str]:
     # GitLab accepte le PAT dans l'en-tête PRIVATE-TOKEN.
     return {"PRIVATE-TOKEN": token}
+
+
+# Niveau d'accès GitLab à partir duquel on peut pousser (Developer).
+_DEVELOPER_ACCESS = 30
 
 
 class GitLabStrategy:
@@ -71,6 +75,27 @@ class GitLabStrategy:
                 return names
             page += 1
 
+    async def verify_write(
+        self, client: httpx.AsyncClient, url: str, repo: str, token: str
+    ) -> WriteCheck:
+        identity = await self.verify(client, url, token)
+        try:
+            response = await client.get(
+                f"{_api(url)}/projects/{quote(repo, safe='')}", headers=_headers(token)
+            )
+        except httpx.HTTPError as exc:
+            raise ForgeError("connection_url_unreachable") from exc
+        if response.status_code == 404:
+            return WriteCheck(login=identity.username, can_write=False)
+        if response.status_code >= 400:
+            raise ForgeError("connection_url_unreachable")
+        permissions = response.json().get("permissions") or {}
+        levels = [
+            (permissions.get(key) or {}).get("access_level") or 0
+            for key in ("project_access", "group_access")
+        ]
+        return WriteCheck(login=identity.username, can_write=max(levels) >= _DEVELOPER_ACCESS)
+
     def git_username(self) -> str:
         return "oauth2"
 
@@ -78,6 +103,4 @@ class GitLabStrategy:
         return f"{base_url.rstrip('/')}/{repo}.git"
 
     def form_spec(self) -> ForgeFormSpec:
-        return ForgeFormSpec(
-            forge="gitlab", default_url="https://gitlab.com", url_required=False
-        )
+        return ForgeFormSpec(forge="gitlab", default_url="https://gitlab.com", url_required=False)

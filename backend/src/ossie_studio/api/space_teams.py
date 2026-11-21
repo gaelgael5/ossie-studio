@@ -13,6 +13,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import ProfilesWrite, SpacesRead
+from ossie_studio.credentials.service import ensure_credentials_for_space_team
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 
@@ -68,6 +69,8 @@ async def attach_team(
         team_id,
         body.profile_id,
     )
+    # Profil qui écrit → identifiants personnels « à saisir » pour les membres.
+    await ensure_credentials_for_space_team(conn, space_id, team_id)
     log.info("space_team_attached", space_id=str(space_id), team_id=str(team_id))
     return {"teams": await db_list_space_teams(conn, space_id)}
 

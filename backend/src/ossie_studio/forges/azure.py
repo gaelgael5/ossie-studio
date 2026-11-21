@@ -4,7 +4,7 @@ import base64
 
 import httpx
 
-from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo
+from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo, WriteCheck
 
 _API_VERSION = "7.0"
 _TOP = 100
@@ -96,6 +96,14 @@ class AzureDevOpsStrategy:
             if name.startswith("refs/heads/"):
                 names.append(name.removeprefix("refs/heads/"))
         return names
+
+    async def verify_write(
+        self, client: httpx.AsyncClient, url: str, repo: str, token: str
+    ) -> WriteCheck:
+        # Le droit de pousser d'un PAT Azure DevOps ne se lit pas simplement par
+        # l'API : on rend l'identité et « non vérifiable », jamais un oui deviné.
+        identity = await self.verify(client, url, token)
+        return WriteCheck(login=identity.username, can_write=None)
 
     def git_username(self) -> str:
         return "pat"

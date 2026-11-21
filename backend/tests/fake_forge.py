@@ -7,16 +7,39 @@ from starlette.routing import Route
 
 GOOD_TOKEN = "ghp_jeton-valide-discriminant"
 GITHUB_LOGIN = "octocat"
+# Jeton valide d'un autre compte, sans droit d'écriture sur les dépôts.
+READONLY_TOKEN = "ghp_jeton-lecture-seule"
+READONLY_LOGIN = "lecteur"
 
 
 def _authorized(request: Request) -> bool:
     return request.headers.get("Authorization") == f"Bearer {GOOD_TOKEN}"
 
 
+def _login(request: Request) -> str | None:
+    header = request.headers.get("Authorization")
+    if header == f"Bearer {GOOD_TOKEN}":
+        return GITHUB_LOGIN
+    if header == f"Bearer {READONLY_TOKEN}":
+        return READONLY_LOGIN
+    return None
+
+
 async def _user(request: Request) -> Response:
-    if not _authorized(request):
+    login = _login(request)
+    if login is None:
         return JSONResponse({"message": "Bad credentials"}, status_code=401)
-    return JSONResponse({"login": GITHUB_LOGIN})
+    return JSONResponse({"login": login})
+
+
+async def _repo(request: Request) -> Response:
+    login = _login(request)
+    if login is None:
+        return JSONResponse({"message": "Bad credentials"}, status_code=401)
+    full_name = f"{request.path_params['owner']}/{request.path_params['repo']}"
+    return JSONResponse(
+        {"full_name": full_name, "permissions": {"pull": True, "push": login == GITHUB_LOGIN}}
+    )
 
 
 async def _repos(request: Request) -> Response:
@@ -44,5 +67,6 @@ def fake_github_app() -> Starlette:
             Route("/user", _user),
             Route("/user/repos", _repos),
             Route("/repos/{owner}/{repo}/branches", _branches),
+            Route("/repos/{owner}/{repo}", _repo),
         ]
     )

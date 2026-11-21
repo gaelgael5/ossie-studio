@@ -66,6 +66,17 @@ export interface SpaceRight {
   team_name: string
 }
 
+export interface PersonalCredential {
+  id: string
+  connection_id: string
+  forge: string
+  url: string
+  status: 'a_saisir' | 'jamais_teste' | 'valide' | 'refuse'
+  forge_login: string | null
+  error_code: string | null
+  checked_at: string | null
+}
+
 export interface SpaceTeam {
   team_id: string
   team_name: string
@@ -599,6 +610,18 @@ export const api = {
   listSpaces: () => apiFetch<{ spaces: GitSpace[] }>('/api/spaces'),
   mySpaceCapabilities: (spaceId: string) =>
     apiFetch<{ capabilities: string[] }>(`/api/spaces/${spaceId}/me`),
+  myCredential: (spaceId: string) =>
+    apiFetch<PersonalCredential>(`/api/me/credentials?space_id=${encodeURIComponent(spaceId)}`),
+  setMyCredential: (id: string, value: string) =>
+    apiFetch<PersonalCredential>(`/api/me/credentials/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+  testMyCredential: (id: string, spaceId: string) =>
+    apiFetch<PersonalCredential>(`/api/me/credentials/${id}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ space_id: spaceId }),
+    }),
   listSpaceTeams: (spaceId: string) => apiFetch<{ teams: SpaceTeam[] }>(`/api/spaces/${spaceId}/teams`),
   attachSpaceTeam: (spaceId: string, teamId: string, profileId: string) =>
     apiFetch<{ teams: SpaceTeam[] }>(`/api/spaces/${spaceId}/teams/${teamId}`, {

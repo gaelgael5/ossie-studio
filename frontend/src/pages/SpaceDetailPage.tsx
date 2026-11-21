@@ -9,6 +9,7 @@ import { PageHeader } from '../components/PageHeader'
 import { RailMap } from '../components/RailMap'
 import { useSession } from '../hooks'
 import { SpaceTeamsSection } from './SpaceTeamsSection'
+import { CredentialBlock } from '../components/CredentialBlock'
 
 export function SpaceDetailPage() {
   const { t, i18n } = useTranslation()
@@ -330,6 +331,13 @@ export function SpaceDetailPage() {
               </div>
             </section>
           ) : null}
+
+          <section className="page-section">
+            <div className="section-head">
+              <h2 className="section-title">{t('myCredentialSection')}</h2>
+            </div>
+            <CredentialBlock spaceId={spaceId} />
+          </section>
 
           <SpaceTeamsSection spaceId={spaceId} canManage={canManageTeams} />
 

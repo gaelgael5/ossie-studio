@@ -137,3 +137,56 @@ def test_erreurs_de_forge_ne_portent_jamais_le_jeton() -> None:
     # Le message d'une ForgeError est le code seul, jamais une valeur sensible.
     err = ForgeError("connection_token_invalid")
     assert json.dumps(str(err)) == '"connection_token_invalid"'
+
+
+# --- Droit d'écriture d'un jeton personnel sur un dépôt -------------------------
+
+
+def test_repo_path_depuis_l_url_de_clone() -> None:
+    from ossie_studio.forges.base import repo_path
+
+    assert repo_path("https://github.com", "https://github.com/octocat/r.git") == "octocat/r"
+    assert repo_path("https://gitlab.x.org/", "https://gitlab.x.org/g/sous/p") == "g/sous/p"
+
+
+async def test_github_depot_invisible_pas_d_ecriture() -> None:
+    async with _client(_github_handler) as client:  # /repos/... → 404
+        check = await GitHubStrategy().verify_write(client, "https://github.com", "o/r", "good")
+    assert (check.login, check.can_write) == ("octocat", False)
+
+
+def _gitlab_access_handler(level: int) -> object:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v4/user":
+            return httpx.Response(200, json={"username": "gl-user"})
+        if request.url.path.startswith("/api/v4/projects/"):
+            assert request.url.raw_path.endswith(b"/projects/g%2Fp")
+            return httpx.Response(
+                200,
+                json={
+                    "permissions": {"project_access": None, "group_access": {"access_level": level}}
+                },
+            )
+        return httpx.Response(404)
+
+    return handler
+
+
+@pytest.mark.parametrize(("level", "expected"), [(30, True), (40, True), (20, False)])
+async def test_gitlab_niveau_d_acces_developer(level: int, expected: bool) -> None:
+    async with _client(_gitlab_access_handler(level)) as client:
+        check = await GitLabStrategy().verify_write(client, "https://gitlab.x.org", "g/p", "t")
+    assert (check.login, check.can_write) == ("gl-user", expected)
+
+
+async def test_azure_droit_non_verifiable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"authenticatedUser": {"providerDisplayName": "Alice Azure"}}
+        )
+
+    async with _client(handler) as client:
+        check = await AzureDevOpsStrategy().verify_write(
+            client, "https://dev.azure.com/o", "p/r", "t"
+        )
+    assert (check.login, check.can_write) == ("Alice Azure", None)
