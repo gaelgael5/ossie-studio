@@ -186,8 +186,16 @@ deadline=$(( $(date +%s) + RUNNING_TIMEOUT ))
 while :; do
   cid="$(compose ps -q backend)"
   state="$( [ -n "${cid}" ] && docker inspect -f '{{.State.Status}} {{.RestartCount}}' "${cid}" 2>/dev/null || echo "absent 0")"
-  [ "${state%% *}" = "running" ] && break
-  if [ "$(date +%s)" -ge "${deadline}" ]; then
+  # « running » à un instant ne suffit pas : un processus qui meurt au
+  # démarrage est vu running une fraction de seconde. On exige qu'il le soit
+  # encore 5 s plus tard, sans redémarrage entre-temps.
+  if [ "${state%% *}" = "running" ]; then
+    sleep 5
+    again="$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "${cid}" 2>/dev/null || echo "absent 0")"
+    [ "${again}" = "${state}" ] && break
+    state="${again}"
+  fi
+  if [ "${state%% *}" = "exited" ] || [ "$(date +%s)" -ge "${deadline}" ]; then
     compose logs --tail 80 backend >&2 || true
     die "le backend n'est pas en marche (état : ${state}). Diagnostic : docker compose -p ${COMPOSE_PROJECT_NAME} logs backend"
   fi
