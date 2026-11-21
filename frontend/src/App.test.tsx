@@ -700,7 +700,11 @@ test('détail source : collecte une source Git et affiche le rapport', async () 
       },
     },
     '/api/spaces/sp1/branches/br1/sources/api-boutique/collections': {
-      body: { collections: [] },
+      body: {
+        collections: [
+          { sha: '1234567abc', author: 'Alice', date: '2026-01-02T10:00:00Z', message: 'ossie: collecte api-boutique' },
+        ],
+      },
     },
     'POST /api/spaces/sp1/branches/br1/sources/api-boutique/collect?force=false': {
       body: {
@@ -720,7 +724,8 @@ test('détail source : collecte une source Git et affiche le rapport', async () 
   renderAt('/sources/api-boutique')
   // L'en-tête nomme la source ; l'onglet Collectes est actif par défaut.
   await screen.findByText('API boutique')
-  await waitFor(() => expect(screen.getByText('Aucune collecte enregistrée pour cette source.')).toBeInTheDocument())
+  // L'historique vient de Git : les commits publiés qui ont touché la source.
+  await waitFor(() => expect(screen.getByText('ossie: collecte api-boutique')).toBeInTheDocument())
   // Lancer la collecte affiche le rapport (étapes + commit source).
   await userEvent.click(screen.getByRole('button', { name: 'Collecter' }))
   await waitFor(() => expect(screen.getByText('Dernière collecte')).toBeInTheDocument())

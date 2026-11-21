@@ -306,18 +306,12 @@ export interface CollectReport {
   duration_ms: number
   errors: { source: string; cause: string }[]
 }
+/** Un commit publié qui a touché la source (l'historique est porté par Git). */
 export interface CollectionRun {
-  id: string
+  sha: string
   author: string
-  source_commit: string
-  local_commit: string | null
-  added: number
-  modified: number
-  deleted: number
-  unchanged: number
-  error_count: number
-  duration_ms: number
-  created_at: string
+  date: string
+  message: string
 }
 
 export interface ContractAnalysis {

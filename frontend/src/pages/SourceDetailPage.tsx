@@ -5,7 +5,6 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import type {
   CollectReport,
-  CollectionRun,
   ContractAnalysis,
   CurationField,
   CurationObjectItem,
@@ -216,21 +215,21 @@ export function SourceDetailPage() {
                 <thead>
                   <tr>
                     <th>{t('colDate')}</th>
-                    <th>{t('colSourceCommit')}</th>
-                    <th>{t('colResult')}</th>
+                    <th>{t('colCommit')}</th>
+                    <th>{t('colMessage')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(collections.data?.collections ?? []).map((run) => (
-                    <tr key={run.id}>
+                    <tr key={run.sha}>
                       <td>
-                        {new Date(run.created_at).toLocaleString()}
+                        {new Date(run.date).toLocaleString()}
                         <div className="muted small">
                           {run.author}
                         </div>
                       </td>
-                      <td className="mono">{run.source_commit.slice(0, 7)}</td>
-                      <td>{runResult(run, t)}</td>
+                      <td className="mono">{run.sha.slice(0, 7)}</td>
+                      <td>{run.message}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -243,13 +242,6 @@ export function SourceDetailPage() {
       ) : null}
     </main>
   )
-}
-
-function runResult(run: CollectionRun, t: (k: string, o?: Record<string, unknown>) => string): string {
-  if (run.local_commit === null) return t('collectNoChange')
-  const parts = [`+${run.added}`, `~${run.modified}`, `-${run.deleted}`]
-  const base = parts.join(' ')
-  return run.error_count > 0 ? `${base} · ${t('collectErrorsCount', { count: run.error_count })}` : base
 }
 
 function ReportCard({

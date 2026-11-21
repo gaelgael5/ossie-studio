@@ -44,11 +44,6 @@ from ossie_studio.parsers.params_service import db_get_plugin_params
 from ossie_studio.parsers.registry import conflicting_glob, unknown_code_parseur
 from ossie_studio.secretstore.service import resolve_secret_value
 from ossie_studio.sources.collect import CollectionError, CollectReport, SourceCollector
-from ossie_studio.sources.collections_service import (
-    CollectionRun,
-    db_list_collections,
-    db_record_collection,
-)
 from ossie_studio.sources.contracts import (
     ContractEntry,
     ContractExistsError,
@@ -427,22 +422,6 @@ def _report_payload(report: CollectReport) -> dict[str, object]:
     }
 
 
-def _run_payload(run: CollectionRun) -> dict[str, object]:
-    return {
-        "id": str(run.id),
-        "author": run.author_email,
-        "source_commit": run.source_commit,
-        "local_commit": run.local_commit,
-        "added": run.added,
-        "modified": run.modified,
-        "deleted": run.deleted,
-        "unchanged": run.unchanged,
-        "error_count": run.error_count,
-        "duration_ms": run.duration_ms,
-        "created_at": run.created_at.isoformat(),
-    }
-
-
 @router.post("/{slug}/collect")
 async def collect_branch_source(
     conn: ConnDep,
@@ -545,14 +524,6 @@ async def collect_branch_source(
             raise _collect_error(exc.code) from None
     else:
         raise ApiError("invalid_request", status_code=400, fields=["collect_unsupported"])
-    await db_record_collection(
-        conn,
-        space_id=space_id,
-        branch_slug=branch_slug,
-        source_slug=slug,
-        author_email=user.email,
-        report=report,
-    )
     # Index de travail : l'inventaire des fichiers vus et leur statut de traitement.
     await db_replace_scan_files(
         conn, space_id=space_id, branch_slug=branch_slug, source_slug=slug, files=report.files
@@ -563,18 +534,34 @@ async def collect_branch_source(
 @router.get("/{slug}/collections")
 async def list_source_collections(
     conn: ConnDep,
+    crypto: CryptoDep,
     _: SourcesRead,
+    workdir: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
     slug: str,
 ) -> dict[str, object]:
+    """Historique de la source : les commits publiés qui ont touché son répertoire
+    (collectes comprises). Il est porté par Git, plus par une table : rien ne se
+    perd si l'application est perdue."""
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
-    runs = await db_list_collections(
-        conn, space_id=space_id, branch_slug=branch.slug, source_slug=slug
-    )
-    return {"collections": [_run_payload(r) for r in runs]}
+    if not is_valid_source_slug(slug):
+        raise ApiError("source_not_found", status_code=404, slug=slug)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        commits = await workdir.file_history(
+            space_id, branch.slug, space.repo_url, username, token, f"sources/{slug}", 100
+        )
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    return {
+        "collections": [
+            {"sha": c.sha, "author": c.author, "date": c.date, "message": c.message}
+            for c in commits
+        ]
+    }
 
 
 def _scan_payload(scan: ScanFile) -> dict[str, object]:
