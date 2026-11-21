@@ -32,6 +32,7 @@ ERROR_CODES: tuple[str, ...] = (
     "connection_azure_org_not_found",
     "connection_duplicate",
     "connection_slug_taken",
+    "space_slug_taken",
     "credential_not_found",
     "credential_value_missing",
     "credential_no_write",

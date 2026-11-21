@@ -234,6 +234,7 @@ class GitSpace:
     last_probe_status: str | None
     last_probe_at: datetime | None
     created_at: datetime
+    slug: str = ""
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> GitSpace:
@@ -245,6 +246,7 @@ class GitSpace:
             last_probe_status=row["last_probe_status"],
             last_probe_at=row["last_probe_at"],
             created_at=row["created_at"],
+            slug=row["slug"] if "slug" in row else "",
         )
 
 

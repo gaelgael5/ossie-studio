@@ -6,6 +6,7 @@ import type { TFunction } from 'i18next'
 import { api } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { PageHeader } from '../components/PageHeader'
 
 function probeFailureMessages(t: TFunction, err: unknown): string[] {
@@ -30,18 +31,23 @@ export function SpacesPage() {
   const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
-  const [name, setName] = useState('')
+  const pair = useLabelSlug()
   const [connectionId, setConnectionId] = useState('')
   const [repoUrl, setRepoUrl] = useState('')
 
   const spaces = useQuery({ queryKey: ['spaces'], queryFn: api.listSpaces })
   const connections = useQuery({ queryKey: ['connections'], queryFn: api.listConnections })
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['spaces'] })
+  const conns = connections.data?.connections ?? []
+  const selected = connectionId || conns[0]?.id || ''
 
   const create = useMutation({
-    mutationFn: () => api.createSpace({ name, connection_id: connectionId, repo_url: repoUrl }),
+    // Envoie la connexion AFFICHÉE (la première par défaut), pas seulement celle
+    // choisie à la main : sinon, sans toucher la liste, l'id partait vide.
+    mutationFn: () =>
+      api.createSpace({ name: pair.label, slug: pair.finalSlug, connection_id: selected, repo_url: repoUrl }),
     onSuccess: async () => {
-      setName('')
+      pair.reset()
       setRepoUrl('')
       await invalidate()
     },
@@ -54,8 +60,6 @@ export function SpacesPage() {
     onError: (err) => setMessages(errorMessages(t, err)),
   })
 
-  const conns = connections.data?.connections ?? []
-  const selected = connectionId || conns[0]?.id || ''
   const formatDate = (iso: string | null) =>
     iso ? new Intl.DateTimeFormat(i18n.resolvedLanguage).format(new Date(iso)) : '—'
   const connLabel = (id: string) => conns.find((c) => c.id === id)?.label ?? id
@@ -86,7 +90,10 @@ export function SpacesPage() {
               <tbody>
                 {spaces.data.spaces.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.name}</td>
+                    <td>
+                      {s.name}
+                      <div className="mono muted small">{s.slug}</div>
+                    </td>
                     <td>{connLabel(s.connection_id)}</td>
                     <td>
                       <code>{s.repo_url}</code>
@@ -141,12 +148,7 @@ export function SpacesPage() {
             create.mutate()
           }}
         >
-          <div className="field">
-            <label className="field-label" htmlFor="name">
-              {t('spaceNameLabel')}
-            </label>
-            <input id="name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
+          <LabelSlugFields idPrefix="space" state={pair} labelText={t('spaceNameLabel')} slugText={t('slugLabel')} />
           <div className="field">
             <label className="field-label" htmlFor="connection">
               {t('connectionSelectLabel')}

@@ -15,6 +15,10 @@ class SpaceNameTakenError(Exception):
     pass
 
 
+class SpaceSlugTakenError(Exception):
+    """Le slug désigne déjà un autre espace."""
+
+
 class SpaceRepoTakenError(Exception):
     def __init__(self, existing_name: str) -> None:
         super().__init__(existing_name)
@@ -47,6 +51,7 @@ async def db_create_space(
     connection_id: uuid.UUID,
     repo_url: str,
     probe_status: str,
+    slug: str,
 ) -> GitSpace:
     """Enregistre l'espace — appelé seulement APRÈS les cinq droits éprouvés.
 
@@ -58,14 +63,17 @@ async def db_create_space(
     try:
         row = await conn.fetchrow(
             "INSERT INTO git_spaces (name, connection_id, repo_url, last_probe_status, "
-            "last_probe_at) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            "last_probe_at, slug) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
             name,
             connection_id,
             repo_url,
             probe_status,
             datetime.now(UTC),
+            slug,
         )
     except asyncpg.UniqueViolationError as exc:
+        if exc.constraint_name == "uq_space_slug":
+            raise SpaceSlugTakenError from exc
         # L'unicité du dépôt a été vérifiée ci-dessus : ici, c'est le nom.
         raise SpaceNameTakenError from exc
     log.info("git_space_created", name=name)

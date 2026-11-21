@@ -274,6 +274,7 @@ export const FORGE_DEFAULT_URL: Record<string, string> = {
 export interface GitSpace {
   id: string
   name: string
+  slug: string
   connection_id: string
   repo_url: string
   last_probe_status: string | null
@@ -943,7 +944,7 @@ export const api = {
     ),
   getRailmap: (spaceId: string, limit: number) =>
     apiFetch<RailMapData>(`/api/spaces/${spaceId}/railmap?limit=${limit}`),
-  createSpace: (body: { name: string; connection_id: string; repo_url: string }) =>
+  createSpace: (body: { name: string; slug: string; connection_id: string; repo_url: string }) =>
     apiFetch<GitSpace & { probe: unknown }>('/api/spaces', {
       method: 'POST',
       body: JSON.stringify(body),

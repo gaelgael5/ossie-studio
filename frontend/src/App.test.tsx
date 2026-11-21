@@ -190,6 +190,14 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
   // Le message compose le droit et la cause traduits.
   await waitFor(() => expect(screen.getByText(/pousser un commit/)).toBeInTheDocument())
   expect(screen.getByText(/droit d'écriture absent/)).toBeInTheDocument()
+  // Sans toucher la liste, la connexion affichée (la première) est bien envoyée,
+  // avec le slug déduit du nom.
+  const post = vi.mocked(fetch).mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+  expect(JSON.parse(String((post?.[1] as RequestInit).body))).toMatchObject({
+    name: 'modele',
+    slug: 'modele',
+    connection_id: 'c1',
+  })
 })
 
 test('détail espace : liste les branches et propose la création de fille', async () => {

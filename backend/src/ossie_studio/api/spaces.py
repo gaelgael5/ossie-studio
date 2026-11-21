@@ -24,13 +24,15 @@ from ossie_studio.errors import ApiError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import GitSpace
 from ossie_studio.profiles.service import load_capabilities, load_capabilities_by_space
+from ossie_studio.slugs import is_valid_slug, slugify
 from ossie_studio.spaces.branch_service import db_get_viewed_branch, db_list_branches
-from ossie_studio.spaces.forms import validate_space
+from ossie_studio.spaces.forms import normalize_repo_url, validate_space
 from ossie_studio.spaces.git_probe import ProbeResult
 from ossie_studio.spaces.railmap import RailMap
 from ossie_studio.spaces.service import (
     SpaceNameTakenError,
     SpaceRepoTakenError,
+    SpaceSlugTakenError,
     db_create_space,
     db_delete_space,
     db_get_space,
@@ -53,6 +55,9 @@ _RAILMAP_MAX = 5000
 class SpaceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = ""
+    # Optionnel : l'écran le déduit du nom et le laisse corriger ; absent, le
+    # serveur le déduit lui-même.
+    slug: str = ""
     connection_id: str = ""
     repo_url: str = ""
 
@@ -61,6 +66,7 @@ def _payload(space: GitSpace) -> dict[str, object]:
     return {
         "id": str(space.id),
         "name": space.name,
+        "slug": space.slug,
         "connection_id": str(space.connection_id),
         "repo_url": space.repo_url,
         "last_probe_status": space.last_probe_status,
@@ -123,10 +129,19 @@ async def create_space(
     conn: ConnDep, crypto: CryptoDep, _: SpacesCreate, git_probe: GitProbeDep, body: SpaceCreate
 ) -> dict[str, object]:
     errors = validate_space(body.name, body.connection_id, body.repo_url)
+    slug = body.slug.strip() or slugify(body.name, fallback="espace")
+    if body.slug.strip() and not is_valid_slug(slug):
+        errors.append("space_slug_invalid")
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
+    # Nom puis slug déjà pris : refusés AVANT l'épreuve des droits (pas
+    # d'écriture inutile sur la forge).
+    if await conn.fetchval("SELECT 1 FROM git_spaces WHERE name = $1", body.name.strip()):
+        raise ApiError("space_name_taken", status_code=409)
+    if await conn.fetchval("SELECT 1 FROM git_spaces WHERE slug = $1", slug):
+        raise ApiError("space_slug_taken", status_code=409, slug=slug)
     connection_id = uuid.UUID(body.connection_id)
-    repo_url = body.repo_url.strip().rstrip("/")
+    repo_url = normalize_repo_url(body.repo_url)
 
     result = await _run_probe(conn, crypto, git_probe, connection_id, repo_url)
     if not result.ok:
@@ -147,7 +162,10 @@ async def create_space(
             connection_id=connection_id,
             repo_url=repo_url,
             probe_status="valid",
+            slug=slug,
         )
+    except SpaceSlugTakenError:
+        raise ApiError("space_slug_taken", status_code=409, slug=slug) from None
     except SpaceNameTakenError:
         raise ApiError("space_name_taken", status_code=409) from None
     except SpaceRepoTakenError as exc:
