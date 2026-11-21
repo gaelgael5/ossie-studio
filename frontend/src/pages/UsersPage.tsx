@@ -162,6 +162,7 @@ export function UsersPage() {
                         <div className="stack stack-tight">
                           <select
                             className="select"
+                            aria-label={t('userProfileAria', { name: u.display_name || u.email })}
                             value={u.profile_id ?? ''}
                             onChange={(e) => {
                               setMessages([])

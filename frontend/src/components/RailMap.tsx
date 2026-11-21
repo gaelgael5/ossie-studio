@@ -10,8 +10,13 @@ const LANE_GAP = 46
 const ROW_GAP = 40
 const MARGIN_X = 28
 const MARGIN_TOP = 26
+// Libellé d'une gare (version), écrit à droite de sa voie : décalage depuis le
+// centre de la gare, et largeur moyenne d'un caractère (12 px, demi-gras).
+const LABEL_OFFSET = 14
+const LABEL_CHAR_WIDTH = 7.5
 
 const color = (lane: number) => PALETTE[lane % PALETTE.length]
+const stationLabel = (n: RailNode) => `${n.number} · ${n.label ?? ''}`
 
 interface Props {
   data: RailMapData
@@ -60,7 +65,16 @@ export function RailMap({ data, selected, onSelectVersion, onLoadOlder, formatDa
   const y = (row: number) => MARGIN_TOP + row * ROW_GAP
   const lanes = data.lines.length
   const rows = data.nodes.length
-  const width = MARGIN_X * 2 + Math.max(0, lanes - 1) * LANE_GAP + 2
+  const lanesWidth = MARGIN_X * 2 + Math.max(0, lanes - 1) * LANE_GAP + 2
+  // Le dessin doit aussi contenir les libellés des gares, sinon ils sont rognés
+  // (la largeur des voies seule ne laisse que quelques pixels au texte).
+  const labelsRight = data.nodes
+    .filter((n) => n.kind === 'version')
+    .reduce(
+      (max, n) => Math.max(max, x(n.lane) + LABEL_OFFSET + stationLabel(n).length * LABEL_CHAR_WIDTH),
+      0,
+    )
+  const width = Math.max(lanesWidth, Math.ceil(labelsRight) + MARGIN_X / 2)
   const height = MARGIN_TOP * 2 + Math.max(0, rows - 1) * ROW_GAP
 
   // Étendue de chaque voie, pour tracer la « ligne » continue.
@@ -139,7 +153,14 @@ export function RailMap({ data, selected, onSelectVersion, onLoadOlder, formatDa
           background: 'var(--panel)',
         }}
       >
-        <svg width={width} height={height} role="img" aria-label={t('railmapAria')} style={{ display: 'block' }}>
+        {/* overflow visible : un libellé plus large que l'estimation reste lisible. */}
+        <svg
+          width={width}
+          height={height}
+          role="img"
+          aria-label={t('railmapAria')}
+          style={{ display: 'block', overflow: 'visible' }}
+        >
           {/* Les « lignes » : une voie continue par branche. */}
           {data.lines.map((l) => {
             const e = extent.get(l.lane)
@@ -201,8 +222,13 @@ export function RailMap({ data, selected, onSelectVersion, onLoadOlder, formatDa
                 ) : null}
                 {shape(n.lane, n.kind, cx, cy, shapeByLane.get(n.lane) ?? 'circle')}
                 {isStation ? (
-                  <text x={cx + 14} y={cy + 4} style={{ fontSize: 12, fontWeight: 600 }} fill="currentColor">
-                    {`${n.number} · ${n.label ?? ''}`}
+                  <text
+                    x={cx + LABEL_OFFSET}
+                    y={cy + 4}
+                    style={{ fontSize: 12, fontWeight: 600 }}
+                    fill="currentColor"
+                  >
+                    {stationLabel(n)}
                   </text>
                 ) : null}
               </g>

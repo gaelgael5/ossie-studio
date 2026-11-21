@@ -130,6 +130,7 @@ function ParamRow({
         <input
           className="input mono"
           style={{ maxWidth: 200 }}
+          aria-label={param.label}
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
