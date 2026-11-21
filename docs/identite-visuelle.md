@@ -73,6 +73,39 @@ Page de référence à imiter : `frontend/src/pages/ForgesPage.tsx`.
 4. Un besoin que le socle ne couvre pas : ajouter une classe à `styles.css`,
    pas un style inline dans la page.
 5. La marque passe par le composant `Brand`, jamais par un texte écrit à la main.
+6. **Libellé et slug** : voir la règle ci-dessous — toujours le composant
+   `LabelSlugFields`, jamais deux champs écrits à la main.
+
+## Règle — saisir un libellé et un slug
+
+Partout où l'on crée un objet qui porte un libellé et un slug (secret,
+connexion de forge, connexion de base, source…) :
+
+1. **Le libellé d'abord.** Le champ libellé précède le champ slug ; rien ne
+   s'intercale entre eux, de sorte que **Tab** mène du libellé au slug.
+2. **Le slug se déduit du libellé à chaque frappe**, en ne gardant que les
+   caractères autorisés : minuscules sans accent, chiffres, tirets simples,
+   64 caractères au plus (« Clé GitHub (prod) » → `cle-github-prod`).
+3. **L'utilisateur peut corriger le slug.** Sa correction est nettoyée à la
+   frappe (majuscules, accents et caractères interdits convertis) puis gardée :
+   modifier ensuite le libellé ne l'écrase plus. Vidé et quitté, le champ slug
+   se remet à suivre le libellé.
+4. **En édition, le slug existant est figé** (il est référencé ailleurs) ; seul
+   le libellé se modifie.
+5. Côté serveur, un slug fourni est **validé** (même motif) et **refusé s'il est
+   déjà pris** — jamais suffixé en silence ; absent, le serveur le déduit
+   lui-même du libellé.
+
+Mise en œuvre : `useLabelSlug` + `LabelSlugFields`
+(`frontend/src/components/LabelSlugFields.tsx`), règle de transformation dans
+`frontend/src/slug.ts` (miroir de `backend/src/ossie_studio/slugs.py`).
+`frontend/src/labelSlugRule.test.ts` échoue si une page pose son propre champ
+de slug.
+
+Hors règle : les identifiants qui ne sont pas un slug dérivé d'un libellé —
+identifiant de tag (chemin `gouvernance/…`, sans libellé distinct), nom de
+niveau de classification (valeur stockée, accents permis), id de schéma (calculé
+par le serveur).
 
 ## Garde-fous automatiques
 

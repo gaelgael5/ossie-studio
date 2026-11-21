@@ -18,6 +18,10 @@ class ConnectionDuplicateError(Exception):
     """Une connexion existe déjà sur cette forge, cette URL et cette identité."""
 
 
+class ConnectionSlugTakenError(Exception):
+    """Le slug saisi désigne déjà une autre connexion."""
+
+
 class ConnectionNotFoundError(Exception):
     pass
 
@@ -39,6 +43,10 @@ async def db_get_connection_by_slug(conn: asyncpg.Connection, slug: str) -> Conn
     return Connection.from_row(row) if row is not None else None
 
 
+async def db_connection_slug_exists(conn: asyncpg.Connection, slug: str) -> bool:
+    return bool(await conn.fetchval("SELECT 1 FROM connections WHERE slug = $1", slug))
+
+
 async def _free_connection_slug(conn: asyncpg.Connection, base: str) -> str:
     """Rend un slug libre, en suffixant d'un compteur au besoin."""
     slug = base
@@ -57,12 +65,17 @@ async def db_create_connection(
     url: str,
     secret_slug: str,
     identity: ForgeIdentity,
+    slug: str = "",
 ) -> Connection:
     """Enregistre la connexion, qui désigne un secret existant par son slug (de
     la catégorie de la forge). La valeur du jeton n'est jamais touchée ici : elle
     vit dans la table des secrets. Doublon (forge, url, identité) → rien n'est
     écrit. La clé étrangère garantit que le secret existe."""
-    slug = await _free_connection_slug(conn, slugify(label, fallback="connexion"))
+    # Slug saisi : pris tel quel (déjà validé et vérifié libre par l'appelant ;
+    # une course est rattrapée par l'index unique). Absent : déduit du libellé
+    # et rendu libre par suffixe — compatibilité des appels sans slug.
+    if not slug:
+        slug = await _free_connection_slug(conn, slugify(label, fallback="connexion"))
     try:
         row = await conn.fetchrow(
             "INSERT INTO connections (label, slug, forge, url, secret_slug, identity, "
@@ -77,6 +90,8 @@ async def db_create_connection(
             datetime.now(UTC),
         )
     except asyncpg.UniqueViolationError as exc:
+        if exc.constraint_name == "uq_connection_slug":
+            raise ConnectionSlugTakenError from exc
         raise ConnectionDuplicateError from exc
     log.info("connection_created", forge=forge, identity=identity.username)
     return Connection.from_row(row)

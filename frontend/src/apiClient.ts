@@ -551,6 +551,7 @@ export const api = {
     apiFetch<{ engines: DbEngineSpec[] }>('/api/db-connections/engines'),
   createDbConnection: (body: {
     label: string
+    slug: string
     engine: string
     params: Record<string, string>
     secret_slug: string
@@ -559,7 +560,13 @@ export const api = {
     apiFetch<DbConnectionItem>(`/api/db-connections/${id}/test`, { method: 'POST' }),
   deleteDbConnection: (id: string, deleteSecret = false) =>
     apiFetch(`/api/db-connections/${id}?delete_secret=${deleteSecret}`, { method: 'DELETE' }),
-  createConnection: (body: { label: string; forge: string; url: string; secret_slug: string }) =>
+  createConnection: (body: {
+    label: string
+    slug: string
+    forge: string
+    url: string
+    secret_slug: string
+  }) =>
     apiFetch<Connection>('/api/connections', { method: 'POST', body: JSON.stringify(body) }),
   testConnection: (id: string) =>
     apiFetch<Connection>(`/api/connections/${id}/test`, { method: 'POST' }),

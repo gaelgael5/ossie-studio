@@ -6,6 +6,7 @@ import type { Connection, ForgeSpec } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { DatabasesSection } from './DatabasesSection'
 
 function forgeName(t: (k: string) => string, f: string): string {
@@ -26,12 +27,11 @@ function ForgePopup({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [label, setLabel] = useState('')
+  const conn = useLabelSlug()
   const [url, setUrl] = useState(spec.default_url)
   const [secretSlug, setSecretSlug] = useState('')
   const [showNewSecret, setShowNewSecret] = useState(false)
-  const [nsLabel, setNsLabel] = useState('')
-  const [nsSlug, setNsSlug] = useState('')
+  const ns = useLabelSlug()
   const [nsValue, setNsValue] = useState('')
 
   const secrets = useQuery({
@@ -42,7 +42,13 @@ function ForgePopup({
 
   const create = useMutation({
     mutationFn: () =>
-      api.createConnection({ label, forge: spec.forge, url, secret_slug: secretSlug }),
+      api.createConnection({
+        label: conn.label,
+        slug: conn.finalSlug,
+        forge: spec.forge,
+        url,
+        secret_slug: secretSlug,
+      }),
     onSuccess: async () => {
       await invalidate()
       onClose()
@@ -52,16 +58,15 @@ function ForgePopup({
   const createSecret = useMutation({
     mutationFn: () =>
       api.createSecret({
-        slug: nsSlug.trim(),
-        label: nsLabel,
+        slug: ns.finalSlug,
+        label: ns.label,
         category: spec.secret_category,
         value: nsValue,
       }),
     onSuccess: async () => {
-      setSecretSlug(nsSlug.trim())
+      setSecretSlug(ns.finalSlug)
       setShowNewSecret(false)
-      setNsLabel('')
-      setNsSlug('')
+      ns.reset()
       setNsValue('')
       await queryClient.invalidateQueries({ queryKey: ['secrets'] })
     },
@@ -89,12 +94,7 @@ function ForgePopup({
           create.mutate()
         }}
       >
-        <div className="field">
-          <label className="field-label" htmlFor="p-label">
-            {t('colLabel')}
-          </label>
-          <input id="p-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-        </div>
+        <LabelSlugFields idPrefix="p" state={conn} labelText={t('colLabel')} slugText={t('slugLabel')} />
         <div className="field">
           <label className="field-label" htmlFor="p-url">
             {t('urlLabel')}
@@ -128,18 +128,7 @@ function ForgePopup({
         {showNewSecret ? (
           <fieldset className="fieldset">
             <legend>{t('newSecretTitle')}</legend>
-            <div className="field">
-              <label className="field-label" htmlFor="ns-label">
-                {t('colLabel')}
-              </label>
-              <input id="ns-label" className="input" value={nsLabel} onChange={(e) => setNsLabel(e.target.value)} />
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="ns-slug">
-                {t('slugLabel')}
-              </label>
-              <input id="ns-slug" className="input" value={nsSlug} onChange={(e) => setNsSlug(e.target.value)} />
-            </div>
+            <LabelSlugFields idPrefix="ns" state={ns} labelText={t('colLabel')} slugText={t('slugLabel')} />
             <div className="field">
               <label className="field-label" htmlFor="ns-value">
                 {t('valueLabel')}
@@ -156,7 +145,7 @@ function ForgePopup({
               <button
                 type="button"
                 className="btn"
-                disabled={createSecret.isPending || !nsSlug.trim() || !nsValue}
+                disabled={createSecret.isPending || !ns.finalSlug || !nsValue}
                 onClick={() => createSecret.mutate()}
               >
                 {t('createAndSelect')}
@@ -376,6 +365,7 @@ export function ForgesPage() {
                       <button type="button" className="btn-link" onClick={() => setSelected(c.id)}>
                         {c.label}
                       </button>
+                      <div className="mono muted small">{c.slug}</div>
                     </td>
                     <td>{forgeName(t, c.forge)}</td>
                     <td>

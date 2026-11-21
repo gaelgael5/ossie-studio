@@ -180,3 +180,56 @@ async def test_non_admin_refus_403(admin: AsyncClient, app: FastAPI) -> None:
         await login(user, "simple@example.org", "mot-de-passe-simple")
         assert (await user.get("/api/db-connections")).status_code == 403
         assert (await user.get("/api/db-connections/engines")).status_code == 403
+
+
+# --- Slug de la connexion : saisi (déduit du libellé côté interface) -------------
+
+
+async def test_slug_fourni_est_enregistre(admin: AsyncClient, app: FastAPI) -> None:
+    await _pg_secret(admin, "pg-slug")
+    r = await admin.post(
+        "/api/db-connections",
+        json={
+            "label": "PG local",
+            "slug": "entrepot",
+            "engine": "postgres",
+            "params": PG_PARAMS,
+            "secret_slug": "pg-slug",
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert await db_fetchval(app, "SELECT slug FROM db_connections") == "entrepot"
+
+
+async def test_slug_invalide_refuse(admin: AsyncClient, app: FastAPI) -> None:
+    await _pg_secret(admin, "pg-inv")
+    r = await admin.post(
+        "/api/db-connections",
+        json={
+            "label": "PG",
+            "slug": "Pas Valide",
+            "engine": "postgres",
+            "params": PG_PARAMS,
+            "secret_slug": "pg-inv",
+        },
+    )
+    assert r.status_code == 400
+    assert "connection_slug_invalid" in r.json()["error_args"]["fields"]
+    assert await db_fetchval(app, "SELECT count(*) FROM db_connections") == 0
+
+
+async def test_slug_deja_pris_refuse(admin: AsyncClient, app: FastAPI) -> None:
+    await _pg_secret(admin, "pg-pris")
+    assert (await _create_pg(admin, "pg-pris", label="PG local")).status_code == 201
+    r = await admin.post(
+        "/api/db-connections",
+        json={
+            "label": "Autre",
+            "slug": "pg-local",
+            "engine": "postgres",
+            "params": PG_PARAMS,
+            "secret_slug": "pg-pris",
+        },
+    )
+    assert r.status_code == 409
+    assert r.json()["error"] == "db_connection_slug_taken"

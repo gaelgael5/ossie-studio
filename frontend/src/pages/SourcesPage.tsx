@@ -6,16 +6,8 @@ import { api } from '../apiClient'
 import type { SourceInput, SourceItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { useWorkspace } from '../workspace'
-
-function slugify(label: string): string {
-  return label
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
 
 function asList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
@@ -326,14 +318,12 @@ function OpenApiSourceModal({
 }) {
   const { t } = useTranslation()
   const editMode = source !== undefined
-  const [label, setLabel] = useState(source?.label ?? '')
-  const [slug, setSlug] = useState(source?.slug ?? '')
-  const [slugTouched, setSlugTouched] = useState(editMode)
+  // Paire libellé/slug : règle commune (components/LabelSlugFields).
+  const pair = useLabelSlug({ label: source?.label, slug: source?.slug })
+  const { label } = pair
+  const slug = pair.finalSlug
   const [messages, setMessages] = useState<string[]>([])
 
-  useEffect(() => {
-    if (!slugTouched) setSlug(slugify(label))
-  }, [label, slugTouched])
 
   const save = useMutation({
     mutationFn: () => {
@@ -384,27 +374,13 @@ function OpenApiSourceModal({
       <div className="stack">
         <p className="muted">{t('openapiSourceIntro')}</p>
         <div className="form-grid">
-          <div className="field">
-            <label className="field-label" htmlFor="o-label">
-              {t('fieldLabel')}
-            </label>
-            <input id="o-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="o-slug">
-              {t('fieldSlug')}
-            </label>
-            <input
-              id="o-slug"
-              className="input mono"
-              value={slug}
-              disabled={editMode}
-              onChange={(e) => {
-                setSlugTouched(true)
-                setSlug(e.target.value)
-              }}
-            />
-          </div>
+          <LabelSlugFields
+            idPrefix="o"
+            state={pair}
+            labelText={t('fieldLabel')}
+            slugText={t('fieldSlug')}
+            slugLocked={editMode}
+          />
         </div>
         <div className="info-note">{t('openapiSourceNote')}</div>
       </div>
@@ -508,9 +484,10 @@ function GitSourceModal({
   const { t } = useTranslation()
   const editMode = source !== undefined
   const p = source?.parametres ?? {}
-  const [label, setLabel] = useState(source?.label ?? '')
-  const [slug, setSlug] = useState(source?.slug ?? '')
-  const [slugTouched, setSlugTouched] = useState(editMode)
+  // Paire libellé/slug : règle commune (components/LabelSlugFields).
+  const pair = useLabelSlug({ label: source?.label, slug: source?.slug })
+  const { label } = pair
+  const slug = pair.finalSlug
   // On garde l'id de la connexion dans l'état (pour lister dépôts et branches) ;
   // le manifeste, lui, reçoit le slug.
   const [connexion, setConnexion] = useState('')
@@ -546,9 +523,6 @@ function GitSourceModal({
     }
   }, [plugins])
 
-  useEffect(() => {
-    if (!slugTouched) setSlug(slugify(label))
-  }, [label, slugTouched])
 
   // Édition : retrouver l'id de la connexion à partir du slug mémorisé.
   useEffect(() => {
@@ -633,27 +607,13 @@ function GitSourceModal({
       <div className="master-detail">
         <div className="stack">
           <div className="form-grid">
-            <div className="field">
-              <label className="field-label" htmlFor="g-label">
-                {t('fieldLabel')}
-              </label>
-              <input id="g-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="g-slug">
-                {t('fieldSlug')}
-              </label>
-              <input
-                id="g-slug"
-                className="input mono"
-                value={slug}
-                disabled={editMode}
-                onChange={(e) => {
-                  setSlugTouched(true)
-                  setSlug(e.target.value)
-                }}
-              />
-            </div>
+            <LabelSlugFields
+              idPrefix="g"
+              state={pair}
+              labelText={t('fieldLabel')}
+              slugText={t('fieldSlug')}
+              slugLocked={editMode}
+            />
           </div>
           <div className="field">
             <label className="field-label" htmlFor="g-conn">
@@ -780,9 +740,10 @@ function SqlSourceModal({
   const { t } = useTranslation()
   const editMode = source !== undefined
   const p = source?.parametres ?? {}
-  const [label, setLabel] = useState(source?.label ?? '')
-  const [slug, setSlug] = useState(source?.slug ?? '')
-  const [slugTouched, setSlugTouched] = useState(editMode)
+  // Paire libellé/slug : règle commune (components/LabelSlugFields).
+  const pair = useLabelSlug({ label: source?.label, slug: source?.slug })
+  const { label } = pair
+  const slug = pair.finalSlug
   const [connexion, setConnexion] = useState('')
   const [base, setBase] = useState(String(p.base ?? ''))
   const [schemas, setSchemas] = useState(asList(p.schemas).join(', '))
@@ -792,9 +753,6 @@ function SqlSourceModal({
   const connections = useQuery({ queryKey: ['db-connections'], queryFn: api.listDbConnections })
   const dbs = useMemo(() => connections.data?.connections ?? [], [connections.data])
 
-  useEffect(() => {
-    if (!slugTouched) setSlug(slugify(label))
-  }, [label, slugTouched])
 
   useEffect(() => {
     if (editMode && !connexion && source?.connexion?.slug) {
@@ -853,27 +811,13 @@ function SqlSourceModal({
       <div className="master-detail">
         <div className="stack">
           <div className="form-grid">
-            <div className="field">
-              <label className="field-label" htmlFor="s-label">
-                {t('fieldLabel')}
-              </label>
-              <input id="s-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="s-slug">
-                {t('fieldSlug')}
-              </label>
-              <input
-                id="s-slug"
-                className="input mono"
-                value={slug}
-                disabled={editMode}
-                onChange={(e) => {
-                  setSlugTouched(true)
-                  setSlug(e.target.value)
-                }}
-              />
-            </div>
+            <LabelSlugFields
+              idPrefix="s"
+              state={pair}
+              labelText={t('fieldLabel')}
+              slugText={t('fieldSlug')}
+              slugLocked={editMode}
+            />
           </div>
           <div className="field">
             <label className="field-label" htmlFor="s-conn">

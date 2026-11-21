@@ -14,7 +14,9 @@ from ossie_studio.databases.base import VERIFY_TIMEOUT_SECONDS, DbEngineError
 from ossie_studio.databases.registry import get_engine, is_known_engine, list_engine_specs
 from ossie_studio.databases.service import (
     DbConnectionDuplicateError,
+    DbConnectionSlugTakenError,
     db_create_db_connection,
+    db_db_connection_slug_exists,
     db_delete_db_connection,
     db_get_db_connection,
     db_list_db_connections,
@@ -25,6 +27,7 @@ from ossie_studio.errors import ApiError
 from ossie_studio.models import DbConnection
 from ossie_studio.secretstore.service import db_get_secret, resolve_secret_value
 from ossie_studio.secretstore.usages import db_count_secret_usages, db_delete_secret_if_unused
+from ossie_studio.slugs import is_valid_slug
 
 
 def _str_params(params: dict[str, object]) -> dict[str, str]:
@@ -40,6 +43,8 @@ CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 class DbConnectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
+    # Optionnel : l'interface le déduit du libellé et le laisse corriger.
+    slug: str = ""
     engine: str = ""
     params: dict[str, str] = {}
     secret_slug: str = ""
@@ -116,6 +121,12 @@ async def create_db_connection(
         raise ApiError("invalid_request", status_code=400, fields=["label_required"])
     if not is_known_engine(body.engine):
         raise ApiError("invalid_request", status_code=400, fields=["engine_invalid"])
+    slug = body.slug.strip()
+    if slug and not is_valid_slug(slug):
+        raise ApiError("invalid_request", status_code=400, fields=["connection_slug_invalid"])
+    # Slug pris : refusé AVANT d'interroger la base (pas de connexion inutile).
+    if slug and await db_db_connection_slug_exists(conn, slug):
+        raise ApiError("db_connection_slug_taken", status_code=409, slug=slug)
     engine = get_engine(body.engine)
     spec = engine.form_spec()
     secret = await db_get_secret(conn, body.secret_slug.strip())
@@ -143,7 +154,10 @@ async def create_db_connection(
             secret_slug=secret.slug,
             identity=identity.username,
             server_version=identity.server_version,
+            slug=slug,
         )
+    except DbConnectionSlugTakenError:
+        raise ApiError("db_connection_slug_taken", status_code=409, slug=slug) from None
     except DbConnectionDuplicateError:
         raise ApiError("db_connection_duplicate", status_code=409) from None
     return _payload(created)

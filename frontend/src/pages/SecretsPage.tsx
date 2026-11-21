@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 type SecretItem = {
@@ -106,8 +107,7 @@ export function SecretsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
-  const [slug, setSlug] = useState('')
-  const [label, setLabel] = useState('')
+  const pair = useLabelSlug()
   const [category, setCategory] = useState('')
   const [value, setValue] = useState('')
 
@@ -116,10 +116,9 @@ export function SecretsPage() {
   const onError = (err: unknown) => setMessages(errorMessages(t, err))
 
   const create = useMutation({
-    mutationFn: () => api.createSecret({ slug: slug.trim(), label, category, value }),
+    mutationFn: () => api.createSecret({ slug: pair.finalSlug, label: pair.label, category, value }),
     onSuccess: async () => {
-      setSlug('')
-      setLabel('')
+      pair.reset()
       setValue('')
       await invalidate()
     },
@@ -180,18 +179,7 @@ export function SecretsPage() {
             create.mutate()
           }}
         >
-          <div className="field">
-            <label className="field-label" htmlFor="slug">
-              {t('slugLabel')}
-            </label>
-            <input id="slug" className="input" value={slug} onChange={(e) => setSlug(e.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="label">
-              {t('colLabel')}
-            </label>
-            <input id="label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-          </div>
+          <LabelSlugFields idPrefix="secret" state={pair} labelText={t('colLabel')} slugText={t('slugLabel')} />
           <div className="field">
             <label className="field-label" htmlFor="category">
               {t('categoryLabel')}

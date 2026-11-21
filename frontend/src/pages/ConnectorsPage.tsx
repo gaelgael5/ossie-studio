@@ -5,6 +5,7 @@ import { api } from '../apiClient'
 import type { OidcConnectorItem, ProfileItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 function ConnectorMappings({
@@ -253,8 +254,7 @@ export function ConnectorsPage() {
   const [secretSlug, setSecretSlug] = useState('')
   const [scopes, setScopes] = useState('')
   const [showNewSecret, setShowNewSecret] = useState(false)
-  const [newSecretLabel, setNewSecretLabel] = useState('')
-  const [newSecretSlug, setNewSecretSlug] = useState('')
+  const newSecret = useLabelSlug()
   const [newSecretValue, setNewSecretValue] = useState('')
   const [deleting, setDeleting] = useState('')
   const [alsoDeleteSecret, setAlsoDeleteSecret] = useState(false)
@@ -299,16 +299,15 @@ export function ConnectorsPage() {
   const createSecret = useMutation({
     mutationFn: () =>
       api.createSecret({
-        slug: newSecretSlug.trim(),
-        label: newSecretLabel,
+        slug: newSecret.finalSlug,
+        label: newSecret.label,
         category: 'oidc',
         value: newSecretValue,
       }),
     onSuccess: async () => {
-      setSecretSlug(newSecretSlug.trim())
+      setSecretSlug(newSecret.finalSlug)
       setShowNewSecret(false)
-      setNewSecretLabel('')
-      setNewSecretSlug('')
+      newSecret.reset()
       setNewSecretValue('')
       await queryClient.invalidateQueries({ queryKey: ['secrets'] })
     },
@@ -524,28 +523,12 @@ export function ConnectorsPage() {
           {showNewSecret ? (
             <fieldset className="fieldset">
               <legend>{t('newSecretBlockTitle')}</legend>
-              <div className="field">
-                <label className="field-label" htmlFor="nsLabel">
-                  {t('colLabel')}
-                </label>
-                <input
-                  id="nsLabel"
-                  className="input"
-                  value={newSecretLabel}
-                  onChange={(e) => setNewSecretLabel(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label className="field-label" htmlFor="nsSlug">
-                  {t('slugLabel')}
-                </label>
-                <input
-                  id="nsSlug"
-                  className="input"
-                  value={newSecretSlug}
-                  onChange={(e) => setNewSecretSlug(e.target.value)}
-                />
-              </div>
+              <LabelSlugFields
+                idPrefix="ns"
+                state={newSecret}
+                labelText={t('colLabel')}
+                slugText={t('slugLabel')}
+              />
               <div className="field">
                 <label className="field-label" htmlFor="nsValue">
                   {t('valueLabel')}
@@ -562,7 +545,7 @@ export function ConnectorsPage() {
                 <button
                   type="button"
                   className="btn"
-                  disabled={createSecret.isPending || !newSecretSlug.trim() || !newSecretValue}
+                  disabled={createSecret.isPending || !newSecret.finalSlug || !newSecretValue}
                   onClick={() => {
                     setMessages([])
                     createSecret.mutate()

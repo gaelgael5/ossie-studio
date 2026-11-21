@@ -271,3 +271,66 @@ async def test_payload_utilisee_par(admin_client: AsyncClient) -> None:
     c = (await admin_client.get("/api/connections")).json()["connections"][0]
     assert c["used_by_spaces"] == 0
     assert c["used_by_sources"] == 0
+
+
+# --- Slug de la connexion : saisi (déduit du libellé côté interface) -------------
+
+
+async def test_slug_fourni_est_enregistre_tel_quel(admin_client: AsyncClient, app: FastAPI) -> None:
+    secret_slug = await _secret(admin_client, "gh-slug")
+    response = await admin_client.post(
+        "/api/connections",
+        json={
+            "label": "GitHub perso",
+            "slug": "forge-maison",
+            "forge": "github",
+            "url": URL,
+            "secret_slug": secret_slug,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["slug"] == "forge-maison"
+    assert await db_fetchval(app, "SELECT slug FROM connections") == "forge-maison"
+
+
+async def test_slug_absent_deduit_du_libelle(admin_client: AsyncClient, app: FastAPI) -> None:
+    await _create(admin_client, label="Forge Équipe Data")
+    assert await db_fetchval(app, "SELECT slug FROM connections") == "forge-equipe-data"
+
+
+@pytest.mark.parametrize("slug", ["Majuscules", "avec espace", "-bord", "double--tiret", "a_b"])
+async def test_slug_invalide_refuse_avant_toute_verification(
+    admin_client: AsyncClient, app: FastAPI, slug: str
+) -> None:
+    secret_slug = await _secret(admin_client, "gh-invalide")
+    response = await admin_client.post(
+        "/api/connections",
+        json={
+            "label": "X",
+            "slug": slug,
+            "forge": "github",
+            "url": URL,
+            "secret_slug": secret_slug,
+        },
+    )
+    assert response.status_code == 400
+    assert "connection_slug_invalid" in response.json()["error_args"]["fields"]
+    assert await db_fetchval(app, "SELECT count(*) FROM connections") == 0
+
+
+async def test_slug_deja_pris_refuse(admin_client: AsyncClient, app: FastAPI) -> None:
+    await _create(admin_client, label="GitHub perso")  # slug déduit : github-perso
+    secret_slug = await _secret(admin_client, "gh-autre")
+    response = await admin_client.post(
+        "/api/connections",
+        json={
+            "label": "Autre",
+            "slug": "github-perso",
+            "forge": "github",
+            "url": "https://github.example.org",
+            "secret_slug": secret_slug,
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["error"] == "connection_slug_taken"
+    assert await db_fetchval(app, "SELECT count(*) FROM connections") == 1

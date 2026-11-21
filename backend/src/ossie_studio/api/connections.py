@@ -13,6 +13,8 @@ from ossie_studio.api.common import ConnectionsRead, ConnectionsWrite
 from ossie_studio.connections.forms import validate_connection
 from ossie_studio.connections.service import (
     ConnectionDuplicateError,
+    ConnectionSlugTakenError,
+    db_connection_slug_exists,
     db_create_connection,
     db_delete_connection,
     db_get_connection,
@@ -28,6 +30,7 @@ from ossie_studio.forges.registry import get_strategy, list_form_specs
 from ossie_studio.models import Connection
 from ossie_studio.secretstore.service import db_get_secret, resolve_secret_value
 from ossie_studio.secretstore.usages import db_count_secret_usages, db_delete_secret_if_unused
+from ossie_studio.slugs import is_valid_slug
 from ossie_studio.spaces.service import db_spaces_using_connection
 
 log = structlog.get_logger(__name__)
@@ -41,6 +44,9 @@ HttpFactoryDep = Annotated[Callable[[], httpx.AsyncClient], Depends(get_http_cli
 class ConnectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
+    # Optionnel : l'interface le déduit du libellé et le laisse corriger.
+    # Absent, le serveur le déduit lui-même (appels antérieurs à ce champ).
+    slug: str = ""
     forge: str = ""
     url: str = ""
     secret_slug: str = ""
@@ -160,8 +166,14 @@ async def create_connection(
     body: ConnectionCreate,
 ) -> dict[str, object]:
     errors = validate_connection(body.label, body.forge, body.url, body.secret_slug)
+    slug = body.slug.strip()
+    if slug and not is_valid_slug(slug):
+        errors.append("connection_slug_invalid")
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
+    # Slug pris : refusé AVANT d'interroger la forge (pas d'appel réseau inutile).
+    if slug and await db_connection_slug_exists(conn, slug):
+        raise ApiError("connection_slug_taken", status_code=409, slug=slug)
 
     # Le jeton est un secret de la catégorie de la forge, désigné par son slug.
     secret = await db_get_secret(conn, body.secret_slug.strip())
@@ -186,7 +198,10 @@ async def create_connection(
             url=url,
             secret_slug=secret.slug,
             identity=identity,
+            slug=slug,
         )
+    except ConnectionSlugTakenError:
+        raise ApiError("connection_slug_taken", status_code=409, slug=slug) from None
     except ConnectionDuplicateError:
         raise ApiError("connection_duplicate", status_code=409) from None
     return _payload(connection)
