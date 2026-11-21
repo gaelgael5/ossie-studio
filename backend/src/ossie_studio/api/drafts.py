@@ -35,6 +35,7 @@ from ossie_studio.drafts.store import (
     db_rebase_object,
     db_set_decision,
 )
+from ossie_studio.drafts.validation import LoggedFinding, blocking, run_rules, validation_log
 from ossie_studio.drafts.workdir import DraftWorkdir, ObjectVersions
 from ossie_studio.errors import ApiError
 from ossie_studio.spaces.branch_service import db_get_branch
@@ -387,3 +388,74 @@ async def verify_impact(
         conn, draft.id, "impact_verified", body.path, fingerprint(impact.reads, objects)
     )
     return {"path": body.path, "verified": True}
+
+
+# --- Journal de validation -----------------------------------------------------
+
+
+class AcceptBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rule: str
+    path: str
+    message_code: str
+
+
+async def draft_validation(
+    conn: ConnDep,
+    crypto: CryptoService,
+    workdir: DraftWorkdir,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> tuple[Draft | None, list[LoggedFinding]]:
+    """Journal de la branche vue par la personne. Sans brouillon : celui de la
+    branche publiée (rien n'y est « lié au brouillon »)."""
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    draft = await db_get_draft(conn, workdir.user_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    args = (space_id, branch.slug, space.repo_url, username, token, run_rules)
+    try:
+        published = await workdir.read_branch(*args, published=True)
+        merged = await workdir.read_branch(*args) if draft is not None else published
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    accepted = await db_decisions(conn, draft.id, "warning_accepted") if draft else {}
+    return draft, validation_log(merged, published, accepted)
+
+
+@router.get("/validation")
+async def get_validation(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: SpacesRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    _draft, log_entries = await draft_validation(conn, crypto, workdir, space_id, branch_id)
+    return {
+        "entries": [e.payload() for e in log_entries],
+        "blocking": len(blocking(log_entries)),
+    }
+
+
+@router.post("/validation/accept")
+async def accept_warning(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: SpacesRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: AcceptBody,
+) -> dict[str, object]:
+    """Accepter un avertissement (jamais une erreur) : vaut tant que l'objet ne
+    change plus ; part dans le message du commit."""
+    draft, log_entries = await draft_validation(conn, crypto, workdir, space_id, branch_id)
+    key = f"{body.rule}:{body.path}:{body.message_code}"
+    entry = next((e for e in log_entries if e.finding.key == key), None)
+    if draft is None or entry is None or entry.finding.level != "warning":
+        raise ApiError("warning_not_found", status_code=404, path=body.path)
+    await db_set_decision(conn, draft.id, "warning_accepted", key, entry.finding.fingerprint)
+    return {"accepted": True}

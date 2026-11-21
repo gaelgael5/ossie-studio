@@ -176,3 +176,45 @@ async def test_verifier_un_impact_inconnu_404(app: FastAPI, sp: ApiSpace) -> Non
     await _draft_write(app, sp, RAW, {"title": "User"})
     response = await sp.client.post(f"{sp.base}/draft/impacts/verify", json={"path": "x.json"})
     assert response.status_code == 404
+
+
+# --- Journal de validation ----------------------------------------------------
+
+
+async def test_journal_erreur_liee_au_brouillon_et_avertissement(
+    app: FastAPI, sp: ApiSpace
+) -> None:
+    forge_edit(sp, {RAW: json.dumps({"title": "User"})})
+    # Le brouillon supprime la cible d'un $ref et laisse un asset sans son raw.
+    await _draft_write(
+        app, sp, "sources/s/raw/Order.json", {"properties": {"u": {"$ref": "Absent.json"}}}
+    )
+    await _draft_write(app, sp, "sources/s/assets/Seul.json", {"title": "Seul"})
+    log = (await sp.client.get(f"{sp.base}/draft/validation")).json()
+    rules = {(e["rule"], e["level"], e["blocking"]) for e in log["entries"]}
+    assert ("broken_ref", "error", True) in rules
+    assert ("orphan_asset", "warning", False) in rules
+    assert log["blocking"] == 1
+    warning = next(e for e in log["entries"] if e["rule"] == "orphan_asset")
+    ok = await sp.client.post(
+        f"{sp.base}/draft/validation/accept",
+        json={"rule": "orphan_asset", "path": warning["path"], "message_code": "asset_orphan"},
+    )
+    assert ok.status_code == 200, ok.text
+    log = (await sp.client.get(f"{sp.base}/draft/validation")).json()
+    assert next(e for e in log["entries"] if e["rule"] == "orphan_asset")["accepted"] is True
+
+
+async def test_accepter_une_erreur_refuse(app: FastAPI, sp: ApiSpace) -> None:
+    await _draft_write(
+        app, sp, "sources/s/raw/Order.json", {"properties": {"u": {"$ref": "A.json"}}}
+    )
+    response = await sp.client.post(
+        f"{sp.base}/draft/validation/accept",
+        json={
+            "rule": "broken_ref",
+            "path": "sources/s/raw/Order.json",
+            "message_code": "ref_broken",
+        },
+    )
+    assert response.status_code == 404

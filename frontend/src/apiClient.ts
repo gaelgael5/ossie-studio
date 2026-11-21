@@ -116,6 +116,17 @@ export interface ImpactItem {
   verified: boolean
 }
 
+export interface ValidationEntry {
+  level: 'error' | 'warning'
+  path: string
+  rule: string
+  message_code: string
+  args: Record<string, string>
+  preexisting: boolean
+  accepted: boolean
+  blocking: boolean
+}
+
 export interface DraftSummary {
   count: number
   revision: number
@@ -870,6 +881,15 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/draft/impacts/verify`,
       { method: 'POST', body: JSON.stringify({ path }) },
     ),
+  draftValidation: (spaceId: string, branchId: string) =>
+    apiFetch<{ entries: ValidationEntry[]; blocking: number }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/draft/validation`,
+    ),
+  acceptWarning: (spaceId: string, branchId: string, entry: ValidationEntry) =>
+    apiFetch<{ accepted: boolean }>(`/api/spaces/${spaceId}/branches/${branchId}/draft/validation/accept`, {
+      method: 'POST',
+      body: JSON.stringify({ rule: entry.rule, path: entry.path, message_code: entry.message_code }),
+    }),
   myDraft: (spaceId: string, branchId: string) =>
     apiFetch<DraftSummary>(`/api/spaces/${spaceId}/branches/${branchId}/draft`),
   listVersions: (spaceId: string, branchId: string) =>

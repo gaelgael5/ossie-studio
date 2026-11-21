@@ -52,16 +52,16 @@ class RawAssetRule:
         return out
 
 
-def _refs(node: Any) -> Iterator[str]:
+def refs_in(node: Any) -> Iterator[str]:
     if isinstance(node, dict):
         ref = node.get(REF_KEY)
         if isinstance(ref, str):
             yield ref
         for value in node.values():
-            yield from _refs(value)
+            yield from refs_in(value)
     elif isinstance(node, list):
         for item in node:
-            yield from _refs(item)
+            yield from refs_in(item)
 
 
 class RefRule:
@@ -79,7 +79,7 @@ class RefRule:
                 data = json.loads(file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
-            for ref in _refs(data):
+            for ref in refs_in(data):
                 if ref.startswith("#") or "://" in ref:
                     continue
                 target = posixpath.normpath(

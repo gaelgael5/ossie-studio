@@ -115,6 +115,7 @@ ERROR_CODES: tuple[str, ...] = (
     "draft_object_not_found",
     "merge_unresolved",
     "impact_not_found",
+    "warning_not_found",
 )
 
 
