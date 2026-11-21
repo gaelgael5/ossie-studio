@@ -126,7 +126,16 @@ async def list_connection_repositories(
         except ForgeError as exc:
             raise ApiError(exc.code, status_code=400) from None
     return {
-        "repositories": [{"full_name": r.full_name, "url": r.url} for r in repos],
+        # clone_url : l'adresse à rattacher à un espace (calculée par la forge),
+        # url : la page web du dépôt.
+        "repositories": [
+            {
+                "full_name": r.full_name,
+                "url": r.url,
+                "clone_url": strategy.git_clone_url(connection.url, r.full_name),
+            }
+            for r in repos
+        ],
         "total": len(repos),
     }
 

@@ -24,6 +24,7 @@ from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import GitSpace, SpaceBranch
+from ossie_studio.slugs import is_valid_slug as is_strict_slug
 from ossie_studio.spaces.branch_service import (
     KIND_BASE,
     KIND_CHILD,
@@ -51,6 +52,9 @@ DraftWorkdirDep = Annotated[DraftWorkdir, Depends(get_draft_workdir)]
 class LabelBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
+    # Optionnel : l'écran le déduit du libellé et le laisse corriger ; absent, le
+    # serveur le déduit lui-même (règle libellé → slug).
+    slug: str = ""
 
 
 class ViewedBody(BaseModel):
@@ -103,10 +107,15 @@ async def list_branches(
     }
 
 
-def _slug_from_label(label: str) -> str:
-    if not label.strip():
+def _slug_from(body: LabelBody) -> str:
+    if not body.label.strip():
         raise ApiError("invalid_request", status_code=400, fields=["label_required"])
-    slug = slugify(label)
+    if body.slug.strip():
+        slug = body.slug.strip()
+        if not is_strict_slug(slug):
+            raise ApiError("invalid_request", status_code=400, fields=["branch_slug_invalid"])
+        return slug
+    slug = slugify(body.label)
     if not is_valid_slug(slug):
         raise ApiError("invalid_request", status_code=400, fields=["label_invalid"])
     return slug
@@ -126,7 +135,7 @@ async def create_base(
     if existing_base is not None:
         # Rejeu : la base existe déjà, ni seconde branche ni erreur.
         return {**_payload(existing_base), "already_exists": True}
-    slug = _slug_from_label(body.label)
+    slug = _slug_from(body)
     if await db_get_branch_by_slug(conn, space_id, slug) is not None:
         raise ApiError("branch_slug_taken", status_code=409, slug=slug)
     try:
@@ -150,7 +159,7 @@ async def create_child(
     base = await db_get_base(conn, space_id)
     if base is None:
         raise ApiError("space_base_required", status_code=409)
-    slug = _slug_from_label(body.label)
+    slug = _slug_from(body)
     duplicate = await db_get_branch_by_slug(conn, space_id, slug)
     if duplicate is not None:
         if duplicate.label == body.label.strip():

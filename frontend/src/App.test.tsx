@@ -177,6 +177,15 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
     '/api/connections': {
       body: { connections: [{ id: 'c1', label: 'GitHub', forge: 'github', url: 'https://github.com', identity: 'octocat', last_status: 'valid', last_error_code: null, last_checked_at: null }] },
     },
+    '/api/connections/c1/repositories': {
+      body: {
+        repositories: [
+          { full_name: 'acme/app', url: 'https://github.com/acme/app', clone_url: 'https://github.com/acme/app.git' },
+          { full_name: 'acme/autre', url: 'https://github.com/acme/autre', clone_url: 'https://github.com/acme/autre.git' },
+        ],
+        total: 2,
+      },
+    },
     'POST /api/spaces': {
       status: 400,
       body: { error: 'space_probe_failed', error_args: { right: 'push_commit', cause: 'write_denied', residuals: [] } },
@@ -185,7 +194,10 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
   renderAt('/spaces')
   await screen.findByText('Espaces Git')
   await userEvent.type(screen.getByLabelText("Nom de l'espace"), 'modele')
-  await userEvent.type(screen.getByLabelText('URL du dépôt'), 'https://github.com/acme/app')
+  // Le dépôt se choisit dans la liste filtrable de la connexion, sans taper d'URL.
+  await userEvent.type(screen.getByPlaceholderText('Filtrer les dépôts…'), 'app')
+  expect(screen.queryByRole('option', { name: 'acme/autre' })).not.toBeInTheDocument()
+  await userEvent.click(await screen.findByRole('option', { name: 'acme/app' }))
   await userEvent.click(screen.getByRole('button', { name: 'Éprouver les cinq droits et créer' }))
   // Le message compose le droit et la cause traduits.
   await waitFor(() => expect(screen.getByText(/pousser un commit/)).toBeInTheDocument())
@@ -197,6 +209,7 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
     name: 'modele',
     slug: 'modele',
     connection_id: 'c1',
+    repo_url: 'https://github.com/acme/app.git',
   })
 })
 

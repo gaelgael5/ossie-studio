@@ -10,6 +10,7 @@ from ossie_studio.api.common import ProfilesWrite, UsersRead, UsersWrite
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.profiles.service import db_get_profile
+from ossie_studio.slugs import is_valid_slug
 from ossie_studio.teams.service import (
     TeamNameTakenError,
     TeamNotFoundError,
@@ -28,6 +29,8 @@ router = APIRouter(prefix="/api/teams")
 class TeamCreateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = ""
+    # Optionnel : déduit du nom par l'écran (règle libellé → slug), modifiable.
+    slug: str = ""
 
 
 class TeamRenameBody(BaseModel):
@@ -50,9 +53,16 @@ async def create_team(conn: ConnDep, _: UsersWrite, body: TeamCreateBody) -> dic
     name = body.name.strip()
     if not name:
         raise ApiError("invalid_request", status_code=400, fields=["team_name_required"])
-    team = await db_create_team_manual(conn, name)
+    slug = body.slug.strip()
+    if slug and not is_valid_slug(slug):
+        raise ApiError("invalid_request", status_code=400, fields=["team_slug_invalid"])
+    if slug and await conn.fetchval(
+        "SELECT 1 FROM teams WHERE slug = $1 AND name <> $2", slug, name
+    ):
+        raise ApiError("team_slug_taken", status_code=409, slug=slug)
+    team = await db_create_team_manual(conn, name, slug or None)
     log.info("team_created_manually", team_id=str(team.id), name=team.name)
-    return {"id": str(team.id), "name": team.name, "origin": team.origin}
+    return {"id": str(team.id), "name": team.name, "slug": team.slug, "origin": team.origin}
 
 
 @router.put("/{team_id}")

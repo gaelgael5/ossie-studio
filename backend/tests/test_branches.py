@@ -152,7 +152,9 @@ def _push_commit(url: str, ref: str, text: str, tmp: Path) -> None:
     clone = tmp / f"clone-{uuid.uuid4().hex[:6]}"
     run = lambda *a: subprocess.run(  # noqa: E731
         ["git", "-c", "user.email=a@a", "-c", "user.name=a", *a],
-        check=True, capture_output=True, cwd=clone if clone.exists() else tmp,
+        check=True,
+        capture_output=True,
+        cwd=clone if clone.exists() else tmp,
     )
     run("clone", "-q", "-b", ref, url.removeprefix("file://"), str(clone))
     (clone / "sources").mkdir(exist_ok=True)
@@ -210,9 +212,7 @@ async def test_revenir_a_une_version(
     # La tête avance sur la forge, sinon « revenir » serait déjà courant.
     _push_commit(url, "work/principale", "v2", tmp_path)
 
-    restore = await client.post(
-        f"/api/spaces/{space_id}/branches/{branch_id}/versions/1/restore"
-    )
+    restore = await client.post(f"/api/spaces/{space_id}/branches/{branch_id}/versions/1/restore")
     assert restore.status_code == 200, restore.text
     assert restore.json()["created"] is True
     assert restore.json()["already_current"] is False
@@ -234,9 +234,7 @@ async def test_railmap_lignes_gare_et_non_publie(
     await client.post(
         f"/api/spaces/{space_id}/branches/{base_id}/versions", json={"label": "Première"}
     )
-    await client.put(
-        f"/api/spaces/{space_id}/branches/viewed", json={"branch_id": base_id}
-    )
+    await client.put(f"/api/spaces/{space_id}/branches/viewed", json={"branch_id": base_id})
     _push_commit(url, "work/principale", "v1", tmp_path)
 
     response = await client.get(f"/api/spaces/{space_id}/railmap")
@@ -251,9 +249,7 @@ async def test_railmap_lignes_gare_et_non_publie(
     assert not any(n["kind"] == "unpublished" for n in body["nodes"])
 
 
-async def test_railmap_non_admin_refuse(
-    space: tuple[AsyncClient, str, str], app: FastAPI
-) -> None:
+async def test_railmap_non_admin_refuse(space: tuple[AsyncClient, str, str], app: FastAPI) -> None:
     await create_plain_user(app, "simple2@example.org", "mot-de-passe-simple")
     _, space_id, _ = space
     transport = ASGITransport(app=app)
@@ -287,3 +283,23 @@ async def test_non_admin_refus_403(
         f"/api/spaces/{space_id}/branches/{bid}/versions", json={"label": "X"}
     )
     assert tag.status_code == 403
+
+
+async def test_slug_de_branche_fourni(space: tuple[AsyncClient, str, str]) -> None:
+    client, space_id, url = space
+    base = await client.post(
+        f"/api/spaces/{space_id}/branches/base",
+        json={"label": "Principale", "slug": "main-travail"},
+    )
+    assert base.status_code == 201, base.text
+    assert base.json()["slug"] == "main-travail"
+    assert _ref_sha(url, "refs/heads/work/main-travail") is not None
+
+
+async def test_slug_de_branche_invalide_refuse(space: tuple[AsyncClient, str, str]) -> None:
+    client, space_id, _ = space
+    response = await client.post(
+        f"/api/spaces/{space_id}/branches/base", json={"label": "P", "slug": "Pas Bon"}
+    )
+    assert response.status_code == 400
+    assert "branch_slug_invalid" in response.json()["error_args"]["fields"]

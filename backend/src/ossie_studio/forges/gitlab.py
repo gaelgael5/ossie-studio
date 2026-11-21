@@ -28,7 +28,11 @@ class GitLabStrategy:
             response = await client.get(f"{_api(url)}/user", headers=_headers(token))
         except httpx.HTTPError as exc:
             raise ForgeError("connection_url_unreachable") from exc
-        if response.status_code in (401, 403):
+        if response.status_code == 403:
+            # Jeton reconnu mais portée insuffisante (GitLab : « insufficient_scope ») :
+            # à distinguer d'un jeton expiré, sinon on cherche au mauvais endroit.
+            raise ForgeError("connection_token_scope_insufficient")
+        if response.status_code == 401:
             raise ForgeError("connection_token_invalid")
         if response.status_code >= 400:
             raise ForgeError("connection_url_unreachable")

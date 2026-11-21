@@ -9,6 +9,7 @@ import { PageHeader } from '../components/PageHeader'
 import { RailMap } from '../components/RailMap'
 import { useSession } from '../hooks'
 import { SpaceTeamsSection } from './SpaceTeamsSection'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { CredentialBlock } from '../components/CredentialBlock'
 
 export function SpaceDetailPage() {
@@ -17,8 +18,8 @@ export function SpaceDetailPage() {
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
   const [notice, setNotice] = useState('')
-  const [baseLabel, setBaseLabel] = useState('')
-  const [childLabel, setChildLabel] = useState('')
+  const base = useLabelSlug()
+  const child = useLabelSlug()
   const [versionLabel, setVersionLabel] = useState('')
   const [railLimit, setRailLimit] = useState(200)
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
@@ -49,17 +50,17 @@ export function SpaceDetailPage() {
     }).format(new Date(iso))
 
   const createBase = useMutation({
-    mutationFn: () => api.createBaseBranch(spaceId, baseLabel),
+    mutationFn: () => api.createBaseBranch(spaceId, base.label, base.finalSlug),
     onSuccess: async () => {
-      setBaseLabel('')
+      base.reset()
       await invalidate()
     },
     onError,
   })
   const createChild = useMutation({
-    mutationFn: () => api.createChildBranch(spaceId, childLabel),
+    mutationFn: () => api.createChildBranch(spaceId, child.label, child.finalSlug),
     onSuccess: async () => {
-      setChildLabel('')
+      child.reset()
       await invalidate()
     },
     onError,
@@ -340,17 +341,7 @@ export function SpaceDetailPage() {
               createBase.mutate()
             }}
           >
-            <div className="field">
-              <label className="field-label" htmlFor="baseLabel">
-                {t('baseLabelField')}
-              </label>
-              <input
-                id="baseLabel"
-                className="input"
-                value={baseLabel}
-                onChange={(e) => setBaseLabel(e.target.value)}
-              />
-            </div>
+            <LabelSlugFields idPrefix="base" state={base} labelText={t('baseLabelField')} slugText={t('slugLabel')} />
             <div>
               <button type="submit" className="btn btn-primary" disabled={createBase.isPending}>
                 {t('createBaseButton')}
@@ -366,17 +357,7 @@ export function SpaceDetailPage() {
               createChild.mutate()
             }}
           >
-            <div className="field">
-              <label className="field-label" htmlFor="childLabel">
-                {t('childLabelField')}
-              </label>
-              <input
-                id="childLabel"
-                className="input"
-                value={childLabel}
-                onChange={(e) => setChildLabel(e.target.value)}
-              />
-            </div>
+            <LabelSlugFields idPrefix="child" state={child} labelText={t('childLabelField')} slugText={t('slugLabel')} />
             <div>
               <button type="submit" className="btn btn-primary" disabled={createChild.isPending}>
                 {t('createChildButton')}

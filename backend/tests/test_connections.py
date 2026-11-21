@@ -264,6 +264,8 @@ async def test_depots_lisibles_pagines(admin_client: AsyncClient, app: FastAPI) 
     # Le faux GitHub pagine : 100 + 1 → la pagination est gérée de bout en bout.
     assert body["total"] == 101
     assert any(r["full_name"].endswith("/last") for r in body["repositories"])
+    # Adresse de clone fournie : c'est elle qu'un espace rattache (choisie dans la liste).
+    assert body["repositories"][0]["clone_url"].startswith("https://github.com/")
 
 
 async def test_payload_utilisee_par(admin_client: AsyncClient) -> None:

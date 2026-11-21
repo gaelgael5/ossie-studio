@@ -658,7 +658,7 @@ export const api = {
   listForges: () =>
     apiFetch<{ forges: ForgeSpec[] }>('/api/connections/forges'),
   listConnectionRepositories: (id: string) =>
-    apiFetch<{ repositories: { full_name: string; url: string }[]; total: number }>(
+    apiFetch<{ repositories: { full_name: string; url: string; clone_url: string }[]; total: number }>(
       `/api/connections/${id}/repositories`,
     ),
   listDbConnections: () =>
@@ -717,15 +717,15 @@ export const api = {
       branches: { id: string; label: string; slug: string; kind: string; git_ref: string }[]
       viewed_branch_id: string | null
     }>(`/api/spaces/${spaceId}/branches`),
-  createBaseBranch: (spaceId: string, label: string) =>
+  createBaseBranch: (spaceId: string, label: string, slug = '') =>
     apiFetch(`/api/spaces/${spaceId}/branches/base`, {
       method: 'POST',
-      body: JSON.stringify({ label }),
+      body: JSON.stringify({ label, slug }),
     }),
-  createChildBranch: (spaceId: string, label: string) =>
+  createChildBranch: (spaceId: string, label: string, slug = '') =>
     apiFetch(`/api/spaces/${spaceId}/branches/child`, {
       method: 'POST',
-      body: JSON.stringify({ label }),
+      body: JSON.stringify({ label, slug }),
     }),
   setViewedBranch: (spaceId: string, branchId: string) =>
     apiFetch(`/api/spaces/${spaceId}/branches/viewed`, {
@@ -1059,10 +1059,10 @@ export const api = {
       body: JSON.stringify({ profile_id: profileId }),
     }),
   listTeams: () => apiFetch<{ teams: TeamItem[] }>('/api/teams'),
-  createTeam: (name: string) =>
-    apiFetch<{ id: string; name: string; origin: string }>('/api/teams', {
+  createTeam: (name: string, slug = '') =>
+    apiFetch<{ id: string; name: string; slug: string; origin: string }>('/api/teams', {
       method: 'POST',
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, slug }),
     }),
   renameTeam: (teamId: string, name: string) =>
     apiFetch<{ ok: boolean }>(`/api/teams/${teamId}`, {

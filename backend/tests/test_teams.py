@@ -537,3 +537,29 @@ async def test_api_renommer_et_supprimer_equipe(admin: AsyncClient, app: FastAPI
     assert (await admin.delete(f"/api/teams/{a}")).status_code == 200
     names = [t["name"] for t in (await admin.get("/api/teams")).json()["teams"]]
     assert "Trois" not in names and "Deux" in names
+
+
+async def test_creation_manuelle_avec_slug_et_renommage_qui_le_garde(
+    client: AsyncClient, app: FastAPI
+) -> None:
+    await bootstrap_admin(client)
+    created = await client.post("/api/teams", json={"name": "Équipe Data", "slug": "data"})
+    assert created.status_code == 201, created.text
+    assert created.json()["slug"] == "data"
+    team_id = created.json()["id"]
+    renamed = await client.put(f"/api/teams/{team_id}", json={"name": "Data & IA"})
+    assert renamed.status_code in (200, 204), renamed.text
+    listing = (await client.get("/api/teams")).json()["teams"]
+    team = next(t for t in listing if t["id"] == team_id)
+    assert (team["name"], team["slug"]) == ("Data & IA", "data")
+
+
+async def test_slug_d_equipe_invalide_ou_pris(client: AsyncClient, app: FastAPI) -> None:
+    await bootstrap_admin(client)
+    bad = await client.post("/api/teams", json={"name": "X", "slug": "Pas Bon"})
+    assert bad.status_code == 400
+    assert "team_slug_invalid" in bad.json()["error_args"]["fields"]
+    await client.post("/api/teams", json={"name": "Une", "slug": "pris"})
+    taken = await client.post("/api/teams", json={"name": "Autre", "slug": "pris"})
+    assert taken.status_code == 409
+    assert taken.json()["error"] == "team_slug_taken"

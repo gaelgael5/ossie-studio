@@ -7,6 +7,7 @@ import { api } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { RepoPicker } from '../components/RepoPicker'
 import { PageHeader } from '../components/PageHeader'
 
 function probeFailureMessages(t: TFunction, err: unknown): string[] {
@@ -157,7 +158,10 @@ export function SpacesPage() {
               id="connection"
               className="select"
               value={selected}
-              onChange={(e) => setConnectionId(e.target.value)}
+              onChange={(e) => {
+                setConnectionId(e.target.value)
+                setRepoUrl('') // un dépôt se choisit dans la liste de SA connexion
+              }}
             >
               {conns.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -166,12 +170,7 @@ export function SpacesPage() {
               ))}
             </select>
           </div>
-          <div className="field">
-            <label className="field-label" htmlFor="repo">
-              {t('repoUrlLabel')}
-            </label>
-            <input id="repo" className="input" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} />
-          </div>
+          <RepoPicker connectionId={selected} value={repoUrl} onChange={setRepoUrl} />
           <div>
             <button type="submit" className="btn btn-primary" disabled={create.isPending}>
               {t('createSpace')}

@@ -213,3 +213,18 @@ async def test_azure_redirection_vers_la_connexion_jeton_refuse() -> None:
         with pytest.raises(ForgeError) as exc:
             await AzureDevOpsStrategy().verify(client, "https://dev.azure.com/o", "mauvais")
     assert exc.value.code == "connection_token_invalid"
+
+
+async def test_gitlab_portee_insuffisante_distinguee_du_jeton_invalide() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("PRIVATE-TOKEN") == "sans-portee":
+            return httpx.Response(403, json={"error": "insufficient_scope"})
+        return httpx.Response(401, json={"message": "401 Unauthorized"})
+
+    async with _client(handler) as client:
+        with pytest.raises(ForgeError) as scope:
+            await GitLabStrategy().verify(client, "https://gitlab.com", "sans-portee")
+        with pytest.raises(ForgeError) as invalid:
+            await GitLabStrategy().verify(client, "https://gitlab.com", "expire")
+    assert scope.value.code == "connection_token_scope_insufficient"
+    assert invalid.value.code == "connection_token_invalid"

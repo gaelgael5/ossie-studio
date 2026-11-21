@@ -78,8 +78,9 @@ Page de référence à imiter : `frontend/src/pages/ForgesPage.tsx`.
 
 ## Règle — saisir un libellé et un slug
 
-Partout où l'on crée un objet qui porte un libellé et un slug (secret,
-connexion de forge, connexion de base, source…) :
+Partout où l'on crée un objet qui porte un libellé et un slug — aujourd'hui :
+secret, connexion de forge, connexion de base, source, espace Git, branche
+(base et fille), équipe, schéma de classification (son identifiant) :
 
 1. **Le libellé d'abord.** Le champ libellé précède le champ slug ; rien ne
    s'intercale entre eux, de sorte que **Tab** mène du libellé au slug.

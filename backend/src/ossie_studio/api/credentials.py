@@ -140,7 +140,7 @@ async def test_my_credential(
                 client, connection.url, repo_path(connection.url, space.repo_url), token.reveal()
             )
         except ForgeError as exc:
-            if exc.code == "connection_token_invalid":
+            if exc.code in ("connection_token_invalid", "connection_token_scope_insufficient"):
                 cred = await db_record_test(
                     conn, cred.id, status=STATUS_REFUSED, forge_login=None, error_code=exc.code
                 )
