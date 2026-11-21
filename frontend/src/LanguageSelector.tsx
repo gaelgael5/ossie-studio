@@ -16,9 +16,10 @@ export function LanguageSelector() {
   const authenticated = session.data?.authenticated ?? false
   const current = (i18n.resolvedLanguage ?? 'en') as string
   return (
-    <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+    <label className="lang-select">
       <span>{t('language')}</span>
       <select
+        className="ctx-select"
         aria-label={t('language')}
         value={current}
         onChange={(e) => {

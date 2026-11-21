@@ -177,7 +177,7 @@ export function SourcesPage() {
                         <Link to={`/sources/${source.slug}`} className="link-strong">
                           {source.label}
                         </Link>
-                        <div className="muted mono" style={{ fontSize: '0.82rem' }}>
+                        <div className="muted mono small">
                           {source.slug}
                         </div>
                       </>
@@ -189,7 +189,7 @@ export function SourcesPage() {
                     {source.ok ? (
                       <>
                         {source.type}
-                        <div className="muted" style={{ fontSize: '0.82rem' }}>
+                        <div className="muted small">
                           {source.connexion?.kind === 'missing'
                             ? t('connectionMissing')
                             : source.connexion?.kind === 'none'
@@ -204,11 +204,11 @@ export function SourcesPage() {
                   <td className="muted">{source.ok ? whatIsRead(source, t) : ''}</td>
                   <td>
                     {source.ok ? (
-                      <span className="pill" style={{ color: '#2e7d32' }}>
+                      <span className="pill text-ok">
                         {t('sourceValid')}
                       </span>
                     ) : (
-                      <span style={{ color: 'var(--danger)' }}>
+                      <span className="text-danger">
                         {t(`fields.${source.error}`, {
                           defaultValue: t('sourceInError'),
                         })}
@@ -476,10 +476,10 @@ function ManifestPreview({ manifest }: { manifest: Record<string, unknown> }) {
       <pre
         className="mono"
         style={{
-          background: '#0f1b2d',
-          color: '#c7d0dd',
+          background: 'var(--nav-bg)',
+          color: 'var(--nav-chip-fg)',
           padding: 14,
-          borderRadius: 8,
+          borderRadius: 'var(--radius)',
           overflow: 'auto',
           fontSize: '0.82rem',
         }}
@@ -743,7 +743,7 @@ function GitSourceModal({
                       onChange={() => toggleParseur(plugin.id)}
                     />
                     {plugin.label}
-                    <span className="muted mono" style={{ fontSize: '0.78rem' }}>
+                    <span className="muted mono small">
                       {plugin.globs.join(', ')}
                     </span>
                   </label>

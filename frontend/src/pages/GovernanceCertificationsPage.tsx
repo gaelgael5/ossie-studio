@@ -17,12 +17,12 @@ const EMPTY: CertificationInput = {
   restricted: false,
 }
 
-// Couleur du rang : Or, Argent, Bronze, puis bleu au-delà.
+// Couleur du rang : Or, Argent, Bronze, puis la couleur primaire au-delà.
 function rankColor(rank: number): string {
   if (rank === 1) return '#d9a81f'
   if (rank === 2) return '#9aa3af'
   if (rank === 3) return '#b06a3b'
-  return '#3b5bdb'
+  return 'var(--primary)'
 }
 
 // Rendu Markdown minimal des critères (titres, listes à puces, paragraphes).
@@ -154,7 +154,7 @@ export function GovernanceCertificationsPage() {
                   {cert.name}
                   {cert.restricted ? ' 🔒' : ''}
                 </strong>
-                <div className="muted mono" style={{ fontSize: '0.82rem' }}>
+                <div className="muted mono small">
                   {t('rankShort', { rank: cert.rank })} · {cert.tag}
                 </div>
                 <div className="muted" style={{ fontSize: '0.85rem', marginTop: 4 }}>

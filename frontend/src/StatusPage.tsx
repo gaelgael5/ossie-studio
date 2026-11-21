@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { fetchHealth, type DbStatus, type HealthReport } from './api'
-import { LanguageSelector } from './LanguageSelector'
 
 function dbLine(t: ReturnType<typeof useTranslation>['t'], db: DbStatus): string {
   if (!db.reachable) return t('dbUnreachable')
@@ -22,20 +21,21 @@ export function StatusPage() {
   const today = new Intl.DateTimeFormat(i18n.resolvedLanguage).format(new Date())
 
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', maxWidth: 560, margin: '40px auto' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1>{t('statusTitle')}</h1>
-        <LanguageSelector />
-      </header>
-      <p>{t('today', { date: today })}</p>
-      {isLoading && <p>{t('loading')}</p>}
-      {isError && <p role="alert">{t('unreachable')}</p>}
+    <main className="panel stack" style={{ maxWidth: 560, margin: '40px auto 0' }}>
+      <h1 className="page-title">{t('statusTitle')}</h1>
+      <p className="muted">{t('today', { date: today })}</p>
+      {isLoading && <p className="muted">{t('loading')}</p>}
+      {isError && (
+        <p role="alert" className="banner banner-danger">
+          {t('unreachable')}
+        </p>
+      )}
       {data && (
         <>
-          <p style={{ fontWeight: 600, color: data.ok ? '#15803d' : '#b91c1c' }}>
-            {data.ok ? t('healthy') : t('degraded')}
+          <p className={data.ok ? 'text-ok' : 'text-danger'}>
+            <strong>{data.ok ? t('healthy') : t('degraded')}</strong>
           </p>
-          <ul>
+          <ul className="list-plain stack stack-tight">
             <li>{dbLine(t, data.database)}</li>
             {data.volumes.map((v) => (
               <li key={v.name}>

@@ -358,6 +358,7 @@ export const en = {
     colType: 'Account',
     colLastLogin: 'Last login',
     colProfile: 'Profile',
+    userProfileAria: 'Profile of {{name}}',
     colTeam: 'Team',
     accountOidc: 'OIDC',
     accountLocal: 'Local',

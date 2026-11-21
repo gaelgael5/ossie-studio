@@ -6,6 +6,7 @@ import { api } from '../apiClient'
 import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
 import { useWorkspace } from '../workspace'
+import { Brand } from './Brand'
 
 /** Un item du menu principal. `to` absent = module pas encore construit. */
 interface NavItem {
@@ -36,7 +37,6 @@ const SETTINGS_NAV: NavItem[] = [
 ]
 
 export function Layout({ children }: { children: ReactNode }) {
-  const { t } = useTranslation()
   const session = useSession()
   const authenticated = session.data?.authenticated ?? false
   const user = session.data?.user
@@ -46,7 +46,7 @@ export function Layout({ children }: { children: ReactNode }) {
     return (
       <div className="app-shell">
         <div className="topbar-plain">
-          <strong>{t('appName')}</strong>
+          <Brand />
           <LanguageSelector />
         </div>
         <div className="page">{children}</div>
@@ -159,7 +159,7 @@ function AppNav({
 
   return (
     <nav className="topnav" aria-label={t('appName')}>
-      <span className="topnav-brand">{t('appName')}</span>
+      <Brand />
       <div className="topnav-menu">
         {MAIN_NAV.map((item) => {
           const label = t(item.key)
@@ -217,7 +217,6 @@ function AppNav({
           <button
             type="button"
             className="topnav-user"
-            style={{ background: 'none', border: 'none', cursor: 'pointer' }}
             aria-haspopup="true"
             aria-expanded={userOpen}
             onClick={() => setUserOpen((v) => !v)}

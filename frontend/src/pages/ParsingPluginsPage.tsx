@@ -51,15 +51,15 @@ function PluginPanel({
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <div>
           <strong>{plugin.label}</strong>
-          <span className="muted mono" style={{ marginLeft: 8, fontSize: '0.82rem' }}>
+          <span className="muted mono small" style={{ marginLeft: 8 }}>
             {plugin.id} · {plugin.version}
           </span>
         </div>
-        <span className="pill mono" style={{ fontSize: '0.8rem' }}>
+        <span className="pill">
           {plugin.cible}
         </span>
       </div>
-      <p className="muted mono" style={{ fontSize: '0.82rem' }}>
+      <p className="muted mono small">
         {t('colGlobs')} : {plugin.globs.join(', ')}
       </p>
       {plugin.parametres.length > 0 ? (
@@ -119,10 +119,10 @@ function ParamRow({
     <tr>
       <td>
         <strong>{param.label}</strong>
-        <div className="muted" style={{ fontSize: '0.82rem' }}>
+        <div className="muted small">
           {param.doc}
         </div>
-        <div className="muted mono" style={{ fontSize: '0.78rem' }}>
+        <div className="muted mono small">
           {param.slug} · {param.type}
         </div>
       </td>
@@ -130,6 +130,7 @@ function ParamRow({
         <input
           className="input mono"
           style={{ maxWidth: 200 }}
+          aria-label={param.label}
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />

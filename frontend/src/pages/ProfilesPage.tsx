@@ -6,6 +6,7 @@ import { api } from '../apiClient'
 import type { ProfileItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 export function ProfilesPage() {
   const { t } = useTranslation()
@@ -86,115 +87,139 @@ export function ProfilesPage() {
 
   return (
     <main>
-      <nav style={{ display: 'flex', gap: 16 }}>
-        <Link to="/">{t('home')}</Link>
-      </nav>
-      <h1>{t('profilesTitle')}</h1>
-      <p>{t('profilesIntro')}</p>
+      <PageHeader breadcrumb={<SettingsCrumb />} title={t('profilesTitle')} subtitle={t('profilesIntro')} />
       <ErrorList messages={messages} />
 
-      {list.length > 0 ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th>{t('profileNameLabel')}</th>
-              <th>{t('colUsers')}</th>
-              <th>{t('capabilitiesHeading')}</th>
-              <th>{t('colActions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((profile) => (
-              <tr key={profile.id}>
-                <td>
-                  {profile.name}
-                  {profile.is_admin ? ` ${t('adminLocked')}` : ''}
-                  {profile.is_default ? ` ${t('defaultBadge')}` : ''}
-                </td>
-                <td>{profile.user_count}</td>
-                <td>
-                  {profile.capabilities.length === 0
-                    ? t('profileNoAccess')
-                    : profile.capabilities.length}
-                </td>
-                <td>
-                  {!profile.is_admin ? (
-                    <button type="button" onClick={() => startEdit(profile)}>
-                      {t('editProfile')}
-                    </button>
-                  ) : null}{' '}
-                  <button type="button" onClick={() => duplicate.mutate(profile.id)}>
-                    {t('duplicateProfile')}
-                  </button>{' '}
-                  <Link to={`/users?profile=${profile.id}`}>{t('viewUsers')}</Link>{' '}
-                  {!profile.is_admin && !profile.is_default ? (
-                    <button type="button" onClick={() => setDefault.mutate(profile.id)}>
-                      {t('setDefault')}
-                    </button>
-                  ) : null}{' '}
-                  {!profile.is_admin ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm(t('deleteProfileConfirm'))) remove.mutate(profile.id)
-                      }}
-                    >
-                      {t('delete')}
-                    </button>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p>{t('noProfiles')}</p>
-      )}
+      <div className="page-body">
+        {list.length > 0 ? (
+          <div className="panel table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t('profileNameLabel')}</th>
+                  <th>{t('colUsers')}</th>
+                  <th>{t('capabilitiesHeading')}</th>
+                  <th>{t('colActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((profile) => (
+                  <tr key={profile.id}>
+                    <td>
+                      {profile.name}{' '}
+                      {profile.is_admin ? <span className="pill">{t('adminLocked')}</span> : null}{' '}
+                      {profile.is_default ? <span className="pill">{t('defaultBadge')}</span> : null}
+                    </td>
+                    <td>{profile.user_count}</td>
+                    <td>
+                      {profile.capabilities.length === 0
+                        ? t('profileNoAccess')
+                        : profile.capabilities.length}
+                    </td>
+                    <td>
+                      <div className="actions">
+                        {!profile.is_admin ? (
+                          <button type="button" className="btn btn-sm" onClick={() => startEdit(profile)}>
+                            {t('editProfile')}
+                          </button>
+                        ) : null}
+                        <button type="button" className="btn btn-sm" onClick={() => duplicate.mutate(profile.id)}>
+                          {t('duplicateProfile')}
+                        </button>
+                        <Link to={`/users?profile=${profile.id}`} className="btn btn-sm">
+                          {t('viewUsers')}
+                        </Link>
+                        {!profile.is_admin && !profile.is_default ? (
+                          <button type="button" className="btn btn-sm" onClick={() => setDefault.mutate(profile.id)}>
+                            {t('setDefault')}
+                          </button>
+                        ) : null}
+                        {!profile.is_admin ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            onClick={() => {
+                              if (window.confirm(t('deleteProfileConfirm'))) remove.mutate(profile.id)
+                            }}
+                          >
+                            {t('delete')}
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-note">{t('noProfiles')}</div>
+        )}
+      </div>
 
-      <h2>{editingId ? t('updateProfile') : t('createProfile')}</h2>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          setMessages([])
-          if (editingId) update.mutate()
-          else create.mutate()
-        }}
-        style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640 }}
-      >
-        <label htmlFor="pname">{t('profileNameLabel')}</label>
-        <input id="pname" value={name} onChange={(e) => setName(e.target.value)} />
-        <label htmlFor="pdesc">{t('profileDescriptionLabel')}</label>
-        <input id="pdesc" value={description} onChange={(e) => setDescription(e.target.value)} />
-
-        <h3>{t('capabilitiesHeading')}</h3>
-        {selected.size === 0 ? <p>{t('profileNoAccess')}</p> : null}
-        {catalog.map((domain) => (
-          <fieldset key={domain.domain} style={{ border: '1px solid var(--border, #ddd)' }}>
-            <legend>{t(`capDomain.${domain.domain}`)}</legend>
-            {domain.capabilities.map((capability) => (
-              <label key={capability} style={{ display: 'inline-flex', gap: 4, marginRight: 12 }}>
-                <input
-                  type="checkbox"
-                  checked={selected.has(capability)}
-                  onChange={() => toggle(capability)}
-                />
-                {capLabel(capability)}
-              </label>
-            ))}
-          </fieldset>
-        ))}
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="submit" disabled={create.isPending || update.isPending}>
-            {editingId ? t('updateProfile') : t('createProfile')}
-          </button>
-          {editingId ? (
-            <button type="button" onClick={reset}>
-              {t('cancelEdit')}
-            </button>
-          ) : null}
+      <section className="page-section">
+        <div className="section-head">
+          <h2 className="section-title">{editingId ? t('updateProfile') : t('createProfile')}</h2>
         </div>
-      </form>
+        <form
+          className="panel panel-form stack"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setMessages([])
+            if (editingId) update.mutate()
+            else create.mutate()
+          }}
+        >
+          <div className="field">
+            <label className="field-label" htmlFor="pname">
+              {t('profileNameLabel')}
+            </label>
+            <input id="pname" className="input" value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="pdesc">
+              {t('profileDescriptionLabel')}
+            </label>
+            <input
+              id="pdesc"
+              className="input"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+
+          <h3 className="panel-title">{t('capabilitiesHeading')}</h3>
+          {selected.size === 0 ? <p className="muted">{t('profileNoAccess')}</p> : null}
+          {catalog.map((domain) => (
+            <fieldset key={domain.domain} className="fieldset">
+              <legend>{t(`capDomain.${domain.domain}`)}</legend>
+              <div className="row">
+                {domain.capabilities.map((capability) => (
+                  <label key={capability} className="check">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(capability)}
+                      onChange={() => toggle(capability)}
+                    />
+                    {capLabel(capability)}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ))}
+
+          <div className="actions">
+            <button type="submit" className="btn btn-primary" disabled={create.isPending || update.isPending}>
+              {editingId ? t('updateProfile') : t('createProfile')}
+            </button>
+            {editingId ? (
+              <button type="button" className="btn" onClick={reset}>
+                {t('cancelEdit')}
+              </button>
+            ) : null}
+          </div>
+        </form>
+      </section>
     </main>
   )
 }

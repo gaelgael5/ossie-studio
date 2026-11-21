@@ -13,7 +13,8 @@ Le backlog du projet vit dans docflow, workspace `ossie-studio`.
   `backend/`. Migrations en **fichiers SQL numérotés immuables** joués par un
   runner maison (table de suivi, empreintes). Pas d'ORM.
 - **Frontend** : React + Vite, TypeScript strict, TanStack Query, i18n
-  (fr/en), Vitest, sous `frontend/`.
+  (fr/en), Vitest, sous `frontend/`. Identité visuelle et règles d'écriture
+  d'une page : [docs/identite-visuelle.md](docs/identite-visuelle.md).
 - **Livraison** : `docker compose` (PostgreSQL, backend, frontend) et
   `dev-deploy.sh` idempotent.
 

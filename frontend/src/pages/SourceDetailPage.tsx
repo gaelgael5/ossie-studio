@@ -228,7 +228,7 @@ export function SourceDetailPage() {
                     <tr key={run.id}>
                       <td>
                         {new Date(run.created_at).toLocaleString()}
-                        <div className="muted" style={{ fontSize: '0.8rem' }}>
+                        <div className="muted small">
                           {run.author}
                         </div>
                       </td>
@@ -268,13 +268,13 @@ function ReportCard({
   const step = (label: string, detail: string) => (
     <div style={{ marginBottom: 8 }}>
       <strong>{'✓ '}{label}</strong>
-      <div className="muted" style={{ fontSize: '0.88rem' }}>
+      <div className="muted small">
         {detail}
       </div>
     </div>
   )
   const counter = (n: number, label: string, danger = false) => (
-    <div className="pill" style={{ padding: '8px 12px', color: danger && n > 0 ? 'var(--danger)' : undefined }}>
+    <div className={`pill${danger && n > 0 ? ' text-danger' : ''}`} style={{ padding: '8px 12px' }}>
       <strong style={{ fontSize: '1.1rem' }}>{n}</strong> {label}
     </div>
   )
@@ -443,7 +443,7 @@ function ContractsTab({
       <div className="master-detail">
         <div className="panel">
           <p className="panel-label">{t('contractsDeposited')}</p>
-          <p className="muted" style={{ fontSize: '0.84rem' }}>
+          <p className="muted small">
             {t('contractsPathNote', { slug })}
           </p>
           {list.length > 0 ? (
@@ -464,7 +464,7 @@ function ContractsTab({
                   <tr key={c.version}>
                     <td>
                       <strong>{c.version}</strong>
-                      <div className="muted mono" style={{ fontSize: '0.8rem' }}>
+                      <div className="muted mono small">
                         {c.fichier}
                       </div>
                     </td>
@@ -473,17 +473,17 @@ function ContractsTab({
                     <td className="muted">
                       {t('schemasOps', { schemas: c.nb_schemas, ops: c.nb_operations })}
                     </td>
-                    <td className="muted" style={{ fontSize: '0.82rem' }}>
+                    <td className="muted small">
                       {new Date(c.depose_le).toLocaleDateString()}
                       <div>{c.auteur}</div>
                     </td>
                     <td>
                       {c.collecte ? (
-                        <span className="pill" style={{ color: '#2e7d32' }}>
+                        <span className="pill text-ok">
                           {t('contractCollected')}
                         </span>
                       ) : (
-                        <span className="pill" style={{ color: 'var(--warn, #9a6700)' }}>
+                        <span className="pill text-warn">
                           {t('contractToCollect')}
                         </span>
                       )}
@@ -543,7 +543,7 @@ function ContractsTab({
             }}
           >
             <strong>{t('dropContract')}</strong>
-            <div className="muted" style={{ fontSize: '0.84rem' }}>
+            <div className="muted small">
               {t('dropContractHint')}
             </div>
           </button>
@@ -568,7 +568,7 @@ function ContractsTab({
                   })}
                 </li>
                 {pending.analysis.refs_externes.length > 0 ? (
-                  <li style={{ color: 'var(--warn, #9a6700)' }}>
+                  <li className="text-warn">
                     {t('externalRefs', {
                       count: pending.analysis.refs_externes.length,
                       refs: pending.analysis.refs_externes.join(', '),
@@ -638,7 +638,7 @@ function ScanPanel({
   const rows = scan.data?.fichiers ?? []
   return (
     <div className="panel">
-      <p className="muted" style={{ fontSize: '0.88rem' }}>
+      <p className="muted small">
         {t('scanIntro')}
       </p>
       {rows.length > 0 ? (
@@ -659,12 +659,12 @@ function ScanPanel({
                 <td>
                   {t(_STATUT_KEY[row.statut] ?? 'statutEnAttente')}
                   {row.message ? (
-                    <div className="muted" style={{ fontSize: '0.8rem' }}>
+                    <div className="muted small">
                       {row.message}
                     </div>
                   ) : null}
                 </td>
-                <td className="mono muted" style={{ fontSize: '0.78rem' }}>
+                <td className="mono muted small">
                   {row.crc.slice(0, 10)}
                 </td>
               </tr>
@@ -751,19 +751,19 @@ function CurationTab({
   const hasRetained = objects.some((o: CurationObjectItem) => o.retained !== 'none')
 
   return (
-    <div className="panel">
-      <p className="muted" style={{ fontSize: '0.88rem' }}>
-        {t('curationIntro')}
-      </p>
-      <div className="toolbar" style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+    <div className="panel stack">
+      <p className="muted small">{t('curationIntro')}</p>
+      <div className="toolbar">
         <input
           type="search"
+          className="input"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t('curationSearch')}
           aria-label={t('curationSearch')}
         />
         <select
+          className="select"
           value={filter}
           onChange={(e) => setFilter(e.target.value as 'all' | 'retained' | 'none')}
           aria-label={t('curationFilter')}
@@ -772,7 +772,7 @@ function CurationTab({
           <option value="retained">{t('curationFilterRetained')}</option>
           <option value="none">{t('curationFilterNone')}</option>
         </select>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+        <label className="check">
           <input
             type="checkbox"
             checked={showExcluded}
@@ -780,14 +780,14 @@ function CurationTab({
           />
           {t('curationShowExcluded')}
         </label>
-        <button type="button" onClick={() => setRulesOpen((v) => !v)}>
+        <button type="button" className="btn" onClick={() => setRulesOpen((v) => !v)}>
           {t('curationRules')}
         </button>
         <button
           type="button"
+          className="btn push-right"
           onClick={() => refresh.mutate(null)}
           disabled={refresh.isPending || !hasRetained}
-          style={{ marginLeft: 'auto' }}
         >
           {t('curationRefreshAll')}
         </button>
@@ -814,22 +814,16 @@ function CurationTab({
             {filtered.map((o) => (
               <tr key={o.path}>
                 <td>
-                  {o.title}
-                  {o.orphan ? (
-                    <span className="badge badge-warn" style={{ marginLeft: '0.4rem' }}>
-                      {t('curationOrphan')}
-                    </span>
-                  ) : null}
-                  {o.excluded ? (
-                    <span className="badge" style={{ marginLeft: '0.4rem', background: '#555' }}>
-                      {t('curationExcluded')}
-                    </span>
-                  ) : null}
-                  <div className="mono muted" style={{ fontSize: '0.78rem' }}>
+                  <div className="row">
+                    <span>{o.title}</span>
+                    {o.orphan ? <span className="badge badge-warn">{t('curationOrphan')}</span> : null}
+                    {o.excluded ? <span className="badge badge-muted">{t('curationExcluded')}</span> : null}
+                  </div>
+                  <div className="mono muted small">
                     {o.path}
                   </div>
                   {o.excluded_by ? (
-                    <div className="muted" style={{ fontSize: '0.74rem' }}>
+                    <div className="muted small">
                       {o.excluded && !o.orphan
                         ? `${t('curationExcludedBy')}: ${o.excluded_by}`
                         : `${t('curationRuleConflict')}: ${o.excluded_by}`}
@@ -841,12 +835,13 @@ function CurationTab({
                 <td>{t(_RETAINED_KEY[o.retained] ?? 'retainedNone')}</td>
                 <td>
                   {o.orphan ? (
-                    <>
-                      <button type="button" onClick={() => setEnriching(o.path)}>
+                    <div className="row">
+                      <button type="button" className="btn btn-sm" onClick={() => setEnriching(o.path)}>
                         {t('curationEnrich')}
-                      </button>{' '}
+                      </button>
                       <button
                         type="button"
+                        className="btn btn-sm btn-danger"
                         onClick={() => {
                           if (window.confirm(t('curationConfirmRemove'))) remove.mutate(o.path)
                         }}
@@ -854,33 +849,36 @@ function CurationTab({
                       >
                         {t('curationRemove')}
                       </button>
-                    </>
+                    </div>
                   ) : (
-                    <>
+                    <div className="row">
                       <button
                         type="button"
+                        className="btn btn-sm"
                         onClick={() => retain.mutate({ path: o.path, fields: null })}
                         disabled={retain.isPending}
                       >
                         {t('curationRetainAll')}
-                      </button>{' '}
-                      <button type="button" onClick={() => setSelected(o.path)}>
+                      </button>
+                      <button type="button" className="btn btn-sm" onClick={() => setSelected(o.path)}>
                         {t('curationChooseFields')}
-                      </button>{' '}
+                      </button>
                       {o.retained !== 'none' ? (
                         <>
-                          <button type="button" onClick={() => setEnriching(o.path)}>
+                          <button type="button" className="btn btn-sm" onClick={() => setEnriching(o.path)}>
                             {t('curationEnrich')}
-                          </button>{' '}
+                          </button>
                           <button
                             type="button"
+                            className="btn btn-sm"
                             onClick={() => refresh.mutate([o.path])}
                             disabled={refresh.isPending}
                           >
                             {t('curationRefresh')}
-                          </button>{' '}
+                          </button>
                           <button
                             type="button"
+                            className="btn btn-sm btn-danger"
                             onClick={() => {
                               if (window.confirm(t('curationConfirmRemove'))) remove.mutate(o.path)
                             }}
@@ -890,7 +888,7 @@ function CurationTab({
                           </button>
                         </>
                       ) : null}
-                    </>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -959,32 +957,30 @@ function FieldPanel({
     checked ?? Object.fromEntries(fields.map((f: CurationField) => [f.name, f.retained]))
 
   return (
-    <div className="panel" style={{ marginTop: '0.75rem' }}>
+    <div className="panel stack">
       <p className="panel-label">
         {t('curationFieldsFor', { title: detail.data?.title ?? path })}
       </p>
       {fields.length > 0 ? (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
+        <ul className="list-plain stack stack-tight">
           {fields.map((f) =>
             f.missing ? (
               <li key={f.name} className="muted">
                 <span className="mono">{f.name}</span>{' '}
-                <span style={{ fontSize: '0.8rem' }}>{f.type}</span>{' '}
+                <span className="small">{f.type}</span>{' '}
                 <span className="badge badge-warn">{t('curationFieldMissing')}</span>
               </li>
             ) : (
               <li key={f.name}>
-                <label>
+                <label className="check">
                   <input
                     type="checkbox"
                     checked={current[f.name] ?? false}
                     onChange={() => setChecked({ ...current, [f.name]: !current[f.name] })}
-                  />{' '}
-                  <span className="mono">{f.name}</span>{' '}
-                  <span className="muted" style={{ fontSize: '0.8rem' }}>
-                    {f.type}
-                  </span>{' '}
-                  {f.ref ? <span className="badge">{t('curationFieldRef')}</span> : null}
+                  />
+                  <span className="mono">{f.name}</span>
+                  <span className="muted small">{f.type}</span>
+                  {f.ref ? <span className="badge badge-muted">{t('curationFieldRef')}</span> : null}
                 </label>
               </li>
             ),
@@ -993,9 +989,10 @@ function FieldPanel({
       ) : (
         <p className="muted">{t('curationNoFields')}</p>
       )}
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
+      <div className="row">
         <button
           type="button"
+          className="btn btn-primary"
           onClick={() =>
             onSave(fields.filter((f) => !f.missing && current[f.name]).map((f) => f.name))
           }
@@ -1003,7 +1000,7 @@ function FieldPanel({
         >
           {t('curationSaveFields')}
         </button>
-        <button type="button" onClick={onClose}>
+        <button type="button" className="btn" onClick={onClose}>
           {t('cancel')}
         </button>
       </div>
@@ -1085,28 +1082,32 @@ function EnrichPanel({
     const f = current[scope.name]
     const readonlyKeys = Object.keys(scope.readonly)
     return (
-      <div key={scope.name || '(object)'} className="panel" style={{ marginBottom: '0.5rem' }}>
+      <div key={scope.name || '(object)'} className="panel stack stack-tight">
         <p className="panel-label">{label}</p>
-        <div style={{ display: 'grid', gap: '0.35rem' }}>
+        <div className="stack stack-tight">
           <input
+            className="input"
             value={f.business_name}
             onChange={(e) => update(scope.name, 'business_name', e.target.value)}
             placeholder={t('enrichBusinessName')}
             aria-label={t('enrichBusinessName')}
           />
           <input
+            className="input"
             value={f.description}
             onChange={(e) => update(scope.name, 'description', e.target.value)}
             placeholder={t('enrichDescription')}
             aria-label={t('enrichDescription')}
           />
           <input
+            className="input"
             value={f.concept}
             onChange={(e) => update(scope.name, 'concept', e.target.value)}
             placeholder={t('enrichConcept')}
             aria-label={t('enrichConcept')}
           />
           <input
+            className="input"
             value={f.tags}
             onChange={(e) => update(scope.name, 'tags', e.target.value)}
             placeholder={t('enrichTags')}
@@ -1114,7 +1115,7 @@ function EnrichPanel({
           />
         </div>
         {readonlyKeys.length > 0 ? (
-          <p className="muted" style={{ fontSize: '0.78rem', marginTop: '0.3rem' }}>
+          <p className="muted small">
             {t('enrichReadonly')}: {readonlyKeys.join(', ')}
           </p>
         ) : null}
@@ -1123,18 +1124,18 @@ function EnrichPanel({
   }
 
   return (
-    <div className="panel" style={{ marginTop: '0.75rem' }}>
+    <div className="panel stack">
       <p className="panel-label">{t('enrichTitle', { title: view.data?.title ?? path })}</p>
       <ErrorList messages={messages} />
       {view.data ? (
         <>
           {editor(view.data.object, t('enrichObjectScope'))}
           {view.data.fields.map((field) => editor(field, field.name))}
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="button" onClick={() => save.mutate()} disabled={save.isPending}>
+          <div className="row">
+            <button type="button" className="btn btn-primary" onClick={() => save.mutate()} disabled={save.isPending}>
               {t('enrichSave')}
             </button>
-            <button type="button" onClick={onClose}>
+            <button type="button" className="btn" onClick={onClose}>
               {t('cancel')}
             </button>
           </div>
@@ -1230,10 +1231,8 @@ function ReviewTab({
         : t('reviewRemoveField')
 
   return (
-    <div className="panel">
-      <p className="muted" style={{ fontSize: '0.88rem' }}>
-        {t('reviewIntro')}
-      </p>
+    <div className="panel stack">
+      <p className="muted small">{t('reviewIntro')}</p>
       <ErrorList messages={messages} />
 
       {data.up_to_date || data.objects.length === 0 ? (
@@ -1241,8 +1240,8 @@ function ReviewTab({
       ) : (
         <>
           {data.objects.map((o: ReviewObjectItem) => (
-            <div key={o.path} className="panel" style={{ marginBottom: '0.5rem' }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+            <div key={o.path} className="panel stack stack-tight">
+              <div className="row">
                 <strong>{o.title}</strong>
                 {o.status === 'new' ? (
                   <span className="badge badge-warn">{t('reviewStatusNew')}</span>
@@ -1250,12 +1249,10 @@ function ReviewTab({
                 {o.status === 'object-disappeared' ? (
                   <span className="badge badge-warn">{t('reviewStatusGone')}</span>
                 ) : null}
-                <span className="mono muted" style={{ fontSize: '0.78rem' }}>
-                  {o.path}
-                </span>
+                <span className="mono muted small">{o.path}</span>
                 <button
                   type="button"
-                  style={{ marginLeft: 'auto' }}
+                  className="btn btn-sm push-right"
                   onClick={() => setHistoryFor(historyFor === o.path ? null : o.path)}
                 >
                   {t('reviewHistory')}
@@ -1263,46 +1260,44 @@ function ReviewTab({
               </div>
 
               {o.status === 'new' ? (
-                <label style={{ display: 'block', marginTop: '0.3rem' }}>
+                <label className="check">
                   <input
                     type="checkbox"
                     checked={!!checked[`o:${o.path}`]}
                     onChange={() => toggle(`o:${o.path}`)}
-                  />{' '}
+                  />
                   {t('reviewRetainObject')}
                 </label>
               ) : null}
 
               {o.status === 'object-disappeared' ? (
-                <label style={{ display: 'block', marginTop: '0.3rem' }}>
+                <label className="check">
                   <input
                     type="checkbox"
                     checked={!!checked[`o:${o.path}`]}
                     onChange={() => toggle(`o:${o.path}`)}
-                  />{' '}
+                  />
                   {t('reviewRemoveObject')}
                 </label>
               ) : null}
 
               {o.status === 'retained-touched' ? (
-                <ul style={{ listStyle: 'none', padding: 0, marginTop: '0.3rem' }}>
+                <ul className="list-plain stack stack-tight">
                   {o.fields.map((f) => (
-                    <li key={f.name} style={{ marginBottom: '0.2rem' }}>
-                      <label>
+                    <li key={f.name}>
+                      <label className="check">
                         <input
                           type="checkbox"
                           checked={!!checked[`f:${o.path}:${f.name}`]}
                           onChange={() => toggle(`f:${o.path}:${f.name}`)}
-                        />{' '}
-                        <span className="badge">{t(`reviewChange_${f.change}`)}</span>{' '}
-                        <span className="mono">{f.name}</span>{' '}
-                        <span className="muted" style={{ fontSize: '0.8rem' }}>
-                          {f.type}
-                        </span>{' '}
-                        <em style={{ fontSize: '0.8rem' }}>→ {fieldLabel(f.change)}</em>
+                        />
+                        <span className="badge badge-muted">{t(`reviewChange_${f.change}`)}</span>
+                        <span className="mono">{f.name}</span>
+                        <span className="muted small">{f.type}</span>
+                        <em className="small">→ {fieldLabel(f.change)}</em>
                       </label>
                       {f.lost_enrichment.length > 0 ? (
-                        <div className="muted" style={{ fontSize: '0.78rem', marginLeft: '1.4rem' }}>
+                        <div className="muted small" style={{ marginLeft: '1.4rem' }}>
                           {t('reviewLostEnrichment', { keys: f.lost_enrichment.join(', ') })}
                         </div>
                       ) : null}
@@ -1317,9 +1312,10 @@ function ReviewTab({
             </div>
           ))}
 
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+          <div className="row">
             <button
               type="button"
+              className="btn btn-primary"
               onClick={() => {
                 if (window.confirm(t('reviewConfirm', { count: chosen }))) apply.mutate()
               }}
@@ -1327,7 +1323,7 @@ function ReviewTab({
             >
               {t('reviewValidate')}
             </button>
-            <button type="button" onClick={() => setChecked({})} disabled={chosen === 0}>
+            <button type="button" className="btn" onClick={() => setChecked({})} disabled={chosen === 0}>
               {t('reviewAbandon')}
             </button>
           </div>
@@ -1389,22 +1385,18 @@ function RulesPanel({
   const removeRule = (i: number) => setRules(current.filter((_, j) => j !== i))
 
   return (
-    <div className="panel" style={{ marginBottom: '0.5rem' }}>
+    <div className="panel stack">
       <p className="panel-label">{t('curationRulesTitle')}</p>
-      <p className="muted" style={{ fontSize: '0.82rem' }}>
-        {t('curationRulesIntro')}
-      </p>
+      <p className="muted small">{t('curationRulesIntro')}</p>
       <ErrorList messages={messages} />
       {notice ? <p role="status">{notice}</p> : null}
       {config.data ? (
         <>
           {current.length === 0 ? <p className="muted">{t('curationRulesEmpty')}</p> : null}
           {current.map((r, i) => (
-            <div
-              key={i}
-              style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.3rem', flexWrap: 'wrap' }}
-            >
+            <div key={i} className="toolbar">
               <select
+                className="select"
                 value={r.target}
                 aria-label={t('curationRuleTarget')}
                 onChange={(e) => update(i, { target: e.target.value })}
@@ -1416,6 +1408,7 @@ function RulesPanel({
                 ))}
               </select>
               <select
+                className="select"
                 value={r.kind}
                 aria-label={t('curationRuleKind')}
                 onChange={(e) => update(i, { kind: e.target.value })}
@@ -1427,27 +1420,29 @@ function RulesPanel({
                 ))}
               </select>
               <input
+                className="input"
                 value={r.pattern}
                 placeholder={t('curationRulePattern')}
                 aria-label={t('curationRulePattern')}
                 onChange={(e) => update(i, { pattern: e.target.value })}
               />
               <input
+                className="input"
                 value={r.label ?? ''}
                 placeholder={t('curationRuleLabel')}
                 aria-label={t('curationRuleLabel')}
                 onChange={(e) => update(i, { label: e.target.value })}
               />
-              <button type="button" onClick={() => removeRule(i)}>
+              <button type="button" className="btn" onClick={() => removeRule(i)}>
                 {t('curationRuleRemove')}
               </button>
             </div>
           ))}
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.3rem' }}>
-            <button type="button" onClick={addRule}>
+          <div className="row">
+            <button type="button" className="btn" onClick={addRule}>
               {t('curationRuleAdd')}
             </button>
-            <button type="button" onClick={() => save.mutate()} disabled={save.isPending}>
+            <button type="button" className="btn btn-primary" onClick={() => save.mutate()} disabled={save.isPending}>
               {t('curationRulesSave')}
             </button>
           </div>
@@ -1480,16 +1475,16 @@ function HistoryPanel({
   })
   const commits = history.data?.commits ?? []
   return (
-    <div className="panel" style={{ marginTop: '0.4rem' }}>
+    <div className="panel">
       <p className="panel-label">{t('reviewHistoryTitle', { path })}</p>
       {history.isLoading ? <p className="muted">{t('loading')}</p> : null}
       {!history.isLoading && commits.length === 0 ? (
         <p className="muted">{t('reviewHistoryEmpty')}</p>
       ) : null}
       {commits.length > 0 ? (
-        <ul style={{ listStyle: 'none', padding: 0, fontSize: '0.82rem' }}>
+        <ul className="list-plain stack stack-tight small">
           {commits.map((c) => (
-            <li key={c.sha} style={{ marginBottom: '0.2rem' }}>
+            <li key={c.sha}>
               <span className="mono">{c.sha.slice(0, 8)}</span> · {c.date.slice(0, 10)} ·{' '}
               {c.author} — {c.message}
             </li>

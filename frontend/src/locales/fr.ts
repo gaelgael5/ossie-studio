@@ -359,6 +359,7 @@ export const fr = {
     colType: 'Compte',
     colLastLogin: 'Dernière connexion',
     colProfile: 'Profil',
+    userProfileAria: 'Profil de {{name}}',
     colTeam: 'Équipe',
     accountOidc: 'OIDC',
     accountLocal: 'Local',

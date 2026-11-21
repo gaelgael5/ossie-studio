@@ -24,30 +24,48 @@ export function SetupPage() {
   })
 
   return (
-    <main>
-      <h1>{t('setupTitle')}</h1>
-      <p>{t('setupIntro')}</p>
-      <p>{t('setupEmailHint')}</p>
+    <main className="panel auth-card stack">
+      <h1 className="page-title">{t('setupTitle')}</h1>
+      <p className="muted">{t('setupIntro')}</p>
+      <p className="muted">{t('setupEmailHint')}</p>
       <ErrorList messages={messages} />
       <form
+        className="stack"
         onSubmit={(e) => {
           e.preventDefault()
           setMessages([])
           mutation.mutate()
         }}
-        style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 360 }}
       >
-        <label htmlFor="email">{t('emailLabel')}</label>
-        <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-        <label htmlFor="password">{t('passwordLabel')}</label>
-        <small>{t('passwordHint')}</small>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <button type="submit" disabled={mutation.isPending}>
+        <div className="field">
+          <label htmlFor="email" className="field-label">
+            {t('emailLabel')}
+          </label>
+          <input
+            id="email"
+            type="email"
+            className="input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="password" className="field-label">
+            {t('passwordLabel')}
+          </label>
+          <input
+            id="password"
+            type="password"
+            className="input"
+            aria-describedby="password-hint"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <span id="password-hint" className="field-hint">
+            {t('passwordHint')}
+          </span>
+        </div>
+        <button type="submit" className="btn btn-primary btn-block" disabled={mutation.isPending}>
           {t('createAdmin')}
         </button>
       </form>

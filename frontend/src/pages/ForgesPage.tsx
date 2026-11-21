@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import type { Connection, ForgeSpec } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 import { DatabasesSection } from './DatabasesSection'
 
 function forgeName(t: (k: string) => string, f: string): string {
@@ -74,79 +74,122 @@ function ForgePopup({
     <section
       role="dialog"
       aria-label={t('newConnectionFor', { forge: forgeName(t, spec.forge) })}
-      style={{ border: '2px solid var(--border, #2563eb)', borderRadius: 8, padding: 16, marginTop: 12, maxWidth: 480 }}
+      className="panel panel-form stack"
     >
-      <h3>
-        {t('newConnectionFor', { forge: forgeName(t, spec.forge) })}{' '}
-        <button type="button" onClick={onClose}>
+      <div className="panel-head">
+        <h3 className="panel-title">{t('newConnectionFor', { forge: forgeName(t, spec.forge) })}</h3>
+        <button type="button" className="btn btn-sm" onClick={onClose}>
           {t('cancel')}
         </button>
-      </h3>
+      </div>
       <form
+        className="stack"
         onSubmit={(e) => {
           e.preventDefault()
           create.mutate()
         }}
-        style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
       >
-        <label htmlFor="p-label">{t('colLabel')}</label>
-        <input id="p-label" value={label} onChange={(e) => setLabel(e.target.value)} />
-        <label htmlFor="p-url">{t('urlLabel')}</label>
-        <input id="p-url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder={spec.url_required ? t('azureOrgPlaceholder') : ''} />
-        <label htmlFor="p-secret">{t('tokenLabel')}</label>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <select id="p-secret" value={secretSlug} onChange={(e) => setSecretSlug(e.target.value)} style={{ flex: 1 }}>
-            <option value="">{forgeSecrets.length > 0 ? t('chooseSecret') : t('noSecretForForge')}</option>
-            {forgeSecrets.map((s) => (
-              <option key={s.slug} value={s.slug}>
-                {s.label} ({s.slug})
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={() => setShowNewSecret((v) => !v)}>
-            +
-          </button>
+        <div className="field">
+          <label className="field-label" htmlFor="p-label">
+            {t('colLabel')}
+          </label>
+          <input id="p-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor="p-url">
+            {t('urlLabel')}
+          </label>
+          <input
+            id="p-url"
+            className="input"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder={spec.url_required ? t('azureOrgPlaceholder') : ''}
+          />
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor="p-secret">
+            {t('tokenLabel')}
+          </label>
+          <div className="field-inline">
+            <select id="p-secret" className="select" value={secretSlug} onChange={(e) => setSecretSlug(e.target.value)}>
+              <option value="">{forgeSecrets.length > 0 ? t('chooseSecret') : t('noSecretForForge')}</option>
+              {forgeSecrets.map((s) => (
+                <option key={s.slug} value={s.slug}>
+                  {s.label} ({s.slug})
+                </option>
+              ))}
+            </select>
+            <button type="button" className="btn" onClick={() => setShowNewSecret((v) => !v)}>
+              +
+            </button>
+          </div>
         </div>
         {showNewSecret ? (
-          <fieldset style={{ border: '1px solid var(--border, #ddd)' }}>
+          <fieldset className="fieldset">
             <legend>{t('newSecretTitle')}</legend>
-            <label htmlFor="ns-label">{t('colLabel')}</label>
-            <input id="ns-label" value={nsLabel} onChange={(e) => setNsLabel(e.target.value)} />
-            <label htmlFor="ns-slug">{t('slugLabel')}</label>
-            <input id="ns-slug" value={nsSlug} onChange={(e) => setNsSlug(e.target.value)} />
-            <label htmlFor="ns-value">{t('valueLabel')}</label>
-            <input id="ns-value" type="password" value={nsValue} onChange={(e) => setNsValue(e.target.value)} />
-            <button
-              type="button"
-              disabled={createSecret.isPending || !nsSlug.trim() || !nsValue}
-              onClick={() => createSecret.mutate()}
-            >
-              {t('createAndSelect')}
-            </button>
+            <div className="field">
+              <label className="field-label" htmlFor="ns-label">
+                {t('colLabel')}
+              </label>
+              <input id="ns-label" className="input" value={nsLabel} onChange={(e) => setNsLabel(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor="ns-slug">
+                {t('slugLabel')}
+              </label>
+              <input id="ns-slug" className="input" value={nsSlug} onChange={(e) => setNsSlug(e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="field-label" htmlFor="ns-value">
+                {t('valueLabel')}
+              </label>
+              <input
+                id="ns-value"
+                className="input"
+                type="password"
+                value={nsValue}
+                onChange={(e) => setNsValue(e.target.value)}
+              />
+            </div>
+            <div>
+              <button
+                type="button"
+                className="btn"
+                disabled={createSecret.isPending || !nsSlug.trim() || !nsValue}
+                onClick={() => createSecret.mutate()}
+              >
+                {t('createAndSelect')}
+              </button>
+            </div>
           </fieldset>
         ) : null}
-        <p style={{ fontWeight: 'bold', marginBottom: 0 }}>{t('scopesTableTitle')}</p>
-        <table style={{ borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th>{t('colUsage')}</th>
-              <th>{t('colRights')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>{t('scopeReadUsage')}</td>
-              <td>{scopeRights('read')}</td>
-            </tr>
-            <tr>
-              <td>{t('scopeWriteUsage')}</td>
-              <td>{scopeRights('write')}</td>
-            </tr>
-          </tbody>
-        </table>
-        <button type="submit" disabled={create.isPending}>
-          {t('verifyAndSave')}
-        </button>
+        <div>
+          <p className="panel-label">{t('scopesTableTitle')}</p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>{t('colUsage')}</th>
+                <th>{t('colRights')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>{t('scopeReadUsage')}</td>
+                <td>{scopeRights('read')}</td>
+              </tr>
+              <tr>
+                <td>{t('scopeWriteUsage')}</td>
+                <td>{scopeRights('write')}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div>
+          <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+            {t('verifyAndSave')}
+          </button>
+        </div>
       </form>
     </section>
   )
@@ -166,8 +209,8 @@ function ConnectionPanel({ connection }: { connection: Connection }) {
   const shown = all.filter((r) => r.full_name.toLowerCase().includes(filter.toLowerCase()))
 
   return (
-    <section style={{ marginTop: 16, borderTop: '1px solid var(--border, #ddd)', paddingTop: 12 }}>
-      <h3>{connection.label}</h3>
+    <section className="panel stack">
+      <h3 className="panel-title">{connection.label}</h3>
       <p>
         {t('connectedAs', {
           identity: connection.identity,
@@ -175,7 +218,7 @@ function ConnectionPanel({ connection }: { connection: Connection }) {
           category: connection.forge,
         })}
       </p>
-      <p style={{ color: 'var(--muted, #666)' }}>{t('connectionUsageHint')}</p>
+      <p className="muted">{t('connectionUsageHint')}</p>
       <p>
         {t('usedByCount', {
           sources: connection.used_by_sources,
@@ -183,18 +226,19 @@ function ConnectionPanel({ connection }: { connection: Connection }) {
         })}
       </p>
       {!valid ? (
-        <p style={{ color: 'var(--ko, #c5221f)' }}>{t('panelError')}</p>
+        <p className="text-danger">{t('panelError')}</p>
       ) : (
         <>
           <p>{t('repositoriesReadable', { count: repos.data?.total ?? 0 })}</p>
           <input
+            className="input"
             aria-label={t('filterRepos')}
             placeholder={t('filterRepos')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
           {shown.length > 0 ? (
-            <ul>
+            <ul className="list-plain stack stack-tight">
               {shown.slice(0, 50).map((r) => (
                 <li key={r.full_name}>
                   <code>{r.full_name}</code>
@@ -202,7 +246,7 @@ function ConnectionPanel({ connection }: { connection: Connection }) {
               ))}
             </ul>
           ) : (
-            <p>{t('noRepos')}</p>
+            <p className="muted">{t('noRepos')}</p>
           )}
         </>
       )}
@@ -253,157 +297,164 @@ export function ForgesPage() {
 
   return (
     <main>
-      <nav>
-        <Link to="/">{t('home')}</Link>
-      </nav>
-      <h1>{t('forgesTitle')}</h1>
-      <p>{t('forgesIntro')}</p>
+      <PageHeader breadcrumb={<SettingsCrumb />} title={t('forgesTitle')} subtitle={t('forgesIntro')} />
       <ErrorList messages={messages} />
 
-      <div style={{ position: 'relative', display: 'inline-block' }}>
-        <button
-          type="button"
-          onClick={() => {
-            setMenuOpen((v) => !v)
-            setPopupForge(null)
-          }}
-        >
-          {t('addForge')}
-        </button>
-        {menuOpen ? (
-          <div
-            style={{
-              border: '1px solid var(--border, #ddd)',
-              borderRadius: 8,
-              padding: 8,
-              marginTop: 4,
-              maxWidth: 360,
-            }}
-          >
-            <input
-              aria-label={t('searchForge')}
-              placeholder={t('searchForge')}
-              value={menuSearch}
-              onChange={(e) => setMenuSearch(e.target.value)}
-            />
-            <ul style={{ listStyle: 'none', padding: 0 }}>
-              {menuForges.map((f) => (
-                <li key={f.forge}>
-                  <button
-                    type="button"
-                    style={{ display: 'block', width: '100%', textAlign: 'left' }}
-                    onClick={() => {
-                      setMessages([])
-                      setPopupForge(f)
-                      setMenuOpen(false)
-                      setMenuSearch('')
-                    }}
-                  >
-                    {forgeName(t, f.forge)} — {t(`precision_${f.forge}`)}
-                  </button>
-                </li>
-              ))}
-            </ul>
+      <section className="page-section">
+        <div className="section-head">
+          <h2 className="section-title">{t('forgesList')}</h2>
+          <div className="menu-anchor">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setMenuOpen((v) => !v)
+                setPopupForge(null)
+              }}
+            >
+              {t('addForge')}
+            </button>
+            {menuOpen ? (
+              <div className="menu-popover">
+                <input
+                  className="input"
+                  aria-label={t('searchForge')}
+                  placeholder={t('searchForge')}
+                  value={menuSearch}
+                  onChange={(e) => setMenuSearch(e.target.value)}
+                />
+                <ul className="list-plain">
+                  {menuForges.map((f) => (
+                    <li key={f.forge}>
+                      <button
+                        type="button"
+                        className="menu-item"
+                        onClick={() => {
+                          setMessages([])
+                          setPopupForge(f)
+                          setMenuOpen(false)
+                          setMenuSearch('')
+                        }}
+                      >
+                        {forgeName(t, f.forge)} — {t(`precision_${f.forge}`)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
+        </div>
+
+        {popupForge ? (
+          <ForgePopup
+            spec={popupForge}
+            onClose={() => setPopupForge(null)}
+            invalidate={invalidate}
+            onError={onError}
+          />
         ) : null}
-      </div>
 
-      {popupForge ? (
-        <ForgePopup
-          spec={popupForge}
-          onClose={() => setPopupForge(null)}
-          invalidate={invalidate}
-          onError={onError}
-        />
-      ) : null}
-
-      <h2>{t('forgesList')}</h2>
-      {connections.length > 0 ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th>{t('colLabel')}</th>
-              <th>{t('colForge')}</th>
-              <th>{t('colUrl')}</th>
-              <th>{t('colIdentity')}</th>
-              <th>{t('colStatus')}</th>
-              <th>{t('colLastCheck')}</th>
-              <th>{t('colActions')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {connections.map((c) => (
-              <tr key={c.id}>
-                <td>
-                  <button type="button" style={{ background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', color: 'var(--link, #2563eb)' }} onClick={() => setSelected(c.id)}>
-                    {c.label}
-                  </button>
-                </td>
-                <td>{forgeName(t, c.forge)}</td>
-                <td>
-                  <code>{c.url}</code>
-                </td>
-                <td>{c.identity}</td>
-                <td>
-                  {c.last_status === 'valid'
-                    ? t('statusValid')
-                    : t(`errors.${c.last_error_code}`, { defaultValue: t('statusError') })}
-                </td>
-                <td>{formatDate(c.last_checked_at)}</td>
-                <td>
-                  <button type="button" onClick={() => test.mutate(c.id)}>
-                    {t('test')}
-                  </button>{' '}
-                  {deleting === c.id ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {c.secret_used_by_others > 0 ? (
-                        <span>
-                          {t('deleteConnectionSecretShared', {
-                            slug: c.secret_slug,
-                            count: c.secret_used_by_others,
-                          })}
-                        </span>
+        {connections.length > 0 ? (
+          <div className="panel table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>{t('colLabel')}</th>
+                  <th>{t('colForge')}</th>
+                  <th>{t('colUrl')}</th>
+                  <th>{t('colIdentity')}</th>
+                  <th>{t('colStatus')}</th>
+                  <th>{t('colLastCheck')}</th>
+                  <th>{t('colActions')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {connections.map((c) => (
+                  <tr key={c.id}>
+                    <td>
+                      <button type="button" className="btn-link" onClick={() => setSelected(c.id)}>
+                        {c.label}
+                      </button>
+                    </td>
+                    <td>{forgeName(t, c.forge)}</td>
+                    <td>
+                      <code>{c.url}</code>
+                    </td>
+                    <td>{c.identity}</td>
+                    <td>
+                      {c.last_status === 'valid' ? (
+                        <span className="text-ok">{t('statusValid')}</span>
                       ) : (
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={alsoDeleteSecret}
-                            onChange={(e) => setAlsoDeleteSecret(e.target.checked)}
-                          />{' '}
-                          {t('deleteAlsoSecretNamed', { label: c.secret_label, slug: c.secret_slug })}
-                        </label>
+                        <span className="text-danger">
+                          {t(`errors.${c.last_error_code}`, { defaultValue: t('statusError') })}
+                        </span>
                       )}
-                      <span>
-                        <button type="button" onClick={() => remove.mutate({ id: c.id, deleteSecret: alsoDeleteSecret })}>
-                          {t('confirmDelete')}
-                        </button>{' '}
-                        <button type="button" onClick={() => setDeleting('')}>
-                          {t('cancel')}
+                    </td>
+                    <td>{formatDate(c.last_checked_at)}</td>
+                    <td>
+                      <div className="actions">
+                        <button type="button" className="btn btn-sm" onClick={() => test.mutate(c.id)}>
+                          {t('test')}
                         </button>
-                      </span>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMessages([])
-                        setAlsoDeleteSecret(false)
-                        setDeleting(c.id)
-                      }}
-                    >
-                      {t('delete')}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p>{t('noConnections')}</p>
-      )}
+                        {deleting === c.id ? (
+                          <div className="stack stack-tight">
+                            {c.secret_used_by_others > 0 ? (
+                              <span>
+                                {t('deleteConnectionSecretShared', {
+                                  slug: c.secret_slug,
+                                  count: c.secret_used_by_others,
+                                })}
+                              </span>
+                            ) : (
+                              <label className="check">
+                                <input
+                                  type="checkbox"
+                                  checked={alsoDeleteSecret}
+                                  onChange={(e) => setAlsoDeleteSecret(e.target.checked)}
+                                />
+                                {t('deleteAlsoSecretNamed', { label: c.secret_label, slug: c.secret_slug })}
+                              </label>
+                            )}
+                            <span className="actions">
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-danger"
+                                onClick={() => remove.mutate({ id: c.id, deleteSecret: alsoDeleteSecret })}
+                              >
+                                {t('confirmDelete')}
+                              </button>
+                              <button type="button" className="btn btn-sm" onClick={() => setDeleting('')}>
+                                {t('cancel')}
+                              </button>
+                            </span>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            onClick={() => {
+                              setMessages([])
+                              setAlsoDeleteSecret(false)
+                              setDeleting(c.id)
+                            }}
+                          >
+                            {t('delete')}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-note">{t('noConnections')}</div>
+        )}
 
-      {selectedConnection ? <ConnectionPanel connection={selectedConnection} /> : null}
+        {selectedConnection ? <ConnectionPanel connection={selectedConnection} /> : null}
+      </section>
 
       <DatabasesSection />
     </main>
