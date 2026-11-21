@@ -158,6 +158,16 @@ _ensure_secret() {
 _ensure_secret POSTGRES_PASSWORD "$(openssl rand -hex 24)"
 _ensure_secret SESSION_SECRET "$(openssl rand -hex 32)"
 _ensure_secret SECRETS_MASTER_KEY "$(openssl rand -hex 32)"
+# Adresse publique : fournie explicitement au lancement
+# (PUBLIC_BASE_URL=https://… ./dev-deploy.sh), puis persistée et relue. Derrière
+# HTTPS, le cookie de session passe en Secure, sauf choix contraire déjà posé.
+if [ -n "${PUBLIC_BASE_URL:-}" ]; then
+  _env_set PUBLIC_BASE_URL "${PUBLIC_BASE_URL%/}"
+fi
+case "$(_env_get PUBLIC_BASE_URL)" in
+  https://*) [ -n "$(_env_get SESSION_COOKIE_SECURE)" ] || _env_set SESSION_COOKIE_SECURE true ;;
+esac
+echo "[dev-deploy] adresse publique : $(_env_get PUBLIC_BASE_URL || true)"
 # Cible de la déclaration à l'annuaire (le jeton, lui, n'est jamais ici).
 [ -n "$(_env_get EXPOSE_PORTAL_URL)" ] || _env_set EXPOSE_PORTAL_URL "https://dev.yoops.org"
 [ -n "$(_env_get EXPOSE_WORKSPACE)" ] || _env_set EXPOSE_WORKSPACE "ossie"

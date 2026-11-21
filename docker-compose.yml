@@ -27,6 +27,10 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET manquant — généré par dev-deploy.sh}
       SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:?SECRETS_MASTER_KEY manquant — généré par dev-deploy.sh}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      # Adresse publique (derrière le relais du portail) : sans elle, l'URL de
+      # retour OIDC est déduite de la requête relayée (http, hôte interne) et
+      # ne correspond pas à celle déclarée chez le fournisseur.
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
     volumes:
       # Les deux volumes mappés : copies de travail des espaces Git, et code
       # descendu des sources. Distincts, hors de l'image et de la couche conteneur.
