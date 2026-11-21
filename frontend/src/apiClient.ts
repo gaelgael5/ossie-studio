@@ -1,8 +1,28 @@
 import { ApiRequestError, type ApiErrorBody } from './errors'
 import { withDraftView } from './draftView'
 
+// La gouvernance vit dans le dépôt de chaque espace, par branche : les appels
+// « /api/governance/… » visent l'espace et la branche choisis dans l'en-tête
+// (mémorisés par le contexte d'espace de travail).
+const GOVERNANCE = '/api/governance/'
+
+function storedWorkspace(): { space: string | null; branch: string | null } {
+  try {
+    return { space: localStorage.getItem('ossie.space'), branch: localStorage.getItem('ossie.branch') }
+  } catch {
+    return { space: null, branch: null }
+  }
+}
+
+export function governancePath(path: string): string {
+  if (!path.startsWith(GOVERNANCE)) return path
+  const { space, branch } = storedWorkspace()
+  if (!space || !branch) throw new ApiRequestError({ error: 'no_branch_selected' }, 400)
+  return `/api/spaces/${space}/branches/${branch}/governance/${path.slice(GOVERNANCE.length)}`
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(withDraftView(path, init?.method), {
+  const response = await fetch(withDraftView(governancePath(path), init?.method), {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
   })

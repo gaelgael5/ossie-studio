@@ -90,7 +90,8 @@ class RefRule:
         return out
 
 
-# Liste extensible : la gouvernance dans Git y ajoute sa règle.
+# Liste extensible : un domaine ajoute ses règles en s'enregistrant (la
+# gouvernance : governance/rules.py ; plus tard la couche ontologique).
 DEPENDENCY_RULES: list[DependencyRule] = [RawAssetRule(), RefRule()]
 
 

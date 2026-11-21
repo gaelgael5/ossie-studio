@@ -156,6 +156,8 @@ class OrphanAssetRule:
         return out
 
 
+# Liste extensible : un domaine ajoute ses règles en s'enregistrant (la
+# gouvernance : governance/rules.py).
 VALIDATION_RULES: list[ValidationRule] = [
     ParseableRule(),
     SourceManifestRule(),

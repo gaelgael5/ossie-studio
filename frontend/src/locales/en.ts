@@ -984,6 +984,7 @@ export const en = {
       merge_unresolved: 'Choose a value for every conflict before validating.',
       impact_not_found: 'This impact no longer exists.',
       warning_not_found: 'This warning no longer exists.',
+      no_branch_selected: 'Choose a space and a branch in the header: governance lives in the space repository.',
       publish_in_progress: 'A publication is already in progress on this branch.',
       publish_not_ready: 'Publishing is not possible right now (see what blocks it).',
       branch_changed_conflict: 'The branch changed during publishing on an object of your draft: merge then retry.',

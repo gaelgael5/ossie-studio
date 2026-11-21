@@ -988,6 +988,7 @@ export const fr = {
       merge_unresolved: 'Choisissez une valeur pour chaque conflit avant de valider.',
       impact_not_found: 'Cet impact n’existe plus.',
       warning_not_found: 'Cet avertissement n’existe plus.',
+      no_branch_selected: 'Choisissez un espace et une branche dans l’en-tête : la gouvernance vit dans le dépôt de l’espace.',
       publish_in_progress: 'Une publication est déjà en cours sur cette branche.',
       publish_not_ready: 'La publication n’est pas possible pour l’instant (voir ce qui bloque).',
       branch_changed_conflict: 'La branche a changé pendant la publication sur un objet de votre brouillon : fusionnez puis recommencez.',

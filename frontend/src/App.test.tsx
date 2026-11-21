@@ -329,6 +329,8 @@ test('détail espace : affiche le diagramme réseau ferroviaire', async () => {
 })
 
 test('gouvernance tags : liste, filtre et création', async () => {
+  localStorage.setItem('ossie.space', 's1')
+  localStorage.setItem('ossie.branch', 'b1')
   await i18n.changeLanguage('fr')
   mockFetch({
     '/api/session': {
@@ -339,14 +341,14 @@ test('gouvernance tags : liste, filtre et création', async () => {
         capabilities: ADMIN_CAPS,
       },
     },
-    '/api/governance/tags': {
+    '/api/spaces/s1/branches/b1/governance/tags': {
       body: {
         tags: [
           { id: 'gouvernance/pii', owner: 'equipe-data', description: 'PII', links: {}, properties: {}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
         ],
       },
     },
-    'POST /api/governance/tags': {
+    'POST /api/spaces/s1/branches/b1/governance/tags': {
       status: 201,
       body: { id: 'gouvernance/rgpd', owner: '', description: '', links: {}, properties: {}, created_at: '2026-01-02T00:00:00Z', updated_at: '2026-01-02T00:00:00Z' },
     },
@@ -367,6 +369,8 @@ test('gouvernance tags : liste, filtre et création', async () => {
 })
 
 test('gouvernance certifications : liste et presets', async () => {
+  localStorage.setItem('ossie.space', 's1')
+  localStorage.setItem('ossie.branch', 'b1')
   await i18n.changeLanguage('fr')
   mockFetch({
     '/api/session': {
@@ -377,7 +381,7 @@ test('gouvernance certifications : liste et presets', async () => {
         capabilities: ADMIN_CAPS,
       },
     },
-    '/api/governance/certifications': {
+    '/api/spaces/s1/branches/b1/governance/certifications': {
       body: {
         certifications: [
           { id: 'c1', name: 'Or', rank: 1, description: 'top', criteria: '', tag: 'certification/or', icon: '🥇', restricted: false, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
@@ -395,6 +399,8 @@ test('gouvernance certifications : liste et presets', async () => {
 })
 
 test('gouvernance classifications : schéma principal, presets et niveaux', async () => {
+  localStorage.setItem('ossie.space', 's1')
+  localStorage.setItem('ossie.branch', 'b1')
   await i18n.changeLanguage('fr')
   mockFetch({
     '/api/session': {
@@ -405,7 +411,7 @@ test('gouvernance classifications : schéma principal, presets et niveaux', asyn
         capabilities: ADMIN_CAPS,
       },
     },
-    '/api/governance/classifications': {
+    '/api/spaces/s1/branches/b1/governance/classifications': {
       body: {
         schemes: [
           {

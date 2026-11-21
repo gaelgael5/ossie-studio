@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from ossie_studio.governance.repo import Tag
 from ossie_studio.governance.tags import (
     normalize_tag_id,
     tag_prefixes,
@@ -17,8 +18,8 @@ from ossie_studio.governance.yaml_io import (
     export_tags_yaml,
     parse_tags_yaml,
 )
-from ossie_studio.models import GovernedTag
-from tests.conftest import bootstrap_admin, create_plain_user, login
+from tests.conftest import create_plain_user, login
+from tests.space_fixture import Rebased, make_api_space
 
 # --- Partie pure (normalisation, hiérarchie, YAML) ---------------------------
 
@@ -43,15 +44,12 @@ def test_validation_id_et_champs() -> None:
 
 
 def test_yaml_aller_retour() -> None:
-    now = datetime(2026, 1, 1, tzinfo=UTC)
-    tag = GovernedTag(
+    tag = Tag(
         id="gouvernance/donnees-personnelles",
         owner="equipe-data",
         description="Objet qui contient des données personnelles.",
         links={"politique": "https://exemple.org/politique"},
         properties={"conservationJours": 90},
-        created_at=now,
-        updated_at=now,
     )
     text = export_tags_yaml([tag])
     parsed = parse_tags_yaml(text)
@@ -75,12 +73,12 @@ def test_yaml_import_invalide_rejete() -> None:
 # --- API ---------------------------------------------------------------------
 
 @pytest.fixture
-async def admin(client: AsyncClient) -> AsyncClient:
-    await bootstrap_admin(client)
-    return client
+async def admin(client: AsyncClient, app: FastAPI, tmp_path: Path) -> Rebased:
+    # La gouvernance vit dans le dépôt de l'espace : routes de la branche.
+    return Rebased(client, await make_api_space(client, app, tmp_path))
 
 
-async def test_creer_et_lister_un_tag(admin: AsyncClient) -> None:
+async def test_creer_et_lister_un_tag(admin: Rebased) -> None:
     created = await admin.post(
         "/api/governance/tags",
         json={
@@ -100,20 +98,20 @@ async def test_creer_et_lister_un_tag(admin: AsyncClient) -> None:
     assert [t["id"] for t in listing.json()["tags"]] == ["gouvernance/donnees-personnelles"]
 
 
-async def test_casse_designe_le_meme_tag(admin: AsyncClient) -> None:
+async def test_casse_designe_le_meme_tag(admin: Rebased) -> None:
     await admin.post("/api/governance/tags", json={"id": "Gouvernance/PII"})
     again = await admin.post("/api/governance/tags", json={"id": "gouvernance/pii"})
     assert again.status_code == 409
     assert again.json()["error"] == "tag_id_taken"
 
 
-async def test_id_invalide_refuse(admin: AsyncClient) -> None:
+async def test_id_invalide_refuse(admin: Rebased) -> None:
     response = await admin.post("/api/governance/tags", json={"id": "tag invalide"})
     assert response.status_code == 400
     assert "tag_id_invalid" in response.json()["error_args"]["fields"]
 
 
-async def test_modifier_et_supprimer(admin: AsyncClient) -> None:
+async def test_modifier_et_supprimer(admin: Rebased) -> None:
     await admin.post("/api/governance/tags", json={"id": "gouvernance/pii", "owner": "a"})
     updated = await admin.put(
         "/api/governance/tags/gouvernance/pii", json={"owner": "equipe-data", "description": "d"}
@@ -128,7 +126,7 @@ async def test_modifier_et_supprimer(admin: AsyncClient) -> None:
     assert (await admin.delete("/api/governance/tags/gouvernance/pii")).status_code == 404
 
 
-async def test_export_puis_import(admin: AsyncClient) -> None:
+async def test_export_puis_import(admin: Rebased) -> None:
     await admin.post(
         "/api/governance/tags",
         json={"id": "gouvernance/pii", "owner": "equipe-data", "description": "PII"},
@@ -148,7 +146,7 @@ async def test_export_puis_import(admin: AsyncClient) -> None:
     ]
 
 
-async def test_import_invalide_refuse(admin: AsyncClient) -> None:
+async def test_import_invalide_refuse(admin: Rebased) -> None:
     response = await admin.post(
         "/api/governance/tags/import", json={"yaml": "- id: 'Tag Invalide'\n"}
     )
@@ -157,15 +155,15 @@ async def test_import_invalide_refuse(admin: AsyncClient) -> None:
 
 
 @pytest.fixture
-async def user_client(admin: AsyncClient, app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def user_client(admin: Rebased, app: FastAPI) -> AsyncIterator[Rebased]:
     await create_plain_user(app, "simple@example.org", "mot-de-passe-simple")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as second:
         await login(second, "simple@example.org", "mot-de-passe-simple")
-        yield second
+        yield Rebased(second, admin.space)
 
 
-async def test_non_admin_refuse(user_client: AsyncClient) -> None:
+async def test_non_admin_refuse(user_client: Rebased) -> None:
     assert (await user_client.get("/api/governance/tags")).status_code == 403
     created = await user_client.post("/api/governance/tags", json={"id": "x"})
     assert created.status_code == 403

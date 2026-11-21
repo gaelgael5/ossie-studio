@@ -162,3 +162,27 @@ async def set_credential(
             value,
             status,
         )
+
+
+class Rebased:
+    """Client qui redirige les anciennes routes globales `/api/governance/…`
+    vers celles de la branche de l'espace (la gouvernance vit dans le dépôt)."""
+
+    def __init__(self, client: AsyncClient, space: ApiSpace) -> None:
+        self.client = client
+        self.space = space
+
+    def _url(self, url: str) -> str:
+        return url.replace("/api/governance/", f"{self.space.base}/governance/", 1)
+
+    async def get(self, url: str, **kwargs: object):  # type: ignore[no-untyped-def]
+        return await self.client.get(self._url(url), **kwargs)  # type: ignore[arg-type]
+
+    async def post(self, url: str, **kwargs: object):  # type: ignore[no-untyped-def]
+        return await self.client.post(self._url(url), **kwargs)  # type: ignore[arg-type]
+
+    async def put(self, url: str, **kwargs: object):  # type: ignore[no-untyped-def]
+        return await self.client.put(self._url(url), **kwargs)  # type: ignore[arg-type]
+
+    async def delete(self, url: str, **kwargs: object):  # type: ignore[no-untyped-def]
+        return await self.client.delete(self._url(url), **kwargs)  # type: ignore[arg-type]

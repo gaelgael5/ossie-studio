@@ -35,6 +35,7 @@ from ossie_studio.crypto import CryptoService
 from ossie_studio.db import create_pool
 from ossie_studio.db.migrate import run_migrations
 from ossie_studio.errors import ApiError, api_error_handler
+from ossie_studio.governance import rules as _governance_rules  # noqa: F401 — enregistre les règles
 from ossie_studio.health import resolve_health
 from ossie_studio.logging import setup_logging
 from ossie_studio.oidc.login_routes import router as oidc_login_router
