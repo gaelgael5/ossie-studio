@@ -84,6 +84,31 @@ export interface DraftObjectItem {
   changed_upstream: boolean
 }
 
+export interface MergeConflict {
+  pointer: string
+  base: unknown
+  theirs: unknown
+  mine: unknown
+}
+
+export interface MergeView {
+  path: string
+  state: 'created' | 'modified' | 'deleted'
+  changed_upstream: boolean
+  readonly: boolean
+  kind: 'none' | 'auto' | 'conflict' | 'text' | 'text_conflict' | 'deleted_upstream' | 'deleted_in_draft'
+  structured: boolean
+  base: unknown
+  theirs: unknown
+  mine: unknown
+  theirs_absent: boolean
+  mine_absent: boolean
+  proposed: unknown
+  conflicts: MergeConflict[]
+}
+
+export type MergeChoice = 'theirs' | 'mine' | { value: unknown }
+
 export interface DraftSummary {
   count: number
   revision: number
@@ -810,6 +835,24 @@ export const api = {
     apiFetch<{ plugin_id: string; slug: string; value: string }>(
       `/api/parsing/plugins/${encodeURIComponent(pluginId)}/parameters/${encodeURIComponent(slug)}`,
       { method: 'PUT', body: JSON.stringify({ value }) },
+    ),
+  draftMerge: (spaceId: string, branchId: string, path: string) =>
+    apiFetch<MergeView>(
+      `/api/spaces/${spaceId}/branches/${branchId}/draft/merge?path=${encodeURIComponent(path)}`,
+    ),
+  resolveMerge: (
+    spaceId: string,
+    branchId: string,
+    body: { path: string; resolutions?: Record<string, MergeChoice>; delete?: boolean },
+  ) =>
+    apiFetch<{ path: string; merged: boolean }>(`/api/spaces/${spaceId}/branches/${branchId}/draft/merge`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  automerge: (spaceId: string, branchId: string) =>
+    apiFetch<{ merged: string[]; conflicts: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/draft/automerge`,
+      { method: 'POST' },
     ),
   myDraft: (spaceId: string, branchId: string) =>
     apiFetch<DraftSummary>(`/api/spaces/${spaceId}/branches/${branchId}/draft`),

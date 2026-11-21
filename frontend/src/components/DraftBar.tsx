@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
 import { readDraftView, writeDraftView, type DraftViewMode } from '../draftView'
+import { MergeDialog } from './MergeDialog'
 
 const MODES: DraftViewMode[] = ['merged', 'published', 'draft']
 
@@ -13,6 +14,7 @@ export function DraftBar({ spaceId, branchId }: { spaceId: string; branchId: str
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<DraftViewMode>(() => readDraftView(branchId))
+  const [opened, setOpened] = useState<string | null>(null)
   const draft = useQuery({
     queryKey: ['draft', spaceId, branchId],
     queryFn: () => api.myDraft(spaceId, branchId),
@@ -50,9 +52,15 @@ export function DraftBar({ spaceId, branchId }: { spaceId: string; branchId: str
               <code>{o.path}</code>
               <span className="pill">{t(`draftState_${o.state}`)}</span>
               {o.changed_upstream ? <span className="badge-warn">{t('draftObjectChanged')}</span> : null}
+              <button type="button" className="btn btn-sm" onClick={() => setOpened(o.path)}>
+                {t('mergeOpen')}
+              </button>
             </li>
           ))}
         </ul>
+      ) : null}
+      {opened ? (
+        <MergeDialog spaceId={spaceId} branchId={branchId} path={opened} onClose={() => setOpened(null)} />
       ) : null}
     </div>
   )

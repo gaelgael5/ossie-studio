@@ -7,8 +7,10 @@ personne, jamais dans un commit."""
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
@@ -16,6 +18,7 @@ import asyncpg
 import structlog
 
 from ossie_studio.drafts.store import (
+    DraftObject,
     DraftObjectTooLargeError,
     DraftPathError,
     db_get_draft,
@@ -42,6 +45,30 @@ from ossie_studio.spaces.workdir import (
 log = structlog.get_logger(__name__)
 
 _T = TypeVar("_T")
+
+
+@dataclass(frozen=True)
+class ObjectVersions:
+    current_blob: str | None
+    theirs: bytes | None
+    base: bytes | None
+
+
+async def _blob_bytes(copy: Path, env: dict[str, str], blob: str | None) -> bytes | None:
+    if blob is None:
+        return None
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "cat-file",
+        "blob",
+        blob,
+        cwd=str(copy),
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out, _ = await proc.communicate()
+    return out if proc.returncode == 0 else None
 
 
 class DraftWorkdir:
@@ -203,6 +230,41 @@ class DraftWorkdir:
                 meta, path = line.split("\t", 1)
                 blobs[path] = meta.split()[2]
         return blobs
+
+    async def object_versions(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        objects: list[DraftObject],
+    ) -> dict[str, ObjectVersions]:
+        """Pour chaque objet du brouillon : blob et contenu actuels côté publié,
+        et contenu de sa version de base (lus dans la copie de lecture)."""
+        out: dict[str, ObjectVersions] = {}
+        if not objects:
+            return out
+        async with self._manager.read_copy(space_id, slug, repo_url, username, token) as (
+            copy,
+            env,
+            _head,
+        ):
+            paths = [o.path for o in objects]
+            code, tree, _ = await run_git(["ls-tree", "-r", "-z", "HEAD", "--", *paths], copy, env)
+            current: dict[str, str] = {}
+            for line in tree.split("\0") if code == 0 else []:
+                if line:
+                    meta, path = line.split("\t", 1)
+                    current[path] = meta.split()[2]
+            for obj in objects:
+                blob = current.get(obj.path)
+                out[obj.path] = ObjectVersions(
+                    current_blob=blob,
+                    theirs=await _blob_bytes(copy, env, blob),
+                    base=await _blob_bytes(copy, env, obj.base_blob),
+                )
+        return out
 
     async def file_history(
         self,
