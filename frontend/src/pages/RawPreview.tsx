@@ -1,9 +1,12 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import type {
+  RawObjectTag,
   RawBadge,
   RawExplorerMode,
   RawFieldType,
@@ -37,6 +40,32 @@ export function VisibilityBadge({ visibility, source }: { visibility: string; so
     >
       {t(`rawVisibility.${visibility}`, { defaultValue: visibility })}
     </span>
+  )
+}
+
+/** Provenance d'un tag en clair : la condition reconnue, ou la classe dont il est hérité. */
+export function tagProvenance(t: TFunction, tag: RawObjectTag): string {
+  const how = tag.via
+    ? t('rawTagInherited', { from: tag.via_title || tag.via })
+    : t(`rawTagReason.${tag.reason}`, { value: tag.value, defaultValue: tag.value })
+  return t('rawTagProvenance', { rule: tag.rule_name, how })
+}
+
+/** Tags gouvernés posés par règle : un badge chacun, la provenance en info-bulle. */
+export function TagBadges({ tags }: { tags: RawObjectTag[] }) {
+  const { t } = useTranslation()
+  return (
+    <>
+      {tags.map((tag) => (
+        <span
+          key={tag.tag}
+          className={`raw-tag${tag.via ? ' inherited' : ''}`}
+          title={`${t('rawTagTitle')} — ${tagProvenance(t, tag)}`}
+        >
+          {tag.tag}
+        </span>
+      ))}
+    </>
   )
 }
 
@@ -221,6 +250,7 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
         <div className="raw-badges">
           <span className="pill">{t(`rawKind.${d.kind}`, { defaultValue: d.kind })}</span>
           <VisibilityBadge visibility={d.visibility} source={d.visibility_source} />
+          <TagBadges tags={d.tags} />
           {d.badges.map((b: RawBadge) => (
             <span
               key={b}
@@ -372,6 +402,34 @@ function Summary({
         )}
       </section>
 
+      {detail.tags.length > 0 ? (
+        <section>
+          <h3 className="panel-label">{t('rawTagsTitle')}</h3>
+          <ul className="list-plain raw-tag-list">
+            {detail.tags.map((tag) => (
+              <li key={tag.tag}>
+                <span className={`raw-tag${tag.via ? ' inherited' : ''}`}>{tag.tag}</span>{' '}
+                <span className="small muted">
+                  {tag.via && tag.via_target ? (
+                    <>
+                      {t('rawTagProvenanceRule', { rule: tag.rule_name })}{' '}
+                      {t('rawTagInheritedFrom')}{' '}
+                      <TargetLink
+                        target={tag.via_target}
+                        label={tag.via_title}
+                        onOpen={onOpen}
+                      />
+                    </>
+                  ) : (
+                    tagProvenance(t, tag)
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {detail.enum.length > 0 ? (
         <section>
           <h3 className="panel-label">{t('rawEnumValues')}</h3>
@@ -488,8 +546,19 @@ function Summary({
 export function Technical({ detail }: { detail: RawObjectDetail }) {
   const { t } = useTranslation()
   const o = detail.origin
-  const rows: [string, string][] = [
-    [t('rawTechFile'), o.file ? `${o.file}${o.line ? `:${o.line}` : ''}` : '—'],
+  const fileText = o.file ? `${o.file}${o.line ? `:${o.line}` : ''}` : '—'
+  // Le fichier source s'ouvre sur la forge dans un nouvel onglet (même adresse
+  // que « Ouvrir dans la forge ») ; sans adresse connue, il reste du texte.
+  const file: ReactNode =
+    o.file && detail.forge_url ? (
+      <a href={detail.forge_url} target="_blank" rel="noreferrer noopener" title={detail.forge_url}>
+        {fileText}
+      </a>
+    ) : (
+      fileText
+    )
+  const rows: [string, ReactNode][] = [
+    [t('rawTechFile'), file],
     [t('rawTechChecksum'), o.checksum || '—'],
     [t('rawTechParser'), o.parser || '—'],
     [t('rawTechBranch'), o.branch || '—'],

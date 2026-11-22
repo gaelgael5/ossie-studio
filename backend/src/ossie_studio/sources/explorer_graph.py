@@ -60,6 +60,18 @@ class ReferenceGraph:
         )
         return (found.slug, found.file) if found else None
 
+    def target(self, key: NodeKey) -> dict[str, str] | None:
+        """Cible ouvrable (source, fichier, titre, dossier) d'un objet de l'espace."""
+        located = self._objects.get(key)
+        if located is None:
+            return None
+        return {
+            "slug": key[0],
+            "file": key[1],
+            "title": located.obj.title,
+            "folder": located.folder,
+        }
+
     def incoming(self, key: NodeKey) -> list[dict[str, Any]]:
         """Références entrantes d'un objet : qui le référence, par quel champ,
         avec la cardinalité du champ dans l'objet d'origine."""

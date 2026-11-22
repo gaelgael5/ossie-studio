@@ -432,6 +432,19 @@ export interface RawExplorerTree extends RawExplorerSource {
   folders: RawFolderItem[]
 }
 
+/** Tag gouverné posé par une règle de tags, avec sa provenance. */
+export interface RawObjectTag {
+  tag: string
+  rule: string
+  rule_name: string
+  /** Condition reconnue (inherits | annotation | name | path | field) ; vide si hérité. */
+  reason: string
+  value: string
+  /** « source/fichier » de la classe dont le tag est hérité ; vide sinon. */
+  via: string
+  via_title: string
+}
+
 export interface RawObjectItem {
   file: string
   title: string
@@ -444,6 +457,7 @@ export interface RawObjectItem {
   /** public | internal | protected | private | unknown ; vide pour SQL et contrats. */
   visibility: string
   visibility_source: string
+  tags: RawObjectTag[]
 }
 
 export interface RawDocumentItem {
@@ -521,6 +535,7 @@ export interface RawObjectDetail {
   excluded_by: string
   visibility: string
   visibility_source: string
+  tags: (RawObjectTag & { via_target: RawTarget | null })[]
   description: string
   enum: string[]
   fields: {

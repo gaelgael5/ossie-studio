@@ -44,7 +44,10 @@ const OBJ = {
   origin: 'src/Domain/Order.cs',
   parser: 'csharp',
   excluded_by: '',
+  tags: [] as unknown[],
 }
+
+const SERVICE_TAG = { tag: 'technique/service', rule: 'ctrl', rule_name: 'Contrôleurs', reason: 'inherits', value: 'ControllerBase', via: '', via_title: '' }
 
 function folderBody(path: string) {
   if (path === '') return { path, folders: [{ path: 'src', items: 1, files: 2 }], objects: [], documents: [] }
@@ -54,7 +57,7 @@ function folderBody(path: string) {
     path,
     folders: [],
     objects: [
-      { ...OBJ, file: 'order.json', title: 'Order', badges: ['retained'], visibility: 'public', visibility_source: '' },
+      { ...OBJ, file: 'order.json', title: 'Order', badges: ['retained'], visibility: 'public', visibility_source: '', tags: [SERVICE_TAG] },
       {
         ...OBJ,
         file: 'status.json',
@@ -106,6 +109,18 @@ const DETAIL = {
   kind: 'class',
   badges: ['retained'],
   excluded_by: '',
+  tags: [
+    SERVICE_TAG,
+    {
+      ...SERVICE_TAG,
+      tag: 'technique/entite',
+      reason: '',
+      value: '',
+      via: 'app/customer.json',
+      via_title: 'Customer',
+      via_target: { slug: 'app', file: 'customer.json', title: 'Customer', folder: 'src/Domain/Sub' },
+    },
+  ],
   description: 'Une commande du client.',
   enum: [],
   fields: [
@@ -422,6 +437,35 @@ describe('RawExplorer', () => {
     await user.dblClick(graph.getByRole('button', { name: 'Customer' }))
     loc = screen.getByTestId('loc').textContent ?? ''
     expect(loc).not.toContain('center=')
+  })
+
+  it('tags de gouvernance : badge, filtre et provenance dans l’aperçu', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain')
+    expect(await screen.findByText('Status')).toBeInTheDocument()
+    const badge = screen.getByText('technique/service', { selector: '.raw-tag' })
+    expect(badge.getAttribute('title')).toContain('règle « Contrôleurs » : hérite de ControllerBase')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filtrer par tag de gouvernance' }), 'technique/service')
+    expect(screen.queryByText('Status')).not.toBeInTheDocument()
+    expect(screen.getByText('Order')).toBeInTheDocument()
+    await user.click(screen.getByText('Order'))
+    expect(await screen.findByText('Tags de gouvernance (posés par règle)')).toBeInTheDocument()
+    expect(screen.getByText('règle « Contrôleurs » : hérite de ControllerBase')).toBeInTheDocument()
+    const tagsSection = screen.getByText('Tags de gouvernance (posés par règle)').closest('section')!
+    await user.click(within(tagsSection).getByRole('button', { name: 'Customer' }))
+    expect(screen.getByTestId('loc').textContent).toContain('sel=customer.json')
+  })
+
+  it('onglet Technique : le fichier source ouvre la forge dans un nouvel onglet', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    await screen.findByText('Une commande du client.')
+    await user.click(screen.getByRole('tab', { name: /Technique/ }))
+    const link = screen.getByRole('link', { name: 'src/Domain/Order.cs' })
+    expect(link).toHaveAttribute('href', 'https://github.com/org/app/blob/main/src/Domain/Order.cs')
+    expect(link).toHaveAttribute('target', '_blank')
   })
 
   it('graphe : ouvrir un dossier de l’arbre revient à la vue précédente', async () => {
