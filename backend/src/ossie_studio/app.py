@@ -48,7 +48,7 @@ from ossie_studio.mcp_surface.caller import CallerResolver
 from ossie_studio.mcp_surface.guard import McpSurfaceMiddleware
 from ossie_studio.mcp_surface.server import build_session_manager
 from ossie_studio.oauth.routes import OAuthEndpoints
-from ossie_studio.oauth.service import resolve_oauth_token
+from ossie_studio.oauth.service import db_purge_oauth, resolve_oauth_token
 from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
@@ -83,6 +83,14 @@ async def _purge_once(app: FastAPI) -> None:
             log.info("api_keys_purged", count=purged)
     except Exception:
         log.warning("api_keys_purge_failed", exc_info=True)
+    # OAuth : connexions révoquées depuis plus de 24 h, demandes, codes et jetons périmés.
+    try:
+        async with app.state.pool.acquire() as conn:
+            counts = await db_purge_oauth(conn)
+        if any(counts.values()):
+            log.info("oauth_purged", **counts)
+    except Exception:
+        log.warning("oauth_purge_failed", exc_info=True)
 
 
 async def _purge_forever(app: FastAPI) -> None:

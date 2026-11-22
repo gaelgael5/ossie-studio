@@ -772,6 +772,7 @@ export const en = {
     agentConnectionsIntro:
       'The clients (Claude…) you connected to Ossie-studio. Each acts for you with its agent profile, never beyond your own rights.',
     agentConnectionsNone: 'No connected client.',
+    agentConnectionsRevokedNote: 'A revoked connection disappears from the list 24 hours after its revocation.',
     agentConnectionsAllTitle: 'All connections',
     agentConnectionsColClient: 'Client',
     agentConnectionsColUser: 'Person',
@@ -785,7 +786,7 @@ export const en = {
     agentConnectionsApply: 'Apply',
     agentConnectionsRevoke: 'Revoke',
     agentConnectionsRevokeConfirm:
-      'Revoke the connection of “{{client}}”? The client will be refused from its next call and will have to reconnect.',
+      'Revoke the connection of “{{client}}”? The client will be refused from its next call and will have to reconnect. The connection will disappear from the list 24 hours later.',
     agentConnectionsConfirmRevoke: 'Confirm revocation',
     navApiKeys: 'API keys',
     apiKeysTitle: 'API keys',

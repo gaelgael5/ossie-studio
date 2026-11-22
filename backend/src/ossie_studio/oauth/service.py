@@ -26,6 +26,10 @@ REFRESH_PREFIX = "osr_"
 # scope unique, annoncé pour que les clients le demandent sans erreur.
 SCOPE = "mcp"
 
+# Une connexion révoquée, et les jetons expirés ou révoqués, restent un jour
+# (visibles, journalisés), puis disparaissent de la base.
+RETENTION = timedelta(hours=24)
+
 REQUEST_TTL = timedelta(minutes=10)
 CODE_TTL = timedelta(minutes=5)
 ACCESS_TTL = timedelta(hours=1)
@@ -216,6 +220,38 @@ async def db_revoke_connection(
             connection_id,
         )
     return result != "UPDATE 0"
+
+
+async def db_purge_oauth(conn: asyncpg.Connection) -> dict[str, int]:
+    """Ménage de l'OAuth ; rend le nombre de lignes supprimées par sorte.
+
+    - connexions révoquées depuis plus de 24 h (leurs jetons partent avec) ;
+    - demandes d'autorisation expirées (jamais consenties) ;
+    - codes d'autorisation expirés (utilisés ou non) ;
+    - jetons expirés ou révoqués depuis plus de 24 h.
+    La trace des consentements et révocations reste dans le journal."""
+
+    async def delete(query: str, *args: object) -> int:
+        return len(await conn.fetch(query, *args))
+
+    return {
+        "connections": await delete(
+            "DELETE FROM oauth_connections WHERE revoked_at IS NOT NULL "
+            "AND revoked_at < now() - $1::interval RETURNING id",
+            RETENTION,
+        ),
+        "requests": await delete(
+            "DELETE FROM oauth_authorization_requests WHERE expires_at < now() RETURNING id"
+        ),
+        "codes": await delete(
+            "DELETE FROM oauth_codes WHERE expires_at < now() RETURNING code_hash"
+        ),
+        "tokens": await delete(
+            "DELETE FROM oauth_tokens "
+            "WHERE coalesce(revoked_at, expires_at) < now() - $1::interval RETURNING token_hash",
+            RETENTION,
+        ),
+    }
 
 
 async def resolve_oauth_token(

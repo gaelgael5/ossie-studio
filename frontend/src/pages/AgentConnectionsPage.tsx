@@ -190,6 +190,9 @@ export function AgentConnectionsPage({ canSeeAll, canRevokeAll }: { canSeeAll: b
         ) : (
           <div className="empty-note">{t('agentConnectionsNone')}</div>
         )}
+        {[...connections, ...(all.data?.connections ?? [])].some((c) => c.state === 'revoked') ? (
+          <p className="small muted">{t('agentConnectionsRevokedNote')}</p>
+        ) : null}
 
         {canSeeAll ? (
           <section className="page-section stack" aria-label={t('agentConnectionsAllTitle')}>

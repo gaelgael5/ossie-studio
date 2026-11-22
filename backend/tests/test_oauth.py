@@ -12,6 +12,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -590,3 +591,88 @@ def test_retour_apres_connexion_reste_dans_l_application() -> None:
     assert safe_next("/oauth/consent?request=abc") == "/oauth/consent?request=abc"
     for bad in ("", "https://evil.example.org", "//evil.example.org", "/\\evil", "/a\nb"):
         assert safe_next(bad) is None
+
+
+# --- Ménage : connexions révoquées et données périmées ------------------------------
+
+
+async def test_connexion_revoquee_supprimee_au_bout_de_24_heures(
+    app: FastAPI, admin: AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from ossie_studio.app import _purge_once
+
+    await _person(app, "ana@example.org", ["spaces:read"])
+    await _person(app, "bob@example.org", ["spaces:read"])
+    lecture = await _profile_id(app)
+    await _connect(app, admin, lecture)  # active : reste
+    async with _as(app, "ana@example.org") as ana:
+        await _connect(app, ana, lecture)
+    async with _as(app, "bob@example.org") as bob:
+        await _connect(app, bob, lecture)
+    # Une demande de connexion jamais consentie, expirée.
+    async with AsyncClient(transport=ASGITransport(app=app), base_url=BASE) as http:
+        await _authorize(http)
+    async with app.state.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE oauth_connections c SET revoked_at = now() - $2::interval "
+            "FROM users u WHERE u.id = c.user_id AND u.email = $1",
+            "ana@example.org",
+            timedelta(hours=25),
+        )
+        await conn.execute(
+            "UPDATE oauth_connections c SET revoked_at = now() - $2::interval "
+            "FROM users u WHERE u.id = c.user_id AND u.email = $1",
+            "bob@example.org",
+            timedelta(hours=23),
+        )
+        await conn.execute("UPDATE oauth_authorization_requests SET expires_at = now()")
+        await conn.execute("UPDATE oauth_codes SET expires_at = now() - interval '1 minute'")
+    capsys.readouterr()
+
+    await _purge_once(app)
+
+    everyone = (await admin.get("/api/agent-connections/all")).json()["connections"]
+    assert sorted(c["user"] for c in everyone) == sorted([ADMIN_EMAIL, "bob@example.org"])
+    async with app.state.pool.acquire() as conn:
+        assert await conn.fetchval("SELECT count(*) FROM oauth_authorization_requests") == 0
+        assert await conn.fetchval("SELECT count(*) FROM oauth_codes") == 0
+        # Les jetons de la connexion supprimée partent avec elle.
+        orphans = await conn.fetchval(
+            "SELECT count(*) FROM oauth_tokens t LEFT JOIN oauth_connections c "
+            "ON c.id = t.connection_id WHERE c.id IS NULL"
+        )
+        assert orphans == 0
+    purged = _events(capsys.readouterr().out, "oauth_purged")
+    assert len(purged) == 1
+    assert purged[0]["connections"] == 1 and purged[0]["requests"] == 1 and purged[0]["codes"] == 3
+
+
+async def test_jetons_perimes_depuis_plus_de_24_heures_supprimes(
+    app: FastAPI, admin: AsyncClient
+) -> None:
+    from ossie_studio.app import _purge_once
+
+    tokens = await _connect(app, admin, await _profile_id(app))
+    refreshed = await _refresh(app, tokens["client_id"], tokens["refresh_token"])
+    assert refreshed.status_code == 200
+    async with app.state.pool.acquire() as conn:
+        # Les premiers jetons : l'accès a expiré il y a 2 jours, le rafraîchissement a été
+        # tourné (révoqué) il y a 2 jours.
+        await conn.execute(
+            "UPDATE oauth_tokens SET expires_at = now() - interval '2 days' "
+            "WHERE token_hash = $1",
+            hashlib.sha256(tokens["access_token"].encode()).hexdigest(),
+        )
+        await conn.execute(
+            "UPDATE oauth_tokens SET revoked_at = now() - interval '2 days' "
+            "WHERE token_hash = $1",
+            hashlib.sha256(tokens["refresh_token"].encode()).hexdigest(),
+        )
+        before = await conn.fetchval("SELECT count(*) FROM oauth_tokens")
+
+    await _purge_once(app)
+
+    async with app.state.pool.acquire() as conn:
+        assert await conn.fetchval("SELECT count(*) FROM oauth_tokens") == before - 2
+    # Les jetons en cours continuent de servir.
+    assert (await _mcp_status(app, refreshed.json()["access_token"]))[0] == 200
