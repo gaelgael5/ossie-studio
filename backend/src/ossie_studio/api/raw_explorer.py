@@ -30,6 +30,7 @@ from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.links import forge_file_url
+from ossie_studio.governance.tag_rules import active_rules
 from ossie_studio.parsers.base import STATUT_ERREUR
 from ossie_studio.sources.curation import is_schema_file, read_review_point
 from ossie_studio.sources.explorer import (
@@ -39,6 +40,7 @@ from ossie_studio.sources.explorer import (
     MODES,
     ExplorerDocument,
     ExplorerObject,
+    ObjectTag,
     SourceEntries,
     SourceIndex,
     collect_source_entries,
@@ -60,6 +62,7 @@ from ossie_studio.sources.explorer_store import (
     db_list_indexed_sources,
     db_replace_index,
 )
+from ossie_studio.sources.explorer_tags import apply_tag_rules
 from ossie_studio.sources.manifest import ManifestError, parse_manifest
 from ossie_studio.sources.paths import is_valid_source_slug
 from ossie_studio.sources.scan_service import ScanFile, db_list_scan_files
@@ -91,6 +94,19 @@ def _object_payload(obj: ExplorerObject) -> dict[str, object]:
         "excluded_by": obj.excluded_by,
         "visibility": obj.visibility,
         "visibility_source": obj.visibility_source,
+        "tags": [_tag_payload(t) for t in obj.tags],
+    }
+
+
+def _tag_payload(tag: ObjectTag) -> dict[str, str]:
+    return {
+        "tag": tag.tag,
+        "rule": tag.rule,
+        "rule_name": tag.rule_name,
+        "reason": tag.reason,
+        "value": tag.value,
+        "via": tag.via,
+        "via_title": tag.via_title,
     }
 
 
@@ -166,10 +182,16 @@ async def _ensure_index(
             return key, branch_ref
 
         def read(wc: Path) -> list[SourceEntries]:
-            return [
-                collect_source_entries(wc, slug, review_base=read_review_point(wc, slug))
-                for slug in list_source_slugs(wc)
-            ]
+            # Les tags se calculent ici, sur toutes les sources à la fois (une
+            # chaîne d'héritage peut en traverser deux) ; les règles sont dans
+            # le dépôt, donc dans la signature : les modifier reconstruit l'index.
+            return apply_tag_rules(
+                [
+                    collect_source_entries(wc, slug, review_base=read_review_point(wc, slug))
+                    for slug in list_source_slugs(wc)
+                ],
+                active_rules(wc),
+            )
 
         try:
             sources = await workdir.read_branch(
@@ -429,6 +451,16 @@ async def get_explorer_object(
     graph = await _reference_graph(conn, key, mode)
     detail = object_detail(schema, text, obj, entries, graph.space, asset)
     detail["incoming"] = graph.incoming((slug, file))
+    # Un tag hérité ouvre la classe dont il vient (son dossier dépend du mode).
+    detail["tags"] = [
+        {
+            **_tag_payload(t),
+            "via_target": graph.target((t.via.split("/", 1)[0], t.via.split("/", 1)[1]))
+            if "/" in t.via
+            else None,
+        }
+        for t in obj.tags
+    ]
     origin = detail["origin"]
     detail["forge_url"] = await _forge_link(conn, manifest_text, obj.origin, origin["line"])
     return detail

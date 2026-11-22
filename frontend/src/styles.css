@@ -1610,6 +1610,23 @@ body.resizing-x {
   background: var(--danger-bg);
   border-color: transparent;
 }
+.raw-tag {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--chip-fg);
+  background: var(--chip-bg);
+  white-space: nowrap;
+}
+/* Hérité d'une classe mère : même couleur, contour pointillé. */
+.raw-tag.inherited {
+  background: transparent;
+  border: 1px dashed var(--chip-fg);
+}
+.raw-tag-list li {
+  margin-bottom: 4px;
+}
 .raw-up {
   margin-top: 14px;
 }

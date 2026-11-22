@@ -47,7 +47,7 @@ MODES: tuple[str, ...] = ("origin", "kind", "parser")
 GIT_SOURCE_TYPE = "git"
 # Version du format des entrées mises en index : la changer (champ ajouté…)
 # force la reconstruction des index existants à la livraison suivante.
-INDEX_FORMAT = "4"
+INDEX_FORMAT = "5"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -93,6 +93,32 @@ class SchemaSummary:
     refs: tuple[SchemaRef, ...] = ()  # références sortantes (vue graphe)
     description: str = ""  # description courte (info-bulle du graphe)
     top_fields: tuple[str, ...] = ()  # premiers champs (info-bulle du graphe)
+    annotations: tuple[str, ...] = ()  # attributs / annotations / décorateurs (règles de tags)
+    field_names: tuple[str, ...] = ()  # tous les champs (règles de tags)
+
+
+@dataclass(frozen=True)
+class ObjectTag:
+    """Un tag gouverné posé par une règle (voir `governance/tag_rules`), avec sa
+    provenance : la condition reconnue (`reason` + `value`), ou la classe dont il
+    est hérité (`via`, « source/fichier », et son titre)."""
+
+    tag: str
+    rule: str
+    rule_name: str
+    reason: str = ""  # inherits | annotation | name | path | field ; "" si hérité
+    value: str = ""  # ce qui a été reconnu (ex. « ControllerBase »)
+    via: str = ""
+    via_title: str = ""
+
+
+@dataclass(frozen=True)
+class ObjectFacts:
+    """Ce que les règles de tags regardent et que l'index ne garde pas : calculé
+    à la lecture de raw/, utilisé avant la mise en base, jamais sérialisé."""
+
+    annotations: tuple[str, ...] = ()
+    field_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -113,6 +139,8 @@ class ExplorerObject:
     refs: tuple[SchemaRef, ...] = ()
     description: str = ""
     top_fields: tuple[str, ...] = ()
+    tags: tuple[ObjectTag, ...] = ()
+    facts: ObjectFacts = field(default=ObjectFacts(), compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -274,7 +302,22 @@ def _summarize(data: bytes) -> SchemaSummary:
         refs=schema_refs(schema),
         description=str(schema.get("description") or "")[:DESCRIPTION_MAX],
         top_fields=tuple(list(props)[:TOP_FIELDS]) if isinstance(props, dict) else (),
+        annotations=_annotation_names(schema),
+        field_names=tuple(props) if isinstance(props, dict) else (),
     )
+
+
+def _annotation_names(schema: dict[str, Any]) -> tuple[str, ...]:
+    """Noms des attributs de l'objet (`x-annotations` : `{"nom": …}` pour les
+    parseurs de code, chaîne pour d'anciens schémas)."""
+    value = schema.get("x-annotations")
+    names: list[str] = []
+    for item in value if isinstance(value, list) else []:
+        if isinstance(item, dict) and item.get("nom"):
+            names.append(str(item["nom"]))
+        elif isinstance(item, str) and item:
+            names.append(item)
+    return tuple(dict.fromkeys(names))
 
 
 def schema_summary(path: Path) -> SchemaSummary:
@@ -511,6 +554,10 @@ class SourceEntries:
                     [[r.field, r.kind, r.target, r.cardinality, r.external] for r in o.refs],
                     o.description,
                     list(o.top_fields),
+                    [
+                        [t.tag, t.rule, t.rule_name, t.reason, t.value, t.via, t.via_title]
+                        for t in o.tags
+                    ],
                 ]
                 for o in self.objects
             ],
@@ -548,6 +595,7 @@ class SourceEntries:
                     refs=tuple(SchemaRef(*r) for r in o[13]) if len(o) > 13 else (),
                     description=o[14] if len(o) > 14 else "",
                     top_fields=tuple(o[15]) if len(o) > 15 else (),
+                    tags=tuple(ObjectTag(*t) for t in o[16]) if len(o) > 16 else (),
                 )
                 for o in data.get("objects") or []
             ],
@@ -625,6 +673,7 @@ def collect_source_entries(
                 refs=summary.refs,
                 description=summary.description,
                 top_fields=summary.top_fields,
+                facts=ObjectFacts(summary.annotations, summary.field_names),
             )
         )
     return SourceEntries(

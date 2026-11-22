@@ -33,6 +33,7 @@ from ossie_studio.api.session import router as api_session_router
 from ossie_studio.api.sources import router as api_sources_router
 from ossie_studio.api.space_teams import router as api_space_teams_router
 from ossie_studio.api.spaces import router as api_spaces_router
+from ossie_studio.api.tag_rules import router as api_tag_rules_router
 from ossie_studio.api.teams import router as api_teams_router
 from ossie_studio.api.users import router as api_users_router
 from ossie_studio.api_keys.service import db_purge_revoked_keys, resolve_api_key
@@ -163,6 +164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_curation_router)
     app.include_router(api_raw_explorer_router)
     app.include_router(api_governance_router)
+    app.include_router(api_tag_rules_router)
     app.include_router(api_certifications_router)
     app.include_router(api_classifications_router)
     app.include_router(api_profiles_router)

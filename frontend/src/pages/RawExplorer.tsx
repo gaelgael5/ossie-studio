@@ -25,7 +25,7 @@ import { errorMessages } from '../errors'
 import { ApiRequestError } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { BusyButton } from '../components/BusyButton'
-import { RawPreview, VisibilityBadge, isObjectSelection } from './RawPreview'
+import { RawPreview, TagBadges, VisibilityBadge, isObjectSelection } from './RawPreview'
 import { RawGraph } from './RawGraph'
 import { RawDocumentPage, RawExclusive } from './RawExclusive'
 import {
@@ -147,6 +147,7 @@ export function RawExplorer({
   const [debounced, setDebounced] = useState('')
   const [kindFilter, setKindFilter] = useState('')
   const [badgeFilter, setBadgeFilter] = useState('')
+  const [tagFilter, setTagFilter] = useState('')
   const [visFilter, setVisFilter] = useState<string[]>([])
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({
     key: 'name',
@@ -321,6 +322,7 @@ export function RawExplorer({
   useEffect(() => {
     setKindFilter('')
     setBadgeFilter('')
+    setTagFilter('')
     setVisFilter([])
   }, [sourceSlug, mode, path])
 
@@ -362,14 +364,20 @@ export function RawExplorer({
     () => BADGES.filter((b) => objects.some((o) => o.badges.includes(b))),
     [objects],
   )
+  // Tags gouvernés présents dans le dossier : comme l'état, « tous » + au moins un tag.
+  const presentTags = useMemo(
+    () => [...new Set(objects.flatMap((o) => o.tags.map((tag) => tag.tag)))].sort(),
+    [objects],
+  )
   const shownObjects = objects.filter(
     (o) =>
       (!kindFilter || o.kind === kindFilter) &&
+      (!tagFilter || o.tags.some((tag) => tag.tag === tagFilter)) &&
       (!badgeFilter || o.badges.includes(badgeFilter as RawBadge)) &&
       // Rien de coché : tout s'affiche (tables et contrats compris, sans visibilité).
       (visFilter.length === 0 || visFilter.includes(o.visibility)),
   )
-  const filtering = !!kindFilter || !!badgeFilter || visFilter.length > 0
+  const filtering = !!kindFilter || !!badgeFilter || !!tagFilter || visFilter.length > 0
   const shownFolders = filtering ? [] : (folder.data?.folders ?? [])
   const shownDocuments = filtering ? [] : (folder.data?.documents ?? [])
 
@@ -673,6 +681,21 @@ export function RawExplorer({
                     ))}
                   </select>
                 ) : null}
+                {presentTags.length > 0 ? (
+                  <select
+                    className="select"
+                    aria-label={t('rawFilterTag')}
+                    value={tagFilter}
+                    onChange={(e) => setTagFilter(e.target.value)}
+                  >
+                    <option value="">{t('rawFilterTagAll')}</option>
+                    {presentTags.map((tag) => (
+                      <option key={tag} value={tag}>
+                        {tag}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
                 {presentVisibilities.length > 0 ? (
                   <fieldset className="raw-vis-filter">
                     <legend>{t('rawFilterVisibility')}</legend>
@@ -956,10 +979,11 @@ function CollectLine({ source }: { source: RawExplorerSource }) {
 
 function Badges({ obj }: { obj: RawObjectItem }) {
   const { t } = useTranslation()
-  if (obj.badges.length === 0 && !obj.visibility) return null
+  if (obj.badges.length === 0 && !obj.visibility && obj.tags.length === 0) return null
   return (
     <span className="raw-badges">
       <VisibilityBadge visibility={obj.visibility} source={obj.visibility_source} />
+      <TagBadges tags={obj.tags} />
       {obj.badges.map((b) => (
         <span
           key={b}
