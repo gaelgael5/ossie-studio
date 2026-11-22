@@ -132,6 +132,8 @@ export const fr = {
     precision_gitlab: 'gitlab.com ou instance auto-hébergée',
     precision_azure_devops: 'Organisation dev.azure.com',
     newConnectionFor: 'Nouvelle connexion {{forge}}',
+    editConnectionFor: 'Modifier la connexion {{forge}}',
+    editConnectionNamed: 'Modifier la connexion {{label}}',
     azureOrgPlaceholder: 'https://dev.azure.com/mon-organisation',
     scopesTableTitle: 'Portées à donner au jeton selon l’usage',
     colUsage: 'Usage',

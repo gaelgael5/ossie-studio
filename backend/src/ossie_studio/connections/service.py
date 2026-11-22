@@ -97,6 +97,39 @@ async def db_create_connection(
     return Connection.from_row(row)
 
 
+async def db_update_connection(
+    conn: asyncpg.Connection,
+    connection_id: uuid.UUID,
+    *,
+    label: str,
+    url: str,
+    secret_slug: str,
+    identity: ForgeIdentity,
+) -> Connection | None:
+    """Modifie libellé, URL et jeton d'une connexion DÉJÀ vérifiée auprès de la
+    forge par l'appelant. Le slug et la forge sont figés (le slug est une
+    référence stable ; changer de forge, c'est une autre connexion). L'état
+    repasse « valide » avec l'identité rendue par la vérification."""
+    try:
+        row = await conn.fetchrow(
+            "UPDATE connections SET label = $2, url = $3, secret_slug = $4, identity = $5, "
+            "last_status = 'valid', last_error_code = NULL, last_checked_at = $6 "
+            "WHERE id = $1 RETURNING *",
+            connection_id,
+            label,
+            url,
+            secret_slug,
+            identity.username,
+            datetime.now(UTC),
+        )
+    except asyncpg.UniqueViolationError as exc:
+        raise ConnectionDuplicateError from exc
+    if row is None:
+        return None
+    log.info("connection_updated", forge=row["forge"], identity=identity.username)
+    return Connection.from_row(row)
+
+
 async def db_update_connection_status(
     conn: asyncpg.Connection,
     connection_id: uuid.UUID,

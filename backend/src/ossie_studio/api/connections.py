@@ -19,6 +19,7 @@ from ossie_studio.connections.service import (
     db_delete_connection,
     db_get_connection,
     db_list_connections,
+    db_update_connection,
     db_update_connection_status,
     resolve_connection_token,
 )
@@ -48,6 +49,13 @@ class ConnectionCreate(BaseModel):
     # Absent, le serveur le déduit lui-même (appels antérieurs à ce champ).
     slug: str = ""
     forge: str = ""
+    url: str = ""
+    secret_slug: str = ""
+
+
+class ConnectionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = ""
     url: str = ""
     secret_slug: str = ""
 
@@ -214,6 +222,51 @@ async def create_connection(
     except ConnectionDuplicateError:
         raise ApiError("connection_duplicate", status_code=409) from None
     return _payload(connection)
+
+
+@router.put("/{connection_id}")
+async def update_connection(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: ConnectionsWrite,
+    http_client_factory: HttpFactoryDep,
+    connection_id: uuid.UUID,
+    body: ConnectionUpdate,
+) -> dict[str, object]:
+    current = await db_get_connection(conn, connection_id)
+    if current is None:
+        raise ApiError("connection_not_found", status_code=404)
+    # Mêmes règles qu'à la création ; la forge (figée) vient de la connexion.
+    errors = validate_connection(body.label, current.forge, body.url, body.secret_slug)
+    if errors:
+        raise ApiError("invalid_request", status_code=400, fields=errors)
+    secret = await db_get_secret(conn, body.secret_slug.strip())
+    if secret is None or secret.category != current.forge:
+        raise ApiError("connection_secret_invalid", status_code=400, slug=body.secret_slug.strip())
+    token = (await resolve_secret_value(conn, crypto, secret.slug)).reveal()
+
+    url = body.url.strip().rstrip("/")
+    # Vérification AVANT d'écrire : une modification refusée par la forge laisse
+    # la connexion telle qu'elle était (les espaces qui s'en servent continuent).
+    async with http_client_factory() as client:
+        try:
+            identity = await get_strategy(current.forge).verify(client, url, token)
+        except ForgeError as exc:
+            raise ApiError(exc.code, status_code=400) from None
+    try:
+        updated = await db_update_connection(
+            conn,
+            connection_id,
+            label=body.label.strip(),
+            url=url,
+            secret_slug=secret.slug,
+            identity=identity,
+        )
+    except ConnectionDuplicateError:
+        raise ApiError("connection_duplicate", status_code=409) from None
+    if updated is None:
+        raise ApiError("connection_not_found", status_code=404)
+    return _payload(updated)
 
 
 @router.post("/{connection_id}/test")

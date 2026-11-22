@@ -162,6 +162,61 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
   expect(within(sfDialog).getByLabelText('Fichier de clé privée')).toBeInTheDocument()
 })
 
+test('forges : une connexion se réédite, slug figé, valeurs reprises', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: { bootstrap_required: false, authenticated: true, user: { email: 'g@example.org', role: 'admin' }, capabilities: ADMIN_CAPS },
+    },
+    '/api/connections': {
+      body: {
+        connections: [
+          {
+            id: 'c1', label: 'gitlab gael', slug: 'gitlab-gael', forge: 'gitlab', url: 'https://gitlab.com',
+            identity: 'gael', last_status: 'error', last_error_code: 'connection_token_invalid',
+            last_checked_at: null, secret_slug: 'gl-old', secret_label: 'Ancien', secret_used_by_others: 0,
+            used_by_spaces: 0, used_by_sources: 0,
+          },
+        ],
+      },
+    },
+    '/api/connections/forges': {
+      body: { forges: [{ forge: 'gitlab', default_url: 'https://gitlab.com', url_required: false, secret_category: 'gitlab' }] },
+    },
+    '/api/secrets?category=gitlab': {
+      body: {
+        secrets: [
+          { slug: 'gl-old', label: 'Ancien', category: 'gitlab', updated_at: '2026-01-01T00:00:00Z', used_by: 1 },
+          { slug: 'gl-new', label: 'Nouveau', category: 'gitlab', updated_at: '2026-01-01T00:00:00Z', used_by: 0 },
+        ],
+        categories: { gitlab: 'GitLab' },
+        category_inputs: { gitlab: 'masked' },
+      },
+    },
+    'PUT /api/connections/c1': { body: {} },
+    '/api/db-connections': { body: { connections: [] } },
+    '/api/db-connections/engines': { body: { engines: [] } },
+  })
+  renderAt('/forges')
+  // Toute la ligne est cliquable.
+  await userEvent.click(await screen.findByText('https://gitlab.com'))
+  const dialog = await screen.findByRole('dialog', { name: 'Modifier la connexion GitLab' })
+  expect(within(dialog).getByLabelText('Libellé')).toHaveValue('gitlab gael')
+  expect(within(dialog).getByDisplayValue('gitlab-gael')).toBeDisabled()
+  await waitFor(() => expect(within(dialog).getByLabelText("Jeton d'accès personnel")).toHaveValue('gl-old'))
+  await userEvent.selectOptions(within(dialog).getByLabelText("Jeton d'accès personnel"), 'gl-new')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Vérifier et enregistrer' }))
+  const fetchMock = vi.mocked(fetch)
+  await waitFor(() => {
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(JSON.parse(String(put?.[1]?.body))).toEqual({
+      label: 'gitlab gael',
+      url: 'https://gitlab.com',
+      secret_slug: 'gl-new',
+    })
+  })
+})
+
 test('espaces : un droit en échec affiche le droit et la cause traduits', async () => {
   await i18n.changeLanguage('fr')
   mockFetch({

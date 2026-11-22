@@ -688,6 +688,8 @@ export const api = {
     secret_slug: string
   }) =>
     apiFetch<Connection>('/api/connections', { method: 'POST', body: JSON.stringify(body) }),
+  updateConnection: (id: string, body: { label: string; url: string; secret_slug: string }) =>
+    apiFetch<Connection>(`/api/connections/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   testConnection: (id: string) =>
     apiFetch<Connection>(`/api/connections/${id}/test`, { method: 'POST' }),
   deleteConnection: (id: string, deleteSecret = false) =>

@@ -131,6 +131,8 @@ export const en = {
     precision_gitlab: 'gitlab.com or self-hosted instance',
     precision_azure_devops: 'dev.azure.com organization',
     newConnectionFor: 'New {{forge}} connection',
+    editConnectionFor: 'Edit {{forge}} connection',
+    editConnectionNamed: 'Edit connection {{label}}',
     azureOrgPlaceholder: 'https://dev.azure.com/my-organization',
     scopesTableTitle: 'Token scopes to grant, by usage',
     colUsage: 'Usage',
