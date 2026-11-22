@@ -172,6 +172,12 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
       if (init?.method === 'PUT') body = { slug: 'app', ok: true }
       else if (u.pathname === '/api/session') body = { authenticated: true, capabilities: SESSION_CAPS.value }
       else if (u.pathname.includes('/governance/tag-removals')) body = { ok: true }
+      else if (u.pathname.endsWith('/curation/enrichment'))
+        body = {
+          title: 'Order',
+          object: { name: '', business_name: 'Commande', description: '', concept: '', tags: [], readonly: {} },
+          fields: [{ name: 'id', business_name: '', description: '', concept: '', tags: [], readonly: {} }],
+        }
       else if (u.pathname.includes('/curation/')) body = { ok: true, commit: 'abc' }
       else if (u.pathname.endsWith('/sources')) body = declared
       else if (u.pathname.endsWith('/raw-explorer')) body = sources
@@ -447,6 +453,11 @@ describe('RawExplorer', () => {
     let loc = screen.getByTestId('loc').textContent ?? ''
     expect(loc).toContain('sel=customer.json')
     expect(loc).toContain('center=app%2Forder.json') // sélection sans recentrer
+    // Le tableau des liens : un objet (non externe) se clique aussi.
+    const table = within(document.querySelector('.raw-graph-table') as HTMLElement)
+    await user.click(table.getByRole('button', { name: 'Invoice' }))
+    expect(screen.getByTestId('loc').textContent).toContain('sel=invoice.json')
+    expect(table.queryByRole('button', { name: 'Money' })).not.toBeInTheDocument()
     await user.dblClick(graph.getByRole('button', { name: 'Customer' }))
     loc = screen.getByTestId('loc').textContent ?? ''
     expect(loc).not.toContain('center=')
@@ -548,6 +559,20 @@ describe('RawExplorer', () => {
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
     const sent = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
     expect(JSON.parse(sent.body!)).toEqual({ path: 'order.json', fields: null })
+  })
+
+  it('onglet Enrichissement : le panneau de la curation, sur l’asset de l’objet', async () => {
+    SESSION_CAPS.value = ['curation:write']
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    await screen.findByText('Une commande du client.')
+    await user.click(screen.getByRole('tab', { name: 'Enrichissement' }))
+    const names = await screen.findAllByRole('textbox', { name: 'Nom métier' })
+    expect(names[0]).toHaveValue('Commande')
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    expect(await screen.findByText('Enrichissement enregistré dans le brouillon.')).toBeInTheDocument()
+    expect(calls.bodies.some((b) => b.url.endsWith('/curation/enrich') && b.method === 'PUT')).toBe(true)
   })
 
   it('graphe : ouvrir un dossier de l’arbre revient à la vue précédente', async () => {

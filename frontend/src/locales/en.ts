@@ -878,6 +878,8 @@ export const en = {
     navNoSpace: 'No space — create one under “Spaces”.',
     tabTags: 'Tags',
     tabTagRules: 'Tag rules',
+    tagRuleBuiltin: 'Ossie',
+    tagRuleBuiltinHint: 'Rule provided by Ossie: not editable, can be disabled for this space (the state is saved in the draft).',
     governanceTagRulesIntro: 'Rules that set governance tags on raw objects from what the code says about them: base class, attribute, name, file, field.',
     newTagRule: '+ New rule',
     tagRuleFilterLabel: 'Filter rules',
@@ -931,6 +933,7 @@ export const en = {
     tagRulePreviewNone: 'No object would be tagged.',
     saveTagRule: 'Save in the draft',
     tagRuleCond: {
+      kind: 'Object kind',
       inherits: 'Inherits / implements',
       annotation: 'Has attribute',
       name: 'Class name',
@@ -938,6 +941,7 @@ export const en = {
       field: 'Has field',
     },
     tagRuleCondText: {
+      kind: 'kind {{values}}',
       inherits: 'inherits from {{values}}',
       annotation: 'has {{values}}',
       name: 'name {{values}}',
@@ -945,6 +949,7 @@ export const en = {
       field: 'has field {{values}}',
     },
     tagRuleCondPlaceholder: {
+      kind: 'model, enum',
       inherits: 'ControllerBase, DbContext',
       annotation: 'ApiController, Table',
       name: '*Dto, *Request',
@@ -1041,6 +1046,7 @@ export const en = {
     rawMentionedIn: 'Mentioned in: {{sections}}',
     mdNotCopied: '[resource not copied]',
     rawExclusiveTab: {
+      enrichment: 'Enrichment',
       overview: 'Overview',
       fields: 'Fields',
       documentation: 'Documentation',
@@ -1088,6 +1094,9 @@ export const en = {
     rawNotExposedCount: 'not exposed ({{count}})',
     rawObjectNotRetained: 'Object not retained: no field exposed.',
     rawCreateAsset: 'Create an asset',
+    rawEnrichNeedsAsset: 'Create an asset first (“Create an asset” button): enrichment is written in the asset.',
+    rawEnrichReadonly: 'Enrichment is read-only: the right to write curation is required.',
+    rawEnrichSaved: 'Enrichment saved in the draft.',
     rawRemoveAsset: 'Remove the asset',
     rawRemoveAssetConfirm: 'Remove the asset? Enrichments will be lost (recoverable from the Git history).',
     rawRemoveAssetYes: 'Remove',
@@ -1148,6 +1157,7 @@ export const en = {
     rawCitedObjects: 'Cited objects',
     rawNoCitedObject: 'No object of the space is cited by this document.',
     rawPreviewTab: {
+      enrichment: 'Enrichment',
       summary: 'Summary',
       json: 'JSON',
       documents: 'Documents',

@@ -9,6 +9,7 @@ sans demander, dans le même commit de brouillon que la règle.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import structlog
@@ -19,6 +20,7 @@ from ossie_studio.api.common import GovernanceRead, GovernanceWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep, gov_ctx
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
+from ossie_studio.governance.builtin_tag_rules import builtin_rules
 from ossie_studio.governance.repo import Tag, read_tags, write_tag
 from ossie_studio.governance.tag_rules import (
     MATCH_ANY,
@@ -27,9 +29,11 @@ from ossie_studio.governance.tag_rules import (
     delete_tag_rule,
     is_valid_rule_id,
     parse_rule,
+    read_builtin_disabled,
     read_tag_removals,
     read_tag_rules,
     rule_document,
+    write_builtin_disabled,
     write_tag_removals,
     write_tag_rule,
 )
@@ -60,6 +64,18 @@ def _payload(
         "path": rel,
         "rule": rule_document(rule) if rule else None,
         "errors": list(errors),
+        "builtin": False,
+    }
+
+
+def _builtin_payload(rule: TagRule, disabled: set[str]) -> dict[str, object]:
+    """Règle fournie par Ossie : pas de fichier dans le dépôt, seulement son état."""
+    return {
+        "id": rule.id,
+        "path": "",
+        "rule": rule_document(replace(rule, enabled=rule.id not in disabled)),
+        "errors": [],
+        "builtin": True,
     }
 
 
@@ -73,10 +89,12 @@ async def list_tag_rules(
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    files = await ctx.read(read_tag_rules)
-    return {
-        "rules": [_payload(f.rel, f.rule, f.errors, f.rel.rsplit("/", 1)[-1][:-5]) for f in files]
-    }
+    files, disabled = await ctx.read(
+        lambda root: (read_tag_rules(root), read_builtin_disabled(root))
+    )
+    own = [_payload(f.rel, f.rule, f.errors, f.rel.rsplit("/", 1)[-1][:-5]) for f in files]
+    provided = [_builtin_payload(r, disabled) for r in builtin_rules()]
+    return {"rules": provided + own}
 
 
 def ensure_tags(root: Path, rule: TagRule) -> list[str]:
@@ -86,6 +104,53 @@ def ensure_tags(root: Path, rule: TagRule) -> list[str]:
     for tag_id in created:
         write_tag(root, Tag(tag_id, description=f"Créé par la règle de tags « {rule.name} »."))
     return created
+
+
+def ensure_builtin_tags(root: Path) -> list[str]:
+    """Tags des règles fournies actives absents du vocabulaire : créés à la
+    première écriture de règles de l'espace (une lecture n'écrit jamais)."""
+    disabled = read_builtin_disabled(root)
+    created: list[str] = []
+    for rule in builtin_rules():
+        if rule.id not in disabled:
+            created += ensure_tags(root, rule)
+    return created
+
+
+class BuiltinStateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+
+
+@router.put("/{rule_id}/state")
+async def set_builtin_rule_state(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    rule_id: str,
+    body: BuiltinStateBody,
+) -> dict[str, object]:
+    """Active ou désactive une règle fournie par Ossie (seul son état est dans
+    le dépôt de l'espace)."""
+    rule = next((r for r in builtin_rules() if r.id == rule_id), None)
+    if rule is None:
+        raise ApiError("tag_rule_not_found", status_code=404, rule_id=rule_id)
+    created: list[str] = []
+
+    def write(root: Path) -> None:
+        disabled = read_builtin_disabled(root)
+        disabled.discard(rule_id) if body.enabled else disabled.add(rule_id)
+        write_builtin_disabled(root, disabled)
+        created.extend(ensure_builtin_tags(root))
+
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    verb = "active" if body.enabled else "désactive"
+    await ctx.write(user.email, f"{verb} la règle de tags fournie {rule_id}", write)
+    log.info("builtin_tag_rule_state", rule_id=rule_id, enabled=body.enabled)
+    return {**_builtin_payload(rule, set() if body.enabled else {rule_id}), "created_tags": created}
 
 
 @router.put("/{rule_id}")
@@ -108,6 +173,7 @@ async def save_tag_rule(
     def write(root: Path) -> None:
         write_tag_rule(root, rule)
         created.extend(ensure_tags(root, rule))
+        created.extend(t for t in ensure_builtin_tags(root) if t not in created)
 
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
     await ctx.write(user.email, f"règle de tags {rule_id}", write)

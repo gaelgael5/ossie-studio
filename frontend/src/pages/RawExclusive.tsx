@@ -1,7 +1,7 @@
 import { type ReactNode, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { AssetButton, AssetEditorProvider, EyeCell } from './RawAssetEditor'
+import { AssetButton, AssetEditorProvider, EnrichTab, EyeCell } from './RawAssetEditor'
 import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import type {
@@ -27,10 +27,19 @@ import {
 // adresse (?open=…) : le bouton retour du navigateur ramène aux vignettes, dans
 // le même dossier, même mode, mêmes filtres (l'état de l'explorateur est gardé).
 
-type Tab = 'overview' | 'fields' | 'documentation' | 'references' | 'json' | 'technical' | 'history'
+type Tab =
+  | 'overview'
+  | 'fields'
+  | 'enrichment'
+  | 'documentation'
+  | 'references'
+  | 'json'
+  | 'technical'
+  | 'history'
 const TABS: Tab[] = [
   'overview',
   'fields',
+  'enrichment',
   'documentation',
   'references',
   'json',
@@ -315,6 +324,11 @@ export function RawExclusive(props: ExclusiveProps) {
       {tab === 'technical' ? (
         <section className="panel">
           <Technical detail={d} />
+        </section>
+      ) : null}
+      {tab === 'enrichment' ? (
+        <section className="panel">
+          <EnrichTab spaceId={spaceId} branchId={branchId} slug={slug} file={d.file} />
         </section>
       ) : null}
       {tab === 'history' ? (

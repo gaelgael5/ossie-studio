@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { api, sessionCapabilities } from '../apiClient'
 import type { RawObjectDetail } from '../apiClient'
 import { errorMessages } from '../errors'
+import { EnrichPanel } from '../components/EnrichPanel'
 import { ErrorList } from '../components/ErrorList'
 import { useSession } from '../hooks'
 import { EyeIcon } from './RawPreview'
@@ -154,4 +155,53 @@ export function AssetButton() {
 export function useCanEditAsset(): boolean {
   const editor = useContext(AssetEditorContext)
   return !!editor?.canWrite
+}
+
+/**
+ * Onglet « Enrichissement » de l'aperçu : le panneau de la page Curation (nom
+ * métier, description métier, concept, étiquettes) appliqué à l'asset de
+ * l'objet. Il faut un asset : sinon, l'onglet invite à le créer.
+ */
+export function EnrichTab({
+  spaceId,
+  branchId,
+  slug,
+  file,
+}: {
+  spaceId: string
+  branchId: string
+  slug: string
+  file: string
+}) {
+  const { t } = useTranslation()
+  const editor = useContext(AssetEditorContext)
+  const queryClient = useQueryClient()
+  const [version, setVersion] = useState(0)
+  const [notice, setNotice] = useState('')
+  if (!editor?.retained) return <p className="muted">{t('rawEnrichNeedsAsset')}</p>
+  if (!editor.canWrite) return <p className="muted">{t('rawEnrichReadonly')}</p>
+  return (
+    <div className="stack">
+      {notice ? <p role="status">{notice}</p> : null}
+      <EnrichPanel
+        key={version}
+        spaceId={spaceId}
+        branchId={branchId}
+        slug={slug}
+        path={file}
+        onClose={() => {
+          setNotice('')
+          setVersion((v) => v + 1)
+        }}
+        onSaved={() => {
+          setNotice(t('rawEnrichSaved'))
+          void Promise.all(
+            ['enrichment', 'rawObject', 'curation'].map((key) =>
+              queryClient.invalidateQueries({ queryKey: [key] }),
+            ),
+          )
+        }}
+      />
+    </div>
+  )
 }

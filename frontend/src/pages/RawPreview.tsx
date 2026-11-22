@@ -6,7 +6,13 @@ import type { TFunction } from 'i18next'
 import { Link } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
 import { useSession } from '../hooks'
-import { AssetButton, AssetEditorProvider, EyeCell, useCanEditAsset } from './RawAssetEditor'
+import {
+  AssetButton,
+  AssetEditorProvider,
+  EnrichTab,
+  EyeCell,
+  useCanEditAsset,
+} from './RawAssetEditor'
 import type {
   RawObjectTag,
   RawBadge,
@@ -23,8 +29,8 @@ import { ErrorList } from '../components/ErrorList'
 // sans quitter le dossier. Lecture seule ; les raccourcis renvoient vers la
 // curation, la revue ou la forge.
 
-type PreviewTab = 'summary' | 'json' | 'documents' | 'technical' | 'history'
-const TABS: PreviewTab[] = ['summary', 'json', 'documents', 'technical', 'history']
+type PreviewTab = 'summary' | 'enrichment' | 'json' | 'documents' | 'technical' | 'history'
+const TABS: PreviewTab[] = ['summary', 'enrichment', 'json', 'documents', 'technical', 'history']
 const STALE_MS = 30_000
 
 /**
@@ -287,6 +293,9 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
       </div>
 
       {tab === 'summary' ? <Summary detail={d} onOpen={onOpen} slug={slug} /> : null}
+      {tab === 'enrichment' ? (
+        <EnrichTab spaceId={spaceId} branchId={branchId} slug={slug} file={d.file} />
+      ) : null}
       {tab === 'json' ? <pre className="raw-json">{d.json}</pre> : null}
       {tab === 'documents' ? (
         d.documents.length === 0 ? (

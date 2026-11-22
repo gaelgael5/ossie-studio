@@ -16,6 +16,7 @@ Deux temps :
 
 from __future__ import annotations
 
+import fnmatch
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import replace
@@ -24,10 +25,12 @@ from ossie_studio.governance.tag_rules import (
     COND_ANNOTATION,
     COND_FIELD,
     COND_INHERITS,
+    COND_KIND,
     COND_NAME,
     COND_PATH,
     MATCH_ALL,
     TagRule,
+    field_matches,
     name_matches,
     path_matches,
 )
@@ -68,7 +71,11 @@ def _match(rule: TagRule, obj: ExplorerObject, bases: list[str]) -> tuple[str, s
         elif kind == COND_PATH:
             hit = obj.origin if path_matches(obj.origin, patterns) else None
         elif kind == COND_FIELD:
-            hit = next((f for f in obj.facts.field_names if name_matches(f, patterns)), None)
+            # Sans la casse : `Email`, `EMAIL`, `email` et `customer_email` sont
+            # le même genre de donnée (proposition des jeux de règles validée).
+            hit = next((f for f in obj.facts.field_names if field_matches(f, patterns)), None)
+        elif kind == COND_KIND:
+            hit = obj.kind if any(fnmatch.fnmatchcase(obj.kind, p) for p in patterns) else None
         if hit is not None:
             hits.append((kind, hit))
         elif rule.match == MATCH_ALL:

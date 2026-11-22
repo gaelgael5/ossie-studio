@@ -14,6 +14,7 @@ const CTRL = {
   id: 'ctrl',
   path: 'governance/tag-rules/ctrl.yaml',
   errors: [],
+  builtin: false,
   rule: {
     id: 'ctrl',
     name: 'Contrôleurs',
@@ -25,7 +26,14 @@ const CTRL = {
     inherit_tags: true,
   },
 }
-const BROKEN = { id: 'broken', path: 'governance/tag-rules/broken.yaml', errors: ['tag_rule_files_invalid'], rule: null }
+const BROKEN = { id: 'broken', path: 'governance/tag-rules/broken.yaml', errors: ['tag_rule_files_invalid'], rule: null, builtin: false }
+const PROVIDED = {
+  id: 'ossie-data-contact',
+  path: '',
+  errors: [],
+  builtin: true,
+  rule: { ...CTRL.rule, id: 'ossie-data-contact', name: 'Données — contact', when: { field: ['*email*'] }, tags: ['donnees/personnelles/contact'], inherit_tags: false },
+}
 
 const HITS = {
   objects: 3,
@@ -43,10 +51,11 @@ function mockApi(capabilities: string[] = ['governance:read', 'governance:write'
       let body: unknown = {}
       let status = 200
       if (path === '/api/session') body = { authenticated: true, capabilities }
-      else if (path.startsWith(`${BASE}/governance/tag-rules`) && method === 'GET') body = { rules: [CTRL, BROKEN] }
+      else if (path.startsWith(`${BASE}/governance/tag-rules`) && method === 'GET') body = { rules: [PROVIDED, CTRL, BROKEN] }
       else if (path.startsWith(`${BASE}/governance/tags`)) body = { tags: [{ id: 'technique/service', owner: '', description: '', links: {}, properties: {} }] }
       else if (path.startsWith(`${BASE}/raw-explorer/tag-rules/usage`)) body = { rules: { ctrl: HITS } }
       else if (path.startsWith(`${BASE}/raw-explorer/tag-rules/preview`)) body = HITS
+      else if (method === 'PUT' && path.endsWith('/state')) body = { ...PROVIDED, created_tags: [] }
       else if (method === 'PUT' && path.includes('/governance/tag-rules/')) {
         const sent = JSON.parse(init?.body as string)
         if (sent.files.length === 0) {
@@ -156,5 +165,20 @@ describe('GovernanceTagRulesPage', () => {
     expect(screen.queryByRole('button', { name: '+ Nouvelle règle' })).not.toBeInTheDocument()
     const panel = screen.getByText('governance/tag-rules/ctrl.yaml').closest('.panel') as HTMLElement
     expect(within(panel).queryByRole('button', { name: 'Désactiver' })).not.toBeInTheDocument()
+  })
+
+  it('règle fournie par Ossie : ni modifiable ni supprimable, désactivation par son état', async () => {
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByText('Données — contact'))
+    expect(screen.getByText('contient le champ *email*')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Modifier la règle' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Supprimer' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Désactiver' }))
+    await waitFor(() => expect(calls.some((c) => c.path.endsWith('/state'))).toBe(true))
+    const put = calls.find((c) => c.path.endsWith('/state'))!
+    expect(put.path).toBe(`${BASE}/governance/tag-rules/ossie-data-contact/state`)
+    expect(JSON.parse(put.body!)).toEqual({ enabled: false })
   })
 })

@@ -276,8 +276,12 @@ export function RawGraph({ spaceId, branchId, mode, center, onSelect, onRecenter
             {layout.edges.map((e) => (
               <tr key={`${e.from}${e.to}${e.field}${e.kind}`}>
                 <td className="mono">{e.field || '—'}</td>
-                <td>{layout.byId.get(e.from)?.title}</td>
-                <td>{layout.byId.get(e.to)?.title}</td>
+                <td>
+                  <NodeLink node={layout.byId.get(e.from)} onSelect={onSelect} />
+                </td>
+                <td>
+                  <NodeLink node={layout.byId.get(e.to)} onSelect={onSelect} />
+                </td>
                 <td className="mono">
                   {e.kind === 'inherits' ? t('rawRefKind.inherits') : e.cardinality}
                 </td>
@@ -288,5 +292,23 @@ export function RawGraph({ spaceId, branchId, mode, center, onSelect, onRecenter
         </table>
       ) : null}
     </div>
+  )
+}
+
+/** Objet du tableau des liens : cliquable (il est sélectionné et s'ouvre dans
+ * l'aperçu), sauf un type externe, qu'on ne peut pas ouvrir. */
+function NodeLink({
+  node,
+  onSelect,
+}: {
+  node: RawGraphNode | undefined
+  onSelect: (node: RawGraphNode) => void
+}) {
+  if (!node) return null
+  if (node.external) return <span>{node.title}</span>
+  return (
+    <button type="button" className="btn-link" onClick={() => onSelect(node)}>
+      {node.title}
+    </button>
   )
 }
