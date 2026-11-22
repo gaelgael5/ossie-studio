@@ -397,6 +397,7 @@ export function ApiKeysPage() {
         ) : (
           <div className="empty-note">{t('apiKeysNone')}</div>
         )}
+        {keys.some((k) => k.state === 'revoked') ? <p className="small muted">{t('apiKeysRevokedNote')}</p> : null}
       </div>
     </main>
   )

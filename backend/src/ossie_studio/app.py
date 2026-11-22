@@ -35,7 +35,7 @@ from ossie_studio.api.space_teams import router as api_space_teams_router
 from ossie_studio.api.spaces import router as api_spaces_router
 from ossie_studio.api.teams import router as api_teams_router
 from ossie_studio.api.users import router as api_users_router
-from ossie_studio.api_keys.service import resolve_api_key
+from ossie_studio.api_keys.service import db_purge_revoked_keys, resolve_api_key
 from ossie_studio.config import Settings
 from ossie_studio.crypto import CryptoService
 from ossie_studio.db import create_pool
@@ -64,18 +64,31 @@ def _default_http_client_factory() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=10.0)
 
 
-# Vues éphémères des brouillons : ramassées après 30 min d'inactivité, vérifiées
-# toutes les 5 min. Un échec de purge ne doit jamais arrêter l'application.
+# Ménage périodique, toutes les 5 min. Un échec de purge ne doit jamais arrêter
+# l'application, ni empêcher l'autre purge.
 _PURGE_EVERY_SECONDS = 300
 
 
-async def _purge_draft_views_forever(app: FastAPI) -> None:
+async def _purge_once(app: FastAPI) -> None:
+    # Vues éphémères des brouillons : ramassées après 30 min d'inactivité.
+    try:
+        await app.state.draft_views.purge_idle()
+    except Exception:
+        log.warning("draft_views_purge_failed", exc_info=True)
+    # Clés d'API révoquées depuis plus de 24 h : supprimées de la base.
+    try:
+        async with app.state.pool.acquire() as conn:
+            purged = await db_purge_revoked_keys(conn)
+        if purged:
+            log.info("api_keys_purged", count=purged)
+    except Exception:
+        log.warning("api_keys_purge_failed", exc_info=True)
+
+
+async def _purge_forever(app: FastAPI) -> None:
     while True:
         await asyncio.sleep(_PURGE_EVERY_SECONDS)
-        try:
-            await app.state.draft_views.purge_idle()
-        except Exception:
-            log.warning("draft_views_purge_failed", exc_info=True)
+        await _purge_once(app)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -89,7 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Serveur d'autorisation de la surface MCP (a besoin du pool).
         app.state.oauth_endpoints = OAuthEndpoints(pool, app.state.crypto)
         await run_migrations(pool)
-        purge = asyncio.create_task(_purge_draft_views_forever(app))
+        purge = asyncio.create_task(_purge_forever(app))
         async with app.state.mcp_session_manager.run():
             yield
         purge.cancel()

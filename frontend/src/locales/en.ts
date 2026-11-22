@@ -824,9 +824,10 @@ export const en = {
     apiKeysApplyProfile: 'Apply',
     apiKeysRevoke: 'Revoke',
     apiKeysRevokeConfirm:
-      'Revoke the key “{{label}}”? Clients using it will be refused from their next call. This is final.',
+      'Revoke the key “{{label}}”? Clients using it will be refused from their next call. This is final; the key will disappear from the list 24 hours later.',
     apiKeysConfirmRevoke: 'Confirm revocation',
     apiKeysNone: 'No key issued.',
+    apiKeysRevokedNote: 'A revoked key disappears from the list 24 hours after its revocation.',
     teamsTitle: 'Teams',
     teamsIntro:
       'A team carries a profile: its members inherit its capabilities (on top of their personal profile). Attaching a profile requires the profiles right.',

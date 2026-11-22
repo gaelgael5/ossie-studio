@@ -13,7 +13,7 @@ import hmac
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import asyncpg
 
@@ -21,6 +21,8 @@ from ossie_studio.mcp_surface.caller import McpCaller
 
 KEY_PREFIX = "osk_"
 PREFIX_LENGTH = 12
+# Une clé révoquée reste visible (et journalisée) un jour, puis disparaît de la base.
+REVOKED_RETENTION = timedelta(hours=24)
 
 _SELECT = (
     "SELECT k.*, p.name AS agent_profile_name, "
@@ -119,6 +121,19 @@ async def db_revoke_api_key(
         revoked_by,
     )
     return result != "UPDATE 0"
+
+
+async def db_purge_revoked_keys(
+    conn: asyncpg.Connection, retention: timedelta = REVOKED_RETENTION
+) -> int:
+    """Supprime les clés révoquées depuis plus de `retention` ; rend leur nombre.
+    La trace de l'émission et de la révocation reste dans le journal."""
+    rows = await conn.fetch(
+        "DELETE FROM api_keys WHERE revoked_at IS NOT NULL AND revoked_at < now() - $1::interval "
+        "RETURNING id",
+        retention,
+    )
+    return len(rows)
 
 
 async def resolve_api_key(

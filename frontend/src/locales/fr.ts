@@ -826,9 +826,10 @@ export const fr = {
     apiKeysApplyProfile: 'Appliquer',
     apiKeysRevoke: 'Révoquer',
     apiKeysRevokeConfirm:
-      'Révoquer la clé « {{label}} » ? Les clients qui l’utilisent seront refusés dès leur appel suivant. C’est définitif.',
+      'Révoquer la clé « {{label}} » ? Les clients qui l’utilisent seront refusés dès leur appel suivant. C’est définitif ; la clé disparaîtra de la liste 24 heures plus tard.',
     apiKeysConfirmRevoke: 'Confirmer la révocation',
     apiKeysNone: 'Aucune clé émise.',
+    apiKeysRevokedNote: 'Une clé révoquée disparaît de la liste 24 heures après sa révocation.',
     teamsTitle: 'Équipes',
     teamsIntro:
       'Une équipe porte un profil : ses membres en héritent les capacités (en plus de leur profil personnel). Associer un profil exige le droit sur les profils.',

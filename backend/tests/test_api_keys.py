@@ -374,3 +374,40 @@ async def test_dernier_usage_au_plus_une_ecriture_par_minute(
     old = await last_used()
     await raw_mcp_status(app, secret)
     assert await last_used() > old
+
+
+# --- Purge des clés révoquées ------------------------------------------------------------
+
+
+async def test_cle_revoquee_supprimee_de_la_base_au_bout_de_24_heures(
+    app: FastAPI, client: AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from ossie_studio.app import _purge_once
+
+    await _admin(client)
+    lecture = await _profile_id(app)
+    ids = {}
+    for label in ("active", "revoquee-hier", "revoquee-ce-matin"):
+        response = await _issue(client, lecture, label=label)
+        ids[label] = response.json()["key"]["id"]
+    for label in ("revoquee-hier", "revoquee-ce-matin"):
+        await client.post(f"/api/api-keys/{ids[label]}/revoke")
+    async with app.state.pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE api_keys SET revoked_at = now() - interval '25 hours' WHERE id = $1",
+            uuid.UUID(ids["revoquee-hier"]),
+        )
+        await conn.execute(
+            "UPDATE api_keys SET revoked_at = now() - interval '23 hours' WHERE id = $1",
+            uuid.UUID(ids["revoquee-ce-matin"]),
+        )
+    capsys.readouterr()
+
+    await _purge_once(app)
+
+    labels = [k["label"] for k in (await client.get("/api/api-keys")).json()["keys"]]
+    assert sorted(labels) == ["active", "revoquee-ce-matin"]
+    assert [e["count"] for e in _events(capsys.readouterr().out, "api_keys_purged")] == [1]
+    # Rejouée, la purge ne trouve plus rien et ne journalise rien.
+    await _purge_once(app)
+    assert _events(capsys.readouterr().out, "api_keys_purged") == []
