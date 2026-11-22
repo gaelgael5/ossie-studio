@@ -6,6 +6,7 @@ import type { OidcConnectorItem, ProfileItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 function ConnectorMappings({
@@ -250,6 +251,18 @@ export function ConnectorsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
+  const [creating, setCreating] = useState(false)
+  const openCreate = () => {
+    setMessages([])
+    setCreating(true)
+  }
+  const closeCreate = () => {
+    setCreating(false)
+    connector.reset()
+    setIssuer('')
+    setClientId('')
+    setSecretSlug('')
+  }
   const connector = useLabelSlug()
   const [issuer, setIssuer] = useState('')
   const [clientId, setClientId] = useState('')
@@ -291,10 +304,7 @@ export function ConnectorsPage() {
         scopes,
       }),
     onSuccess: async () => {
-      connector.reset()
-      setIssuer('')
-      setClientId('')
-      setSecretSlug('')
+      closeCreate()
       await invalidate()
     },
     onError,
@@ -342,8 +352,152 @@ export function ConnectorsPage() {
 
   return (
     <main>
-      <PageHeader breadcrumb={<SettingsCrumb />} title={t('connectorsTitle')} subtitle={t('connectorsIntro')} />
+      <PageHeader
+        breadcrumb={<SettingsCrumb />}
+        title={t('connectorsTitle')}
+        subtitle={t('connectorsIntro')}
+        actions={
+          <CreateButton open={creating} onOpen={openCreate}>
+            {t('newConnectorButton')}
+          </CreateButton>
+        }
+      />
       <ErrorList messages={messages} />
+      {creating ? (
+        <div className="page-section">
+          <CreatePanel title={t('addConnector')} onCancel={closeCreate}>
+            <form
+              className="panel stack measure"
+              onSubmit={(e) => {
+                e.preventDefault()
+                setMessages([])
+                create.mutate()
+              }}
+            >
+              <LabelSlugFields idPrefix="connector" state={connector} labelText={t('labelFieldLabel')} slugText={t('slugLabel')} />
+              <div className="field">
+                <label className="field-label" htmlFor="issuer">
+                  {t('issuerLabel')}
+                </label>
+                <input id="issuer" className="input" value={issuer} onChange={(e) => setIssuer(e.target.value)} />
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="clientId">
+                  {t('clientIdLabel')}
+                </label>
+                <input
+                  id="clientId"
+                  className="input"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="secretSlug">
+                  {t('clientSecretLabel')}
+                </label>
+                <div className="field-inline">
+                  <select
+                    id="secretSlug"
+                    className="select"
+                    value={secretSlug}
+                    onChange={(e) => setSecretSlug(e.target.value)}
+                  >
+                    <option value="">
+                      {oidcSecrets.length > 0 ? t('chooseSecret') : t('noOidcSecret')}
+                    </option>
+                    {oidcSecrets.map((s) => (
+                      <option key={s.slug} value={s.slug}>
+                        {s.label} ({s.slug})
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="btn" onClick={() => setShowNewSecret((v) => !v)}>
+                    +
+                  </button>
+                </div>
+              </div>
+              {showNewSecret ? (
+                <fieldset className="fieldset">
+                  <legend>{t('newSecretBlockTitle')}</legend>
+                  <LabelSlugFields
+                    idPrefix="ns"
+                    state={newSecret}
+                    labelText={t('colLabel')}
+                    slugText={t('slugLabel')}
+                  />
+                  <div className="field">
+                    <label className="field-label" htmlFor="nsValue">
+                      {t('valueLabel')}
+                    </label>
+                    <input
+                      id="nsValue"
+                      className="input"
+                      type="password"
+                      value={newSecretValue}
+                      onChange={(e) => setNewSecretValue(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={createSecret.isPending || !newSecret.finalSlug || !newSecretValue}
+                      onClick={() => {
+                        setMessages([])
+                        createSecret.mutate()
+                      }}
+                    >
+                      {t('createAndSelect')}
+                    </button>
+                  </div>
+                </fieldset>
+              ) : null}
+              <div className="field">
+                <label className="field-label" htmlFor="scopes">
+                  {t('scopesLabel')}
+                </label>
+                <input id="scopes" className="input" value={scopes} onChange={(e) => setScopes(e.target.value)} />
+              </div>
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={check.isPending || !issuer.trim()}
+                  onClick={() => {
+                    setCheckResult(null)
+                    check.mutate()
+                  }}
+                >
+                  {t('checkDiscovery')}
+                </button>
+                {checkResult === 'ok' ? (
+                  <span className="text-ok">{t('discoveryVerified')}</span>
+                ) : checkResult === 'ko' ? (
+                  <span className="text-danger">{t('discoveryFailed')}</span>
+                ) : null}
+              </div>
+              {callbackUrl ? (
+                <p className="muted">
+                  {t('callbackUrlHint')} <code>{callbackUrl}</code>{' '}
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() => navigator.clipboard?.writeText(callbackUrl)}
+                  >
+                    {t('copy')}
+                  </button>
+                </p>
+              ) : null}
+              <div>
+                <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+                  {t('verifyAndSave')}
+                </button>
+              </div>
+            </form>
+          </CreatePanel>
+        </div>
+      ) : null}
 
       <div className="page-body">
         {list.data && list.data.connectors.length > 0 ? (
@@ -464,140 +618,6 @@ export function ConnectorsPage() {
         )}
       </div>
 
-      <section className="page-section">
-        <div className="section-head">
-          <h2 className="section-title">{t('addConnector')}</h2>
-        </div>
-        <form
-          className="panel stack measure"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setMessages([])
-            create.mutate()
-          }}
-        >
-          <LabelSlugFields idPrefix="connector" state={connector} labelText={t('labelFieldLabel')} slugText={t('slugLabel')} />
-          <div className="field">
-            <label className="field-label" htmlFor="issuer">
-              {t('issuerLabel')}
-            </label>
-            <input id="issuer" className="input" value={issuer} onChange={(e) => setIssuer(e.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="clientId">
-              {t('clientIdLabel')}
-            </label>
-            <input
-              id="clientId"
-              className="input"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="secretSlug">
-              {t('clientSecretLabel')}
-            </label>
-            <div className="field-inline">
-              <select
-                id="secretSlug"
-                className="select"
-                value={secretSlug}
-                onChange={(e) => setSecretSlug(e.target.value)}
-              >
-                <option value="">
-                  {oidcSecrets.length > 0 ? t('chooseSecret') : t('noOidcSecret')}
-                </option>
-                {oidcSecrets.map((s) => (
-                  <option key={s.slug} value={s.slug}>
-                    {s.label} ({s.slug})
-                  </option>
-                ))}
-              </select>
-              <button type="button" className="btn" onClick={() => setShowNewSecret((v) => !v)}>
-                +
-              </button>
-            </div>
-          </div>
-          {showNewSecret ? (
-            <fieldset className="fieldset">
-              <legend>{t('newSecretBlockTitle')}</legend>
-              <LabelSlugFields
-                idPrefix="ns"
-                state={newSecret}
-                labelText={t('colLabel')}
-                slugText={t('slugLabel')}
-              />
-              <div className="field">
-                <label className="field-label" htmlFor="nsValue">
-                  {t('valueLabel')}
-                </label>
-                <input
-                  id="nsValue"
-                  className="input"
-                  type="password"
-                  value={newSecretValue}
-                  onChange={(e) => setNewSecretValue(e.target.value)}
-                />
-              </div>
-              <div>
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={createSecret.isPending || !newSecret.finalSlug || !newSecretValue}
-                  onClick={() => {
-                    setMessages([])
-                    createSecret.mutate()
-                  }}
-                >
-                  {t('createAndSelect')}
-                </button>
-              </div>
-            </fieldset>
-          ) : null}
-          <div className="field">
-            <label className="field-label" htmlFor="scopes">
-              {t('scopesLabel')}
-            </label>
-            <input id="scopes" className="input" value={scopes} onChange={(e) => setScopes(e.target.value)} />
-          </div>
-          <div className="row">
-            <button
-              type="button"
-              className="btn"
-              disabled={check.isPending || !issuer.trim()}
-              onClick={() => {
-                setCheckResult(null)
-                check.mutate()
-              }}
-            >
-              {t('checkDiscovery')}
-            </button>
-            {checkResult === 'ok' ? (
-              <span className="text-ok">{t('discoveryVerified')}</span>
-            ) : checkResult === 'ko' ? (
-              <span className="text-danger">{t('discoveryFailed')}</span>
-            ) : null}
-          </div>
-          {callbackUrl ? (
-            <p className="muted">
-              {t('callbackUrlHint')} <code>{callbackUrl}</code>{' '}
-              <button
-                type="button"
-                className="btn-link"
-                onClick={() => navigator.clipboard?.writeText(callbackUrl)}
-              >
-                {t('copy')}
-              </button>
-            </p>
-          ) : null}
-          <div>
-            <button type="submit" className="btn btn-primary" disabled={create.isPending}>
-              {t('verifyAndSave')}
-            </button>
-          </div>
-        </form>
-      </section>
     </main>
   )
 }

@@ -248,6 +248,9 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
   })
   renderAt('/spaces')
   await screen.findByText('Espaces Git')
+  // Le formulaire n'est pas affiché d'office : le bouton en haut à droite l'ouvre.
+  expect(screen.queryByLabelText("Nom de l'espace")).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '+ Nouvel espace' }))
   await userEvent.type(screen.getByLabelText("Nom de l'espace"), 'modele')
   // Le dépôt se choisit dans la liste filtrable de la connexion, sans taper d'URL.
   // Liste déroulante : un clic la déplie, quelques lettres filtrent, Entrée choisit.
@@ -297,10 +300,9 @@ test('détail espace : liste les branches et propose la création de fille', asy
   })
   renderAt('/spaces/s1')
   await screen.findByText('Branches de travail')
-  // La base existe → on propose la création d'une fille.
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Créer une branche fille' })).toBeInTheDocument(),
-  )
+  // La base existe → le bouton propose une branche fille, qui ouvre son formulaire.
+  await userEvent.click(await screen.findByRole('button', { name: '+ Nouvelle branche' }))
+  expect(screen.getByRole('button', { name: 'Créer une branche fille' })).toBeInTheDocument()
   expect(screen.getAllByText('Principale').length).toBeGreaterThan(0)
 })
 
@@ -558,12 +560,13 @@ test('profils : grille des capacités, admin verrouillé, création', async () =
   await screen.findByText('Profils')
   // Le profil administrateur est verrouillé, et la grille montre les domaines.
   await waitFor(() => expect(screen.getByText(/🔒 administrateur/)).toBeInTheDocument())
+  // Création : le bouton ouvre le formulaire (avec la grille), qui se referme après succès.
+  await userEvent.click(screen.getByRole('button', { name: '+ Nouveau profil' }))
   expect(screen.getByText('Espaces Git')).toBeInTheDocument()
   expect(screen.getByText('Travailler dans une branche')).toBeInTheDocument()
-  // Création : après succès, le champ nom se réinitialise.
   await userEvent.type(screen.getByLabelText('Nom du profil'), 'Lecteur')
   await userEvent.click(screen.getByRole('button', { name: 'Créer le profil' }))
-  await waitFor(() => expect(screen.getByLabelText('Nom du profil')).toHaveValue(''))
+  await waitFor(() => expect(screen.queryByLabelText('Nom du profil')).not.toBeInTheDocument())
 })
 
 test('utilisateurs : liste, recherche et assignation de profil', async () => {
@@ -680,6 +683,7 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
   expect(screen.getByText('equipe-data')).toBeInTheDocument()
   // Client secret par son slug + choix d'un secret oidc dans la liste.
   expect(screen.getByText(/Pour la remplacer/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '+ Nouveau connecteur' }))
   await waitFor(() =>
     expect(screen.getByRole('option', { name: /Secret IdP \(oidc-idp\)/ })).toBeInTheDocument(),
   )

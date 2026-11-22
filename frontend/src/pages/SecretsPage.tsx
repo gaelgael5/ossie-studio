@@ -5,6 +5,7 @@ import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 type SecretItem = {
@@ -132,6 +133,16 @@ export function SecretsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
+  const [creating, setCreating] = useState(false)
+  const openCreate = () => {
+    setMessages([])
+    setCreating(true)
+  }
+  const closeCreate = () => {
+    setCreating(false)
+    pair.reset()
+    setValue('')
+  }
   const pair = useLabelSlug()
   const [category, setCategory] = useState('')
   const [value, setValue] = useState('')
@@ -140,23 +151,85 @@ export function SecretsPage() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['secrets'] })
   const onError = (err: unknown) => setMessages(errorMessages(t, err))
 
+  const categories = list.data?.categories ?? {}
+  const defaultCategory = category || Object.keys(categories)[0] || ''
+
   const create = useMutation({
-    mutationFn: () => api.createSecret({ slug: pair.finalSlug, label: pair.label, category, value }),
+    // La catégorie AFFICHÉE (la première par défaut) : sans toucher la liste,
+    // `category` est vide et le serveur refuserait.
+    mutationFn: () =>
+      api.createSecret({ slug: pair.finalSlug, label: pair.label, category: defaultCategory, value }),
     onSuccess: async () => {
-      pair.reset()
-      setValue('')
+      closeCreate()
       await invalidate()
     },
     onError,
   })
 
-  const categories = list.data?.categories ?? {}
-  const defaultCategory = category || Object.keys(categories)[0] || ''
 
   return (
     <main>
-      <PageHeader breadcrumb={<SettingsCrumb />} title={t('secretsTitle')} subtitle={t('secretsIntro')} />
+      <PageHeader
+        breadcrumb={<SettingsCrumb />}
+        title={t('secretsTitle')}
+        subtitle={t('secretsIntro')}
+        actions={
+          <CreateButton open={creating} onOpen={openCreate}>
+            {t('newSecretButton')}
+          </CreateButton>
+        }
+      />
       <ErrorList messages={messages} />
+      {creating ? (
+        <div className="page-section">
+          <CreatePanel title={t('addSecret')} onCancel={closeCreate}>
+            <form
+              className="stack"
+              onSubmit={(e) => {
+                e.preventDefault()
+                setMessages([])
+                create.mutate()
+              }}
+            >
+              <LabelSlugFields idPrefix="secret" state={pair} labelText={t('colLabel')} slugText={t('slugLabel')} />
+              <div className="field">
+                <label className="field-label" htmlFor="category">
+                  {t('categoryLabel')}
+                </label>
+                <select
+                  id="category"
+                  className="select"
+                  value={defaultCategory}
+                  onChange={(e) => setCategory(e.target.value)}
+                >
+                  {Object.entries(categories).map(([slugCat, name]) => (
+                    <option key={slugCat} value={slugCat}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="value">
+                  {t('valueLabel')}
+                </label>
+                <input
+                  id="value"
+                  className="input"
+                  type="password"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                />
+              </div>
+              <div>
+                <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+                  {t('save')}
+                </button>
+              </div>
+            </form>
+          </CreatePanel>
+        </div>
+      ) : null}
 
       <div className="page-body">
         {list.data && list.data.secrets.length > 0 ? (
@@ -192,55 +265,6 @@ export function SecretsPage() {
         )}
       </div>
 
-      <section className="page-section">
-        <div className="section-head">
-          <h2 className="section-title">{t('addSecret')}</h2>
-        </div>
-        <form
-          className="panel panel-form stack"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setMessages([])
-            create.mutate()
-          }}
-        >
-          <LabelSlugFields idPrefix="secret" state={pair} labelText={t('colLabel')} slugText={t('slugLabel')} />
-          <div className="field">
-            <label className="field-label" htmlFor="category">
-              {t('categoryLabel')}
-            </label>
-            <select
-              id="category"
-              className="select"
-              value={defaultCategory}
-              onChange={(e) => setCategory(e.target.value)}
-            >
-              {Object.entries(categories).map(([slugCat, name]) => (
-                <option key={slugCat} value={slugCat}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="value">
-              {t('valueLabel')}
-            </label>
-            <input
-              id="value"
-              className="input"
-              type="password"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-            />
-          </div>
-          <div>
-            <button type="submit" className="btn btn-primary" disabled={create.isPending}>
-              {t('save')}
-            </button>
-          </div>
-        </form>
-      </section>
     </main>
   )
 }

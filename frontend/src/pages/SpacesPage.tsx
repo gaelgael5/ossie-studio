@@ -9,6 +9,7 @@ import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { RepoPicker } from '../components/RepoPicker'
 import { BusyButton } from '../components/BusyButton'
+import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { PageHeader } from '../components/PageHeader'
 
 function probeFailureMessages(t: TFunction, err: unknown): string[] {
@@ -36,6 +37,16 @@ export function SpacesPage() {
   const pair = useLabelSlug()
   const [connectionId, setConnectionId] = useState('')
   const [repoUrl, setRepoUrl] = useState('')
+  const [creating, setCreating] = useState(false)
+  const openCreate = () => {
+    setMessages([])
+    setCreating(true)
+  }
+  const closeCreate = () => {
+    setCreating(false)
+    pair.reset()
+    setRepoUrl('')
+  }
 
   const spaces = useQuery({ queryKey: ['spaces'], queryFn: api.listSpaces })
   const connections = useQuery({ queryKey: ['connections'], queryFn: api.listConnections })
@@ -49,8 +60,7 @@ export function SpacesPage() {
     mutationFn: () =>
       api.createSpace({ name: pair.label, slug: pair.finalSlug, connection_id: selected, repo_url: repoUrl }),
     onSuccess: async () => {
-      pair.reset()
-      setRepoUrl('')
+      closeCreate()
       await invalidate()
     },
     onError: (err) => setMessages(probeFailureMessages(t, err)),
@@ -72,8 +82,56 @@ export function SpacesPage() {
         breadcrumb={<Link to="/">{t('home')}</Link>}
         title={t('spacesTitle')}
         subtitle={t('spacesIntro')}
+        actions={
+          <CreateButton open={creating} onOpen={openCreate}>
+            {t('newSpaceButton')}
+          </CreateButton>
+        }
       />
       <ErrorList messages={messages} />
+      {creating ? (
+        <div className="page-section">
+          <CreatePanel title={t('addSpace')} onCancel={closeCreate}>
+            <p className="muted">{t('probeHint')}</p>
+            <form
+              className="stack"
+              onSubmit={(e) => {
+                e.preventDefault()
+                setMessages([])
+                create.mutate()
+              }}
+            >
+              <LabelSlugFields idPrefix="space" state={pair} labelText={t('spaceNameLabel')} slugText={t('slugLabel')} />
+              <div className="field">
+                <label className="field-label" htmlFor="connection">
+                  {t('connectionSelectLabel')}
+                </label>
+                <select
+                  id="connection"
+                  className="select"
+                  value={selected}
+                  onChange={(e) => {
+                    setConnectionId(e.target.value)
+                    setRepoUrl('') // un dépôt se choisit dans la liste de SA connexion
+                  }}
+                >
+                  {conns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <RepoPicker connectionId={selected} value={repoUrl} onChange={setRepoUrl} />
+              <div>
+                <BusyButton type="submit" className="btn btn-primary" busy={create.isPending} busyText={t('probeRunning')}>
+                  {t('createSpace')}
+                </BusyButton>
+              </div>
+            </form>
+          </CreatePanel>
+        </div>
+      ) : null}
 
       <div className="page-body">
         {spaces.data && spaces.data.spaces.length > 0 ? (
@@ -143,48 +201,6 @@ export function SpacesPage() {
         )}
       </div>
 
-      <section className="page-section">
-        <div className="section-head">
-          <h2 className="section-title">{t('addSpace')}</h2>
-        </div>
-        <p className="muted">{t('probeHint')}</p>
-        <form
-          className="panel panel-form stack"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setMessages([])
-            create.mutate()
-          }}
-        >
-          <LabelSlugFields idPrefix="space" state={pair} labelText={t('spaceNameLabel')} slugText={t('slugLabel')} />
-          <div className="field">
-            <label className="field-label" htmlFor="connection">
-              {t('connectionSelectLabel')}
-            </label>
-            <select
-              id="connection"
-              className="select"
-              value={selected}
-              onChange={(e) => {
-                setConnectionId(e.target.value)
-                setRepoUrl('') // un dépôt se choisit dans la liste de SA connexion
-              }}
-            >
-              {conns.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <RepoPicker connectionId={selected} value={repoUrl} onChange={setRepoUrl} />
-          <div>
-            <BusyButton type="submit" className="btn btn-primary" busy={create.isPending} busyText={t('probeRunning')}>
-              {t('createSpace')}
-            </BusyButton>
-          </div>
-        </form>
-      </section>
     </main>
   )
 }

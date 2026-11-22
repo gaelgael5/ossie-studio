@@ -10,6 +10,7 @@ import { RailMap } from '../components/RailMap'
 import { useSession } from '../hooks'
 import { SpaceTeamsSection } from './SpaceTeamsSection'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { CredentialBlock } from '../components/CredentialBlock'
 
 export function SpaceDetailPage() {
@@ -17,6 +18,16 @@ export function SpaceDetailPage() {
   const { spaceId = '' } = useParams()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
+  const [creating, setCreating] = useState(false)
+  const openCreate = () => {
+    setMessages([])
+    setCreating(true)
+  }
+  const closeCreate = () => {
+    setCreating(false)
+    base.reset()
+    child.reset()
+  }
   const [notice, setNotice] = useState('')
   const base = useLabelSlug()
   const child = useLabelSlug()
@@ -52,7 +63,7 @@ export function SpaceDetailPage() {
   const createBase = useMutation({
     mutationFn: () => api.createBaseBranch(spaceId, base.label, base.finalSlug),
     onSuccess: async () => {
-      base.reset()
+      closeCreate()
       await invalidate()
     },
     onError,
@@ -60,7 +71,7 @@ export function SpaceDetailPage() {
   const createChild = useMutation({
     mutationFn: () => api.createChildBranch(spaceId, child.label, child.finalSlug),
     onSuccess: async () => {
-      child.reset()
+      closeCreate()
       await invalidate()
     },
     onError,
@@ -130,8 +141,52 @@ export function SpaceDetailPage() {
         }
         title={t('branchesTitle')}
         subtitle={t('branchesIntro')}
+        actions={
+          <CreateButton open={creating} onOpen={openCreate}>
+            {hasBase ? t('newChildButton') : t('newBaseButton')}
+          </CreateButton>
+        }
       />
       <ErrorList messages={messages} />
+      {creating ? (
+        <div className="page-section">
+          <CreatePanel title={hasBase ? t('newChildTitle') : t('newBaseTitle')} onCancel={closeCreate}>
+            {hasBase ? (
+              <form
+                className="stack"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  setMessages([])
+                  createChild.mutate()
+                }}
+              >
+                <LabelSlugFields idPrefix="child" state={child} labelText={t('childLabelField')} slugText={t('slugLabel')} />
+                <div>
+                  <button type="submit" className="btn btn-primary" disabled={createChild.isPending}>
+                    {t('createChildButton')}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form
+                className="stack"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  setMessages([])
+                  createBase.mutate()
+                }}
+              >
+                <LabelSlugFields idPrefix="base" state={base} labelText={t('baseLabelField')} slugText={t('slugLabel')} />
+                <div>
+                  <button type="submit" className="btn btn-primary" disabled={createBase.isPending}>
+                    {t('createBaseButton')}
+                  </button>
+                </div>
+              </form>
+            )}
+          </CreatePanel>
+        </div>
+      ) : null}
       {notice ? (
         <p role="status" className="info-note">
           {notice}
@@ -331,41 +386,6 @@ export function SpaceDetailPage() {
         </div>
       )}
 
-      <div className="page-section">
-        {!hasBase ? (
-          <form
-            className="panel panel-form stack"
-            onSubmit={(e) => {
-              e.preventDefault()
-              setMessages([])
-              createBase.mutate()
-            }}
-          >
-            <LabelSlugFields idPrefix="base" state={base} labelText={t('baseLabelField')} slugText={t('slugLabel')} />
-            <div>
-              <button type="submit" className="btn btn-primary" disabled={createBase.isPending}>
-                {t('createBaseButton')}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <form
-            className="panel panel-form stack"
-            onSubmit={(e) => {
-              e.preventDefault()
-              setMessages([])
-              createChild.mutate()
-            }}
-          >
-            <LabelSlugFields idPrefix="child" state={child} labelText={t('childLabelField')} slugText={t('slugLabel')} />
-            <div>
-              <button type="submit" className="btn btn-primary" disabled={createChild.isPending}>
-                {t('createChildButton')}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
     </main>
   )
 }
