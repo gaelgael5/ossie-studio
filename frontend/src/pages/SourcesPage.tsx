@@ -11,6 +11,7 @@ import { NoBranchNote } from '../components/NoBranchNote'
 import { Combobox } from '../components/Combobox'
 import { useWorkspace } from '../workspace'
 import { RawExplorer } from './RawExplorer'
+import { exclusionsOf, parseExclusionInput } from '../sourceExclusions'
 
 function asList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
@@ -24,7 +25,9 @@ function whatIsRead(source: SourceItem, t: (k: string) => string): string {
   if (source.type === 'git') {
     const dirs = asList(p.directories)
     const where = dirs.length > 0 ? dirs.join(', ') : t('wholeRepo')
-    return `${String(p.repository ?? '')} @ ${String(p.branch ?? '')} · ${where}`
+    const excluded = exclusionsOf(p)
+    const suffix = excluded.length > 0 ? ` · ${t('excludedDirsShort')} ${excluded.join(', ')}` : ''
+    return `${String(p.repository ?? '')} @ ${String(p.branch ?? '')} · ${where}${suffix}`
   }
   const schemas = asList(p.schemas)
   return schemas.length > 0 ? `${String(p.database ?? '')} · ${schemas.join(', ')}` : String(p.database ?? '')
@@ -536,6 +539,7 @@ function GitSourceModal({
   const [repository, setRepository] = useState(String(p.repository ?? ''))
   const [branchChoice, setBranch] = useState(String(p.branch ?? ''))
   const [dirs, setDirs] = useState(asList(p.directories).join(', '))
+  const [excludedDirs, setExcludedDirs] = useState(exclusionsOf(p).join(', '))
   const [messages, setMessages] = useState<string[]>([])
 
   const connections = useQuery({ queryKey: ['connections'], queryFn: api.listConnections })
@@ -583,6 +587,9 @@ function GitSourceModal({
     parsers,
     ...(dirs.trim()
       ? { directories: dirs.split(',').map((d) => d.trim()).filter(Boolean) }
+      : {}),
+    ...(parseExclusionInput(excludedDirs).length > 0
+      ? { exclusions: parseExclusionInput(excludedDirs) }
       : {}),
   }
   const connSlug = forges.find((c) => c.id === connectionId)?.slug ?? ''
@@ -736,6 +743,18 @@ function GitSourceModal({
             </label>
             <input id="g-dirs" className="input" value={dirs} onChange={(e) => setDirs(e.target.value)} />
             <span className="field-hint">{t('dirsHint')}</span>
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="g-excl">
+              {t('fieldExcludedDirs')}
+            </label>
+            <input
+              id="g-excl"
+              className="input"
+              value={excludedDirs}
+              onChange={(e) => setExcludedDirs(e.target.value)}
+            />
+            <span className="field-hint">{t('excludedDirsHint')}</span>
           </div>
           <div className="field">
             <span className="field-label">{t('fieldParsers')}</span>

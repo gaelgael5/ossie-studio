@@ -136,3 +136,22 @@ def test_manifeste_technique_version_1_relu() -> None:
     entry = manifest.entries["a.schema.json"]
     assert (entry.checksum, entry.destinations) == ("abc", ["a.json"])
     assert (entry.branch, entry.parser) == ("work/ventes", "jsonschema-demo")
+
+
+
+def test_regle_d_exclusion() -> None:
+    from ossie_studio.sources.collect import is_excluded
+
+    # Nom de dossier : exclu où qu'il soit ; jamais un nom de fichier.
+    assert is_excluded("src/tests/a.cs", ["tests"])
+    assert not is_excluded("src/tests.cs", ["tests"])
+    # Chemin depuis la racine : ce répertoire seulement, avec son contenu.
+    assert is_excluded("src/App.Tests/a.cs", ["/src/App.Tests/"])
+    assert not is_excluded("other/src/App.Tests/a.cs", ["src/App.Tests"])
+    assert not is_excluded("src/App.TestsHelpers/a.cs", ["src/App.Tests"])
+    # Motif.
+    assert is_excluded("a/test/b.cs", ["**/test/**"])
+    # Défauts toujours appliqués, même avec une exclusion saisie.
+    assert is_excluded("node_modules/x/a.md", ["tests"])
+    assert is_excluded(".git/config", None)
+    assert not is_excluded("src/a.cs", ["", "  "])

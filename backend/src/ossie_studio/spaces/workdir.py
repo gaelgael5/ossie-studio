@@ -528,6 +528,22 @@ class WorkdirManager:
                 )
             return commits
 
+    async def local_file_at(
+        self, space_id: uuid.UUID, slug: str, sha: str, rel_path: str
+    ) -> str | None:
+        """Contenu d'un fichier à un commit déjà présent dans la copie, **sans**
+        fetch ni verrou : une lecture d'objet git est sûre pendant qu'un autre
+        geste écrit la copie. Pour les lectures à chaque clic (aperçu de
+        l'explorateur raw) ; le commit vient de `published_head`, qui l'a récupéré.
+        None si la copie, le commit ou le fichier n'existe pas."""
+        workdir = self._dir(space_id, slug)
+        if not (workdir / ".git").exists():
+            return None
+        code, out, _ = await run_git(
+            ["cat-file", "blob", f"{sha}:{rel_path}"], workdir, self._env("", None)
+        )
+        return out if code == 0 else None
+
     async def file_at(
         self,
         space_id: uuid.UUID,

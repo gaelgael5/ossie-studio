@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import type {
   CollectReport,
@@ -24,6 +24,9 @@ import { useSourceCollect } from '../useSourceCollect'
 import { CollectChecklist } from '../components/CollectChecklist'
 import { CollectErrorCause, splitScanMessage } from '../components/CollectErrorCause'
 import { useWorkspace } from '../workspace'
+import { exclusionsOf } from '../sourceExclusions'
+
+const LINKABLE_TABS: string[] = ['overview', 'contrats', 'collectes', 'scan', 'curation', 'revue', 'manifeste']
 
 type Tab =
   | 'overview'
@@ -41,7 +44,9 @@ function sourceMeta(s: SourceItem, t: (k: string) => string): string {
     return `${s.slug} · ${t('openapiKind')}`
   }
   if (s.type === 'git') {
-    return `${s.slug} · Git · ${s.connection?.label ?? ''} · ${String(p.repository ?? '')} @ ${String(p.branch ?? '')}`
+    const excluded = exclusionsOf(p)
+    const suffix = excluded.length > 0 ? ` · ${t('excludedDirsShort')} ${excluded.join(', ')}` : ''
+    return `${s.slug} · Git · ${s.connection?.label ?? ''} · ${String(p.repository ?? '')} @ ${String(p.branch ?? '')}${suffix}`
   }
   return `${s.slug} · ${s.type} · ${s.connection?.label ?? ''} · ${String(p.database ?? '')}`
 }
@@ -54,7 +59,13 @@ export function SourceDetailPage() {
   // cette source plutôt que de dupliquer l'écran ici.
   const rawExplorerHref = `/sources?tab=raw&source=${encodeURIComponent(slug)}`
   const ws = useWorkspace()
-  const [tab, setTab] = useState<Tab | null>(null)
+  // L'onglet et l'objet peuvent venir de l'adresse (?tab=curation&object=…) :
+  // l'explorateur raw y renvoie (« Voir dans la curation », « diff depuis la revue »).
+  const [searchParams] = useSearchParams()
+  const [tab, setTab] = useState<Tab | null>(() => {
+    const asked = searchParams.get('tab')
+    return asked && LINKABLE_TABS.includes(asked as Tab) ? (asked as Tab) : null
+  })
   const [force, setForce] = useState(false)
   const [messages, setMessages] = useState<string[]>([])
   const [notice, setNotice] = useState('')
@@ -205,7 +216,12 @@ export function SourceDetailPage() {
       ) : null}
 
       {effectiveTab === 'curation' ? (
-        <CurationTab spaceId={ws.spaceId as string} branchId={ws.branchId as string} slug={slug} />
+        <CurationTab
+          spaceId={ws.spaceId as string}
+          branchId={ws.branchId as string}
+          slug={slug}
+          initialObject={searchParams.get('object')}
+        />
       ) : null}
 
       {effectiveTab === 'revue' ? (
@@ -695,16 +711,18 @@ function CurationTab({
   spaceId,
   branchId,
   slug,
+  initialObject = null,
 }: {
   spaceId: string
   branchId: string
   slug: string
+  initialObject?: string | null
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<'all' | 'retained' | 'none'>('all')
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(initialObject)
   const [enriching, setEnriching] = useState<string | null>(null)
   const [showExcluded, setShowExcluded] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)

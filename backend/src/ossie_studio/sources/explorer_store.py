@@ -119,3 +119,24 @@ async def db_replace_index(
             "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)",
             rows,
         )
+
+
+async def db_all_source_entries(conn: asyncpg.Connection, key: IndexKey) -> list[SourceEntries]:
+    """Toutes les sources de l'index (résolution des références dans l'espace)."""
+    rows = await conn.fetch(
+        "SELECT source_slug, label, source_type, collected, entries "  # noqa: S608
+        f"FROM raw_explorer_index WHERE {_KEY_WHERE} AND source_slug <> '' "
+        "ORDER BY source_slug",
+        *_key_args(key),
+    )
+    out: list[SourceEntries] = []
+    for r in rows:
+        data = r["entries"]
+        if isinstance(data, str):
+            data = json.loads(data)
+        out.append(
+            SourceEntries.from_json(
+                r["source_slug"], r["label"], r["source_type"], r["collected"], data
+            )
+        )
+    return out

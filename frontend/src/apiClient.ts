@@ -441,6 +441,9 @@ export interface RawObjectItem {
   parser: string
   badges: RawBadge[]
   excluded_by: string
+  /** public | internal | protected | private | unknown ; vide pour SQL et contrats. */
+  visibility: string
+  visibility_source: string
 }
 
 export interface RawDocumentItem {
@@ -454,6 +457,70 @@ export interface RawFolderContent {
   folders: RawFolderItem[]
   objects: RawObjectItem[]
   documents: RawDocumentItem[]
+}
+
+export interface RawTarget {
+  slug: string
+  file: string
+  title: string
+  folder: string
+}
+
+export interface RawFieldType {
+  label: string
+  target?: RawTarget | null
+  external?: boolean
+}
+
+export interface RawReference {
+  field: string
+  kind: 'field' | 'list' | 'map' | 'foreign_key' | 'inherits'
+  label: string
+  target?: RawTarget | null
+  external?: boolean
+}
+
+export interface RawObjectDetail {
+  file: string
+  title: string
+  qualified_name: string
+  kind: string
+  badges: RawBadge[]
+  excluded_by: string
+  visibility: string
+  visibility_source: string
+  description: string
+  enum: string[]
+  fields: {
+    name: string
+    type: RawFieldType
+    required: boolean
+    description: string
+    annotations: string[]
+    visibility: string
+    visibility_source: string
+  }[]
+  references: RawReference[]
+  annotations: string[]
+  origin: {
+    file: string
+    line: number | null
+    checksum: string
+    parser: string
+    branch: string
+    raw_path: string
+  }
+  documents: { path: string; title: string }[]
+  json: string
+  forge_url: string | null
+}
+
+export interface RawDocumentDetail {
+  path: string
+  title: string
+  sections: number
+  mentions: string[]
+  objects: RawTarget[]
 }
 
 export interface RawSearchResult extends RawObjectItem {
@@ -912,6 +979,18 @@ export const api = {
   ) =>
     apiFetch<RawFolderContent>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/folder?mode=${mode}&path=${encodeURIComponent(path)}`,
+    ),
+  getRawObject: (spaceId: string, branchId: string, slug: string, mode: RawExplorerMode, file: string) =>
+    apiFetch<RawObjectDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/object?mode=${mode}&file=${encodeURIComponent(file)}`,
+    ),
+  getRawObjectHistory: (spaceId: string, branchId: string, slug: string, file: string) =>
+    apiFetch<{ commits: { sha: string; author: string; date: string; message: string }[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/object/history?file=${encodeURIComponent(file)}`,
+    ),
+  getRawDocument: (spaceId: string, branchId: string, slug: string, mode: RawExplorerMode, path: string) =>
+    apiFetch<RawDocumentDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/document?mode=${mode}&path=${encodeURIComponent(path)}`,
     ),
   searchRawExplorer: (
     spaceId: string,

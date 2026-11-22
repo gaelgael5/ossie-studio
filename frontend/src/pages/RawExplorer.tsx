@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../apiClient'
@@ -18,10 +18,21 @@ import type {
   RawExplorerSource,
   RawFolderItem,
   RawObjectItem,
+  RawTarget,
+  SourceItem,
 } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ApiRequestError } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { BusyButton } from '../components/BusyButton'
+import { RawPreview, VisibilityBadge, isObjectSelection } from './RawPreview'
+import {
+  DEFAULT_EXCLUSIONS,
+  excludingEntry,
+  exclusionsOf,
+  withExclusion,
+  withoutExclusion,
+} from '../sourceExclusions'
 
 // Explorateur raw : parcourir la couche raw d'un espace comme un explorateur de
 // fichiers, en lecture seule. L'état de navigation (source, mode, dossier, objet
@@ -29,15 +40,25 @@ import { ErrorList } from '../components/ErrorList'
 // dossier, et le bouton retour du navigateur revient au dossier précédent.
 
 const MODES: RawExplorerMode[] = ['origin', 'kind', 'parser']
+const VISIBILITIES = ['public', 'internal', 'protected', 'private', 'unknown']
 const BADGES: RawBadge[] = ['retained', 'new', 'modified', 'excluded', 'error']
 const MODE_KEY = 'ossie.rawExplorer.mode'
 const WIDTH_KEY = 'ossie.rawExplorer.treeWidth'
+const PREVIEW_KEY = 'ossie.rawExplorer.preview'
 const TREE_MIN = 180
 const TREE_MAX = 720
 const TREE_DEFAULT = 300
 
 function clampWidth(value: number): number {
   return Math.min(TREE_MAX, Math.max(TREE_MIN, Math.round(value)))
+}
+
+function storedPreviewOpen(): boolean {
+  try {
+    return localStorage.getItem(PREVIEW_KEY) !== 'closed'
+  } catch {
+    return true
+  }
 }
 
 function storedWidth(): number {
@@ -119,11 +140,21 @@ export function RawExplorer({
   const [debounced, setDebounced] = useState('')
   const [kindFilter, setKindFilter] = useState('')
   const [badgeFilter, setBadgeFilter] = useState('')
+  const [visFilter, setVisFilter] = useState<string[]>([])
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({
     key: 'name',
     asc: true,
   })
   const [treeWidth, setTreeWidth] = useState(storedWidth)
+  const [previewOpen, setPreviewOpen] = useState(storedPreviewOpen)
+  const togglePreview = (open: boolean) => {
+    setPreviewOpen(open)
+    try {
+      localStorage.setItem(PREVIEW_KEY, open ? 'open' : 'closed')
+    } catch {
+      // stockage indisponible : le choix vaut pour cette visite
+    }
+  }
   // L'explorateur occupe exactement la hauteur restante de la fenêtre : l'arbre
   // et le contenu défilent chacun de leur côté, sans faire défiler la page (un
   // arbre de centaines de dossiers repoussait sinon les vignettes hors de vue).
@@ -196,6 +227,21 @@ export function RawExplorer({
   const sourceList = useMemo(() => sources.data?.sources ?? [], [sources.data])
   const current: RawExplorerSource | undefined = sourceList.find((s) => s.slug === sourceSlug)
 
+  // Configuration de la source (manifeste) : ses répertoires exclus se voient
+  // dans l'arbre et se règlent d'ici. Les exclusions ne valent que pour une
+  // source Git, dans l'arborescence d'origine (des dossiers du dépôt).
+  const declared = useQuery({
+    queryKey: ['sources', spaceId, branchId],
+    queryFn: () => api.listSources(spaceId, branchId),
+    staleTime: STALE_MS,
+    retry: false,
+  })
+  const declaredSource = declared.data?.sources?.find((s) => s.slug === sourceSlug)
+  const exclusions = exclusionsOf(declaredSource?.parameters)
+  const exclusionsApply = current?.type === 'git' && mode === 'origin' && !!declaredSource?.ok
+  const excludedBy = (folderPath: string): string | null =>
+    exclusionsApply && folderPath ? excludingEntry(folderPath, exclusions) : null
+
   // Sans source choisie (ou source absente de cette branche) : la première.
   useEffect(() => {
     if (!sources.data || sourceList.length === 0) return
@@ -238,6 +284,7 @@ export function RawExplorer({
   useEffect(() => {
     setKindFilter('')
     setBadgeFilter('')
+    setVisFilter([])
   }, [sourceSlug, mode, path])
 
   useEffect(() => {
@@ -268,6 +315,10 @@ export function RawExplorer({
 
   const objects = useMemo(() => folder.data?.objects ?? [], [folder.data])
   const kinds = useMemo(() => [...new Set(objects.map((o) => o.kind))].sort(), [objects])
+  const presentVisibilities = useMemo(
+    () => VISIBILITIES.filter((v) => objects.some((o) => o.visibility === v)),
+    [objects],
+  )
   // Seuls les états réellement portés par un objet du dossier sont proposés :
   // un filtre sans choix utile ne s'affiche pas.
   const presentBadges = useMemo(
@@ -277,9 +328,11 @@ export function RawExplorer({
   const shownObjects = objects.filter(
     (o) =>
       (!kindFilter || o.kind === kindFilter) &&
-      (!badgeFilter || o.badges.includes(badgeFilter as RawBadge)),
+      (!badgeFilter || o.badges.includes(badgeFilter as RawBadge)) &&
+      // Rien de coché : tout s'affiche (tables et contrats compris, sans visibilité).
+      (visFilter.length === 0 || visFilter.includes(o.visibility)),
   )
-  const filtering = !!kindFilter || !!badgeFilter
+  const filtering = !!kindFilter || !!badgeFilter || visFilter.length > 0
   const shownFolders = filtering ? [] : (folder.data?.folders ?? [])
   const shownDocuments = filtering ? [] : (folder.data?.documents ?? [])
 
@@ -317,12 +370,30 @@ export function RawExplorer({
 
   const crumbs = path ? path.split('/') : []
 
+  /** Ouvre une cible (référence, document cité) : sa source, son dossier, sélectionnée. */
+  const openTarget = (target: RawTarget) => {
+    let folder = target.folder
+    if (!isObjectSelection(target.file)) {
+      // Document : son dossier dépend du mode (cf. regroupement côté serveur).
+      const type = sourceList.find((s) => s.slug === target.slug)?.type
+      folder =
+        mode === 'kind'
+          ? 'documents'
+          : mode === 'parser'
+            ? 'markdown'
+            : type === 'git'
+              ? parentOf(target.file)
+              : ''
+    }
+    go({ source: target.slug, path: folder || null, sel: target.file })
+  }
+
   return (
     <>
       <ErrorList messages={messages} />
       <div
         ref={frame}
-        className="raw-explorer"
+        className={`raw-explorer${previewOpen && current?.collected ? ' with-preview' : ''}`}
         style={
           {
             '--raw-tree-width': `${treeWidth}px`,
@@ -365,6 +436,7 @@ export function RawExplorer({
                     current={path}
                     label={folderLabel}
                     onOpen={(p) => go({ path: p, sel: null })}
+                    excludedBy={excludedBy}
                   />
                 ) : null}
               </li>
@@ -416,6 +488,11 @@ export function RawExplorer({
               })}
             </nav>
             <div className="raw-view-toggle" role="group" aria-label={t('rawViewLabel')}>
+              {!previewOpen && current?.collected ? (
+                <button type="button" className="btn btn-sm" onClick={() => togglePreview(true)}>
+                  {t('rawPreviewOpen')}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className={`btn btn-sm${view === 'tiles' ? ' btn-primary' : ''}`}
@@ -508,8 +585,38 @@ export function RawExplorer({
                     ))}
                   </select>
                 ) : null}
+                {presentVisibilities.length > 0 ? (
+                  <fieldset className="raw-vis-filter">
+                    <legend>{t('rawFilterVisibility')}</legend>
+                    {presentVisibilities.map((v) => (
+                      <label key={v}>
+                        <input
+                          type="checkbox"
+                          checked={visFilter.includes(v)}
+                          onChange={(e) =>
+                            setVisFilter((cur) =>
+                              e.target.checked ? [...cur, v] : cur.filter((x) => x !== v),
+                            )
+                          }
+                        />{' '}
+                        {t(`rawVisibility.${v}`)}
+                      </label>
+                    ))}
+                  </fieldset>
+                ) : null}
               </div>
               <CollectLine source={tree.data ?? current} />
+              {exclusionsApply && path && declaredSource ? (
+                <ExclusionBar
+                  key={`${sourceSlug}/${path}`}
+                  spaceId={spaceId}
+                  branchId={branchId}
+                  source={declaredSource}
+                  folder={path}
+                  entry={excludedBy(path)}
+                  exclusions={exclusions}
+                />
+              ) : null}
             </>
           ) : null}
 
@@ -536,6 +643,7 @@ export function RawExplorer({
               folderLabel={folderLabel}
               onOpenFolder={(p) => go({ path: p, sel: null })}
               onSelect={(file) => go({ sel: file }, true)}
+              excludedBy={excludedBy}
             />
           ) : folder.data ? (
             <ListView
@@ -560,8 +668,108 @@ export function RawExplorer({
             </button>
           ) : null}
         </section>
+        {previewOpen && current?.collected ? (
+          <RawPreview
+            spaceId={spaceId}
+            branchId={branchId}
+            slug={sourceSlug}
+            mode={mode}
+            selected={selected}
+            folderObjects={objects}
+            onOpen={openTarget}
+            onCollapse={() => togglePreview(false)}
+          />
+        ) : null}
       </div>
     </>
+  )
+}
+
+/**
+ * Exclure le dossier courant de la source (ou le réinclure). Écrit le manifeste
+ * de la source dans le brouillon, comme l'écran de configuration : l'exclusion
+ * se voit dans la configuration et la collecte suivante retire de raw/ ce qui
+ * en venait. Confirmation avant d'écrire.
+ */
+function ExclusionBar({
+  spaceId,
+  branchId,
+  source,
+  folder,
+  entry,
+  exclusions,
+}: {
+  spaceId: string
+  branchId: string
+  source: SourceItem
+  folder: string
+  entry: string | null
+  exclusions: string[]
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [confirming, setConfirming] = useState(false)
+  const [messages, setMessages] = useState<string[]>([])
+  const save = useMutation({
+    mutationFn: (next: string[]) => {
+      const rest = { ...(source.parameters ?? {}) }
+      delete rest.exclusions
+      return api.updateSource(spaceId, branchId, source.slug, {
+        label: source.label ?? source.slug,
+        connection: source.connection?.slug ?? '',
+        parameters: next.length > 0 ? { ...rest, exclusions: next } : rest,
+      })
+    },
+    onSuccess: async () => {
+      setConfirming(false)
+      setMessages([])
+      await queryClient.invalidateQueries({ queryKey: ['sources'] })
+    },
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
+  const isDefault = entry !== null && DEFAULT_EXCLUSIONS.includes(entry)
+  return (
+    <div className="raw-exclusion">
+      <ErrorList messages={messages} />
+      {entry ? (
+        <p className="raw-exclusion-note">
+          {t('rawExcludedNote', { entry })}{' '}
+          {isDefault ? (
+            <span className="muted">{t('rawExcludedDefault')}</span>
+          ) : (
+            <BusyButton
+              type="button"
+              className="btn btn-sm"
+              busy={save.isPending}
+              busyText={t('rawSaving')}
+              onClick={() => save.mutate(withoutExclusion(exclusions, entry))}
+            >
+              {t('rawReinclude')}
+            </BusyButton>
+          )}
+        </p>
+      ) : confirming ? (
+        <p className="raw-exclusion-note">
+          {t('rawExcludeConfirm', { folder })}{' '}
+          <BusyButton
+            type="button"
+            className="btn btn-sm btn-danger"
+            busy={save.isPending}
+            busyText={t('rawSaving')}
+            onClick={() => save.mutate(withExclusion(exclusions, folder))}
+          >
+            {t('rawExcludeDo')}
+          </BusyButton>{' '}
+          <button type="button" className="btn btn-sm" onClick={() => setConfirming(false)}>
+            {t('cancel')}
+          </button>
+        </p>
+      ) : (
+        <button type="button" className="btn btn-sm" onClick={() => setConfirming(true)}>
+          {t('rawExcludeFolder')}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -571,13 +779,16 @@ function FolderBranch({
   current,
   label,
   onOpen,
+  excludedBy,
 }: {
   folders: RawFolderItem[]
   parent: string
   current: string
   label: (path: string) => string
   onOpen: (path: string) => void
+  excludedBy: (path: string) => string | null
 }) {
+  const { t } = useTranslation()
   const children = folders.filter((f) => f.path !== '' && parentOf(f.path) === parent)
   if (children.length === 0) return null
   return (
@@ -590,8 +801,9 @@ function FolderBranch({
           <li key={f.path} role="treeitem" aria-expanded={open}>
             <button
               type="button"
-              className={`raw-tree-node${current === f.path ? ' active' : ''}`}
+              className={`raw-tree-node${current === f.path ? ' active' : ''}${excludedBy(f.path) ? ' excluded' : ''}`}
               onClick={() => onOpen(f.path)}
+              title={excludedBy(f.path) ? t('rawExcludedTitle') : undefined}
             >
               <span className="raw-tree-glyph">{open ? '▾' : '▸'}</span>
               {label(f.path)}
@@ -604,6 +816,7 @@ function FolderBranch({
                 current={current}
                 label={label}
                 onOpen={onOpen}
+                excludedBy={excludedBy}
               />
             ) : null}
           </li>
@@ -631,9 +844,10 @@ function CollectLine({ source }: { source: RawExplorerSource }) {
 
 function Badges({ obj }: { obj: RawObjectItem }) {
   const { t } = useTranslation()
-  if (obj.badges.length === 0) return null
+  if (obj.badges.length === 0 && !obj.visibility) return null
   return (
     <span className="raw-badges">
+      <VisibilityBadge visibility={obj.visibility} source={obj.visibility_source} />
       {obj.badges.map((b) => (
         <span
           key={b}
@@ -655,6 +869,7 @@ interface ContentProps {
   folderLabel: (path: string) => string
   onOpenFolder: (path: string) => void
   onSelect: (file: string) => void
+  excludedBy?: (path: string) => string | null
 }
 
 function Tiles({
@@ -665,6 +880,7 @@ function Tiles({
   folderLabel,
   onOpenFolder,
   onSelect,
+  excludedBy,
 }: ContentProps) {
   const { t } = useTranslation()
   return (
@@ -683,6 +899,11 @@ function Tiles({
                 <span className="raw-glyph raw-glyph-folder">DIR</span>
                 <span className="raw-tile-name">{folderLabel(f.path)}</span>
                 <span className="raw-tile-sub">{t('rawItems', { count: f.items })}</span>
+                {excludedBy?.(f.path) ? (
+                  <span className="raw-badges">
+                    <span className="raw-badge raw-badge-excluded">{t('rawExcludedBadge')}</span>
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>

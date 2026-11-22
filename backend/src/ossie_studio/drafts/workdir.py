@@ -148,6 +148,34 @@ class DraftWorkdir:
         # puis recréé repart à une révision déjà vue.
         return "merged", f"{head}:{draft.id}:{draft.revision}"
 
+    async def read_file(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        rel_path: str,
+    ) -> str | None:
+        """Un fichier tel que le voit l'utilisateur, **sans matérialiser la vue** :
+        sa version de brouillon s'il l'a modifié (None s'il l'a supprimé), sinon
+        celle de la tête publiée, lue dans les objets git de la copie. Pour les
+        lectures fréquentes d'un seul fichier (aperçu de l'explorateur raw)."""
+        head = await self._manager.published_head(space_id, slug, repo_url, username, token)
+        if not self.published_only:
+            async with self._db() as conn:
+                draft = await db_get_draft(conn, self.user_id, self.branch_id)
+                if draft is not None:
+                    row = await conn.fetchrow(
+                        "SELECT content FROM draft_objects WHERE draft_id = $1 AND path = $2",
+                        draft.id,
+                        rel_path,
+                    )
+                    if row is not None:
+                        content = row["content"]
+                        return bytes(content).decode("utf-8", "replace") if content else None
+        return await self._manager.local_file_at(space_id, slug, head, rel_path)
+
     async def has_draft(self) -> bool:
         async with self._db() as conn:
             return await db_get_draft(conn, self.user_id, self.branch_id) is not None
