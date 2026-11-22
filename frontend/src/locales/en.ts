@@ -191,6 +191,7 @@ export const en = {
     connectionSelectLabel: 'Connection',
     repoUrlLabel: 'Repository URL',
     repoPickLabel: 'Repository',
+    repoPickPlaceholder: 'Choose a repository…',
     repoPickFromList: 'Pick from the repository list',
     repoEnterManually: 'Enter the URL manually',
     repoNoMatch: 'No repository matches.',

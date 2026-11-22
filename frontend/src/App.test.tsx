@@ -195,9 +195,16 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
   await screen.findByText('Espaces Git')
   await userEvent.type(screen.getByLabelText("Nom de l'espace"), 'modele')
   // Le dépôt se choisit dans la liste filtrable de la connexion, sans taper d'URL.
+  // Liste déroulante : un clic la déplie, quelques lettres filtrent, Entrée choisit.
+  const picker = screen.getByRole('button', { name: 'Dépôt' })
+  expect(picker).toHaveTextContent('Choisir un dépôt…')
+  await userEvent.click(picker)
+  await screen.findByRole('option', { name: 'acme/autre' })
   await userEvent.type(screen.getByPlaceholderText('Filtrer les dépôts…'), 'app')
   expect(screen.queryByRole('option', { name: 'acme/autre' })).not.toBeInTheDocument()
-  await userEvent.click(await screen.findByRole('option', { name: 'acme/app' }))
+  await userEvent.keyboard('{Enter}')
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  expect(picker).toHaveTextContent('acme/app')
   await userEvent.click(screen.getByRole('button', { name: 'Éprouver les cinq droits et créer' }))
   // Le message compose le droit et la cause traduits.
   await waitFor(() => expect(screen.getByText(/pousser un commit/)).toBeInTheDocument())

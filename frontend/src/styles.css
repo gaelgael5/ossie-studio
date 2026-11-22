@@ -1039,3 +1039,64 @@ input[type='radio'] {
   height: 1px;
   background: var(--border);
 }
+
+/*
+ * Liste déroulante filtrable (Combobox) : fermée, l'aspect d'un .select ;
+ * dépliée, un panneau flottant avec le filtre en tête et la liste dessous.
+ */
+.combo {
+  position: relative;
+}
+.combo-trigger {
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  padding-right: 32px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.combo-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.combo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.combo-option {
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.combo-option.active {
+  background: var(--surface-muted);
+}
+.combo-option.chosen {
+  color: var(--primary);
+  font-weight: 600;
+}
+.combo-note {
+  padding: 6px 8px;
+  color: var(--muted);
+}
