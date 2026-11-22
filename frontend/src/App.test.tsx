@@ -774,8 +774,8 @@ test('sources : liste les sources déclarées de la branche regardée', async ()
             ok: true,
             label: 'API boutique',
             type: 'git',
-            connexion: { id: 'c1', label: 'GitHub', kind: 'forge', forge: 'github' },
-            parametres: { depot: 'org/api', branche: 'main', repertoires: ['src'] },
+            connection: { id: 'c1', label: 'GitHub', kind: 'forge', forge: 'github' },
+            parameters: { repository: 'org/api', branch: 'main', directories: ['src'], parsers: ['markdown'] },
           },
         ],
       },
@@ -784,8 +784,17 @@ test('sources : liste les sources déclarées de la branche regardée', async ()
   renderAt('/sources')
   await screen.findByText('Sources déclarées')
   await waitFor(() => expect(screen.getByText('API boutique')).toBeInTheDocument())
+  // Ce qui est lu vient des paramètres (clés anglaises du manifeste version 2).
+  expect(screen.getByText('org/api @ main · src')).toBeInTheDocument()
   // Le sélecteur d'espace de l'en-tête est fonctionnel.
   expect(screen.getByRole('option', { name: 'Espace : modele' })).toBeInTheDocument()
+  // L'aperçu du manifeste montre la version 2 et uniquement des clés anglaises.
+  await userEvent.click(screen.getByRole('button', { name: 'Modifier' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Modifier la source Git' })
+  const preview = within(dialog).getByText(/^version: 2/).textContent ?? ''
+  expect(preview).toContain('connection: ')
+  expect(preview).toContain('parameters:\n  repository: org/api\n  branch: main\n  parsers: [markdown]\n  directories: [src]')
+  expect(preview).not.toMatch(/connexion|parametres|depot|branche|parseurs|repertoires/)
 })
 
 test('détail source : collecte une source Git et affiche le rapport', async () => {
@@ -822,8 +831,8 @@ test('détail source : collecte une source Git et affiche le rapport', async () 
             ok: true,
             label: 'API boutique',
             type: 'git',
-            connexion: { slug: 'github', label: 'GitHub', kind: 'forge', forge: 'github' },
-            parametres: { depot: 'org/api', branche: 'main' },
+            connection: { slug: 'github', label: 'GitHub', kind: 'forge', forge: 'github' },
+            parameters: { repository: 'org/api', branch: 'main' },
           },
         ],
       },
@@ -900,23 +909,23 @@ test('détail source OpenAPI : dépôt d’un contrat, analyse avant enregistrem
             ok: true,
             label: 'API paiement',
             type: 'openapi',
-            connexion: { kind: 'none' },
-            parametres: {},
+            connection: { kind: 'none' },
+            parameters: {},
           },
         ],
       },
     },
-    '/api/spaces/sp1/branches/br1/sources/api-paiement/contracts': { body: { contrats: [] } },
+    '/api/spaces/sp1/branches/br1/sources/api-paiement/contracts': { body: { contracts: [] } },
     '/api/spaces/sp1/branches/br1/sources/api-paiement/collections': { body: { collections: [] } },
     'POST /api/spaces/sp1/branches/br1/sources/api-paiement/contracts/analyze': {
       body: {
         openapi: '3.1.0',
-        titre: 'API paiement',
-        version_declaree: '2.0.0',
-        nb_schemas: 2,
-        nb_operations: 1,
-        refs_externes: [],
-        version_proposee: 'v2',
+        title: 'API paiement',
+        declared_version: '2.0.0',
+        schema_count: 2,
+        operation_count: 1,
+        external_refs: [],
+        proposed_version: 'v2',
       },
     },
   })

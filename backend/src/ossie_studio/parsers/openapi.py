@@ -36,7 +36,9 @@ from ossie_studio.parsers.base import (
 from ossie_studio.parsers.conventions import STANDARD_KEYWORDS, dump_schema
 
 OPENAPI_PARSER_ID = "openapi"
-OPENAPI_PARSER_VERSION = "1.0"
+# 1.1 : `x-source` porte `file` / `pointer` (au lieu de `fichier` / `pointeur`).
+# Le changement de version force la régénération des schémas déjà collectés.
+OPENAPI_PARSER_VERSION = "1.1"
 _GLOBS = ["*.yaml", "*.yml", "*.json"]
 
 _SCHEMA_REF_PREFIX = "#/components/schemas/"
@@ -334,7 +336,7 @@ def _contract_schemas(filename: str, raw: bytes) -> list[ParsedObject]:
         if not isinstance(body, dict):
             body = {"allOf": [body]}
         body["$id"] = _dest_name(version, name)
-        body["x-source"] = {"fichier": filename, "pointeur": f"{_SCHEMA_REF_PREFIX}{name}"}
+        body["x-source"] = {"file": filename, "pointer": f"{_SCHEMA_REF_PREFIX}{name}"}
         if name in used_by:
             body["x-used-by"] = sorted(used_by[name])
         objects.append(

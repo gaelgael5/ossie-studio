@@ -15,7 +15,7 @@ def _put(view: Path, rel: str, text: str) -> None:
     target.write_text(text)
 
 
-MANIFEST = "version: 1\nslug: s\nlabel: S\ntype: openapi\nconnexion: ''\nparametres: {}\n"
+MANIFEST = "version: 2\nslug: s\nlabel: S\ntype: openapi\nconnection: ''\nparameters: {}\n"
 
 
 def test_yaml_illisible_erreur(tmp_path: Path) -> None:

@@ -37,7 +37,9 @@ MARKDOWN_PLUGIN_ID = "markdown"
 MARKDOWN_PLUGIN_VERSION = "1.0"
 DOCS_DIR = "docs"
 DOCS_INDEX = "docs-index.yaml"
-DOCS_INDEX_VERSION = 1
+# Version 2 : clés en anglais (`title`, `resources`). La version 1 (`titre`,
+# `ressources`) se relit en repli ; on réécrit toujours en version 2.
+DOCS_INDEX_VERSION = 2
 _GLOBS = ["**/*.md", "**/*.markdown"]
 _DEFAULT_MAX_KB = 512
 PARAM_MAX_KB = "taille_max_ko"
@@ -57,19 +59,19 @@ _FOLLOWED_SCHEMES = ("http://", "https://", "mailto:", "#")
 class DocEntry:
     path: str
     crc: str
-    titre: str
+    title: str
     sections: list[str] = field(default_factory=list)
     mentions: list[str] = field(default_factory=list)
-    ressources: list[str] = field(default_factory=list)
+    resources: list[str] = field(default_factory=list)
 
     def to_mapping(self) -> dict[str, Any]:
         return {
             "path": self.path,
             "crc": self.crc,
-            "titre": self.titre,
+            "title": self.title,
             "sections": list(self.sections),
             "mentions": list(self.mentions),
-            "ressources": list(self.ressources),
+            "resources": list(self.resources),
         }
 
 
@@ -83,10 +85,10 @@ def parse_docs_index(text: str | None) -> dict[str, DocEntry]:
         out[path] = DocEntry(
             path=path,
             crc=str(row.get("crc", "")),
-            titre=str(row.get("titre", "")),
+            title=str(row.get("title", row.get("titre", ""))),
             sections=[str(s) for s in row.get("sections") or []],
             mentions=[str(s) for s in row.get("mentions") or []],
-            ressources=[str(s) for s in row.get("ressources") or []],
+            resources=[str(s) for s in row.get("resources", row.get("ressources")) or []],
         )
     return out
 
@@ -134,10 +136,10 @@ def analyze_markdown(path: str, text: str, crc: str) -> DocEntry:
     return DocEntry(
         path=path,
         crc=crc,
-        titre=_title(path, text),
+        title=_title(path, text),
         sections=[m.strip() for m in _HEADING.findall(text)],
         mentions=_mentions(text),
-        ressources=_resources(text),
+        resources=_resources(text),
     )
 
 

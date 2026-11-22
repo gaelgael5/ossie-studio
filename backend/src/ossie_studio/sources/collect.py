@@ -82,7 +82,7 @@ DEFAULT_EXCLUSIONS = ("node_modules", "vendor", ".git")
 def _read_source_files(
     root: Path,
     *,
-    repertoires: list[str] | None = None,
+    directories: list[str] | None = None,
     exclusions: list[str] | None = None,
     progress: CollectProgress | None = None,
 ) -> dict[str, bytes]:
@@ -95,7 +95,7 @@ def _read_source_files(
         return files
     excludes = set(exclusions) if exclusions else set(DEFAULT_EXCLUSIONS)
     excludes.add(".git")
-    roots = [r.strip("/") for r in (repertoires or []) if r.strip("/")]
+    roots = [r.strip("/") for r in (directories or []) if r.strip("/")]
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
@@ -221,7 +221,7 @@ class SourceCollector:
         workdir: DraftWorkdir,
         space: GitSpace,
         branch_slug: str,
-        branche_label: str,
+        branch_label: str,
         space_username: str,
         space_token: str | None,
         source_slug: str,
@@ -278,7 +278,7 @@ class SourceCollector:
                 raw=raw,
                 params=params,
                 force=force,
-                branche=branche_label,
+                branch=branch_label,
             )
             # Hors de la boucle d'événements : un parseur peut prendre des minutes,
             # et le serveur doit continuer de répondre (dont l'état de la collecte).
@@ -364,7 +364,7 @@ class SourceCollector:
         workdir: DraftWorkdir,
         space: GitSpace,
         branch_slug: str,
-        branche_label: str,
+        branch_label: str,
         space_username: str,
         space_token: str | None,
         source_slug: str,
@@ -375,8 +375,8 @@ class SourceCollector:
         author_name: str,
         author_email: str,
         force: bool,
-        parseurs: list[str] | None = None,
-        repertoires: list[str] | None = None,
+        parsers: list[str] | None = None,
+        directories: list[str] | None = None,
         exclusions: list[str] | None = None,
         plugin_params: dict[str, dict[str, str]] | None = None,
         progress: CollectProgress | None = None,
@@ -402,7 +402,7 @@ class SourceCollector:
             source_files = await asyncio.to_thread(
                 _read_source_files,
                 source_dir,
-                repertoires=repertoires,
+                directories=directories,
                 exclusions=exclusions,
                 progress=progress,
             )
@@ -410,12 +410,12 @@ class SourceCollector:
                 workdir=workdir,
                 space=space,
                 branch_slug=branch_slug,
-                branche_label=branche_label,
+                branch_label=branch_label,
                 space_username=space_username,
                 space_token=space_token,
                 source_slug=source_slug,
                 source_files=source_files,
-                plugins=select_code_plugins(parseurs),
+                plugins=select_code_plugins(parsers),
                 author_name=author_name,
                 author_email=author_email,
                 force=force,
@@ -431,7 +431,7 @@ class SourceCollector:
         workdir: DraftWorkdir,
         space: GitSpace,
         branch_slug: str,
-        branche_label: str,
+        branch_label: str,
         space_username: str,
         space_token: str | None,
         source_slug: str,
@@ -463,7 +463,7 @@ class SourceCollector:
                 workdir=workdir,
                 space=space,
                 branch_slug=branch_slug,
-                branche_label=branche_label,
+                branch_label=branch_label,
                 space_username=space_username,
                 space_token=space_token,
                 source_slug=source_slug,
@@ -484,7 +484,7 @@ class SourceCollector:
         workdir: DraftWorkdir,
         space: GitSpace,
         branch_slug: str,
-        branche_label: str,
+        branch_label: str,
         space_username: str,
         space_token: str | None,
         source_slug: str,
@@ -518,7 +518,7 @@ class SourceCollector:
                 workdir=workdir,
                 space=space,
                 branch_slug=branch_slug,
-                branche_label=branche_label,
+                branch_label=branch_label,
                 space_username=space_username,
                 space_token=space_token,
                 source_slug=source_slug,

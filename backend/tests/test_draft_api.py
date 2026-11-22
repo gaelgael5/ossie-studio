@@ -16,8 +16,8 @@ MANIFEST = "sources/api-x/manifest.yaml"
 
 def _manifest(slug: str, label: str) -> str:
     return (
-        f"version: 1\nslug: {slug}\nlabel: {label}\ntype: openapi\n"
-        "connexion: ''\nparametres: {}\n"
+        f"version: 2\nslug: {slug}\nlabel: {label}\ntype: openapi\n"
+        "connection: ''\nparameters: {}\n"
     )
 
 

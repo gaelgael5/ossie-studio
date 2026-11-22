@@ -295,16 +295,16 @@ export interface SourceItem {
   ok: boolean
   label?: string
   type?: string
-  connexion?: SourceConnectionRef
-  parametres?: Record<string, unknown>
+  connection?: SourceConnectionRef
+  parameters?: Record<string, unknown>
   error?: string
 }
 export interface SourceInput {
   slug: string
   label: string
   type: string
-  connexion: string
-  parametres: Record<string, unknown>
+  connection: string
+  parameters: Record<string, unknown>
 }
 
 export interface CollectJobStatus {
@@ -347,24 +347,24 @@ export interface CollectionRun {
 
 export interface ContractAnalysis {
   openapi: string
-  titre: string
-  version_declaree: string
-  nb_schemas: number
-  nb_operations: number
-  refs_externes: string[]
-  version_proposee: string
+  title: string
+  declared_version: string
+  schema_count: number
+  operation_count: number
+  external_refs: string[]
+  proposed_version: string
 }
 export interface ContractItem {
   version: string
-  fichier: string
-  fichier_origine: string
+  file: string
+  original_file: string
   openapi: string
-  version_declaree: string
-  nb_schemas: number
-  nb_operations: number
-  depose_le: string
-  auteur: string
-  collecte: boolean
+  declared_version: string
+  schema_count: number
+  operation_count: number
+  uploaded_at: string
+  author: string
+  collected: boolean
 }
 export interface ContractDeposit {
   filename: string
@@ -803,7 +803,7 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/collections`,
     ),
   listContracts: (spaceId: string, branchId: string, slug: string) =>
-    apiFetch<{ contrats: ContractItem[] }>(
+    apiFetch<{ contracts: ContractItem[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/contracts`,
     ),
   analyzeContract: (

@@ -441,7 +441,7 @@ async def set_source_rules(
         if rule.label.strip():
             item["label"] = rule.label.strip()
         cleaned.append(item)
-    # Motif/ cible / genre invalide → refus nommant la règle (tri[i]:...).
+    # Motif/ cible / genre invalide → refus nommant la règle (triage[i]:...).
     errors = validate_tri_rules(cleaned)
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)

@@ -71,7 +71,7 @@ def test_version_parseur_change_retransforme_tout() -> None:
     first = run_collection(files, PARSERS, TechManifest(), {})
     disk = _apply(first, {})
     stale = first.manifest
-    stale.parseurs = {"jsonschema-demo": "0.9"}  # ancienne version
+    stale.parsers = {"jsonschema-demo": "0.9"}  # ancienne version
     second = run_collection(files, PARSERS, stale, disk)
     assert set(second.writes) == {"a.json"}  # retransformé malgré checksum identique
 
@@ -102,10 +102,37 @@ def test_determinisme_octet_pour_octet() -> None:
 
 def test_manifeste_technique_roundtrip() -> None:
     files = {"a.schema.json": _schema("A")}
-    plan = run_collection(files, PARSERS, TechManifest(), {}, branche="work/ventes")
+    plan = run_collection(files, PARSERS, TechManifest(), {}, branch="work/ventes")
     from ossie_studio.sources.collect_core import dump_tech_manifest
 
     reloaded = parse_tech_manifest(dump_tech_manifest(plan.manifest))
-    assert reloaded.parseurs == {"jsonschema-demo": "1.0"}
-    assert reloaded.entries["a.schema.json"].branche == "work/ventes"
+    assert reloaded.parsers == {"jsonschema-demo": "1.0"}
+    assert reloaded.entries["a.schema.json"].branch == "work/ventes"
     assert reloaded.entries["a.schema.json"].destinations == ["a.json"]
+
+
+def test_manifeste_technique_ecrit_en_anglais() -> None:
+    files = {"a.schema.json": _schema("A")}
+    plan = run_collection(files, PARSERS, TechManifest(), {}, branch="main")
+    from ossie_studio.sources.collect_core import dump_tech_manifest
+
+    text = dump_tech_manifest(plan.manifest)
+    assert text.startswith("version: 2\n")
+    for key in ("parsers:", "entries:", "branch: main", "parser: jsonschema-demo"):
+        assert key in text
+    for french in ("parseurs:", "entrees:", "branche:", "parseur:"):
+        assert french not in text
+
+
+def test_manifeste_technique_version_1_relu() -> None:
+    # Un `raw/` collecté avant le passage aux clés anglaises reste lisible.
+    legacy = (
+        "version: 1\nparseurs:\n  jsonschema-demo: '1.0'\nentrees:\n"
+        "- source: a.schema.json\n  checksum: abc\n  destination: [a.json]\n"
+        "  branche: work/ventes\n  parseur: jsonschema-demo\n"
+    )
+    manifest = parse_tech_manifest(legacy)
+    assert manifest.parsers == {"jsonschema-demo": "1.0"}
+    entry = manifest.entries["a.schema.json"]
+    assert (entry.checksum, entry.destinations) == ("abc", ["a.json"])
+    assert (entry.branch, entry.parser) == ("work/ventes", "jsonschema-demo")

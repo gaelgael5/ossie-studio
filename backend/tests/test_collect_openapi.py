@@ -13,6 +13,8 @@ from ossie_studio.sources.contracts import (
     ContractEntry,
     ContractNotFoundError,
     deposit_contract_fn,
+    dump_index,
+    parse_index,
     remove_contract_fn,
 )
 from ossie_studio.sources.download import SourceDownloader
@@ -89,22 +91,64 @@ async def _prepare_source(collector: SourceCollector, space: GitSpace) -> None:
     await collector._workdir.create_base_branch(
         space.id, "work/principale", space.repo_url, "x", None
     )
-    manifest = SourceManifest(slug="api", label="API", type="openapi", connexion="", parametres={})
+    manifest = SourceManifest(slug="api", label="API", type="openapi", connection="", parameters={})
     await declare_source(collector.dw, space, "work/principale", "x", None, "a@a", "a@a", manifest)
 
 
 def _entry(version: str) -> ContractEntry:
     return ContractEntry(
         version=version,
-        fichier=f"{version}.yaml",
-        fichier_origine=f"boutique-{version}.yaml",
+        file=f"{version}.yaml",
+        original_file=f"boutique-{version}.yaml",
         openapi="3.0.3",
-        version_declaree="1.0.0",
-        nb_schemas=2,
-        nb_operations=1,
-        depose_le=datetime.now(UTC).isoformat(),
-        auteur="a@a",
+        declared_version="1.0.0",
+        schema_count=2,
+        operation_count=1,
+        uploaded_at=datetime.now(UTC).isoformat(),
+        author="a@a",
     )
+
+
+def test_index_des_contrats_ecrit_en_anglais() -> None:
+    entry = _entry("v1")
+    text = dump_index([entry])
+    assert text.startswith("version: 2\ncontracts:\n")
+    for key in (
+        "file:",
+        "original_file:",
+        "declared_version:",
+        "schema_count:",
+        "operation_count:",
+        "uploaded_at:",
+        "author:",
+    ):
+        assert key in text
+    for french in ("contrats:", "fichier:", "version_declaree:", "nb_schemas:", "auteur:"):
+        assert french not in text
+    assert parse_index(text) == [entry]
+
+
+def test_index_des_contrats_version_1_relu() -> None:
+    # Un index déposé avant le passage aux clés anglaises reste lisible.
+    legacy = (
+        "version: 1\ncontrats:\n- version: v1\n  fichier: v1.yaml\n"
+        "  fichier_origine: boutique.yaml\n  openapi: 3.0.3\n  version_declaree: 1.0.0\n"
+        "  nb_schemas: 2\n  nb_operations: 1\n  depose_le: '2026-01-01T00:00:00+00:00'\n"
+        "  auteur: a@a\n"
+    )
+    assert parse_index(legacy) == [
+        ContractEntry(
+            version="v1",
+            file="v1.yaml",
+            original_file="boutique.yaml",
+            openapi="3.0.3",
+            declared_version="1.0.0",
+            schema_count=2,
+            operation_count=1,
+            uploaded_at="2026-01-01T00:00:00+00:00",
+            author="a@a",
+        )
+    ]
 
 
 async def _commit(collector: SourceCollector, space: GitSpace, write_fn, msg: str) -> None:
@@ -117,7 +161,7 @@ async def _collect(collector: SourceCollector, space: GitSpace, *, force: bool =
     return await collector.collect_openapi(
         space=space,
         branch_slug="work/principale",
-        branche_label="principale",
+        branch_label="principale",
         space_username="x",
         space_token=None,
         source_slug="api",

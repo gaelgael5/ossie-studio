@@ -35,14 +35,14 @@ type Tab =
   | 'raw'
 
 function sourceMeta(s: SourceItem, t: (k: string) => string): string {
-  const p = s.parametres ?? {}
+  const p = s.parameters ?? {}
   if (s.type === 'openapi') {
     return `${s.slug} · ${t('openapiKind')}`
   }
   if (s.type === 'git') {
-    return `${s.slug} · Git · ${s.connexion?.label ?? ''} · ${String(p.depot ?? '')} @ ${String(p.branche ?? '')}`
+    return `${s.slug} · Git · ${s.connection?.label ?? ''} · ${String(p.repository ?? '')} @ ${String(p.branch ?? '')}`
   }
-  return `${s.slug} · ${s.type} · ${s.connexion?.label ?? ''} · ${String(p.base ?? '')}`
+  return `${s.slug} · ${s.type} · ${s.connection?.label ?? ''} · ${String(p.database ?? '')}`
 }
 
 export function SourceDetailPage() {
@@ -367,7 +367,7 @@ function ContractsTab({
     queryFn: () => api.listContracts(spaceId, branchId, slug),
     retry: false,
   })
-  const list = contracts.data?.contrats ?? []
+  const list = contracts.data?.contracts ?? []
   const refresh = () =>
     queryClient.invalidateQueries({ queryKey: ['contracts', spaceId, branchId, slug] })
 
@@ -378,7 +378,7 @@ function ContractsTab({
         .then((analysis) => ({ ...file, analysis })),
     onSuccess: (res) => {
       setPending(res)
-      setVersion(res.analysis.version_proposee)
+      setVersion(res.analysis.proposed_version)
       setMessages([])
     },
     onError: (err) => {
@@ -430,7 +430,7 @@ function ContractsTab({
   }
 
   const [replacing, setReplacing] = useState('')
-  const needsCollect = list.some((c) => !c.collecte)
+  const needsCollect = list.some((c) => !c.collected)
 
   return (
     <div className="stack">
@@ -472,20 +472,20 @@ function ContractsTab({
                     <td>
                       <strong>{c.version}</strong>
                       <div className="muted mono small">
-                        {c.fichier}
+                        {c.file}
                       </div>
                     </td>
-                    <td className="muted">{c.fichier_origine}</td>
+                    <td className="muted">{c.original_file}</td>
                     <td className="mono">{c.openapi}</td>
                     <td className="muted">
-                      {t('schemasOps', { schemas: c.nb_schemas, ops: c.nb_operations })}
+                      {t('schemasOps', { schemas: c.schema_count, ops: c.operation_count })}
                     </td>
                     <td className="muted small">
-                      {new Date(c.depose_le).toLocaleDateString()}
-                      <div>{c.auteur}</div>
+                      {new Date(c.uploaded_at).toLocaleDateString()}
+                      <div>{c.author}</div>
                     </td>
                     <td>
-                      {c.collecte ? (
+                      {c.collected ? (
                         <span className="pill text-ok">
                           {t('contractCollected')}
                         </span>
@@ -564,21 +564,21 @@ function ContractsTab({
                 <li>
                   {t('analysisHead', {
                     openapi: pending.analysis.openapi,
-                    titre: pending.analysis.titre,
-                    version: pending.analysis.version_declaree,
+                    titre: pending.analysis.title,
+                    version: pending.analysis.declared_version,
                   })}
                 </li>
                 <li>
                   {t('schemasOps', {
-                    schemas: pending.analysis.nb_schemas,
-                    ops: pending.analysis.nb_operations,
+                    schemas: pending.analysis.schema_count,
+                    ops: pending.analysis.operation_count,
                   })}
                 </li>
-                {pending.analysis.refs_externes.length > 0 ? (
+                {pending.analysis.external_refs.length > 0 ? (
                   <li className="text-warn">
                     {t('externalRefs', {
-                      count: pending.analysis.refs_externes.length,
-                      refs: pending.analysis.refs_externes.join(', '),
+                      count: pending.analysis.external_refs.length,
+                      refs: pending.analysis.external_refs.join(', '),
                     })}
                   </li>
                 ) : null}

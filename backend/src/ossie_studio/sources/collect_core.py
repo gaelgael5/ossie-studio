@@ -20,7 +20,9 @@ from ossie_studio.parsers.base import (
 )
 from ossie_studio.parsers.conventions import ConventionError, validate_schema
 
-TECH_MANIFEST_VERSION = 1
+# Version 2 : clés en anglais. La version 1 (clés françaises : parseurs, entrees,
+# branche, parseur) se relit en repli ; on réécrit toujours en version 2.
+TECH_MANIFEST_VERSION = 2
 RAW_DIR = "raw"
 TECH_MANIFEST_NAME = "manifest.yaml"
 
@@ -33,8 +35,8 @@ def checksum(data: bytes) -> str:
 class TechEntry:
     checksum: str
     destinations: list[str]
-    branche: str
-    parseur: str
+    branch: str
+    parser: str
 
 
 @dataclass
@@ -42,20 +44,20 @@ class TechManifest:
     """Le manifeste technique de `raw/` : versions des parseurs + une entrée par
     fichier original lu."""
 
-    parseurs: dict[str, str] = field(default_factory=dict)
+    parsers: dict[str, str] = field(default_factory=dict)
     entries: dict[str, TechEntry] = field(default_factory=dict)
 
     def to_mapping(self) -> dict[str, Any]:
         return {
             "version": TECH_MANIFEST_VERSION,
-            "parseurs": dict(sorted(self.parseurs.items())),
-            "entrees": [
+            "parsers": dict(sorted(self.parsers.items())),
+            "entries": [
                 {
                     "source": source,
                     "checksum": e.checksum,
                     "destination": list(e.destinations),
-                    "branche": e.branche,
-                    "parseur": e.parseur,
+                    "branch": e.branch,
+                    "parser": e.parser,
                 }
                 for source, e in sorted(self.entries.items())
             ],
@@ -64,16 +66,18 @@ class TechManifest:
 
 def parse_tech_manifest(text: str) -> TechManifest:
     data = yaml.safe_load(text) or {}
-    parseurs = dict(data.get("parseurs") or {})
+    # Repli sur les clés françaises de la version 1 : un `raw/` déjà collecté reste
+    # lisible, et la collecte suivante le réécrit en anglais.
+    parsers = dict(data.get("parsers") or data.get("parseurs") or {})
     entries: dict[str, TechEntry] = {}
-    for row in data.get("entrees") or []:
+    for row in data.get("entries") or data.get("entrees") or []:
         entries[str(row["source"])] = TechEntry(
             checksum=str(row.get("checksum", "")),
             destinations=[str(d) for d in (row.get("destination") or [])],
-            branche=str(row.get("branche", "")),
-            parseur=str(row.get("parseur", "")),
+            branch=str(row.get("branch", row.get("branche", ""))),
+            parser=str(row.get("parser", row.get("parseur", ""))),
         )
-    return TechManifest(parseurs=parseurs, entries=entries)
+    return TechManifest(parsers=parsers, entries=entries)
 
 
 def dump_tech_manifest(manifest: TechManifest) -> str:
@@ -116,14 +120,14 @@ def run_collection(
     previous: TechManifest,
     existing_schemas: dict[str, str],
     *,
-    branche: str = "",
+    branch: str = "",
     force: bool = False,
 ) -> CollectionPlan:
     """Cœur pur de la collecte. `source_files` : fichiers originaux présents
     (chemin → contenu) ; `existing_schemas` : schémas déjà dans `raw/`
     (chemin relatif → contenu). Ne touche à aucun disque : rend un plan."""
     versions = {p.id: p.version for p in parsers}
-    version_changed = {pid for pid, ver in versions.items() if previous.parseurs.get(pid) != ver}
+    version_changed = {pid for pid, ver in versions.items() if previous.parsers.get(pid) != ver}
 
     # Fichiers pris en charge et leur parseur (le premier qui les reconnaît).
     handled: dict[str, Parser] = {}
@@ -141,7 +145,7 @@ def run_collection(
         old = previous.entries.get(path)
         if old is None or old.checksum != checks[path]:
             return True
-        return old.parseur in version_changed
+        return old.parser in version_changed
 
     dirty = {path for path in handled if is_dirty(path)}
     deleted_sources = [s for s in previous.entries if s not in handled]
@@ -180,7 +184,7 @@ def run_collection(
         groups.append(group)
         seen |= group
 
-    plan = CollectionPlan(writes={}, deletes=[], manifest=TechManifest(parseurs=versions))
+    plan = CollectionPlan(writes={}, deletes=[], manifest=TechManifest(parsers=versions))
     plan.retained = len(handled)
     # On repart des entrées inchangées (sources non régénérées, toujours présentes).
     regenerated: set[str] = set(s for g in groups for s in g)
@@ -230,8 +234,8 @@ def run_collection(
             plan.manifest.entries[source] = TechEntry(
                 checksum=checks[source],
                 destinations=sorted(set(by_source.get(source, []))),
-                branche=branche,
-                parseur=parser.id,
+                branch=branch,
+                parser=parser.id,
             )
             plan.statuses[source] = STATUT_TRAITE
 
@@ -288,7 +292,7 @@ def schema_plugin_run(
         (parser,),
         previous,
         existing,
-        branche=context.branche,
+        branch=context.branch,
         force=context.force,
     )
     writes = [OutputAction(path=dest, content=content) for dest, content in plan.writes.items()]

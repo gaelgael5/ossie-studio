@@ -166,7 +166,7 @@ def test_schema_porte_origine_et_usage() -> None:
     )
     schema = _schema_of(OpenApiParser(), "v1.yaml", raw, "v1-commande")
     assert schema["$id"] == "v1-commande.json"
-    assert schema["x-source"] == {"fichier": "v1.yaml", "pointeur": "#/components/schemas/Commande"}
+    assert schema["x-source"] == {"file": "v1.yaml", "pointer": "#/components/schemas/Commande"}
     assert schema["x-used-by"] == ["POST /commandes"]
 
 
