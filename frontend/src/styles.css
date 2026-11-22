@@ -1264,9 +1264,10 @@ input[type='radio'] {
 }
 .raw-explorer {
   display: grid;
+  /* Hauteur posée par l'écran (reste de la fenêtre) : les colonnes s'y tiennent. */
+  align-items: stretch;
   grid-template-columns: var(--raw-tree-width) 8px minmax(0, 1fr);
   gap: 0 8px;
-  align-items: start;
 }
 /* Poignée de redimensionnement de l'arbre. */
 .raw-splitter {
@@ -1289,13 +1290,9 @@ body.resizing-x {
 .raw-filters .select {
   width: auto;
 }
-.raw-explorer > .error-list {
-  grid-column: 1 / -1;
-}
 .raw-tree {
-  position: sticky;
-  top: 12px;
-  max-height: calc(100vh - 140px);
+  height: 100%;
+  margin: 0;
   overflow: auto;
 }
 .raw-tree-list {
@@ -1344,6 +1341,9 @@ body.resizing-x {
 }
 .raw-main {
   min-width: 0;
+  height: 100%;
+  overflow: auto;
+  padding-right: 4px;
 }
 .raw-toolbar,
 .raw-filters {
@@ -1528,9 +1528,13 @@ body.resizing-x {
   .raw-splitter {
     display: none;
   }
-  .raw-tree {
-    position: static;
-    max-height: none;
+  .raw-explorer {
+    height: auto !important;
+  }
+  .raw-tree,
+  .raw-main {
+    height: auto;
+    max-height: 50vh;
   }
 }
 
