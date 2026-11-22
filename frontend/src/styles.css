@@ -621,7 +621,8 @@ input[type='radio'] {
 
 .master-detail {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) 1fr;
+  /* minmax(0, …) : un contenu large (manifeste, liste) ne déborde pas la grille. */
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -1181,4 +1182,9 @@ input[type='radio'] {
 }
 .btn-primary .spinner {
   background: conic-gradient(from 0deg, transparent 0 10%, var(--primary-fg) 100%);
+}
+.combo-trigger:disabled {
+  background-color: var(--bg);
+  color: var(--muted);
+  cursor: not-allowed;
 }

@@ -26,9 +26,10 @@ export function Combobox(props: {
   /** Options en cours de chargement : anneau animé et curseur d'attente. */
   busy?: boolean
   busyText?: string
+  disabled?: boolean
 }) {
   const { id, options, value, onChange, placeholder, filterPlaceholder, emptyText, moreText, status } = props
-  const { busy = false, busyText = '' } = props
+  const { busy = false, busyText = '', disabled = false } = props
   const listId = useId()
   const root = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -84,6 +85,7 @@ export function Combobox(props: {
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-busy={busy}
+        disabled={disabled}
         onClick={toggle}
       >
         <span className={chosen ? '' : 'muted'}>{chosen ? chosen.label : placeholder}</span>

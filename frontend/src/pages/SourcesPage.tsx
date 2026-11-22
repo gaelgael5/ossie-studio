@@ -8,6 +8,7 @@ import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { NoBranchNote } from '../components/NoBranchNote'
+import { Combobox } from '../components/Combobox'
 import { useWorkspace } from '../workspace'
 
 function asList(value: unknown): string[] {
@@ -458,6 +459,10 @@ function ManifestPreview({ manifest }: { manifest: Record<string, unknown> }) {
           padding: 14,
           borderRadius: 'var(--radius)',
           overflow: 'auto',
+          // Revient à la ligne : une longue liste de parseurs ne doit pas
+          // élargir la colonne au-delà de la fenêtre.
+          whiteSpace: 'pre-wrap',
+          overflowWrap: 'anywhere',
           fontSize: '0.82rem',
         }}
       >
@@ -642,48 +647,49 @@ function GitSourceModal({
               <span className="muted">{t('noForgeConnections')}</span>
             )}
           </div>
-          <div className="form-grid">
-            <div className="field">
-              <label className="field-label" htmlFor="g-repo">
-                {t('fieldRepo')}
-              </label>
-              <select
-                id="g-repo"
-                className="select"
-                value={depot}
-                disabled={!connexion}
-                onChange={(e) => {
-                  setDepot(e.target.value)
-                  setBranche('')
-                }}
-              >
-                <option value="">{t('chooseRepo')}</option>
-                {(repos.data?.repositories ?? []).map((r) => (
-                  <option key={r.full_name} value={r.full_name}>
-                    {r.full_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="g-branch">
-                {t('fieldBranch')}
-              </label>
-              <select
-                id="g-branch"
-                className="select"
-                value={branche}
-                disabled={!depot}
-                onChange={(e) => setBranche(e.target.value)}
-              >
-                <option value="">{t('chooseBranch')}</option>
-                {(branches.data?.branches ?? []).map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* Listes filtrables : un dépôt Azure en compte des centaines. */}
+          <div className="field">
+            <label className="field-label" htmlFor="g-repo">
+              {t('fieldRepo')}
+            </label>
+            <Combobox
+              id="g-repo"
+              disabled={!connexion}
+              options={(repos.data?.repositories ?? []).map((r) => ({ value: r.full_name, label: r.full_name }))}
+              value={depot}
+              onChange={(value) => {
+                setDepot(value)
+                setBranche('')
+              }}
+              placeholder={t('chooseRepo')}
+              filterPlaceholder={t('filterRepos')}
+              emptyText={t('repoNoMatch')}
+              moreText={(count) => t('repoMoreRefine', { count })}
+              busy={repos.isFetching}
+              busyText={t('repoLoading')}
+              status={repos.isError ? <span className="text-danger">{errorMessages(t, repos.error).join(' ')}</span> : null}
+            />
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="g-branch">
+              {t('fieldBranch')}
+            </label>
+            <Combobox
+              id="g-branch"
+              disabled={!depot}
+              options={(branches.data?.branches ?? []).map((b) => ({ value: b, label: b }))}
+              value={branche}
+              onChange={setBranche}
+              placeholder={t('chooseBranch')}
+              filterPlaceholder={t('filterBranches')}
+              emptyText={t('noOtherBranch')}
+              moreText={(count) => t('repoMoreRefine', { count })}
+              busy={branches.isFetching}
+              busyText={t('branchesLoading')}
+              status={
+                branches.isError ? <span className="text-danger">{errorMessages(t, branches.error).join(' ')}</span> : null
+              }
+            />
           </div>
           <div className="field">
             <label className="field-label" htmlFor="g-dirs">
