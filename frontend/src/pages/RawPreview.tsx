@@ -15,6 +15,7 @@ import {
   useCanEditAsset,
 } from './RawAssetEditor'
 import type {
+  RawIncoming,
   RawObjectTag,
   RawBadge,
   RawExplorerMode,
@@ -32,6 +33,7 @@ import { ErrorList } from '../components/ErrorList'
 
 type PreviewTab =
   | 'summary'
+  | 'referencedBy'
   | 'changes'
   | 'enrichment'
   | 'json'
@@ -40,6 +42,7 @@ type PreviewTab =
   | 'history'
 const TABS: PreviewTab[] = [
   'summary',
+  'referencedBy',
   'changes',
   'enrichment',
   'json',
@@ -264,6 +267,7 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
   }
   const d = detail.data
   const counts: Partial<Record<PreviewTab, number>> = {
+    referencedBy: (d.incoming ?? []).length,
     changes: changes.count,
     documents: d.documents.length,
     history: history.data?.commits.length,
@@ -312,6 +316,9 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
       </div>
 
       {tab === 'summary' ? <Summary detail={d} onOpen={onOpen} slug={slug} /> : null}
+      {tab === 'referencedBy' ? (
+        <ReferencedBy incoming={d.incoming ?? []} slug={slug} onOpen={onOpen} />
+      ) : null}
       {tab === 'changes' ? (
         <ChangesTab spaceId={spaceId} branchId={branchId} slug={slug} file={d.file} />
       ) : null}
@@ -538,6 +545,65 @@ function TagsSection({
         </>
       ) : null}
     </section>
+  )
+}
+
+/**
+ * Onglet « Référencé par » : les objets qui référencent celui-ci, lus dans
+ * l'index inverse de l'explorateur (toutes les sources de l'espace). Rien n'est
+ * calculé ici : c'est la liste `incoming` du détail de l'objet.
+ */
+function ReferencedBy({
+  incoming,
+  slug,
+  onOpen,
+}: {
+  incoming: RawIncoming[]
+  slug: string
+  onOpen: (t: RawTarget) => void
+}) {
+  const { t } = useTranslation()
+  if (incoming.length === 0) {
+    return (
+      <div className="stack stack-tight">
+        <p className="muted">{t('rawReferencedByNone')}</p>
+        <p className="muted small">{t('rawReferencedByLimits')}</p>
+      </div>
+    )
+  }
+  const sorted = [...incoming].sort(
+    (a, b) =>
+      a.target.title.localeCompare(b.target.title) || a.field.localeCompare(b.field),
+  )
+  return (
+    <div className="stack stack-tight">
+      <table className="table raw-referenced-by">
+        <thead>
+          <tr>
+            <th>{t('rawReferencedByObject')}</th>
+            <th>{t('rawReferencedByField')}</th>
+            <th>{t('rawReferencedByKindLabel')}</th>
+            <th>{t('rawReferencedByCardinality')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((r) => (
+            <tr key={`${r.target.slug}/${r.target.file}/${r.field}/${r.kind}`}>
+              <td>
+                <TargetLink target={r.target} label={r.target.title} onOpen={onOpen} />
+                {r.target.slug !== slug ? (
+                  <span className="muted small"> · {r.target.slug}</span>
+                ) : null}
+              </td>
+              <td className="mono">{r.field || '—'}</td>
+              <td>{t(`rawReferencedByKind.${r.kind}`, { defaultValue: r.kind })}</td>
+              <td className="mono">{r.cardinality || '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted small">{t('rawReferencedByLimits')}</p>
+    </div>
   )
 }
 

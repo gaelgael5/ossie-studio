@@ -151,7 +151,11 @@ const DETAIL = {
   annotations: [],
   origin: { file: 'src/Domain/Order.cs', line: null, checksum: 'abc', parser: 'csharp', branch: 'main', raw_path: 'sources/app/raw/order.json' },
   documents: [{ path: 'docs/guide.md', title: 'Guide' }],
-  incoming: [{ field: 'order', kind: 'field', cardinality: '0..1', target: { slug: 'app', file: 'invoice.json', title: 'Invoice', folder: 'src' } }],
+  incoming: [
+    { field: 'order', kind: 'field', cardinality: '0..1', target: { slug: 'app', file: 'invoice.json', title: 'Invoice', folder: 'src' } },
+    { field: '', kind: 'inherits', cardinality: '', target: { slug: 'app', file: 'specialorder.json', title: 'SpecialOrder', folder: 'src/Domain' } },
+    { field: 'order_id', kind: 'foreign_key', cardinality: '1', target: { slug: 'db', file: 'dbo.invoice_line.json', title: 'invoice_line', folder: 'erp/dbo' } },
+  ],
   json: '{"title": "Order"}',
   forge_url: 'https://github.com/org/app/blob/main/src/Domain/Order.cs',
 }
@@ -665,6 +669,23 @@ describe('RawExplorer', () => {
     expect(localStorage.getItem('ossie.rawExplorer.hideExcluded')).toBe('yes')
   })
 
+  it('onglet « Référencé par » : qui référence l’objet, par quel champ, et un clic l’ouvre', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    await screen.findByText('Une commande du client.')
+    await user.click(screen.getByRole('tab', { name: 'Référencé par (3)' }))
+    const table = within(document.querySelector('.raw-referenced-by') as HTMLElement)
+    expect(table.getByText('en hérite')).toBeInTheDocument()
+    expect(table.getByText('clé étrangère')).toBeInTheDocument()
+    expect(table.getByText('· db')).toBeInTheDocument() // autre source
+    expect(table.getByText('order_id')).toBeInTheDocument()
+    await user.click(table.getByRole('button', { name: 'Invoice' }))
+    const loc = screen.getByTestId('loc').textContent ?? ''
+    expect(loc).toContain('sel=invoice.json')
+    expect(loc).toContain('path=src')
+  })
+
   it('graphe : ouvrir un dossier de l’arbre revient à la vue précédente', async () => {
     mockApi()
     const user = userEvent.setup()
@@ -697,7 +718,7 @@ describe('RawExplorer', () => {
     await user.dblClick(await screen.findByRole('button', { name: /^CLS\s*Order/ }))
     expect(screen.getByTestId('loc').textContent).toContain('open=order.json')
     expect(await screen.findByRole('tab', { name: 'Champs (3)' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Références (2)' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Références (4)' })).toBeInTheDocument()
     // Précédent désactivé sur le premier objet du dossier, suivant actif.
     expect(screen.getByRole('button', { name: '‹ Objet précédent' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Objet suivant ›' })).toBeEnabled()
