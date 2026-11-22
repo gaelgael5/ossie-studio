@@ -791,6 +791,13 @@ export const fr = {
     rawFilterEmpty: 'Aucun objet ne correspond aux filtres.',
     rawTreeLabel: 'Arbre des sources',
     rawResizeTree: 'Largeur de l’arbre des sources',
+    rawExposed: 'exposé dans le dataset',
+    rawNotExposed: 'non exposé',
+    rawColExposed: 'Exposé',
+    rawExposedCount: 'exposé dans le dataset ({{count}})',
+    rawNotExposedCount: 'non exposé ({{count}})',
+    rawObjectNotRetained: 'Objet non retenu : aucun champ exposé.',
+    rawExposedMissing: '{{count}} champ(s) exposé(s) absent(s) du raw',
     rawFilterVisibility: 'Visibilité',
     rawColVisibility: 'Visib.',
     rawVisibility: {

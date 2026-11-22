@@ -211,14 +211,43 @@ def _citing_documents(
     ]
 
 
+def exposed_fields(asset: dict[str, Any] | None) -> set[str] | None:
+    """Champs « exposés » d'un objet, ou None si l'objet n'est pas retenu.
+
+    Décision du 18/11/2026 : tant que la couche dataset n'existe pas, un champ est
+    exposé s'il est **retenu dans l'asset** (`sources/<slug>/assets/`). Quand
+    l'epic « Modèle sémantique Ossie » existera, l'information viendra des
+    `fields` du dataset : c'est cette seule fonction qui changera de source."""
+    if asset is None:
+        return None
+    props = asset.get("properties")
+    return set(props) if isinstance(props, dict) else set()
+
+
+def _exposure(schema: dict[str, Any], asset: dict[str, Any] | None) -> dict[str, Any]:
+    exposed = exposed_fields(asset)
+    raw_fields = set((schema.get("properties") or {}).keys())
+    if exposed is None:
+        return {"retained": False, "exposed": 0, "hidden": len(raw_fields), "missing": []}
+    return {
+        "retained": True,
+        "exposed": len(raw_fields & exposed),
+        "hidden": len(raw_fields - exposed),
+        # Exposé dans l'asset mais disparu du brut : en attente de revue.
+        "missing": sorted(exposed - raw_fields),
+    }
+
+
 def object_detail(
     schema: dict[str, Any],
     text: str,
     obj: ExplorerObject,
     entries: SourceEntries,
     space: SpaceObjects,
+    asset: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     required = set(schema.get("required") or [])
+    exposed = exposed_fields(asset) or set()
     fields = []
     for name, prop in (schema.get("properties") or {}).items():
         if not isinstance(prop, dict):
@@ -234,6 +263,7 @@ def object_detail(
                 # classe sans x-visibility est « inconnu », jamais « vide ».
                 "visibility": visibility_of(prop) or (VISIBILITY_UNKNOWN if obj.visibility else ""),
                 "visibility_source": str(prop.get(VISIBILITY_SOURCE_KEY) or ""),
+                "exposed": name in exposed,
             }
         )
     return {
@@ -249,6 +279,7 @@ def object_detail(
         "enum": [str(v) for v in schema.get("enum") or []],
         "fields": fields,
         "references": _references(schema, space),
+        "exposure": _exposure(schema, asset),
         "annotations": _annotations(schema),
         "origin": {
             "file": obj.origin,

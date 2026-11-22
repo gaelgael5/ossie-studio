@@ -499,7 +499,10 @@ export interface RawObjectDetail {
     annotations: string[]
     visibility: string
     visibility_source: string
+    /** Retenu dans l'asset (aujourd'hui) ; plus tard : exposé dans le dataset. */
+    exposed: boolean
   }[]
+  exposure: { retained: boolean; exposed: number; hidden: number; missing: string[] }
   references: RawReference[]
   annotations: string[]
   origin: {

@@ -201,6 +201,9 @@ async def test_api_objet_document_historique(sp: ApiSpace) -> None:
         "- {path: docs/guide.md, crc: a, title: Guide, sections: [Un], mentions: [Order],"
         " resources: []}\n"
     )
+    files["sources/app/assets/order.json"] = dump_schema(
+        {"$id": "order.json", "title": "Order", "properties": {"customer": {}}}
+    )
     forge_edit(sp, files)
     base = f"{sp.base}/raw-explorer/app"
     r = await sp.client.get(f"{base}/object", params={"file": "order.json"})
@@ -210,6 +213,7 @@ async def test_api_objet_document_historique(sp: ApiSpace) -> None:
     assert body["fields"][0]["type"]["target"]["file"] == "customer.json"
     assert json.loads(body["json"])["title"] == "Order"  # le schéma exact
     assert body["documents"] == [{"path": "docs/guide.md", "title": "Guide"}]
+    assert body["exposure"]["retained"] is True and body["fields"][0]["exposed"] is True
     assert body["forge_url"] is None  # connexion « c » inconnue : pas de lien deviné
 
     r = await sp.client.get(f"{base}/document", params={"path": "docs/guide.md"})
@@ -327,3 +331,39 @@ def test_index_porte_la_visibilite(tmp_path: Path) -> None:
 
 def _manifest_git() -> str:
     return _manifest("app")
+
+
+def _exposure_case(asset: dict | None) -> dict:
+    schema = {"title": "O", "properties": {f"f{i}": {"type": "string"} for i in range(9)}}
+    obj = ExplorerObject(
+        file="o.json",
+        title="O",
+        kind="class",
+        fields=9,
+        origin="",
+        parser="",
+        badges=(),
+        excluded_by="",
+    )
+    entries = SourceEntries("app", "App", "git", "", True, [obj], [])
+    return object_detail(schema, "{}", obj, entries, SpaceObjects([entries], "origin"), asset)
+
+
+def test_oeil_champs_retenus_dans_l_asset() -> None:
+    asset = {"properties": {f"f{i}": {} for i in range(7)}}
+    detail = _exposure_case(asset)
+    assert [f["exposed"] for f in detail["fields"]] == [True] * 7 + [False] * 2
+    assert detail["exposure"] == {"retained": True, "exposed": 7, "hidden": 2, "missing": []}
+
+
+def test_oeil_objet_non_retenu() -> None:
+    detail = _exposure_case(None)
+    assert not any(f["exposed"] for f in detail["fields"])
+    assert detail["exposure"]["retained"] is False and detail["exposure"]["hidden"] == 9
+
+
+def test_oeil_champ_expose_disparu_du_raw() -> None:
+    asset = {"properties": {"f0": {}, "ancien": {}}}
+    detail = _exposure_case(asset)
+    assert "ancien" not in [f["name"] for f in detail["fields"]]
+    assert detail["exposure"]["missing"] == ["ancien"]

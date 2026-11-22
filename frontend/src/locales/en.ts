@@ -789,6 +789,13 @@ export const en = {
     rawFilterEmpty: 'No object matches the filters.',
     rawTreeLabel: 'Source tree',
     rawResizeTree: 'Source tree width',
+    rawExposed: 'exposed in the dataset',
+    rawNotExposed: 'not exposed',
+    rawColExposed: 'Exposed',
+    rawExposedCount: 'exposed in the dataset ({{count}})',
+    rawNotExposedCount: 'not exposed ({{count}})',
+    rawObjectNotRetained: 'Object not retained: no field exposed.',
+    rawExposedMissing: '{{count}} exposed field(s) missing from raw',
     rawFilterVisibility: 'Visibility',
     rawColVisibility: 'Vis.',
     rawVisibility: {

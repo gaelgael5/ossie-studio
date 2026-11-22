@@ -345,6 +345,15 @@ async def _space_objects(conn: ConnDep, key: IndexKey, mode: str) -> SpaceObject
     return space
 
 
+def _json_object(text: str) -> dict[str, object]:
+    """Un schéma illisible s'affiche vide plutôt que de faire échouer l'aperçu."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 async def _forge_link(
     conn: ConnDep, manifest_text: str | None, path: str, line: int | None
 ) -> str | None:
@@ -401,17 +410,16 @@ async def get_explorer_object(
         manifest_text = await workdir.read_file(
             space.id, branch_ref, space.repo_url, username, token, f"sources/{slug}/manifest.yaml"
         )
+        asset_text = await workdir.read_file(
+            space.id, branch_ref, space.repo_url, username, token, f"sources/{slug}/assets/{file}"
+        )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     if text is None:
         raise ApiError("raw_explorer_object_not_found", status_code=404, file=file)
-    try:
-        schema = json.loads(text)
-    except json.JSONDecodeError:
-        schema = {}
-    if not isinstance(schema, dict):
-        schema = {}
-    detail = object_detail(schema, text, obj, entries, await _space_objects(conn, key, mode))
+    schema = _json_object(text)
+    asset = _json_object(asset_text) if asset_text is not None else None
+    detail = object_detail(schema, text, obj, entries, await _space_objects(conn, key, mode), asset)
     origin = detail["origin"]
     detail["forge_url"] = await _forge_link(conn, manifest_text, obj.origin, origin["line"])
     return detail

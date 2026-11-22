@@ -1579,6 +1579,22 @@ body.resizing-x {
   font-size: 0.85rem;
   color: var(--warn-fg);
 }
+/* Œil « exposé » : plein en couleur de ligne, barré et gris sinon. */
+.raw-eye {
+  display: inline-flex;
+  vertical-align: middle;
+  color: var(--primary);
+}
+.raw-eye.off {
+  color: var(--muted);
+  opacity: 0.6;
+}
+.raw-exposure {
+  margin: 6px 0 0;
+}
+.raw-exposure-missing {
+  color: var(--warn-fg);
+}
 /* Visibilité d'origine (code) : une teinte par valeur. */
 .raw-vis {
   font-family: var(--mono);

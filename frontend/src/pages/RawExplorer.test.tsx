@@ -92,16 +92,18 @@ const DETAIL = {
   description: 'Une commande du client.',
   enum: [],
   fields: [
-    { name: 'id', type: { label: 'integer' }, required: true, description: '', annotations: ['[Key]'] },
+    { name: 'id', type: { label: 'integer' }, required: true, description: '', annotations: ['[Key]'], exposed: true },
     {
       name: 'customer',
       type: { label: 'Customer', target: { slug: 'app', file: 'customer.json', title: 'Customer', folder: 'src/Domain/Sub' } },
       required: false,
       description: '',
       annotations: [],
+      exposed: false,
     },
-    { name: 'money', type: { label: 'Money', external: true }, required: false, description: '', annotations: [] },
+    { name: 'money', type: { label: 'Money', external: true }, required: false, description: '', annotations: [], exposed: false },
   ],
+  exposure: { retained: true, exposed: 1, hidden: 2, missing: ['ancien'] },
   references: [
     {
       field: 'customer',
@@ -359,5 +361,16 @@ describe('RawExplorer', () => {
     expect(screen.getByText('Status')).toBeInTheDocument()
     await user.click(screen.getByRole('checkbox', { name: 'internal' }))
     expect(screen.getByText('Order')).toBeInTheDocument()
+  })
+
+  it('œil : exposé / non exposé, légende avec comptes et champs disparus', async () => {
+    mockApi()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    await screen.findByText('Une commande du client.')
+    expect(screen.getAllByRole('img', { name: 'exposé dans le dataset' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('img', { name: 'non exposé' }).length).toBeGreaterThan(1)
+    expect(screen.getByText(/exposé dans le dataset \(1\)/)).toBeInTheDocument()
+    expect(screen.getByText(/non exposé \(2\)/)).toBeInTheDocument()
+    expect(screen.getByText('1 champ(s) exposé(s) absent(s) du raw')).toBeInTheDocument()
   })
 })

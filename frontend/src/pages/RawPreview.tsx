@@ -40,6 +40,33 @@ export function VisibilityBadge({ visibility, source }: { visibility: string; so
   )
 }
 
+/** Œil « exposé » (plein) ou « non exposé » (barré, gris) : un indicateur, pas une commande. */
+function EyeIcon({ exposed }: { exposed: boolean }) {
+  const { t } = useTranslation()
+  const label = exposed ? t('rawExposed') : t('rawNotExposed')
+  return (
+    <span className={`raw-eye${exposed ? '' : ' off'}`} title={label} role="img" aria-label={label}>
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <path
+          d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+        />
+        <circle
+          cx="12"
+          cy="12"
+          r="3.2"
+          fill={exposed ? 'currentColor' : 'none'}
+          stroke="currentColor"
+          strokeWidth="1.8"
+        />
+        {exposed ? null : <path d="M3 3l18 18" stroke="currentColor" strokeWidth="1.8" />}
+      </svg>
+    </span>
+  )
+}
+
 /** Une sélection est un objet (fichier schéma à la racine de raw/) ou un document. */
 export function isObjectSelection(sel: string): boolean {
   return sel.endsWith('.json') && !sel.includes('/')
@@ -218,7 +245,7 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
         ))}
       </div>
 
-      {tab === 'summary' ? <Summary detail={d} onOpen={onOpen} /> : null}
+      {tab === 'summary' ? <Summary detail={d} onOpen={onOpen} slug={slug} /> : null}
       {tab === 'json' ? <pre className="raw-json">{d.json}</pre> : null}
       {tab === 'documents' ? (
         d.documents.length === 0 ? (
@@ -287,7 +314,45 @@ function Shortcuts({ slug, detail }: { slug: string; detail: RawObjectDetail }) 
   )
 }
 
-function Summary({ detail, onOpen }: { detail: RawObjectDetail; onOpen: (t: RawTarget) => void }) {
+function ExposureLegend({ detail, slug }: { detail: RawObjectDetail; slug: string }) {
+  const { t } = useTranslation()
+  const e = detail.exposure
+  const curation = `/sources/${encodeURIComponent(slug)}?tab=curation&object=${encodeURIComponent(detail.file)}`
+  if (!e.retained) {
+    return (
+      <p className="small raw-exposure">
+        {t('rawObjectNotRetained')} <Link to={curation}>{t('rawSeeInCuration')}</Link>
+      </p>
+    )
+  }
+  return (
+    <p className="small raw-exposure">
+      <EyeIcon exposed /> {t('rawExposedCount', { count: e.exposed })} · <EyeIcon exposed={false} />{' '}
+      {t('rawNotExposedCount', { count: e.hidden })}
+      {e.missing.length > 0 ? (
+        <>
+          {' · '}
+          <span className="raw-exposure-missing" title={e.missing.join(', ')}>
+            {t('rawExposedMissing', { count: e.missing.length })}
+          </span>{' '}
+          <Link to={`/sources/${encodeURIComponent(slug)}?tab=revue`}>
+            {t('rawDiffSinceReview')}
+          </Link>
+        </>
+      ) : null}
+    </p>
+  )
+}
+
+function Summary({
+  detail,
+  onOpen,
+  slug,
+}: {
+  detail: RawObjectDetail
+  onOpen: (t: RawTarget) => void
+  slug: string
+}) {
   const { t } = useTranslation()
   const inherits = detail.references.filter((r) => r.kind === 'inherits')
   return (
@@ -333,6 +398,7 @@ function Summary({ detail, onOpen }: { detail: RawObjectDetail; onOpen: (t: RawT
           <table className="table raw-fields">
             <thead>
               <tr>
+                <th aria-label={t('rawColExposed')} />
                 <th>{t('rawColName')}</th>
                 <th>{t('rawColType')}</th>
                 <th>{t('rawColVisibility')}</th>
@@ -342,6 +408,9 @@ function Summary({ detail, onOpen }: { detail: RawObjectDetail; onOpen: (t: RawT
             <tbody>
               {detail.fields.map((f) => (
                 <tr key={f.name}>
+                  <td>
+                    <EyeIcon exposed={f.exposed} />
+                  </td>
                   <td>
                     <span className="mono">{f.name}</span>
                     {f.description ? <div className="small muted">{f.description}</div> : null}
@@ -361,6 +430,10 @@ function Summary({ detail, onOpen }: { detail: RawObjectDetail; onOpen: (t: RawT
             </tbody>
           </table>
         ) : null}
+      </section>
+
+      <section>
+        <ExposureLegend detail={detail} slug={slug} />
       </section>
 
       <section>
