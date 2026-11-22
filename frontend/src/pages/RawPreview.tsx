@@ -6,6 +6,7 @@ import type { TFunction } from 'i18next'
 import { Link } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
 import { useSession } from '../hooks'
+import { ChangesTab, useObjectChanges } from './RawChanges'
 import {
   AssetButton,
   AssetEditorProvider,
@@ -29,8 +30,23 @@ import { ErrorList } from '../components/ErrorList'
 // sans quitter le dossier. Lecture seule ; les raccourcis renvoient vers la
 // curation, la revue ou la forge.
 
-type PreviewTab = 'summary' | 'enrichment' | 'json' | 'documents' | 'technical' | 'history'
-const TABS: PreviewTab[] = ['summary', 'enrichment', 'json', 'documents', 'technical', 'history']
+type PreviewTab =
+  | 'summary'
+  | 'changes'
+  | 'enrichment'
+  | 'json'
+  | 'documents'
+  | 'technical'
+  | 'history'
+const TABS: PreviewTab[] = [
+  'summary',
+  'changes',
+  'enrichment',
+  'json',
+  'documents',
+  'technical',
+  'history',
+]
 const STALE_MS = 30_000
 
 /**
@@ -234,6 +250,8 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
     retry: false,
   })
 
+  const changes = useObjectChanges(spaceId, branchId, slug, selected)
+
   if (detail.isLoading) {
     return (
       <p aria-busy="true">
@@ -246,6 +264,7 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
   }
   const d = detail.data
   const counts: Partial<Record<PreviewTab, number>> = {
+    changes: changes.count,
     documents: d.documents.length,
     history: history.data?.commits.length,
   }
@@ -274,7 +293,7 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
         </div>
       </header>
 
-      <Shortcuts slug={slug} detail={d} />
+      <Shortcuts detail={d} onDiff={() => setTab('changes')} />
 
       <div className="tabs raw-preview-tabs" role="tablist">
         {TABS.map((id) => (
@@ -293,6 +312,9 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
       </div>
 
       {tab === 'summary' ? <Summary detail={d} onOpen={onOpen} slug={slug} /> : null}
+      {tab === 'changes' ? (
+        <ChangesTab spaceId={spaceId} branchId={branchId} slug={slug} file={d.file} />
+      ) : null}
       {tab === 'enrichment' ? (
         <EnrichTab spaceId={spaceId} branchId={branchId} slug={slug} file={d.file} />
       ) : null}
@@ -345,7 +367,7 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
   )
 }
 
-function Shortcuts({ slug, detail }: { slug: string; detail: RawObjectDetail }) {
+function Shortcuts({ detail, onDiff }: { detail: RawObjectDetail; onDiff: () => void }) {
   const { t } = useTranslation()
   return (
     <div className="raw-shortcuts">
@@ -355,9 +377,9 @@ function Shortcuts({ slug, detail }: { slug: string; detail: RawObjectDetail }) 
           {t('rawOpenInForge')}
         </a>
       ) : null}
-      <Link to={`/sources/${encodeURIComponent(slug)}?tab=revue`} className="btn btn-sm">
+      <button type="button" className="btn btn-sm" onClick={onDiff}>
         {t('rawDiffSinceReview')}
-      </Link>
+      </button>
     </div>
   )
 }

@@ -379,6 +379,25 @@ def test_apply_review_applique_et_avance_le_point(tmp_path: Path) -> None:
     assert read_review_point(tmp_path, "api") == "deadbeef1234"   # point de reprise avancé
 
 
+def test_apply_review_sans_avancer_le_point(tmp_path: Path) -> None:
+    """Décisions d'un seul objet (aperçu de l'explorateur) : appliquées, point de
+    reprise inchangé, et le changement appliqué ne figure plus dans la revue."""
+    raw = {"$id": "u.json", "type": "object", "properties": {"a": {"type": "integer"}}}
+    _seed_raw(tmp_path, "u.json", raw)
+    _seed_asset(tmp_path, "u.json", {"$id": "u.json", "type": "object", "x-origin": "raw/u.json",
+                                     "properties": {"a": {"type": "string"}}})
+    decisions = ReviewDecisions(
+        apply_fields={"u.json": ["a"]}, take_fields={}, remove_fields={},
+        remove_objects=[], retain_objects=[],
+    )
+    apply_review_fn("api", "deadbeef1234", decisions, advance=False)(tmp_path)
+    asset = json.loads((tmp_path / "sources" / "api" / "assets" / "u.json").read_text())
+    assert asset["properties"]["a"]["type"] == "integer"
+    assert read_review_point(tmp_path, "api") is None
+    review = build_review({"u.json": raw}, {"u.json": raw}, {"u.json": asset})
+    assert review.objects == []
+
+
 def test_apply_review_supprime_champ_objet_et_retient_nouveau(tmp_path: Path) -> None:
     _seed_raw(tmp_path, "u.json", {"$id": "u.json", "type": "object",
                                    "properties": {"a": {"type": "string"}}})

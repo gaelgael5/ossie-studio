@@ -260,9 +260,9 @@ def invalid_review_decisions(review: ReviewResult, decisions: ReviewDecisions) -
     return bad
 
 
-def review_paths(slug: str, decisions: ReviewDecisions) -> list[str]:
-    """Chemins qu'une revue appliquée peut toucher : les assets visés et le point
-    de reprise."""
+def review_paths(slug: str, decisions: ReviewDecisions, *, advance: bool = True) -> list[str]:
+    """Chemins qu'une revue appliquée peut toucher : les assets visés et, si elle
+    avance, le point de reprise."""
     names = (
         set(decisions.apply_fields)
         | set(decisions.take_fields)
@@ -270,21 +270,30 @@ def review_paths(slug: str, decisions: ReviewDecisions) -> list[str]:
         | set(decisions.remove_objects)
         | set(decisions.retain_objects)
     )
-    return [asset_repo_path(slug, n) for n in sorted(names)] + [
-        f"{source_rel_dir(slug)}/{REVIEW_FILE}"
-    ]
+    point = [f"{source_rel_dir(slug)}/{REVIEW_FILE}"] if advance else []
+    return [asset_repo_path(slug, n) for n in sorted(names)] + point
 
 
 async def apply_review(
-    target: CurationTarget, slug: str, head_sha: str, decisions: ReviewDecisions
+    target: CurationTarget,
+    slug: str,
+    head_sha: str,
+    decisions: ReviewDecisions,
+    *,
+    advance: bool = True,
 ) -> WriteResult:
-    """Appliquer des décisions de revue et avancer le point de reprise à
-    `head_sha`, en une écriture. Si le brut a bougé depuis (tête publiée ≠
-    `head_sha`), WorkdirError « review_stale » avant toute écriture. Un
-    changement non décidé est laissé tel quel ; le point de reprise avance."""
+    """Appliquer des décisions de revue et (si `advance`) avancer le point de
+    reprise à `head_sha`, en une écriture. Si le brut a bougé depuis (tête
+    publiée ≠ `head_sha`), WorkdirError « review_stale » avant toute écriture.
+    Un changement non décidé est laissé tel quel ; le point de reprise avance.
+    Sans `advance` (décisions d'un seul objet, depuis l'explorateur raw), seules
+    les décisions s'écrivent."""
     revision = await target.write(
-        f"curation {slug} : revue validée",
-        apply_review_fn(slug, head_sha, decisions),
+        f"curation {slug} : revue validée"
+        if advance
+        else f"curation {slug} : décisions de revue appliquées",
+        apply_review_fn(slug, head_sha, decisions, advance=advance),
         expect_head=head_sha,
     )
-    return WriteResult(revision, review_paths(slug, decisions) if revision else [])
+    paths = review_paths(slug, decisions, advance=advance) if revision else []
+    return WriteResult(revision, paths)

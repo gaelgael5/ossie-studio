@@ -250,6 +250,9 @@ def _entry_payload(entry: SourceEntry, connection: dict[str, object] | None) -> 
         "type": manifest.type,
         "connection": shown,
         "parameters": manifest.parameters,
+        # Nombre de règles de tri : la liste des sources les montre, comme les
+        # répertoires exclus (elles se règlent dans la configuration de la source).
+        "triage_count": len(manifest.triage),
     }
 
 

@@ -26,6 +26,7 @@ import { ApiRequestError } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { BusyButton } from '../components/BusyButton'
 import { RawPreview, TagBadges, VisibilityBadge, isObjectSelection } from './RawPreview'
+import { ReviewBanner, SourceReview, useSourceReview } from './RawSourceReview'
 import { RawGraph } from './RawGraph'
 import { RawDocumentPage, RawExclusive } from './RawExclusive'
 import {
@@ -62,6 +63,17 @@ function asParsers(parameters: Record<string, unknown> | undefined): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
 }
 
+// « Masquer les écartés » : retenu dans le navigateur, comme le mode d'affichage.
+const HIDE_EXCLUDED_KEY = 'ossie.rawExplorer.hideExcluded'
+
+function storedHideExcluded(): boolean {
+  try {
+    return localStorage.getItem(HIDE_EXCLUDED_KEY) === 'yes'
+  } catch {
+    return false
+  }
+}
+
 function storedPreviewOpen(): boolean {
   try {
     return localStorage.getItem(PREVIEW_KEY) !== 'closed'
@@ -82,7 +94,7 @@ function storedWidth(): number {
 // un dossier déjà vu à chaque clic.
 const STALE_MS = 30_000
 
-type View = 'tiles' | 'list' | 'graph'
+type View = 'tiles' | 'list' | 'graph' | 'review'
 type SortKey = 'name' | 'kind' | 'fields' | 'origin' | 'state'
 
 function storedMode(): RawExplorerMode {
@@ -157,6 +169,15 @@ export function RawExplorer({
   })
   const [treeWidth, setTreeWidth] = useState(storedWidth)
   const [previewOpen, setPreviewOpen] = useState(storedPreviewOpen)
+  const [hideExcluded, setHideExcluded] = useState(storedHideExcluded)
+  const toggleHideExcluded = (hide: boolean) => {
+    setHideExcluded(hide)
+    try {
+      localStorage.setItem(HIDE_EXCLUDED_KEY, hide ? 'yes' : 'no')
+    } catch {
+      // stockage indisponible : le choix vaut pour cette visite
+    }
+  }
   const togglePreview = (open: boolean) => {
     setPreviewOpen(open)
     try {
@@ -217,7 +238,8 @@ export function RawExplorer({
   const selected = params.get('sel') ?? ''
   const opened = params.get('open') ?? ''
   const viewParam = params.get('view')
-  const view: View = viewParam === 'list' || viewParam === 'graph' ? viewParam : 'tiles'
+  const view: View =
+    viewParam === 'list' || viewParam === 'graph' || viewParam === 'review' ? viewParam : 'tiles'
   // Centre du graphe : `center` (« source/fichier ») s'il est posé — un clic sur
   // un nœud sélectionne sans recentrer — sinon l'objet sélectionné.
   const centerParam = params.get('center')
@@ -245,12 +267,18 @@ export function RawExplorer({
   // source, mode) le laisserait vide. On revient donc à la vue d'où l'on était
   // entré dans le graphe (`back`), vignettes par défaut.
   const leaveGraph = (): Record<string, string | null> =>
-    view === 'graph'
+    view === 'graph' || view === 'review'
       ? { view: params.get('back') === 'list' ? 'list' : null, back: null, center: null }
       : {}
   /** Navigation vers un dossier : quitte le graphe s'il est affiché. */
   const goFolder = (changes: Record<string, string | null>, replace = false) =>
     go({ ...changes, ...leaveGraph() }, replace)
+  /** Entrée dans la revue de la source (même retour que le graphe). */
+  const reviewEntry = (): Record<string, string | null> => ({
+    view: 'review',
+    center: null,
+    back: view === 'list' ? 'list' : null,
+  })
   /** Entrée dans le graphe en retenant la vue à retrouver ensuite. */
   const graphEntry = (): Record<string, string | null> => ({
     view: 'graph',
@@ -266,6 +294,8 @@ export function RawExplorer({
   })
   const sourceList = useMemo(() => sources.data?.sources ?? [], [sources.data])
   const current: RawExplorerSource | undefined = sourceList.find((s) => s.slug === sourceSlug)
+  // Changements depuis la dernière revue : bandeau et vue « Revue » de la source.
+  const review = useSourceReview(spaceId, branchId, sourceSlug, !!current?.collected)
 
   // Configuration de la source (manifeste) : ses répertoires exclus se voient
   // dans l'arbre et se règlent d'ici. Les exclusions ne valent que pour une
@@ -401,6 +431,7 @@ export function RawExplorer({
     (o) =>
       (!kindFilter || o.kind === kindFilter) &&
       (!tagFilter || o.tags.some((tag) => tag.tag === tagFilter)) &&
+      !(hideExcluded && o.badges.includes('excluded')) &&
       (!badgeFilter || o.badges.includes(badgeFilter as RawBadge)) &&
       // Rien de coché : tout s'affiche (tables et contrats compris, sans visibilité).
       (visFilter.length === 0 || visFilter.includes(o.visibility)),
@@ -684,6 +715,16 @@ export function RawExplorer({
                     ))}
                   </select>
                 ) : null}
+                {presentBadges.includes('excluded') || hideExcluded ? (
+                  <label className="raw-hide-excluded">
+                    <input
+                      type="checkbox"
+                      checked={hideExcluded}
+                      onChange={(e) => toggleHideExcluded(e.target.checked)}
+                    />{' '}
+                    {t('rawHideExcluded')}
+                  </label>
+                ) : null}
                 {presentTags.length > 0 ? (
                   <select
                     className="select"
@@ -745,6 +786,9 @@ export function RawExplorer({
                 </p>
               ) : null}
               <CollectLine source={tree.data ?? current} />
+              {view !== 'review' ? (
+                <ReviewBanner review={review.data} onOpen={() => go(reviewEntry())} />
+              ) : null}
               {exclusionsApply && path && declaredSource ? (
                 <ExclusionBar
                   key={`${sourceSlug}/${path}`}
@@ -764,6 +808,15 @@ export function RawExplorer({
               {t('rawNotCollected')}{' '}
               <Link to={`/sources/${current.slug}`}>{t('rawGoCollect')}</Link>
             </div>
+          ) : view === 'review' ? (
+            <SourceReview
+              spaceId={spaceId}
+              branchId={branchId}
+              slug={sourceSlug}
+              selected={selected}
+              onSelect={(file) => go({ sel: file }, true)}
+              onBack={() => go(leaveGraph())}
+            />
           ) : view === 'graph' ? (
             graphCenter ? (
               <RawGraph
