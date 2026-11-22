@@ -238,6 +238,23 @@ export function RawExplorer({
     setParams(next, { replace })
   }
 
+  // Le graphe est centré sur un objet : ouvrir un dossier (arbre, fil d'Ariane,
+  // source, mode) le laisserait vide. On revient donc à la vue d'où l'on était
+  // entré dans le graphe (`back`), vignettes par défaut.
+  const leaveGraph = (): Record<string, string | null> =>
+    view === 'graph'
+      ? { view: params.get('back') === 'list' ? 'list' : null, back: null, center: null }
+      : {}
+  /** Navigation vers un dossier : quitte le graphe s'il est affiché. */
+  const goFolder = (changes: Record<string, string | null>, replace = false) =>
+    go({ ...changes, ...leaveGraph() }, replace)
+  /** Entrée dans le graphe en retenant la vue à retrouver ensuite. */
+  const graphEntry = (): Record<string, string | null> => ({
+    view: 'graph',
+    center: null,
+    back: view === 'list' ? 'list' : null,
+  })
+
   const sources = useQuery({
     queryKey: ['rawSources', spaceId, branchId],
     queryFn: () => api.listRawExplorerSources(spaceId, branchId),
@@ -294,7 +311,7 @@ export function RawExplorer({
       err.body.error === 'raw_explorer_folder_not_found' &&
       path
     ) {
-      go({ path: null, sel: null }, true)
+      goFolder({ path: null, sel: null }, true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder.error])
@@ -323,7 +340,7 @@ export function RawExplorer({
   const changeMode = (next: RawExplorerMode) => {
     storeMode(next)
     // Les dossiers diffèrent d'un mode à l'autre : on repart de la racine.
-    go({ mode: next, path: null })
+    goFolder({ mode: next, path: null })
   }
 
   const folderLabel = (folderPath: string): string => {
@@ -449,7 +466,7 @@ export function RawExplorer({
               })
             : openTarget(target)
         }
-        onGraph={() => go({ open: null, view: 'graph', sel: opened, center: null })}
+        onGraph={() => go({ open: null, sel: opened, ...graphEntry() })}
       />
     )
   }
@@ -489,7 +506,7 @@ export function RawExplorer({
                 <button
                   type="button"
                   className={`raw-tree-node${s.slug === sourceSlug && !path ? ' active' : ''}`}
-                  onClick={() => go({ source: s.slug, path: null, sel: null })}
+                  onClick={() => goFolder({ source: s.slug, path: null, sel: null })}
                 >
                   <span className="raw-tree-glyph">SRC</span>
                   {s.label}
@@ -501,7 +518,7 @@ export function RawExplorer({
                     parent=""
                     current={path}
                     label={folderLabel}
-                    onOpen={(p) => go({ path: p, sel: null })}
+                    onOpen={(p) => goFolder({ path: p, sel: null })}
                     excludedBy={excludedBy}
                   />
                 ) : null}
@@ -533,7 +550,7 @@ export function RawExplorer({
               <button
                 type="button"
                 className="btn-link"
-                onClick={() => go({ path: null, sel: null })}
+                onClick={() => goFolder({ path: null, sel: null })}
               >
                 {current?.label ?? sourceSlug}
               </button>
@@ -545,7 +562,7 @@ export function RawExplorer({
                     <button
                       type="button"
                       className="btn-link"
-                      onClick={() => go({ path: target, sel: null })}
+                      onClick={() => goFolder({ path: target, sel: null })}
                     >
                       {folderLabel(target)}
                     </button>
@@ -563,7 +580,7 @@ export function RawExplorer({
                 type="button"
                 className={`btn btn-sm${view === 'tiles' ? ' btn-primary' : ''}`}
                 aria-pressed={view === 'tiles'}
-                onClick={() => go({ view: null }, true)}
+                onClick={() => go({ view: null, back: null }, true)}
               >
                 {t('rawViewTiles')}
               </button>
@@ -571,7 +588,7 @@ export function RawExplorer({
                 type="button"
                 className={`btn btn-sm${view === 'list' ? ' btn-primary' : ''}`}
                 aria-pressed={view === 'list'}
-                onClick={() => go({ view: 'list' }, true)}
+                onClick={() => go({ view: 'list', back: null }, true)}
               >
                 {t('rawViewList')}
               </button>
@@ -579,7 +596,7 @@ export function RawExplorer({
                 type="button"
                 className={`btn btn-sm${view === 'graph' ? ' btn-primary' : ''}`}
                 aria-pressed={view === 'graph'}
-                onClick={() => go({ view: 'graph', center: null }, true)}
+                onClick={() => go(graphEntry(), true)}
               >
                 {t('rawViewGraph')}
               </button>
@@ -757,7 +774,7 @@ export function RawExplorer({
             <button
               type="button"
               className="btn btn-sm raw-up"
-              onClick={() => go({ path: parentOf(path) || null, sel: null })}
+              onClick={() => goFolder({ path: parentOf(path) || null, sel: null })}
             >
               {t('rawUp')}
             </button>
