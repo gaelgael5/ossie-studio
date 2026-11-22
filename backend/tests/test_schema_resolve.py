@@ -30,9 +30,7 @@ def test_index_resolout_nom_unique() -> None:
 
 
 def test_index_ambigu_rend_none() -> None:
-    index = SchemaIndex(
-        {"a-ligne.json": _schema("Ligne"), "b-ligne.json": _schema("Ligne")}
-    )
+    index = SchemaIndex({"a-ligne.json": _schema("Ligne"), "b-ligne.json": _schema("Ligne")})
     assert index.resolve("Ligne") is None
 
 
@@ -104,3 +102,120 @@ def test_cible_supprimee_non_resolue() -> None:
     # Ligne est supprimée dans la même collecte → plus de cible.
     _, resolved = resolve_source_schemas(existing, writes, ["a-ligne.json"])
     assert resolved == 0
+
+
+# --- Homonymes : projets référencés et namespaces --------------------------------------
+
+
+def _cs(title: str, ns: str, props: dict | None = None, usings: list[str] | None = None) -> str:
+    body: dict = {
+        "$id": f"{ns.lower()}-{title.lower()}.json",
+        "title": title,
+        "type": "object",
+        "x-namespace": ns,
+    }
+    if usings:
+        body["x-usings"] = usings
+    if props is not None:
+        body["properties"] = props
+    return json.dumps(body)
+
+
+def _tech(entries: dict[str, str]) -> str:
+    from ossie_studio.sources.collect_core import TechEntry, TechManifest, dump_tech_manifest
+
+    return dump_tech_manifest(
+        TechManifest(
+            parsers={},
+            entries={
+                src: TechEntry(checksum="x", destinations=[dest], branch="main", parser="csharp")
+                for dest, src in entries.items()
+            },
+        )
+    )
+
+
+REF = {"w": {"x-unresolved-type": "WeightAndDimension", "x-visibility": "public"}}
+
+
+def _resolved(writes: list[OutputAction], path: str) -> dict:
+    content = next(a.content for a in writes if a.path == path)
+    return json.loads(content)["properties"]["w"]
+
+
+def test_homonymes_departages_par_le_namespace_de_l_objet() -> None:
+    existing = {
+        "a.json": _cs("WeightAndDimension", "Colis.TTEvent"),
+        "b.json": _cs("WeightAndDimension", "Colis.Shipment"),
+        "c.json": _cs("WeightAndDimension", "Colis.Model"),
+        "p.json": _cs("ParcelInfos", "Colis.TTEvent", REF),
+    }
+    writes, count = resolve_source_schemas(existing, [], [])
+    assert count == 1
+    assert _resolved(writes, "p.json") == {"$ref": "a.json", "x-visibility": "public"}
+
+
+def test_homonymes_namespace_parent_puis_using() -> None:
+    existing = {
+        "a.json": _cs("WeightAndDimension", "Colis.Shipment"),
+        "b.json": _cs("WeightAndDimension", "Colis"),
+        "p.json": _cs("ParcelInfos", "Colis.TTEvent.Deep", REF),
+        "q.json": _cs("Other", "Ailleurs", REF, usings=["Colis.Shipment", "System"]),
+        "r.json": _cs("Third", "Ailleurs", REF),
+    }
+    writes, _ = resolve_source_schemas(existing, [], [])
+    assert _resolved(writes, "p.json")["$ref"] == "b.json"  # namespace parent « Colis »
+    assert _resolved(writes, "q.json")["$ref"] == "a.json"  # using
+    assert not any(a.path == "r.json" for a in writes)  # aucun indice : on ne devine pas
+
+
+def test_homonymes_projet_non_reference_ecarte() -> None:
+    existing = {
+        "a.json": _cs("WeightAndDimension", "Colis.Shipment"),
+        "b.json": _cs("WeightAndDimension", "Colis.Model"),
+        "p.json": _cs("ParcelInfos", "Colis.Api", REF, usings=["Colis.Shipment", "Colis.Model"]),
+        "manifest-csharp.yaml": _tech(
+            {
+                "a.json": "src/Shipment/W.cs",
+                "b.json": "src/Model/W.cs",
+                "p.json": "src/Api/P.cs",
+            }
+        ),
+    }
+    files = {
+        "src/Api/Api.csproj": b"<Project><ItemGroup>"
+        b'<ProjectReference Include="..\\Model\\Model.csproj" /></ItemGroup></Project>',
+        "src/Model/Model.csproj": b"<Project/>",
+        "src/Shipment/Shipment.csproj": b"<Project/>",
+    }
+    # Sans la carte des projets, les deux usings laissent un doute.
+    writes, count = resolve_source_schemas(existing, [], [])
+    assert count == 0
+    # Avec : Shipment n'est pas référencé par Api, seul Model reste.
+    writes, count = resolve_source_schemas(existing, [], [], files)
+    assert count == 1
+    assert _resolved(writes, "p.json")["$ref"] == "b.json"
+
+
+def test_homonymes_toujours_ambigus_restent_non_resolus() -> None:
+    existing = {
+        "a.json": _cs("WeightAndDimension", "Colis.A"),
+        "b.json": _cs("WeightAndDimension", "Colis.B"),
+        "p.json": _cs("ParcelInfos", "Ailleurs", REF, usings=["Colis.A", "Colis.B"]),
+    }
+    _, count = resolve_source_schemas(existing, [], [])
+    assert count == 0
+
+
+def test_csproj_illisible_ou_reference_hors_depot() -> None:
+    from ossie_studio.sources.schema_resolve import read_project_map
+
+    projects = read_project_map(
+        {
+            "Api/Api.csproj": b'<ProjectReference Include="..\\..\\Outside\\O.csproj"/>\xff',
+            "Lib/Lib.csproj": b"\x00\x01 pas du xml",
+        }
+    )
+    assert projects.refs == {"Api": set(), "Lib": set()}
+    assert projects.project_of("Api/Controllers/X.cs") == "Api"
+    assert projects.project_of("Autre/X.cs") is None

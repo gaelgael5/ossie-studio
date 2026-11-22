@@ -111,6 +111,7 @@ class _Type:
     members: list[_Member] = field(default_factory=list)
     enum_members: list[str] = field(default_factory=list)
     namespace: str = ""
+    usings: list[str] = field(default_factory=list)
 
     def merge(self, other: _Type) -> None:
         seen = {m.name for m in self.members}
@@ -119,6 +120,7 @@ class _Type:
         self.attributes += other.attributes
         if not self.doc:
             self.doc = other.doc
+        self.usings += [u for u in other.usings if u not in self.usings]
 
 
 # --- Navigation de l'arbre (utilise `src`, les octets du fichier courant) -----
@@ -261,12 +263,39 @@ def _type_ref(src: bytes, node: Node | None) -> _TypeRef:
 
 def _extract_file(src: bytes, root: Node) -> list[_Type]:
     out: list[_Type] = []
-    _walk(src, root, namespace="", enclosing="", out=out)
+    _walk(src, root, namespace="", enclosing="", out=out, usings=())
     return out
 
 
-def _walk(src: bytes, node: Node, *, namespace: str, enclosing: str, out: list[_Type]) -> None:
+# `using A.B;` (ni `using static`, ni alias `using X = A.B;`, ni `global::`) :
+# les namespaces importés, dont le socle se sert pour départager deux types
+# homonymes de la source (résolution des références).
+_USING = re.compile(
+    r"^\s*(?:global\s+)?using\s+(?!static\b)(?![\w.]+\s*=)(?:global::)?([\w.]+)\s*;"
+)
+
+
+def _level_usings(src: bytes, node: Node, inherited: tuple[str, ...]) -> tuple[str, ...]:
+    found = list(inherited)
+    for child in node.named_children:
+        if child.type == "using_directive":
+            match = _USING.match(_text(src, child))
+            if match and match.group(1) not in found:
+                found.append(match.group(1))
+    return tuple(found)
+
+
+def _walk(
+    src: bytes,
+    node: Node,
+    *,
+    namespace: str,
+    enclosing: str,
+    out: list[_Type],
+    usings: tuple[str, ...],
+) -> None:
     current = namespace
+    usings = _level_usings(src, node, usings)
     for child in node.named_children:
         if child.type == "file_scoped_namespace_declaration":
             # S'applique à tous les frères qui suivent dans le fichier.
@@ -274,16 +303,18 @@ def _walk(src: bytes, node: Node, *, namespace: str, enclosing: str, out: list[_
         elif child.type == "namespace_declaration":
             ns = _text(src, child.child_by_field_name("name"))
             body = child.child_by_field_name("body")
-            _walk(src, body or child, namespace=ns, enclosing="", out=out)
+            _walk(src, body or child, namespace=ns, enclosing="", out=out, usings=usings)
         elif child.type in _KINDS:
-            out.append(_build_type(src, child, namespace=current, enclosing=enclosing))
+            info = _build_type(src, child, namespace=current, enclosing=enclosing)
+            info.usings = list(usings)
+            out.append(info)
             body = child.child_by_field_name("body")
             inner = _text(src, child.child_by_field_name("name"))
             if body is not None:
                 deeper = f"{enclosing}.{inner}" if enclosing else inner
-                _walk(src, body, namespace=current, enclosing=deeper, out=out)
+                _walk(src, body, namespace=current, enclosing=deeper, out=out, usings=usings)
         elif child.type == "declaration_list":
-            _walk(src, child, namespace=current, enclosing=enclosing, out=out)
+            _walk(src, child, namespace=current, enclosing=enclosing, out=out, usings=usings)
 
 
 def _build_type(src: bytes, node: Node, *, namespace: str, enclosing: str) -> _Type:
@@ -459,6 +490,10 @@ def _build_schema(info: _Type, known: dict[str, str]) -> dict[str, Any]:
     # affiché tel quel par l'explorateur raw : le `$id`, slugifié, ne le rend pas.
     if info.namespace:
         schema["x-namespace"] = info.namespace
+    # Namespaces importés par le fichier : le socle de résolution s'en sert pour
+    # départager des homonymes (voir sources/schema_resolve.py).
+    if info.usings:
+        schema["x-usings"] = list(info.usings)
     if info.visibility_source:
         schema["x-visibility-source"] = info.visibility_source
     if info.doc:
@@ -500,7 +535,7 @@ class CSharpParser:
     id = "csharp"
     cible = CIBLE_RAW
     label = "C#"
-    version = f"1.2-ts{grammar_version('csharp')}"
+    version = f"1.3-ts{grammar_version('csharp')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)

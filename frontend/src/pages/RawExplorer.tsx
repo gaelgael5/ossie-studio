@@ -551,6 +551,8 @@ export function RawExplorer({
         />
 
         <section className="raw-main">
+          {/* Fil d'Ariane, vues et filtres restent visibles quand la grille défile. */}
+          <div className="raw-head">
           <div className="raw-toolbar">
             <nav className="breadcrumb raw-crumbs" aria-label={t('rawBreadcrumb')}>
               <span>{spaceName}</span>
@@ -612,7 +614,6 @@ export function RawExplorer({
           </div>
 
           {current && current.collected ? (
-            <>
               <div className="raw-filters">
                 <div className="raw-search">
                   <input
@@ -716,6 +717,11 @@ export function RawExplorer({
                   </fieldset>
                 ) : null}
               </div>
+          ) : null}
+          </div>
+
+          {current && current.collected ? (
+            <>
               <CollectLine source={tree.data ?? current} />
               {exclusionsApply && path && declaredSource ? (
                 <ExclusionBar

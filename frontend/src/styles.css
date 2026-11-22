@@ -1406,6 +1406,13 @@ body.resizing-x {
   overflow: auto;
   padding-right: 4px;
 }
+.raw-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg);
+  padding-bottom: 2px;
+}
 .raw-toolbar,
 .raw-filters {
   display: flex;
