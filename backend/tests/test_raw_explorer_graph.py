@@ -188,3 +188,34 @@ def test_entrantes_avec_cardinalite_d_origine() -> None:
         ("Invoice", "order", "0..1"),
         ("Line", "order", "1"),
     ]
+
+
+async def test_api_compteur_et_liste_des_references_entrantes(sp: ApiSpace) -> None:
+    files = _git_files()
+    files["sources/app/raw/order.json"] = dump_schema(
+        {
+            "$id": "order.json",
+            "title": "Order",
+            "type": "object",
+            "x-kind": "class",
+            "required": ["customer"],
+            "properties": {"customer": {"$ref": "customer.json"}},
+        }
+    )
+    forge_edit(sp, files)
+    base = f"{sp.base}/raw-explorer/app"
+    folder = await sp.client.get(f"{base}/folder", params={"path": "src/Domain/Sub"})
+    assert folder.status_code == 200, folder.text
+    counts = {o["title"]: o["referenced_by"] for o in folder.json()["objects"]}
+    assert counts["Customer"] == 1
+    found = await sp.client.get(f"{base}/search", params={"q": "ord"})
+    assert found.json()["results"][0]["referenced_by"] == 0
+    r = await sp.client.get(f"{base}/incoming", params={"file": "customer.json"})
+    assert r.status_code == 200, r.text
+    incoming = r.json()["incoming"]
+    assert [(i["target"]["title"], i["field"], i["cardinality"]) for i in incoming] == [
+        ("Order", "customer", "1")
+    ]
+    assert incoming[0]["target"]["folder"] == "src/Domain"
+    r = await sp.client.get(f"{base}/incoming", params={"file": "absent.json"})
+    assert r.json() == {"incoming": []}

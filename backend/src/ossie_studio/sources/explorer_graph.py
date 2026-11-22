@@ -73,6 +73,10 @@ class ReferenceGraph:
             "folder": located.folder,
         }
 
+    def incoming_count(self, key: NodeKey) -> int:
+        """Nombre de références entrantes (compteur des vignettes)."""
+        return len(self._incoming.get(key, []))
+
     def incoming(self, key: NodeKey) -> list[dict[str, Any]]:
         """Références entrantes d'un objet : qui le référence, par quel champ,
         avec la cardinalité du champ dans l'objet d'origine."""

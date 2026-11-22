@@ -58,7 +58,16 @@ function folderBody(path: string) {
     path,
     folders: [],
     objects: [
-      { ...OBJ, file: 'order.json', title: 'Order', badges: ['retained'], visibility: 'public', visibility_source: '', tags: [SERVICE_TAG] },
+      {
+        ...OBJ,
+        file: 'order.json',
+        title: 'Order',
+        badges: ['retained'],
+        visibility: 'public',
+        visibility_source: '',
+        tags: [SERVICE_TAG, { ...SERVICE_TAG, tag: 'technique/dto' }, { ...SERVICE_TAG, tag: 'donnees/contact' }],
+        referenced_by: 3,
+      },
       {
         ...OBJ,
         file: 'status.json',
@@ -207,6 +216,7 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
       else if (u.pathname.endsWith('/tree')) body = { ...TREE, mode: u.searchParams.get('mode') }
       else if (u.pathname.endsWith('/folder')) body = folderBody(u.searchParams.get('path') ?? '')
       else if (u.pathname.endsWith('/graph')) body = GRAPH
+      else if (u.pathname.endsWith('/incoming')) body = { incoming: DETAIL.incoming }
       else if (u.pathname.endsWith('/document/content'))
         body = { path: 'docs/guide.md', title: 'Guide', markdown: '# Guide\n\n## Commandes\n\nUne Order se crée.' }
       else if (u.pathname.endsWith('/object/history'))
@@ -684,6 +694,30 @@ describe('RawExplorer', () => {
     const loc = screen.getByTestId('loc').textContent ?? ''
     expect(loc).toContain('sel=invoice.json')
     expect(loc).toContain('path=src')
+  })
+
+  it('vignette : compteur « référencé par », menu déroulant, un clic ouvre l’objet ; tags limités', async () => {
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain')
+    const counter = await screen.findByRole('button', { name: 'Référencé par 3 objet(s)' })
+    // Au repos, deux tags et « +1 » ; le troisième est dans les détails du survol.
+    expect(screen.getByText('+1')).toBeInTheDocument()
+    expect(calls.some((c) => c.includes('/incoming'))).toBe(false) // chargé à l'ouverture seulement
+    await user.click(counter)
+    const menu = within(await screen.findByRole('menu'))
+    expect(menu.getByText('Référencé par (3)')).toBeInTheDocument()
+    expect(menu.getByText('order · champ · 0..1')).toBeInTheDocument()
+    expect(menu.getByText('order_id · clé étrangère · 1 · db')).toBeInTheDocument()
+    // Le clic sur le compteur n'a pas sélectionné la vignette.
+    expect(screen.getByTestId('loc').textContent).not.toContain('sel=')
+    await user.click(menu.getByRole('menuitem', { name: /SpecialOrder/ }))
+    expect(screen.getByTestId('loc').textContent).toContain('sel=specialorder.json')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    // Echap ferme le menu.
+    await user.click(screen.getByRole('button', { name: 'Référencé par 3 objet(s)' }))
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
   })
 
   it('graphe : ouvrir un dossier de l’arbre revient à la vue précédente', async () => {

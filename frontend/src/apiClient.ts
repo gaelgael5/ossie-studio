@@ -460,6 +460,8 @@ export interface RawObjectItem {
   visibility: string
   visibility_source: string
   tags: RawObjectTag[]
+  /** Nombre d'objets de l'espace qui référencent celui-ci (compteur des vignettes). */
+  referenced_by?: number
 }
 
 export interface RawDocumentItem {
@@ -1202,6 +1204,16 @@ export const api = {
   getRawDocumentContent: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<{ path: string; title: string; markdown: string }>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/document/content?path=${encodeURIComponent(path)}`,
+    ),
+  getRawIncoming: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    mode: RawExplorerMode,
+    file: string,
+  ) =>
+    apiFetch<{ incoming: RawIncoming[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/incoming?mode=${mode}&file=${encodeURIComponent(file)}`,
     ),
   getRawGraph: (
     spaceId: string,

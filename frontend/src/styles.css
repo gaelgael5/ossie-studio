@@ -1480,8 +1480,134 @@ body.resizing-x {
 }
 .raw-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 12px;
+}
+/* La vignette et son compteur « référencé par » (posé dans le coin, hors du
+   bouton de la vignette). */
+.raw-tile-wrap {
+  position: relative;
+}
+.raw-tile-wrap > .raw-tile {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+/* Effet loupe au survol : la vignette grandit par-dessus ses voisines et
+   montre ses détails (tous les tags, chemin complet, parseur). */
+.raw-tile-more {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+}
+.raw-tile-path {
+  overflow-wrap: anywhere;
+}
+.raw-tile-more-count {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+@media (hover: hover) {
+  .raw-tile-wrap:hover {
+    z-index: 4;
+  }
+  .raw-tile-wrap:hover > .raw-tile {
+    transform: scale(1.04);
+    box-shadow: var(--shadow);
+  }
+  /* Les détails s'ouvrent sous la vignette, en surimpression : la grille ne
+     bouge pas. */
+  .raw-tile-wrap:hover .raw-tile-more {
+    display: flex;
+    position: absolute;
+    top: calc(100% - 2px);
+    left: -1px;
+    right: -1px;
+    padding: 8px 16px 12px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 var(--radius) var(--radius);
+    box-shadow: var(--shadow);
+  }
+  .raw-tile-wrap:hover .raw-tile-more-count {
+    display: none;
+  }
+  .raw-tile-wrap:hover .raw-tile-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .raw-tile {
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+}
+.raw-ref-menu {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 5;
+}
+.raw-ref-count {
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.raw-ref-count:hover,
+.raw-ref-count[aria-expanded='true'] {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+td .raw-ref-menu {
+  position: relative;
+  top: 0;
+  right: 0;
+}
+.raw-ref-popup {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  width: 300px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 0;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+.raw-ref-popup .panel-label {
+  padding: 0 12px;
+}
+.raw-ref-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.raw-ref-item:hover,
+.raw-ref-item:focus-visible {
+  background: var(--surface-muted);
+}
+.raw-ref-title {
+  font-weight: 600;
 }
 .raw-tile {
   display: flex;

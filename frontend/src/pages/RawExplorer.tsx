@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   type PointerEvent,
+  type ReactNode,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -27,6 +28,7 @@ import { ErrorList } from '../components/ErrorList'
 import { BusyButton } from '../components/BusyButton'
 import { RawPreview, TagBadges, VisibilityBadge, isObjectSelection } from './RawPreview'
 import { ReviewBanner, SourceReview, useSourceReview } from './RawSourceReview'
+import { RefMenu } from './RawRefMenu'
 import { RawGraph } from './RawGraph'
 import { RawDocumentPage, RawExclusive } from './RawExclusive'
 import {
@@ -48,6 +50,8 @@ const BADGES: RawBadge[] = ['retained', 'new', 'modified', 'excluded', 'error']
 const MODE_KEY = 'ossie.rawExplorer.mode'
 const WIDTH_KEY = 'ossie.rawExplorer.treeWidth'
 const PREVIEW_KEY = 'ossie.rawExplorer.preview'
+// Tags montrés sur une vignette au repos ; les autres apparaissent au survol.
+const TILE_TAGS = 2
 // Résultats rendus au plus par le serveur (raw_explorer `_SEARCH_LIMIT`).
 const SEARCH_LIMIT = 50
 const TREE_MIN = 180
@@ -863,6 +867,17 @@ export function RawExplorer({
               onSelect={selectObject}
               onOpenItem={(file) => go({ open: file, sel: file })}
               excludedBy={excludedBy}
+              refMenu={(o) => (
+                <RefMenu
+                  spaceId={spaceId}
+                  branchId={branchId}
+                  slug={sourceSlug}
+                  mode={mode}
+                  file={o.file}
+                  count={o.referenced_by ?? 0}
+                  onOpen={openTarget}
+                />
+              )}
             />
           ) : hasContent ? (
             <ListView
@@ -876,6 +891,17 @@ export function RawExplorer({
               onOpenFolder={(p) => go({ path: p, sel: null })}
               onSelect={selectObject}
               onOpenItem={(file) => go({ open: file, sel: file })}
+              refMenu={(o) => (
+                <RefMenu
+                  spaceId={spaceId}
+                  branchId={branchId}
+                  slug={sourceSlug}
+                  mode={mode}
+                  file={o.file}
+                  count={o.referenced_by ?? 0}
+                  onOpen={openTarget}
+                />
+              )}
             />
           ) : null}
           {path && folder.data && !searching ? (
@@ -1062,13 +1088,14 @@ function CollectLine({ source }: { source: RawExplorerSource }) {
   )
 }
 
-function Badges({ obj }: { obj: RawObjectItem }) {
+function Badges({ obj, withTags = true }: { obj: RawObjectItem; withTags?: boolean }) {
   const { t } = useTranslation()
-  if (obj.badges.length === 0 && !obj.visibility && obj.tags.length === 0) return null
+  const tags = withTags ? obj.tags : []
+  if (obj.badges.length === 0 && !obj.visibility && tags.length === 0) return null
   return (
     <span className="raw-badges">
       <VisibilityBadge visibility={obj.visibility} source={obj.visibility_source} />
-      <TagBadges tags={obj.tags} />
+      <TagBadges tags={tags} />
       {obj.badges.map((b) => (
         <span
           key={b}
@@ -1093,6 +1120,8 @@ interface ContentProps {
   excludedBy?: (path: string) => string | null
   /** Double-clic : vue exclusive d'un objet, ou document en pleine page. */
   onOpenItem?: (file: string) => void
+  /** Compteur « référencé par » d'un objet, avec son menu déroulant. */
+  refMenu?: (obj: RawObjectItem) => ReactNode
 }
 
 function Tiles({
@@ -1105,6 +1134,7 @@ function Tiles({
   onSelect,
   excludedBy,
   onOpenItem,
+  refMenu,
 }: ContentProps) {
   const { t } = useTranslation()
   return (
@@ -1138,22 +1168,47 @@ function Tiles({
           <h2 className="panel-label">{t('rawSectionObjects')}</h2>
           <div className="raw-tiles">
             {objects.map((o) => (
-              <button
-                key={o.file}
-                type="button"
-                className={`raw-tile${selected === o.file ? ' selected' : ''}`}
-                aria-pressed={selected === o.file}
-                onClick={() => onSelect(o.file)}
-                onDoubleClick={() => onOpenItem?.(o.file)}
-              >
-                <span className="raw-glyph">{kindGlyph(o.kind)}</span>
-                <span className="raw-tile-name">{o.title}</span>
-                <span className="raw-tile-sub">
-                  {t('rawFields', { count: o.fields })}
-                  {o.origin ? ` · ${lastSegment(o.origin)}` : ''}
-                </span>
-                <Badges obj={o} />
-              </button>
+              // Le compteur est à côté du bouton de la vignette, pas dedans : un
+              // bouton ne peut pas en contenir d'autres (menu cliquable).
+              <div key={o.file} className="raw-tile-wrap">
+                <button
+                  type="button"
+                  className={`raw-tile${selected === o.file ? ' selected' : ''}`}
+                  aria-pressed={selected === o.file}
+                  onClick={() => onSelect(o.file)}
+                  onDoubleClick={() => onOpenItem?.(o.file)}
+                >
+                  <span className="raw-glyph">{kindGlyph(o.kind)}</span>
+                  <span className="raw-tile-name">{o.title}</span>
+                  <span className="raw-tile-sub">
+                    {t('rawFields', { count: o.fields })}
+                    {o.origin ? ` · ${lastSegment(o.origin)}` : ''}
+                  </span>
+                  <Badges obj={o} withTags={false} />
+                  {o.tags.length > 0 ? (
+                    // Au repos : les deux premiers tags et « +N » ; au survol
+                    // (effet loupe), tous les tags et le chemin complet.
+                    <span className="raw-badges raw-tile-tags">
+                      <TagBadges tags={o.tags.slice(0, TILE_TAGS)} />
+                      {o.tags.length > TILE_TAGS ? (
+                        <span className="raw-tile-more-count">+{o.tags.length - TILE_TAGS}</span>
+                      ) : null}
+                    </span>
+                  ) : null}
+                  <span className="raw-tile-more">
+                    {o.tags.length > TILE_TAGS ? (
+                      <span className="raw-badges">
+                        <TagBadges tags={o.tags.slice(TILE_TAGS)} />
+                      </span>
+                    ) : null}
+                    {o.origin ? <span className="mono small raw-tile-path">{o.origin}</span> : null}
+                    {o.parser ? (
+                      <span className="small muted">{t('rawTileParser', { parser: o.parser })}</span>
+                    ) : null}
+                  </span>
+                </button>
+                {refMenu?.(o)}
+              </div>
             ))}
           </div>
         </section>
@@ -1194,6 +1249,7 @@ function ListView({
   onOpenFolder,
   onSelect,
   onOpenItem,
+  refMenu,
 }: ContentProps & {
   sort: { key: SortKey; asc: boolean }
   onSort: (key: SortKey) => void
@@ -1244,6 +1300,7 @@ function ListView({
             {header('fields', t('rawColFields'))}
             {header('origin', t('rawColOrigin'))}
             {header('state', t('rawColState'))}
+            <th>{t('rawColReferencedBy')}</th>
           </tr>
         </thead>
         <tbody>
@@ -1254,6 +1311,7 @@ function ListView({
               </td>
               <td className="muted">{t('rawKindFolder')}</td>
               <td className="muted">{t('rawItems', { count: f.items })}</td>
+              <td />
               <td />
               <td />
             </tr>
@@ -1274,6 +1332,7 @@ function ListView({
               <td>
                 <Badges obj={o} />
               </td>
+              <td>{refMenu?.(o)}</td>
             </tr>
           ))}
           {documents.map((d) => (
@@ -1289,6 +1348,7 @@ function ListView({
               <td className="muted">{t('rawKindDocument')}</td>
               <td className="muted">{t('rawSections', { count: d.sections })}</td>
               <td className="mono">{d.path}</td>
+              <td />
               <td />
             </tr>
           ))}

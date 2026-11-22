@@ -225,7 +225,7 @@ async def _read_index(
     branch_id: uuid.UUID,
     slug: str,
     mode: str,
-) -> tuple[SourceIndex, list[ScanFile]]:
+) -> tuple[SourceIndex, list[ScanFile], IndexKey]:
     if not is_valid_source_slug(slug):
         raise ApiError("source_not_found", status_code=404, slug=slug)
     key, branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
@@ -234,7 +234,7 @@ async def _read_index(
         raise ApiError("source_not_found", status_code=404, slug=slug)
     scan = await _scan(conn, space_id, branch_ref, slug)
     error_origins = {f.path for f in scan if f.statut == STATUT_ERREUR}
-    return index_from_entries(entries, mode, error_origins), scan
+    return index_from_entries(entries, mode, error_origins), scan, key
 
 
 @router.get("")
@@ -278,7 +278,7 @@ async def get_explorer_tree(
     mode: str = DEFAULT_MODE,
 ) -> dict[str, object]:
     """Les dossiers d'une source pour un mode d'affichage (sans leur contenu)."""
-    index, scan = await _read_index(
+    index, scan, _key = await _read_index(
         conn, crypto, workdir, space_id, branch_id, slug, _check_mode(mode)
     )
     counts = subtree_file_counts(index)
@@ -311,20 +311,26 @@ async def get_explorer_folder(
     path: str = "",
 ) -> dict[str, object]:
     """Contenu d'un dossier : sous-dossiers, objets et documents."""
-    index, _scan_files = await _read_index(
+    index, _scan_files, key = await _read_index(
         conn, crypto, workdir, space_id, branch_id, slug, _check_mode(mode)
     )
     folder = index.folders.get(path)
     if folder is None:
         raise ApiError("raw_explorer_folder_not_found", status_code=404, path=path)
     counts = subtree_file_counts(index)
+    # Compteur « référencé par » des vignettes : pris dans l'index inverse (en
+    # cache par état de l'index), jamais calculé vignette par vignette.
+    graph = await _reference_graph(conn, key, mode)
     return {
         "path": path,
         "folders": [
             {"path": sub, "items": folder_item_count(index.folders[sub]), "files": counts[sub]}
             for sub in sorted(folder.folders, key=str.casefold)
         ],
-        "objects": [_object_payload(o) for o in sort_objects(folder.objects)],
+        "objects": [
+            {**_object_payload(o), "referenced_by": graph.incoming_count((slug, o.file))}
+            for o in sort_objects(folder.objects)
+        ],
         "documents": [_document_payload(d) for d in sorted(folder.documents, key=lambda d: d.path)],
     }
 
@@ -343,15 +349,41 @@ async def search_explorer(
 ) -> dict[str, object]:
     """Objets de la source dont le nom contient `q` (insensible à la casse), avec
     le dossier où les ouvrir dans le mode courant."""
-    index, _scan_files = await _read_index(
+    index, _scan_files, key = await _read_index(
         conn, crypto, workdir, space_id, branch_id, slug, _check_mode(mode)
     )
+    graph = await _reference_graph(conn, key, mode)
     return {
         "results": [
-            {"folder": folder, **_object_payload(obj)}
+            {
+                "folder": folder,
+                **_object_payload(obj),
+                "referenced_by": graph.incoming_count((slug, obj.file)),
+            }
             for folder, obj in search_objects(index, q[:200])
         ]
     }
+
+
+@router.get("/{slug}/incoming")
+async def get_explorer_incoming(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    file: str,
+    mode: str = DEFAULT_MODE,
+) -> dict[str, object]:
+    """Objets qui référencent `file` (menu déroulant d'une vignette) : léger, lu
+    dans l'index inverse, sans relire le schéma de l'objet."""
+    if not is_valid_source_slug(slug):
+        raise ApiError("source_not_found", status_code=404, slug=slug)
+    key, _ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    graph = await _reference_graph(conn, key, _check_mode(mode))
+    return {"incoming": graph.incoming((slug, file))}
 
 
 # --- Aperçu de l'élément sélectionné -------------------------------------------
