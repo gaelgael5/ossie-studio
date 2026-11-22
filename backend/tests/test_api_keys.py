@@ -14,11 +14,13 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from ossie_studio.api_keys.service import KEY_PREFIX, key_hash
-from ossie_studio.mcp_surface.catalog import READ_PRIMITIVES
+from ossie_studio.mcp_surface.catalog import PERSON_ONLY, READ_PRIMITIVES
 from tests.conftest import ADMIN_EMAIL, ADMIN_PASSWORD, bootstrap_admin, create_plain_user, login
 from tests.mcp_helpers import call_tool, raw_mcp_status, tool_names
 
 PASSWORD = "motdepasse-solide"
+# Ce qu'un profil « toutes les lectures » donne à une clé (sans personne, sans brouillon).
+KEY_READS = READ_PRIMITIVES - PERSON_ONLY
 
 
 # --- Outillage ------------------------------------------------------------------------
@@ -127,7 +129,7 @@ async def test_avec_la_cle_le_client_voit_exactement_le_profil(
     await _admin(client)
     secret = (await _issue(client, await _profile_id(app))).json()["secret"]
 
-    assert set(await tool_names(app, secret)) == READ_PRIMITIVES
+    assert set(await tool_names(app, secret)) == KEY_READS
     result = await call_tool(app, secret, "list_spaces")
     assert not result.is_error
 
@@ -194,12 +196,12 @@ async def test_profil_au_dela_de_ses_droits_refuse_en_nommant_la_primitive(
         refused = await ana.post("/api/api-keys", json={"label": "x", "agent_profile_id": lecture})
         assert refused.status_code == 403
         assert refused.json()["error"] == "agent_profile_beyond_rights"
-        assert refused.json()["error_args"]["primitives"] == ", ".join(sorted(READ_PRIMITIVES))
+        assert refused.json()["error_args"]["primitives"] == ", ".join(sorted(KEY_READS))
 
         options = (await ana.get("/api/api-keys/options")).json()
         by_name = {p["name"]: p for p in options["agent_profiles"]}
         assert by_name["Lecture"]["grantable"] is False
-        assert by_name["Lecture"]["beyond"] == sorted(READ_PRIMITIVES)
+        assert by_name["Lecture"]["beyond"] == sorted(KEY_READS)
 
         # Un profil sans primitive qu'elle n'a pas : accordé.
         empty = await _agent_profile(app, "Vide", [])

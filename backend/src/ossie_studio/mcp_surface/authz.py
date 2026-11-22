@@ -14,7 +14,7 @@ from ossie_studio.agent_profiles.service import load_agent_primitives
 from ossie_studio.auth.service import db_get_user_by_id
 from ossie_studio.authz.catalog import SPACE_SCOPED
 from ossie_studio.mcp_surface.caller import McpCaller
-from ossie_studio.mcp_surface.catalog import BY_ID
+from ossie_studio.mcp_surface.catalog import BY_ID, PERSON_ONLY
 from ossie_studio.models import User
 from ossie_studio.profiles.service import load_capabilities, load_capabilities_by_space
 
@@ -34,13 +34,14 @@ async def caller_user(conn: asyncpg.Connection, caller: McpCaller) -> User | Non
 async def allowed_primitives(conn: asyncpg.Connection, caller: McpCaller) -> set[str]:
     """Primitives que l'appelant peut voir et appeler.
 
-    Clé d'API : celles de son profil agent. Connexion OAuth : celles de son
-    profil agent dont la personne a la capacité supposée, globalement ou sur au
-    moins un espace (l'appel sur un espace précis est revérifié par
-    `authorize`). Personne disparue → rien."""
+    Clé d'API : celles de son profil agent, hors primitives propres au brouillon
+    d'une personne. Connexion OAuth : celles de son profil agent dont la
+    personne a la capacité supposée, globalement ou sur au moins un espace
+    (l'appel sur un espace précis est revérifié par `authorize`). Personne
+    disparue → rien."""
     primitives = await load_agent_primitives(conn, caller.agent_profile_id)
     if caller.user_id is None:
-        return primitives
+        return primitives - PERSON_ONLY
     user = await caller_user(conn, caller)
     if user is None:
         return set()

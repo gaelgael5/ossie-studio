@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import asyncpg
 
-from ossie_studio.mcp_surface.catalog import ALL_PRIMITIVES, BY_ID, READ_PRIMITIVES
+from ossie_studio.mcp_surface.catalog import ALL_PRIMITIVES, BY_ID, PERSON_ONLY, READ_PRIMITIVES
 from ossie_studio.models import User
 from ossie_studio.profiles.service import load_capabilities
 
@@ -57,6 +57,10 @@ class AgentProfile:
         """Même règle que `load_agent_primitives`, sur un profil déjà lu."""
         return _effective(self.primitives, self.all_read)
 
+    def key_primitives(self) -> set[str]:
+        """Ce que ce profil donne à une clé d'API (sans personne, donc sans brouillon)."""
+        return self.effective_primitives() - PERSON_ONLY
+
 
 async def db_list_agent_profiles(conn: asyncpg.Connection) -> list[AgentProfile]:
     rows = await conn.fetch("SELECT * FROM agent_profiles ORDER BY is_builtin DESC, name")
@@ -73,7 +77,8 @@ async def db_get_agent_profile(
 async def primitives_beyond(
     conn: asyncpg.Connection, user: User, profile: AgentProfile
 ) -> list[str]:
-    """Primitives du profil dont la capacité supposée manque à la personne.
+    """Primitives que le profil donnerait à une clé, dont la capacité supposée
+    manque à la personne.
 
     Garde contre l'élévation : on ne donne à un compte de service (clé d'API)
     que ce qu'on a soi-même. Une clé voit tous les espaces, donc seules
@@ -83,6 +88,4 @@ async def primitives_beyond(
 
 
 def beyond_capabilities(profile: AgentProfile, capabilities: set[str]) -> list[str]:
-    return sorted(
-        p for p in profile.effective_primitives() if BY_ID[p].capability not in capabilities
-    )
+    return sorted(p for p in profile.key_primitives() if BY_ID[p].capability not in capabilities)

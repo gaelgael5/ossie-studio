@@ -114,7 +114,7 @@ async def api_key_options(request: Request, conn: ConnDep, user: ApiKeysRead) ->
                 "id": str(profile.id),
                 "name": profile.name,
                 "description": profile.description,
-                "primitives": sorted(profile.effective_primitives()),
+                "primitives": sorted(profile.key_primitives()),
                 "grantable": not beyond,
                 "beyond": beyond,
             }

@@ -15,7 +15,7 @@ from httpx import AsyncClient
 
 from ossie_studio.authz.catalog import ALL_CAPABILITIES
 from ossie_studio.mcp_surface.caller import McpCaller
-from ossie_studio.mcp_surface.catalog import CATALOG, READ_PRIMITIVES
+from ossie_studio.mcp_surface.catalog import CATALOG, PERSON_ONLY, READ_PRIMITIVES
 from ossie_studio.mcp_surface.primitives import IMPLEMENTATIONS
 from tests.conftest import ADMIN_EMAIL, ADMIN_PASSWORD, bootstrap_admin, create_plain_user, login
 from tests.mcp_helpers import call_tool, tool_names
@@ -160,7 +160,8 @@ async def test_profil_lecture_livre_avec_toutes_les_lectures(app: FastAPI) -> No
     assert row is not None
     assert row["all_read"] and row["is_builtin"]
     _wire(app, KEY_TOKEN, _key(row["id"]))
-    assert set(await _tool_names(app, KEY_TOKEN)) == READ_PRIMITIVES
+    # Une clé n'a pas de personne : les primitives du brouillon ne lui sont pas proposées.
+    assert set(await _tool_names(app, KEY_TOKEN)) == READ_PRIMITIVES - PERSON_ONLY
 
 
 # --- Garde d'authentification -------------------------------------------------------
@@ -313,6 +314,17 @@ async def test_oauth_ne_voit_que_les_espaces_de_la_personne(app: FastAPI) -> Non
 
     result = await _call(app, OAUTH_TOKEN, "list_spaces")
     assert [s["name"] for s in result.structured_content["spaces"]] == ["ventes"]
+
+
+async def test_primitives_du_brouillon_pour_une_personne_seulement(app: FastAPI) -> None:
+    lecture = await _lecture_profile(app)
+    user_id = await _person(app, "ana@example.org", ["spaces:read"])
+    _wire(app, KEY_TOKEN, _key(lecture))
+    _wire(app, OAUTH_TOKEN, _oauth(lecture, user_id))
+    assert PERSON_ONLY == {"get_my_draft", "get_publish_readiness"}
+    assert not PERSON_ONLY & set(await _tool_names(app, KEY_TOKEN))
+    assert PERSON_ONLY <= set(await _tool_names(app, OAUTH_TOKEN))
+    assert _refusal(await _call(app, KEY_TOKEN, "get_my_draft", {})) == "primitive_forbidden"
 
 
 async def test_oauth_personne_disparue_rien(app: FastAPI) -> None:

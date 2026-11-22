@@ -149,9 +149,10 @@ async def test_cle_ne_peut_pas_demander_le_brouillon(app: FastAPI, space: ApiSpa
     assert await _refusal(app, KEY, "list_sources", _ids(space, view="draft")) == (
         "draft_requires_person"
     )
-    assert await _refusal(app, KEY, "get_my_draft", _ids(space)) == "draft_requires_person"
+    # Les primitives du brouillon ne sont même pas proposées à une clé.
+    assert await _refusal(app, KEY, "get_my_draft", _ids(space)) == "primitive_forbidden"
     assert await _refusal(app, KEY, "get_publish_readiness", _ids(space)) == (
-        "draft_requires_person"
+        "primitive_forbidden"
     )
 
 

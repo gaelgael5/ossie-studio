@@ -30,6 +30,9 @@ class Primitive:
     access: Access
     capability: str
     description: str
+    # Propre au brouillon d'une personne : sans objet pour une clé d'API (aucune
+    # personne derrière), donc jamais proposé à une clé.
+    person_only: bool = False
 
 
 # L'ordre fixe l'affichage. Une primitive ajoutée ici n'est donnée à aucun
@@ -70,6 +73,7 @@ CATALOG: tuple[Primitive, ...] = (
             "modified or deleted files), and which of them also changed on the published side "
             "since. Only when acting for a user."
         ),
+        person_only=True,
     ),
     Primitive(
         id="get_publish_readiness",
@@ -81,6 +85,7 @@ CATALOG: tuple[Primitive, ...] = (
             "(conflicts, impacts to check, validation errors, missing credential, no right). "
             "Only when acting for a user."
         ),
+        person_only=True,
     ),
     # --- Sources et schémas bruts
     Primitive(
@@ -169,6 +174,7 @@ CATALOG: tuple[Primitive, ...] = (
 BY_ID: Mapping[str, Primitive] = {p.id: p for p in CATALOG}
 ALL_PRIMITIVES: frozenset[str] = frozenset(BY_ID)
 READ_PRIMITIVES: frozenset[str] = frozenset(p.id for p in CATALOG if p.access == "read")
+PERSON_ONLY: frozenset[str] = frozenset(p.id for p in CATALOG if p.person_only)
 
 
 def is_known_primitive(primitive_id: str) -> bool:
