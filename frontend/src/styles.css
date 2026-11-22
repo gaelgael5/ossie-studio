@@ -1270,6 +1270,67 @@ input[type='radio'] {
   gap: 0 8px;
 }
 /* Poignée de redimensionnement de l'arbre. */
+/* Avec l'aperçu : une quatrième colonne, à droite. */
+.raw-explorer.with-preview {
+  grid-template-columns: var(--raw-tree-width) 8px minmax(0, 1fr) minmax(320px, 26vw);
+}
+.raw-preview {
+  height: 100%;
+  margin: 0;
+  overflow: auto;
+}
+.raw-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.raw-preview-title h2 {
+  margin: 0 0 2px;
+  font-size: 1.2rem;
+  overflow-wrap: anywhere;
+}
+.raw-preview-title .raw-badges {
+  margin-top: 6px;
+}
+.raw-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0;
+}
+.raw-preview-tabs {
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.raw-summary > section + section {
+  margin-top: 14px;
+}
+.raw-json {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  background: var(--surface-muted);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  overflow: auto;
+  max-height: 60vh;
+  white-space: pre;
+}
+.raw-plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.raw-plain-list > li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.raw-fields td {
+  vertical-align: top;
+}
+.raw-break {
+  overflow-wrap: anywhere;
+}
 .raw-splitter {
   align-self: stretch;
   min-height: 120px;
@@ -1418,15 +1479,16 @@ body.resizing-x {
 }
 .raw-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
 }
 .raw-tile {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 6px;
+  min-height: 104px;
+  padding: 14px 16px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1448,6 +1510,7 @@ body.resizing-x {
   outline-offset: 1px;
 }
 .raw-tile-name {
+  font-size: 1.05rem;
   font-weight: 600;
   max-width: 100%;
   overflow: hidden;
@@ -1455,7 +1518,7 @@ body.resizing-x {
   white-space: nowrap;
 }
 .raw-tile-sub {
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   color: var(--muted);
   max-width: 100%;
   overflow: hidden;
@@ -1521,12 +1584,288 @@ body.resizing-x {
 .raw-up {
   margin-top: 14px;
 }
+.raw-exclusion {
+  margin: -4px 0 12px;
+}
+.raw-exclusion-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--warn-fg);
+}
+/* ---------- Vue exclusive d'un objet ---------- */
+.raw-exclusive-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.raw-exclusive-step {
+  display: flex;
+  gap: 6px;
+}
+.raw-exclusive-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.raw-exclusive-head h2 {
+  margin: 0 0 2px;
+}
+.raw-exclusive-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+.raw-exclusive-main > .panel + .panel,
+.raw-exclusive-side > .panel + .panel {
+  margin-top: 12px;
+}
+.raw-ref-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.raw-changes {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+}
+.raw-json-full {
+  max-height: none;
+}
+.raw-doc + .raw-doc {
+  margin-top: 12px;
+}
+/* Markdown rendu (sûr) des documents de la couche raw. */
+.md {
+  line-height: 1.55;
+}
+.md mark {
+  background: var(--warn-bg);
+  color: var(--text);
+  padding: 0 2px;
+}
+.md-code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  background: var(--surface-muted);
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  overflow: auto;
+}
+.md code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+.md blockquote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+}
+.md-missing {
+  font-size: 0.8em;
+  color: var(--muted);
+  font-style: italic;
+}
+@media (max-width: 900px) {
+  .raw-exclusive-overview {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Vue graphe (couche raw) ---------- */
+.raw-graph-banner {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+}
+.raw-graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+.raw-graph-controls .select {
+  width: auto;
+}
+.raw-graph-legend {
+  display: inline-flex;
+  gap: 10px;
+  color: var(--muted);
+}
+.raw-graph-legend > span::before {
+  content: '';
+  display: inline-block;
+  width: 22px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-top: 2px solid var(--border-strong);
+}
+.raw-graph-legend-inherits::before {
+  border-top-style: dashed !important;
+  border-top-color: var(--primary) !important;
+}
+.raw-graph-legend-external::before {
+  border-top-style: dotted !important;
+}
+.raw-graph-alert {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: var(--warn-fg);
+}
+.raw-graph-tooltip {
+  min-height: 3.2em;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.raw-graph-canvas {
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.raw-graph-edge path {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.raw-graph-edge.inherits path {
+  stroke: var(--primary);
+  stroke-dasharray: 6 4;
+}
+.raw-graph-edge text {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--muted);
+}
+.raw-graph-arrow {
+  fill: var(--border-strong);
+}
+.raw-graph-node {
+  cursor: pointer;
+}
+.raw-graph-node rect {
+  fill: var(--panel);
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+}
+.raw-graph-node:hover rect {
+  stroke: var(--primary);
+}
+.raw-graph-node.center rect {
+  fill: var(--chip-bg);
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+.raw-graph-node.external {
+  cursor: default;
+}
+.raw-graph-node.external rect {
+  stroke-dasharray: 4 3;
+  fill: var(--surface-muted);
+}
+.raw-graph-node-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  fill: var(--text);
+}
+.raw-graph-node-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--muted);
+}
+.raw-graph-table {
+  margin-top: 12px;
+}
+/* Œil « exposé » : plein en couleur de ligne, barré et gris sinon. */
+.raw-eye {
+  display: inline-flex;
+  vertical-align: middle;
+  color: var(--primary);
+}
+.raw-eye.off {
+  color: var(--muted);
+  opacity: 0.6;
+}
+.raw-exposure {
+  margin: 6px 0 0;
+}
+.raw-exposure-missing {
+  color: var(--warn-fg);
+}
+/* Visibilité d'origine (code) : une teinte par valeur. */
+.raw-vis {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.raw-vis-public {
+  color: var(--success);
+  background: var(--success-bg);
+}
+.raw-vis-internal {
+  color: var(--chip-fg);
+  background: var(--chip-bg);
+}
+.raw-vis-protected {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+.raw-vis-private {
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+}
+.raw-vis-unknown {
+  color: var(--muted);
+  border: 1px dashed var(--border-strong);
+}
+.raw-vis-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  border: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.85rem;
+}
+.raw-vis-filter legend {
+  float: left;
+  margin-right: 8px;
+  color: var(--muted);
+}
+/* Dossier exclu de la source : barré, il disparaîtra à la prochaine collecte. */
+.raw-tree-node.excluded {
+  color: var(--muted);
+  text-decoration: line-through;
+}
 @media (max-width: 900px) {
   .raw-explorer {
     grid-template-columns: 1fr;
   }
   .raw-splitter {
     display: none;
+  }
+  .raw-explorer.with-preview {
+    grid-template-columns: 1fr;
   }
   .raw-explorer {
     height: auto !important;

@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 
 from ossie_studio.models import GitSpace
+from ossie_studio.parsers.demo import _key_from_path
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
 from tests.draft_helpers import DraftCollector, draft_workdir, view_dir
@@ -67,7 +68,7 @@ def _raw(tmp_path: Path, space: GitSpace) -> Path:
     return view_dir(tmp_path, space) / "sources" / "api" / "raw"
 
 
-async def _collect(collector, space, source_url, *, force=False):
+async def _collect(collector, space, source_url, *, force=False, exclusions=None):
     return await collector.collect(
         space=space,
         branch_slug="work/principale",
@@ -82,6 +83,7 @@ async def _collect(collector, space, source_url, *, force=False):
         author_name="a@a",
         author_email="a@a",
         force=force,
+        exclusions=exclusions,
     )
 
 
@@ -293,3 +295,33 @@ async def test_collect_sql_signale_les_schemas_inaccessibles(
     engine = _FakeEngine([], errors=[("prive", "insufficient_privilege")])
     report = await _collect_sql(collector, space, engine)
     assert any(e.source == "prive" for e in report.errors)
+
+
+async def test_repertoire_exclu_retire_a_la_collecte_suivante(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, _ = _make_bare_with(
+        tmp_path,
+        "src",
+        {
+            "a.schema.json": _schema("A"),
+            "tests/t.schema.json": _schema("T"),
+            "node_modules/n.schema.json": _schema("N"),
+        },
+    )
+    await _collect(collector, space, src)
+    raw = _raw(tmp_path, space)
+    tests_schema = f"{_key_from_path('tests/t.schema.json')}.json"
+    assert (raw / tests_schema).is_file()
+    # Le répertoire est exclu dans la configuration : la collecte suivante (un
+    # simple rafraîchissement) retire ses schémas et ne les reprend plus.
+    report = await _collect(collector, space, src, exclusions=["tests"])
+    assert report.deleted == 1
+    assert not (raw / tests_schema).exists()
+    assert (raw / "a.json").is_file()
+    # Les défauts restent appliqués malgré une exclusion saisie.
+    assert not any(p.name.startswith("node") for p in raw.iterdir())
+    again = await _collect(collector, space, src, exclusions=["tests"])
+    assert again.local_commit is None

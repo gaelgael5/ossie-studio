@@ -31,6 +31,7 @@ from typing import Any
 
 import yaml
 
+from ossie_studio.parsers.conventions import CODE_LANGUAGE_KEY, VISIBILITIES, VISIBILITY_KEY
 from ossie_studio.parsers.markdown import DOCS_INDEX, parse_docs_index
 from ossie_studio.sources.collect_core import RAW_DIR, TECH_MANIFEST_NAME, parse_tech_manifest
 from ossie_studio.sources.manifest import ManifestError, parse_manifest
@@ -43,6 +44,10 @@ from ossie_studio.sources.paths import (
 from ossie_studio.sources.tri import TriRule, compile_rules, object_excluded, rule_label
 
 MODES: tuple[str, ...] = ("origin", "kind", "parser")
+GIT_SOURCE_TYPE = "git"
+# Version du format des entrées mises en index : la changer (champ ajouté…)
+# force la reconstruction des index existants à la livraison suivante.
+INDEX_FORMAT = "4"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -60,6 +65,19 @@ _SEARCH_LIMIT = 50
 
 
 @dataclass(frozen=True)
+class SchemaRef:
+    """Une référence sortante lue dans un schéma, avec sa cardinalité (côté
+    objet qui porte le champ). `target` : `$ref` (un `$id`), table SQL
+    `schéma.table` (clé étrangère), ou nom tel qu'écrit si `external`."""
+
+    field: str  # "" pour l'héritage
+    kind: str  # field | list | map | foreign_key | inherits
+    target: str
+    cardinality: str  # 1 | 0..1 | 1..N | 0..N | "" (héritage)
+    external: bool = False
+
+
+@dataclass(frozen=True)
 class SchemaSummary:
     """Ce que l'explorateur retient d'un schéma (relu seulement s'il change)."""
 
@@ -69,6 +87,12 @@ class SchemaSummary:
     origins: tuple[str, ...]  # fichiers d'origine lus sous `x-source`
     blob: str  # identifiant de blob git du contenu (comparaison au point de reprise)
     error: bool  # JSON illisible ou pas un objet
+    schema_id: str = ""  # `$id` : cible des `$ref` des autres schémas
+    visibility: str = ""  # x-visibility ; "unknown" pour du code qui n'en porte pas
+    visibility_source: str = ""  # x-visibility-source (mot-clé tel qu'écrit)
+    refs: tuple[SchemaRef, ...] = ()  # références sortantes (vue graphe)
+    description: str = ""  # description courte (info-bulle du graphe)
+    top_fields: tuple[str, ...] = ()  # premiers champs (info-bulle du graphe)
 
 
 @dataclass(frozen=True)
@@ -81,6 +105,14 @@ class ExplorerObject:
     parser: str  # parseur producteur (ou "")
     badges: tuple[str, ...]
     excluded_by: str  # libellé de la règle de tri qui l'écarte (ou "")
+    schema_id: str = ""  # `$id` du schéma (résolution des références)
+    checksum: str = ""  # empreinte du fichier d'origine (manifeste technique)
+    branch: str = ""  # branche qui a mis le schéma à jour (manifeste technique)
+    visibility: str = ""  # public | internal | protected | private | unknown | "" (SQL, contrat)
+    visibility_source: str = ""  # mot-clé d'origine, s'il diffère de la valeur normalisée
+    refs: tuple[SchemaRef, ...] = ()
+    description: str = ""
+    top_fields: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -88,6 +120,7 @@ class ExplorerDocument:
     path: str  # chemin sous raw/docs/ (= chemin dans le dépôt)
     title: str
     sections: int
+    mentions: tuple[str, ...] = ()  # identifiants cités (rapprochés des objets)
 
 
 @dataclass
@@ -155,6 +188,70 @@ def _leaf_strings(value: Any) -> list[str]:
     return out
 
 
+VISIBILITY_UNKNOWN = "unknown"
+VISIBILITY_SOURCE_KEY = "x-visibility-source"
+
+
+def visibility_of(node: dict[str, Any]) -> str:
+    """Visibilité affichable d'un objet ou d'un champ : `x-visibility` telle que
+    lue ; « unknown » pour du code qui n'en porte pas (schéma antérieur aux
+    conventions) ; vide pour une table SQL ou un contrat, qui n'en ont pas. On
+    ne la déduit jamais d'autre chose (latitude du ticket : s'arrêter et demander)."""
+    value = node.get(VISIBILITY_KEY)
+    if isinstance(value, str) and value in VISIBILITIES:
+        return value
+    if CODE_LANGUAGE_KEY in node or value is not None:
+        return VISIBILITY_UNKNOWN
+    return ""
+
+
+DESCRIPTION_MAX = 280
+TOP_FIELDS = 6
+
+
+def _ref_of(node: dict[str, Any]) -> tuple[str, bool] | None:
+    if "$ref" in node:
+        return str(node["$ref"]), False
+    if "x-unresolved-type" in node:
+        return str(node["x-unresolved-type"]), True
+    return None
+
+
+def schema_refs(schema: dict[str, Any]) -> tuple[SchemaRef, ...]:
+    """Références sortantes d'un schéma, cardinalités selon les règles du ticket
+    « vue graphe » : `$ref` direct → 1 (requis) ou 0..1 ; tableau d'items `$ref`
+    → 1..N (`minItems` ≥ 1) ou 0..N ; dictionnaire → 0..N ; clé étrangère SQL →
+    1 (non nullable, donc requise) ou 0..1 ; héritage (`allOf` + `$ref`). Rien
+    n'est déduit que le schéma ne porte pas (pas de rapprochement par nom)."""
+    out: list[SchemaRef] = []
+    for part in schema.get("allOf") or []:
+        if isinstance(part, dict) and (found := _ref_of(part)) is not None:
+            out.append(SchemaRef("", "inherits", found[0], "", found[1]))
+    required = set(schema.get("required") or [])
+    props = schema.get("properties")
+    for name, prop in props.items() if isinstance(props, dict) else []:
+        if not isinstance(prop, dict):
+            continue
+        items, extra = prop.get("items"), prop.get("additionalProperties")
+        if prop.get("type") == "array" and isinstance(items, dict):
+            if (found := _ref_of(items)) is not None:
+                many = "1..N" if int(prop.get("minItems") or 0) >= 1 else "0..N"
+                out.append(SchemaRef(name, "list", found[0], many, found[1]))
+        elif prop.get("type") == "object" and isinstance(extra, dict):
+            if (found := _ref_of(extra)) is not None:
+                out.append(SchemaRef(name, "map", found[0], "0..N", found[1]))
+        elif (found := _ref_of(prop)) is not None:
+            one = "1" if name in required else "0..1"
+            out.append(SchemaRef(name, "field", found[0], one, found[1]))
+        fks = prop.get("x-references")
+        for fk in fks if isinstance(fks, list) else [fks] if isinstance(fks, dict) else []:
+            table = str(fk.get("table") or "")
+            if table:
+                one = "1" if name in required else "0..1"
+                out.append(SchemaRef(name, "foreign_key", table, one))
+    return tuple(out)
+
+
 def _summarize(data: bytes) -> SchemaSummary:
     blob = git_blob_id(data)
     try:
@@ -171,6 +268,12 @@ def _summarize(data: bytes) -> SchemaSummary:
         origins=tuple(dict.fromkeys(_leaf_strings(schema.get("x-source")))),
         blob=blob,
         error=False,
+        schema_id=str(schema.get("$id") or ""),
+        visibility=visibility_of(schema),
+        visibility_source=str(schema.get(VISIBILITY_SOURCE_KEY) or ""),
+        refs=schema_refs(schema),
+        description=str(schema.get("description") or "")[:DESCRIPTION_MAX],
+        top_fields=tuple(list(props)[:TOP_FIELDS]) if isinstance(props, dict) else (),
     )
 
 
@@ -293,10 +396,10 @@ def _lenient_meta(text: str, slug: str) -> _SourceMeta:
     )
 
 
-def _tech_origins(raw_dir: Path) -> dict[str, tuple[str, str]]:
-    """Schéma → (fichier d'origine, parseur), d'après les manifestes techniques
+def _tech_origins(raw_dir: Path) -> dict[str, tuple[str, str, str, str]]:
+    """Schéma → (fichier d'origine, parseur, checksum, branche), d'après les manifestes techniques
     de `raw/` (`manifest.yaml` et un `manifest-<parseur>.yaml` par plugin)."""
-    out: dict[str, tuple[str, str]] = {}
+    out: dict[str, tuple[str, str, str, str]] = {}
     index_files = sorted(raw_dir.glob("manifest*.yaml"))
     for index_file in index_files:
         try:
@@ -308,7 +411,9 @@ def _tech_origins(raw_dir: Path) -> dict[str, tuple[str, str]]:
             default_parser = index_file.name.removeprefix("manifest-").removesuffix(".yaml")
         for source, entry in sorted(tech.entries.items()):
             for dest in entry.destinations:
-                out.setdefault(dest, (source, entry.parser or default_parser))
+                out.setdefault(
+                    dest, (source, entry.parser or default_parser, entry.checksum, entry.branch)
+                )
     return out
 
 
@@ -322,7 +427,10 @@ def _read_docs(raw_dir: Path) -> list[ExplorerDocument]:
         return []
     return [
         ExplorerDocument(
-            path=e.path, title=e.title or e.path.rsplit("/", 1)[-1], sections=len(e.sections)
+            path=e.path,
+            title=e.title or e.path.rsplit("/", 1)[-1],
+            sections=len(e.sections),
+            mentions=tuple(e.mentions),
         )
         for e in sorted(entries.values(), key=lambda d: d.path)
     ]
@@ -332,7 +440,7 @@ def _dirname(path: str) -> str:
     return path.rsplit("/", 1)[0] if "/" in path else ""
 
 
-def _object_folder(mode: str, entries: SourceEntries, obj: ExplorerObject) -> str:
+def object_folder(mode: str, entries: SourceEntries, obj: ExplorerObject) -> str:
     if mode == "kind":
         return obj.kind
     if mode == "parser":
@@ -395,10 +503,18 @@ class SourceEntries:
                     o.parser,
                     list(o.badges),
                     o.excluded_by,
+                    o.schema_id,
+                    o.checksum,
+                    o.branch,
+                    o.visibility,
+                    o.visibility_source,
+                    [[r.field, r.kind, r.target, r.cardinality, r.external] for r in o.refs],
+                    o.description,
+                    list(o.top_fields),
                 ]
                 for o in self.objects
             ],
-            "documents": [[d.path, d.title, d.sections] for d in self.documents],
+            "documents": [[d.path, d.title, d.sections, list(d.mentions)] for d in self.documents],
             "database": self.database,
         }
 
@@ -424,11 +540,24 @@ class SourceEntries:
                     parser=o[5],
                     badges=tuple(o[6]),
                     excluded_by=o[7],
+                    schema_id=o[8] if len(o) > 8 else "",
+                    checksum=o[9] if len(o) > 9 else "",
+                    branch=o[10] if len(o) > 10 else "",
+                    visibility=o[11] if len(o) > 11 else "",
+                    visibility_source=o[12] if len(o) > 12 else "",
+                    refs=tuple(SchemaRef(*r) for r in o[13]) if len(o) > 13 else (),
+                    description=o[14] if len(o) > 14 else "",
+                    top_fields=tuple(o[15]) if len(o) > 15 else (),
                 )
                 for o in data.get("objects") or []
             ],
             documents=[
-                ExplorerDocument(path=d[0], title=d[1], sections=int(d[2]))
+                ExplorerDocument(
+                    path=d[0],
+                    title=d[1],
+                    sections=int(d[2]),
+                    mentions=tuple(d[3]) if len(d) > 3 else (),
+                )
                 for d in data.get("documents") or []
             ],
         )
@@ -458,7 +587,7 @@ def collect_source_entries(
         if not (path.is_file() and path.suffix == ".json"):
             continue
         summary = schema_summary(path)
-        origin, parser = origins.get(path.name, ("", ""))
+        origin, parser, checksum, branch = origins.get(path.name, ("", "", "", ""))
         if not origin and summary.origins:
             origin = summary.origins[0]
         badges: list[str] = []
@@ -488,6 +617,14 @@ def collect_source_entries(
                 parser=parser,
                 badges=tuple(badges),
                 excluded_by=excluded_by,
+                schema_id=summary.schema_id,
+                checksum=checksum,
+                branch=branch,
+                visibility=summary.visibility,
+                visibility_source=summary.visibility_source,
+                refs=summary.refs,
+                description=summary.description,
+                top_fields=summary.top_fields,
             )
         )
     return SourceEntries(
@@ -512,7 +649,7 @@ def index_from_entries(
     ]
     folders: dict[str, _Folder] = {"": _Folder(path="")}
     for obj in objects:
-        _ensure_folder(folders, _object_folder(mode, entries, obj)).objects.append(obj)
+        _ensure_folder(folders, object_folder(mode, entries, obj)).objects.append(obj)
     for doc in entries.documents:
         _ensure_folder(folders, _document_folder(mode, entries, doc)).documents.append(doc)
     return SourceIndex(

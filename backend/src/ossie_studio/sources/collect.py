@@ -79,6 +79,44 @@ class CollectReport:
 DEFAULT_EXCLUSIONS = ("node_modules", "vendor", ".git")
 
 
+def normalize_exclusion(entry: str) -> str:
+    """Une exclusion saisie : sans espaces ni barres de bord, chemin POSIX."""
+    return entry.strip().replace("\\", "/").strip("/")
+
+
+def is_excluded(rel: str, exclusions: list[str] | None) -> bool:
+    """Le fichier (chemin relatif POSIX) tombe-t-il sous une exclusion ?
+
+    - une exclusion **sans** `/` est un nom de dossier, exclu où qu'il soit
+      (`tests`, `node_modules`) ;
+    - une exclusion **avec** `/` est un chemin depuis la racine du dépôt,
+      exclu avec tout ce qu'il contient (`src/Pssa.Colis21.Tests`) ;
+    - une exclusion avec `*` est un motif sur le chemin (`**/test/**`).
+
+    Les défauts (`node_modules`, `vendor`, `.git`) s'appliquent toujours : une
+    exclusion saisie s'y ajoute, elle ne les remplace pas (sinon déclarer une
+    exclusion faisait réapparaître les dépendances embarquées)."""
+    parts = rel.split("/")
+    names = set(DEFAULT_EXCLUSIONS)
+    paths: list[str] = []
+    patterns: list[str] = []
+    for raw in exclusions or []:
+        entry = normalize_exclusion(raw)
+        if not entry:
+            continue
+        if "*" in entry or "?" in entry:
+            patterns.append(entry)
+        elif "/" in entry:
+            paths.append(entry)
+        else:
+            names.add(entry)
+    if any(part in names for part in parts[:-1]):
+        return True
+    if any(rel == p or rel.startswith(f"{p}/") for p in paths):
+        return True
+    return any(matches_globs([p], rel) for p in patterns)
+
+
 def _read_source_files(
     root: Path,
     *,
@@ -88,20 +126,17 @@ def _read_source_files(
 ) -> dict[str, bytes]:
     """Lit les fichiers du code descendu, chemin relatif POSIX → octets. Le
     processus maître applique les sous-répertoires du manifeste (si donnés) et les
-    dossiers exclus (ceux du manifeste, ou les défauts) ; `.git` est toujours
-    exclu."""
+    exclusions (`is_excluded`). Un fichier exclu n'est pas lu : à la collecte
+    suivante, les schémas qu'il avait produits sont retirés de raw/."""
     files: dict[str, bytes] = {}
     if not root.is_dir():
         return files
-    excludes = set(exclusions) if exclusions else set(DEFAULT_EXCLUSIONS)
-    excludes.add(".git")
     roots = [r.strip("/") for r in (directories or []) if r.strip("/")]
     for path in sorted(root.rglob("*")):
         if not path.is_file():
             continue
         rel = path.relative_to(root).as_posix()
-        parts = rel.split("/")
-        if any(part in excludes for part in parts):
+        if is_excluded(rel, exclusions):
             continue
         if roots and not any(rel == r or rel.startswith(f"{r}/") for r in roots):
             continue
