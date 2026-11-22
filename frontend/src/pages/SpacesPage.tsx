@@ -8,6 +8,7 @@ import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { RepoPicker } from '../components/RepoPicker'
+import { BusyButton } from '../components/BusyButton'
 import { PageHeader } from '../components/PageHeader'
 
 function probeFailureMessages(t: TFunction, err: unknown): string[] {
@@ -112,9 +113,15 @@ export function SpacesPage() {
                         <Link to={`/spaces/${s.id}`} className="btn btn-sm">
                           {t('openSpace')}
                         </Link>
-                        <button type="button" className="btn btn-sm" onClick={() => prove.mutate(s.id)}>
+                        <BusyButton
+                          type="button"
+                          className="btn btn-sm"
+                          busy={prove.isPending && prove.variables === s.id}
+                          busyText={t('probeRunningShort')}
+                          onClick={() => prove.mutate(s.id)}
+                        >
                           {t('prove')}
-                        </button>
+                        </BusyButton>
                         <button
                           type="button"
                           className="btn btn-sm btn-danger"
@@ -172,9 +179,9 @@ export function SpacesPage() {
           </div>
           <RepoPicker connectionId={selected} value={repoUrl} onChange={setRepoUrl} />
           <div>
-            <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+            <BusyButton type="submit" className="btn btn-primary" busy={create.isPending} busyText={t('probeRunning')}>
               {t('createSpace')}
-            </button>
+            </BusyButton>
           </div>
         </form>
       </section>

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
 import type { Connection, ForgeSpec } from '../apiClient'
+import { BusyButton } from './BusyButton'
 import { LabelSlugFields, useLabelSlug } from './LabelSlugFields'
 
 export function forgeName(t: (k: string) => string, f: string): string {
@@ -187,9 +188,9 @@ export function ForgePopup({
           </table>
         </div>
         <div>
-          <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+          <BusyButton type="submit" className="btn btn-primary" busy={create.isPending} busyText={t('verifyRunning')}>
             {t('verifyAndSave')}
-          </button>
+          </BusyButton>
         </div>
       </form>
     </section>

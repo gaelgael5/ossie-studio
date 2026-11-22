@@ -81,6 +81,10 @@ export const en = {
     deleteConnectorReminder:
       '{{count}} linked account(s): not deleted, their identity is kept. The button disappears from the sign-in screen; local sign-in stays open.',
     confirmDelete: 'Confirm deletion',
+    probeRunning: 'Testing the five rights…',
+    probeRunningShort: 'Testing…',
+    verifyRunning: 'Checking with the service…',
+    testRunning: 'Testing…',
     deleteLevelConfirm: 'Delete level “{{name}}”?',
     deleteMappingConfirm: 'Delete the mapping for role “{{role}}”?',
     deleteSecretConfirm: 'Delete secret “{{label}}” ({{slug}})? Its value will be lost for good.',

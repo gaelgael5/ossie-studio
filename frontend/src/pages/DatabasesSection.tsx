@@ -6,6 +6,7 @@ import type { DbEngineSpec } from '../apiClient'
 import { errorMessages } from '../errors'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { ConnectionStatus } from '../components/ConnectionStatus'
+import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 
 function engineName(t: (k: string) => string, e: string): string {
@@ -205,9 +206,9 @@ function DbEnginePopup({
           </fieldset>
         ) : null}
         <div>
-          <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+          <BusyButton type="submit" className="btn btn-primary" busy={create.isPending} busyText={t('verifyRunning')}>
             {t('verifyAndSave')}
-          </button>
+          </BusyButton>
         </div>
       </form>
     </section>
@@ -337,9 +338,15 @@ export function DatabasesSection() {
                   <td>{formatDate(c.last_checked_at)}</td>
                   <td>
                     <div className="actions">
-                      <button type="button" className="btn btn-sm" onClick={() => test.mutate(c.id)}>
+                      <BusyButton
+                        type="button"
+                        className="btn btn-sm"
+                        busy={test.isPending && test.variables === c.id}
+                        busyText={t('testRunning')}
+                        onClick={() => test.mutate(c.id)}
+                      >
                         {t('test')}
-                      </button>
+                      </BusyButton>
                       {deleting === c.id ? (
                         <div className="stack stack-tight">
                           {c.secret_used_by_others > 0 ? (

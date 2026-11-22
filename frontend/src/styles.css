@@ -1166,3 +1166,19 @@ input[type='radio'] {
   color: var(--link);
   font-weight: 600;
 }
+
+/* Bouton en attente (BusyButton) : anneau + texte, curseur « progress ». */
+.btn-busy,
+.btn-busy:disabled {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: progress;
+}
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+}
+.btn-primary .spinner {
+  background: conic-gradient(from 0deg, transparent 0 10%, var(--primary-fg) 100%);
+}

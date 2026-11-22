@@ -8,6 +8,7 @@ import { ErrorList } from '../components/ErrorList'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 import { ForgePopup, forgeName } from '../components/ForgePopup'
 import { ConnectionStatus } from '../components/ConnectionStatus'
+import { BusyButton } from '../components/BusyButton'
 import { DatabasesSection } from './DatabasesSection'
 
 // Panneau de la connexion sélectionnée : dépôts lisibles et « utilisée par ».
@@ -234,9 +235,15 @@ export function ForgesPage() {
                     <td>{formatDate(c.last_checked_at)}</td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="actions">
-                        <button type="button" className="btn btn-sm" onClick={() => test.mutate(c.id)}>
+                        <BusyButton
+                          type="button"
+                          className="btn btn-sm"
+                          busy={test.isPending && test.variables === c.id}
+                          busyText={t('testRunning')}
+                          onClick={() => test.mutate(c.id)}
+                        >
                           {t('test')}
-                        </button>
+                        </BusyButton>
 
                         {deleting === c.id ? (
                           <div className="stack stack-tight">
