@@ -36,6 +36,7 @@ const SETTINGS_NAV: NavItem[] = [
   { key: 'navProfiles', to: '/profiles', capability: 'profiles:read', prefix: '/profiles' },
   { key: 'navTeams', to: '/teams', capability: 'users:read', prefix: '/teams' },
   { key: 'navUsers', to: '/users', capability: 'users:read', prefix: '/users' },
+  { key: 'navApiKeys', to: '/api-keys', capability: 'api_keys:read', prefix: '/api-keys' },
 ]
 
 export function Layout({ children }: { children: ReactNode }) {

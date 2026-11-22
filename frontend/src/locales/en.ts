@@ -566,6 +566,7 @@ export const en = {
       parsing_manage: 'Manage parameters',
     },
     capDomain: {
+      api_keys: 'API keys',
       secrets: 'Secrets',
       connections: 'Forges and connections',
       oidc: 'OIDC connectors',
@@ -595,6 +596,7 @@ export const en = {
     },
 
     fields: {
+      agent_profile_required: 'Choose an agent profile.',
       connection_invalid: 'Connection missing or of another kind.',
       repository_required: 'The repository is required.',
       branch_required: 'The tracked branch is required.',
@@ -689,6 +691,46 @@ export const en = {
     navProfiles: 'Profiles',
     navTeams: 'Teams',
     navUsers: 'Users',
+    navApiKeys: 'API keys',
+    apiKeysTitle: 'API keys',
+    apiKeysIntro:
+      'An API key is a service account: no person behind it, it only opens the MCP surface, with exactly the rights of its agent profile.',
+    apiKeysNew: '+ New key',
+    apiKeysIssueTitle: 'Issue a key',
+    apiKeysLabel: 'Label',
+    apiKeysLabelHint: 'To recognise it: the tool or use that carries it (“Gael’s Claude Code”).',
+    apiKeysProfile: 'Agent profile',
+    apiKeysProfileBeyondOption: '{{name}} — beyond your rights',
+    apiKeysProfileBeyondHint:
+      'You can only give a key primitives whose capability you hold yourself, on every space. Missing: {{primitives}}.',
+    apiKeysPrimitives: 'Granted primitives',
+    apiKeysNoPrimitive: 'No primitive: the key will not be able to call anything.',
+    apiKeysIssue: 'Issue',
+    apiKeysSecretTitle: 'Your new key “{{label}}”',
+    apiKeysSecretWarning:
+      'Copy it now: it will never be shown again. If lost, revoke it and issue a new one.',
+    apiKeysSecretDone: 'Done, hide the key',
+    apiKeysEndpointTitle: 'Plug a key into an MCP client',
+    apiKeysEndpoint: 'MCP surface address',
+    apiKeysEndpointGuessed:
+      'Address guessed from your browser: Ossie-studio’s public address is not configured (PUBLIC_BASE_URL).',
+    apiKeysClaudeCode: 'In Claude Code:',
+    apiKeysSecretPlaceholder: '<key>',
+    apiKeysColPrefix: 'Prefix',
+    apiKeysColProfile: 'Agent profile',
+    apiKeysColIssued: 'Issued',
+    apiKeysColLastUsed: 'Last used',
+    apiKeysColState: 'State',
+    apiKeysActive: 'active',
+    apiKeysRevoked: 'revoked',
+    apiKeysIssuedBy: '{{date}} by {{author}}',
+    apiKeysNeverUsed: 'never',
+    apiKeysApplyProfile: 'Apply',
+    apiKeysRevoke: 'Revoke',
+    apiKeysRevokeConfirm:
+      'Revoke the key “{{label}}”? Clients using it will be refused from their next call. This is final.',
+    apiKeysConfirmRevoke: 'Confirm revocation',
+    apiKeysNone: 'No key issued.',
     teamsTitle: 'Teams',
     teamsIntro:
       'A team carries a profile: its members inherit its capabilities (on top of their personal profile). Attaching a profile requires the profiles right.',
@@ -1017,6 +1059,11 @@ export const en = {
     statutEnAttente: 'pending',
 
     errors: {
+      api_key_not_found: 'API key not found.',
+      api_key_revoked: 'This key is revoked: its profile can no longer change.',
+      agent_profile_not_found: 'Agent profile not found.',
+      agent_profile_beyond_rights:
+        'This agent profile gives primitives beyond your rights: {{primitives}}.',
       source_slug_taken: 'That source slug is already used in this branch.',
       source_not_found: 'Source not found.',
       collect_branch_behind:

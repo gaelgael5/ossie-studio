@@ -127,6 +127,10 @@ ERROR_CODES: tuple[str, ...] = (
     "publish_not_ready",
     "branch_changed_conflict",
     "publish_credential_rejected",
+    "api_key_not_found",
+    "api_key_revoked",
+    "agent_profile_not_found",
+    "agent_profile_beyond_rights",
 )
 
 

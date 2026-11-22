@@ -567,6 +567,7 @@ export const fr = {
       parsing_manage: 'Gérer les paramètres',
     },
     capDomain: {
+      api_keys: 'Clés d’API',
       secrets: 'Secrets',
       connections: 'Forges et connexions',
       oidc: 'Connecteurs OIDC',
@@ -596,6 +597,7 @@ export const fr = {
     },
 
     fields: {
+      agent_profile_required: 'Choisissez un profil agent.',
       connection_invalid: 'Connexion inexistante ou d’un autre genre.',
       repository_required: 'Le dépôt est obligatoire.',
       branch_required: 'La branche suivie est obligatoire.',
@@ -691,6 +693,46 @@ export const fr = {
     navProfiles: 'Profils',
     navTeams: 'Équipes',
     navUsers: 'Utilisateurs',
+    navApiKeys: 'Clés d’API',
+    apiKeysTitle: 'Clés d’API',
+    apiKeysIntro:
+      'Une clé d’API est un compte de service : personne derrière, elle n’ouvre que la surface MCP, avec exactement les droits de son profil agent.',
+    apiKeysNew: '+ Nouvelle clé',
+    apiKeysIssueTitle: 'Émettre une clé',
+    apiKeysLabel: 'Libellé',
+    apiKeysLabelHint: 'Pour la reconnaître : l’outil ou l’usage qui la porte (« Claude Code de Gael »).',
+    apiKeysProfile: 'Profil agent',
+    apiKeysProfileBeyondOption: '{{name}} — au-delà de vos droits',
+    apiKeysProfileBeyondHint:
+      'Vous ne pouvez donner à une clé que des primitives dont vous avez vous-même la capacité, sur tous les espaces. Manquantes : {{primitives}}.',
+    apiKeysPrimitives: 'Primitives accordées',
+    apiKeysNoPrimitive: 'Aucune primitive : la clé ne pourra rien appeler.',
+    apiKeysIssue: 'Émettre',
+    apiKeysSecretTitle: 'Votre nouvelle clé « {{label}} »',
+    apiKeysSecretWarning:
+      'Copiez-la maintenant : elle ne sera plus jamais affichée. Perdue, elle se révoque et se réémet.',
+    apiKeysSecretDone: 'C’est noté, masquer la clé',
+    apiKeysEndpointTitle: 'Brancher une clé dans un client MCP',
+    apiKeysEndpoint: 'Adresse de la surface MCP',
+    apiKeysEndpointGuessed:
+      'Adresse déduite de votre navigateur : l’adresse publique d’Ossie-studio n’est pas configurée (PUBLIC_BASE_URL).',
+    apiKeysClaudeCode: 'Dans Claude Code :',
+    apiKeysSecretPlaceholder: '<clé>',
+    apiKeysColPrefix: 'Préfixe',
+    apiKeysColProfile: 'Profil agent',
+    apiKeysColIssued: 'Émise',
+    apiKeysColLastUsed: 'Dernier usage',
+    apiKeysColState: 'État',
+    apiKeysActive: 'active',
+    apiKeysRevoked: 'révoquée',
+    apiKeysIssuedBy: '{{date}} par {{author}}',
+    apiKeysNeverUsed: 'jamais',
+    apiKeysApplyProfile: 'Appliquer',
+    apiKeysRevoke: 'Révoquer',
+    apiKeysRevokeConfirm:
+      'Révoquer la clé « {{label}} » ? Les clients qui l’utilisent seront refusés dès leur appel suivant. C’est définitif.',
+    apiKeysConfirmRevoke: 'Confirmer la révocation',
+    apiKeysNone: 'Aucune clé émise.',
     teamsTitle: 'Équipes',
     teamsIntro:
       'Une équipe porte un profil : ses membres en héritent les capacités (en plus de leur profil personnel). Associer un profil exige le droit sur les profils.',
@@ -1021,6 +1063,11 @@ export const fr = {
     statutEnAttente: 'en attente',
 
     errors: {
+      api_key_not_found: 'Clé d’API introuvable.',
+      api_key_revoked: 'Cette clé est révoquée : son profil ne se change plus.',
+      agent_profile_not_found: 'Profil agent introuvable.',
+      agent_profile_beyond_rights:
+        'Ce profil agent donne des primitives au-delà de vos droits : {{primitives}}.',
       source_slug_taken: 'Un slug de source déjà utilisé dans cette branche.',
       source_not_found: 'Source introuvable.',
       collect_branch_behind:

@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from typing import Any
 
 import asyncpg
@@ -14,14 +12,13 @@ import httpx2
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
-from mcp import Client
-from mcp.client.streamable_http import streamable_http_client
 
 from ossie_studio.authz.catalog import ALL_CAPABILITIES
 from ossie_studio.mcp_surface.caller import McpCaller
 from ossie_studio.mcp_surface.catalog import CATALOG, READ_PRIMITIVES
 from ossie_studio.mcp_surface.primitives import IMPLEMENTATIONS
 from tests.conftest import ADMIN_EMAIL, ADMIN_PASSWORD, bootstrap_admin, create_plain_user, login
+from tests.mcp_helpers import call_tool, tool_names
 
 KEY_TOKEN = "test-key-token-0123456789"
 OAUTH_TOKEN = "test-oauth-token-0123456789"
@@ -72,26 +69,12 @@ def _oauth(profile_id: uuid.UUID, user_id: uuid.UUID) -> McpCaller:
     )
 
 
-@asynccontextmanager
-async def _mcp(app: FastAPI, token: str) -> AsyncIterator[Client]:
-    """Client MCP du SDK, branché sur l'application en mémoire."""
-    async with httpx2.AsyncClient(
-        transport=httpx2.ASGITransport(app=app),
-        base_url="http://test",
-        headers={"Authorization": f"Bearer {token}"},
-    ) as http:
-        async with Client(streamable_http_client("http://test/mcp", http_client=http)) as client:
-            yield client
-
-
 async def _tool_names(app: FastAPI, token: str) -> list[str]:
-    async with _mcp(app, token) as client:
-        return [t.name for t in (await client.list_tools()).tools]
+    return await tool_names(app, token)
 
 
 async def _call(app: FastAPI, token: str, name: str, args: dict[str, Any] | None = None) -> Any:
-    async with _mcp(app, token) as client:
-        return await client.call_tool(name, args or {})
+    return await call_tool(app, token, name, args)
 
 
 async def _space(app: FastAPI, name: str) -> uuid.UUID:

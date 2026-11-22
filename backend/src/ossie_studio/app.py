@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
+from ossie_studio.api.api_keys import router as api_api_keys_router
 from ossie_studio.api.branches import router as api_branches_router
 from ossie_studio.api.classifications import router as api_classifications_router
 from ossie_studio.api.connections import router as api_connections_router
@@ -30,6 +31,7 @@ from ossie_studio.api.space_teams import router as api_space_teams_router
 from ossie_studio.api.spaces import router as api_spaces_router
 from ossie_studio.api.teams import router as api_teams_router
 from ossie_studio.api.users import router as api_users_router
+from ossie_studio.api_keys.service import resolve_api_key
 from ossie_studio.config import Settings
 from ossie_studio.crypto import CryptoService
 from ossie_studio.db import create_pool
@@ -101,9 +103,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.source_downloader = SourceDownloader(settings.sources_volume_path)
     app.state.source_collector = SourceCollector(app.state.source_downloader)
     app.state.collect_jobs = CollectJobs()
-    # Surface MCP : les résolveurs de jetons (clés d'API, OAuth) s'y ajoutent ;
-    # sans résolveur, aucun jeton n'est accepté (fermé par défaut).
-    mcp_resolvers: list[CallerResolver] = []
+    # Surface MCP : un résolveur par sorte de jeton (clés d'API, puis OAuth) ;
+    # un jeton qu'aucun ne reconnaît est refusé (fermé par défaut).
+    mcp_resolvers: list[CallerResolver] = [resolve_api_key]
     app.state.mcp_resolvers = mcp_resolvers
     app.state.mcp_session_manager = build_session_manager(app)
 
@@ -140,6 +142,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_credentials_router)
     app.include_router(api_drafts_router)
     app.include_router(api_publish_router)
+    app.include_router(api_api_keys_router)
     # Flux OIDC : navigations du navigateur (redirections), pas de l'API JSON.
     app.include_router(oidc_login_router)
     # Ajouté en dernier, donc le plus à l'extérieur : `/mcp` est aiguillé avant

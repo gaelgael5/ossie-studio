@@ -7,6 +7,8 @@ export default defineConfig({
     // En dev, l'API du backend est servie à part : on relaie /api vers elle.
     proxy: {
       '/api': 'http://localhost:8000',
+      '/mcp': 'http://localhost:8000',
+      '/.well-known/oauth-': 'http://localhost:8000',
     },
   },
   test: {

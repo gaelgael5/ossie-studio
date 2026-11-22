@@ -957,6 +957,19 @@ input[type='radio'] {
   font-family: var(--mono);
   font-size: 0.9em;
 }
+/* Bloc de code à recopier (commande, secret) : chasse fixe, coupé à la ligne
+   plutôt que de faire défiler la page. */
+.code-block {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
 .muted {
   color: var(--muted);
 }

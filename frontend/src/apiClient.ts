@@ -622,6 +622,32 @@ export interface LevelInput {
   icon?: string
 }
 
+export type ApiKeyItem = {
+  id: string
+  label: string
+  prefix: string
+  agent_profile: { id: string; name: string }
+  state: 'active' | 'revoked'
+  created_at: string
+  created_by: string | null
+  revoked_at: string | null
+  revoked_by: string | null
+  last_used_at: string | null
+}
+
+export type ApiKeyOptions = {
+  endpoint: string
+  endpoint_configured: boolean
+  agent_profiles: {
+    id: string
+    name: string
+    description: string
+    primitives: string[]
+    grantable: boolean
+    beyond: string[]
+  }[]
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setLanguage: (language: string) =>
@@ -1168,4 +1194,18 @@ export const api = {
   }) => apiFetch('/api/oidc/connectors', { method: 'POST', body: JSON.stringify(body) }),
   deleteConnector: (id: string, deleteSecret = false) =>
     apiFetch(`/api/oidc/connectors/${id}?delete_secret=${deleteSecret}`, { method: 'DELETE' }),
+  listApiKeys: () => apiFetch<{ keys: ApiKeyItem[] }>('/api/api-keys'),
+  apiKeyOptions: () => apiFetch<ApiKeyOptions>('/api/api-keys/options'),
+  issueApiKey: (label: string, agentProfileId: string) =>
+    apiFetch<{ key: ApiKeyItem; secret: string }>('/api/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ label, agent_profile_id: agentProfileId }),
+    }),
+  changeApiKeyProfile: (id: string, agentProfileId: string) =>
+    apiFetch<ApiKeyItem>(`/api/api-keys/${id}/profile`, {
+      method: 'PUT',
+      body: JSON.stringify({ agent_profile_id: agentProfileId }),
+    }),
+  revokeApiKey: (id: string) =>
+    apiFetch<ApiKeyItem>(`/api/api-keys/${id}/revoke`, { method: 'POST' }),
 }
