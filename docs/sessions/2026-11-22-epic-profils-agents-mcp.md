@@ -5,6 +5,8 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 **Poussé sur `dev` le 22 novembre** à la demande de Gael (avance rapide depuis `6ac59d5`, sans pull request). Vérifié avant : une base déjà en 0035 passe proprement à 0037.
 
+> **Règle (Gael, 22 novembre)** : on travaille et on pousse **uniquement sur sa branche**. C'est **toujours Gael** qui décide quand fusionner ou pousser sur `dev`. Un accord donné une fois ne vaut pas pour la suite.
+
 ## Tickets livrés (docflow → « En review »)
 
 | Ticket | Contenu |
