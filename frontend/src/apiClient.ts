@@ -871,6 +871,34 @@ export type AgentConnection = {
   revoked_at: string | null
 }
 
+export type AgentProfileItem = {
+  id: string
+  slug: string
+  name: string
+  description: string
+  primitives: string[]
+  all_read: boolean
+  is_builtin: boolean
+  effective: string[]
+  used_by: { keys: string[]; connections: string[] }
+}
+
+export type PrimitiveSpec = {
+  id: string
+  domain: string
+  access: 'read' | 'write'
+  capability: string
+  person_only: boolean
+}
+
+export type AgentProfileBody = {
+  name: string
+  slug?: string
+  description: string
+  primitives: string[]
+  all_read: boolean
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setLanguage: (language: string) =>
@@ -1510,4 +1538,13 @@ export const api = {
     }),
   revokeAgentConnection: (id: string) =>
     apiFetch<AgentConnection>(`/api/agent-connections/${id}/revoke`, { method: 'POST' }),
+  listAgentProfiles: () =>
+    apiFetch<{ profiles: AgentProfileItem[]; catalog: PrimitiveSpec[] }>('/api/agent-profiles'),
+  createAgentProfile: (body: AgentProfileBody) =>
+    apiFetch<AgentProfileItem>('/api/agent-profiles', { method: 'POST', body: JSON.stringify(body) }),
+  updateAgentProfile: (id: string, body: AgentProfileBody) =>
+    apiFetch<AgentProfileItem>(`/api/agent-profiles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  duplicateAgentProfile: (id: string) =>
+    apiFetch<AgentProfileItem>(`/api/agent-profiles/${id}/duplicate`, { method: 'POST' }),
+  deleteAgentProfile: (id: string) => apiFetch(`/api/agent-profiles/${id}`, { method: 'DELETE' }),
 }

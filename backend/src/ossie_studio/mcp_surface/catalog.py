@@ -183,6 +183,12 @@ def is_known_primitive(primitive_id: str) -> bool:
 
 def catalog_payload() -> list[dict[str, object]]:
     return [
-        {"id": p.id, "domain": p.domain, "access": p.access, "capability": p.capability}
+        {
+            "id": p.id,
+            "domain": p.domain,
+            "access": p.access,
+            "capability": p.capability,
+            "person_only": p.person_only,
+        }
         for p in CATALOG
     ]

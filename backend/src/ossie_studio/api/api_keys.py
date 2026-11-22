@@ -108,7 +108,7 @@ async def api_key_options(request: Request, conn: ConnDep, user: ApiKeysRead) ->
     caps = await load_capabilities(conn, user)
     profiles = []
     for profile in await db_list_agent_profiles(conn):
-        beyond = beyond_capabilities(profile, caps)
+        beyond = beyond_capabilities(profile.key_primitives(), caps)
         profiles.append(
             {
                 "id": str(profile.id),

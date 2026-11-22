@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from ossie_studio.api.agent_connections import router as api_agent_connections_router
+from ossie_studio.api.agent_profiles import router as api_agent_profiles_router
 from ossie_studio.api.api_keys import router as api_api_keys_router
 from ossie_studio.api.branches import router as api_branches_router
 from ossie_studio.api.classifications import router as api_classifications_router
@@ -150,6 +151,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_credentials_router)
     app.include_router(api_drafts_router)
     app.include_router(api_publish_router)
+    app.include_router(api_agent_profiles_router)
     app.include_router(api_api_keys_router)
     app.include_router(api_oauth_router)
     app.include_router(api_agent_connections_router)

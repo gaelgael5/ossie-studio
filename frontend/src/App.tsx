@@ -26,6 +26,7 @@ import { ProfilesPage } from './pages/ProfilesPage'
 import { TeamsPage } from './pages/TeamsPage'
 import { UsersPage } from './pages/UsersPage'
 import { ApiKeysPage } from './pages/ApiKeysPage'
+import { AgentProfilesPage } from './pages/AgentProfilesPage'
 import { ConsentPage } from './pages/ConsentPage'
 import { AgentConnectionsPage } from './pages/AgentConnectionsPage'
 import { loginWithNext, safeNext } from './safeNext'
@@ -145,6 +146,7 @@ function AppRoutes() {
         <Route path="/profiles" element={gate('profiles:read', <ProfilesPage />)} />
         <Route path="/teams" element={gate('users:read', <TeamsPage />)} />
         <Route path="/users" element={gate('users:read', <UsersPage />)} />
+        <Route path="/agent-profiles" element={gate('agent_profiles:read', <AgentProfilesPage />)} />
         <Route path="/api-keys" element={gate('api_keys:read', <ApiKeysPage />)} />
         <Route
           path="/oauth/consent"

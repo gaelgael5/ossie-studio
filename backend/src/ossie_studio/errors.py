@@ -138,6 +138,10 @@ ERROR_CODES: tuple[str, ...] = (
     "agent_profile_not_usable",
     "agent_connection_not_found",
     "agent_connection_revoked",
+    "agent_profile_name_taken",
+    "agent_profile_slug_taken",
+    "agent_profile_builtin_protected",
+    "agent_profile_in_use",
 )
 
 
