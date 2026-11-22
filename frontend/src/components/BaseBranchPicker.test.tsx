@@ -40,14 +40,14 @@ const posted = (calls: { method: string; body?: string }[]) =>
 afterEach(() => vi.unstubAllGlobals())
 
 describe('BaseBranchPicker', () => {
-  it('propose les branches existantes, sans la racine ni celles déjà suivies, et sans slug', async () => {
+  it('propose les branches existantes et la racine (marquée), sans celles déjà suivies ni slug', async () => {
     const { calls, onDone } = setup()
     const user = userEvent.setup()
-    await screen.findByText(/La racine « main » n’est pas proposée/)
     expect(screen.queryByLabelText(/Slug/)).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Branche existante' }))
+    await user.click(await screen.findByRole('button', { name: 'Branche existante' }))
+    await screen.findByRole('option', { name: 'docs' })
     expect(screen.getByRole('option', { name: 'docs' })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: 'main' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'main (racine)' })).toBeInTheDocument()
     expect(screen.queryByRole('option', { name: 'work/deja' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('option', { name: 'docs' }))
     await user.click(screen.getByRole('button', { name: 'Utiliser cette branche' }))

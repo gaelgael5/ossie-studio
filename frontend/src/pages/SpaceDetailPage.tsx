@@ -9,9 +9,9 @@ import { PageHeader } from '../components/PageHeader'
 import { RailMap } from '../components/RailMap'
 import { useSession } from '../hooks'
 import { SpaceTeamsSection } from './SpaceTeamsSection'
-import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { BaseBranchPicker } from '../components/BaseBranchPicker'
+import { BusyButton } from '../components/BusyButton'
 import { CredentialBlock } from '../components/CredentialBlock'
 
 export function SpaceDetailPage() {
@@ -26,10 +26,10 @@ export function SpaceDetailPage() {
   }
   const closeCreate = () => {
     setCreating(false)
-    child.reset()
+    setChildRef('work/')
   }
   const [notice, setNotice] = useState('')
-  const child = useLabelSlug()
+  const [childRef, setChildRef] = useState('work/')
   const [versionLabel, setVersionLabel] = useState('')
   const [railLimit, setRailLimit] = useState(200)
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
@@ -60,7 +60,7 @@ export function SpaceDetailPage() {
     }).format(new Date(iso))
 
   const createChild = useMutation({
-    mutationFn: () => api.createChildBranch(spaceId, child.label, child.finalSlug),
+    mutationFn: () => api.createChildBranch(spaceId, childRef.trim()),
     onSuccess: async () => {
       closeCreate()
       await invalidate()
@@ -161,11 +161,28 @@ export function SpaceDetailPage() {
                 createChild.mutate()
               }}
             >
-              <LabelSlugFields idPrefix="child" state={child} labelText={t('childLabelField')} slugText={t('slugLabel')} />
+              <div className="field">
+                <label className="field-label" htmlFor="child-ref">
+                  {t('childNameLabel')}
+                </label>
+                <input
+                  id="child-ref"
+                  className="input mono"
+                  value={childRef}
+                  onChange={(e) => setChildRef(e.target.value)}
+                />
+                <span className="field-hint">{t('childNameHint')}</span>
+              </div>
               <div>
-                <button type="submit" className="btn btn-primary" disabled={createChild.isPending}>
+                <BusyButton
+                  type="submit"
+                  className="btn btn-primary"
+                  busy={createChild.isPending}
+                  busyText={t('branchCreating')}
+                  disabled={!childRef.trim() || childRef.trim().endsWith('/')}
+                >
                   {t('createChildButton')}
-                </button>
+                </BusyButton>
               </div>
             </form>
           </CreatePanel>

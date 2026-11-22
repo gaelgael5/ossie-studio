@@ -302,7 +302,18 @@ test('détail espace : liste les branches et propose la création de fille', asy
   await screen.findByText('Branches de travail')
   // La base existe → le bouton propose une branche fille, qui ouvre son formulaire.
   await userEvent.click(await screen.findByRole('button', { name: '+ Nouvelle branche' }))
-  expect(screen.getByRole('button', { name: 'Créer une branche fille' })).toBeInTheDocument()
+  // Pas de slug : un seul champ, le nom git, pré-rempli « work/ ».
+  expect(screen.queryByLabelText(/Slug/)).not.toBeInTheDocument()
+  const name = screen.getByLabelText('Nom de la branche')
+  expect(name).toHaveValue('work/')
+  await userEvent.type(name, 'fonction-a')
+  await userEvent.click(screen.getByRole('button', { name: 'Créer une branche fille' }))
+  await waitFor(() => {
+    const post = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, init]) => String(url).endsWith('/branches/child') && init?.method === 'POST')
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({ new_ref: 'work/fonction-a' })
+  })
   expect(screen.getAllByText('Principale').length).toBeGreaterThan(0)
 })
 

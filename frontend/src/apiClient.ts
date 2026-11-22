@@ -733,10 +733,11 @@ export const api = {
     apiFetch<{ root: string; branches: { name: string; is_root: boolean; tracked: boolean }[] }>(
       `/api/spaces/${spaceId}/branches/remote`,
     ),
-  createChildBranch: (spaceId: string, label: string, slug = '') =>
+  // Branche fille : son nom git (pas de slug), tirée de la tête de la base.
+  createChildBranch: (spaceId: string, newRef: string) =>
     apiFetch(`/api/spaces/${spaceId}/branches/child`, {
       method: 'POST',
-      body: JSON.stringify({ label, slug }),
+      body: JSON.stringify({ new_ref: newRef }),
     }),
   setViewedBranch: (spaceId: string, branchId: string) =>
     apiFetch(`/api/spaces/${spaceId}/branches/viewed`, {

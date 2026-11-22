@@ -9,7 +9,8 @@ import { Combobox } from './Combobox'
 // Branche de base d'un espace : d'abord CHOISIR parmi les branches existantes
 // du dépôt ; « Créer une nouvelle branche » seulement si c'est le choix de
 // l'utilisateur. Pas de slug ici : le nom git est l'identité visible. La racine
-// (branche par défaut) n'est pas proposée : elle reste en lecture seule.
+// (branche par défaut) est proposée, marquée comme telle : c'est le seul choix
+// possible sur un dépôt qui n'a qu'elle.
 export function BaseBranchPicker({
   spaceId,
   onDone,
@@ -37,8 +38,8 @@ export function BaseBranchPicker({
 
   const root = remote.data?.root ?? ''
   const options = (remote.data?.branches ?? [])
-    .filter((b) => !b.is_root && !b.tracked)
-    .map((b) => ({ value: b.name, label: b.name }))
+    .filter((b) => !b.tracked)
+    .map((b) => ({ value: b.name, label: b.is_root ? t('rootBranchOption', { name: b.name }) : b.name }))
 
   return (
     <div className="stack">
@@ -103,7 +104,6 @@ export function BaseBranchPicker({
                 ) : null
               }
             />
-            {root ? <span className="field-hint">{t('rootReadonlyHint', { root })}</span> : null}
           </div>
           <div className="actions">
             <BusyButton

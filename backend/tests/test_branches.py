@@ -98,7 +98,7 @@ async def test_creer_fille_depuis_la_base(space: tuple[AsyncClient, str, str]) -
     client, space_id, url = space
     await client.post(f"/api/spaces/{space_id}/branches/base", json={"new_ref": "work/principale"})
     response = await client.post(
-        f"/api/spaces/{space_id}/branches/child", json={"label": "Feature A"}
+        f"/api/spaces/{space_id}/branches/child", json={"new_ref": "work/feature-a"}
     )
     assert response.status_code == 201
     assert response.json()["git_ref"] == "work/feature-a"
@@ -108,21 +108,30 @@ async def test_creer_fille_depuis_la_base(space: tuple[AsyncClient, str, str]) -
 async def test_fille_sans_base_refuse(space: tuple[AsyncClient, str, str]) -> None:
     client, space_id, _ = space
     response = await client.post(
-        f"/api/spaces/{space_id}/branches/child", json={"label": "Feature A"}
+        f"/api/spaces/{space_id}/branches/child", json={"new_ref": "work/feature-a"}
     )
     assert response.status_code == 409
     assert response.json()["error"] == "space_base_required"
 
 
-async def test_slug_deja_pris_autre_libelle_refuse(space: tuple[AsyncClient, str, str]) -> None:
-    client, space_id, _ = space
+async def test_fille_rejeu_puis_branche_deja_sur_la_forge(
+    space: tuple[AsyncClient, str, str],
+) -> None:
+    client, space_id, url = space
     await client.post(f"/api/spaces/{space_id}/branches/base", json={"new_ref": "work/principale"})
-    await client.post(f"/api/spaces/{space_id}/branches/child", json={"label": "Feature A"})
-    collide = await client.post(
-        f"/api/spaces/{space_id}/branches/child", json={"label": "feature a"}
+    child = {"new_ref": "work/feature-a"}
+    await client.post(f"/api/spaces/{space_id}/branches/child", json=child)
+    again = await client.post(f"/api/spaces/{space_id}/branches/child", json=child)
+    assert again.json()["already_exists"] is True
+    # Une branche présente sur la forge mais pas déclarée : refus, rien d'écrasé.
+    _forge_branch(url, "work/autre", "main")
+    taken = await client.post(
+        f"/api/spaces/{space_id}/branches/child", json={"new_ref": "work/autre"}
     )
-    assert collide.status_code == 409
-    assert collide.json()["error"] == "branch_slug_taken"
+    assert taken.status_code == 409
+    assert taken.json()["error"] == "branch_exists"
+    bad = await client.post(f"/api/spaces/{space_id}/branches/child", json={"new_ref": "a b"})
+    assert "branch_name_invalid" in bad.json()["error_args"]["fields"]
 
 
 async def test_libelle_non_sluggable_refuse(space: tuple[AsyncClient, str, str]) -> None:
@@ -251,7 +260,7 @@ async def test_railmap_lignes_gare_et_non_publie(
         f"/api/spaces/{space_id}/branches/base", json={"new_ref": "work/principale"}
     )
     base_id = base.json()["id"]
-    await client.post(f"/api/spaces/{space_id}/branches/child", json={"label": "Feature A"})
+    await client.post(f"/api/spaces/{space_id}/branches/child", json={"new_ref": "work/feature-a"})
     # Une version sur la tête publiée de la base, puis la tête avance.
     await client.post(
         f"/api/spaces/{space_id}/branches/{base_id}/versions", json={"label": "Première"}
@@ -264,7 +273,7 @@ async def test_railmap_lignes_gare_et_non_publie(
     body = response.json()
     # Racine + principale + feature-a : trois lignes au moins.
     slugs = {ln["slug"] for ln in body["lines"]}
-    assert {"work-principale", "feature-a"} <= slugs
+    assert {"work-principale", "work-feature-a"} <= slugs
     assert any(ln["kind"] == "root" for ln in body["lines"])
     # Une gare (version 1) ; plus jamais d'arrêt « non publié » (pas de commit local).
     assert any(n["kind"] == "version" and n["number"] == 1 for n in body["nodes"])
@@ -327,16 +336,23 @@ async def test_base_adopte_une_branche_existante_sans_l_ecrire(
     remote = (await client.get(f"/api/spaces/{space_id}/branches/remote")).json()
     assert {b["name"]: b["tracked"] for b in remote["branches"]}["docs"] is True
     # La fille se tire bien de la branche adoptée.
-    child = await client.post(f"/api/spaces/{space_id}/branches/child", json={"label": "Fille"})
+    child = await client.post(
+        f"/api/spaces/{space_id}/branches/child", json={"new_ref": "work/fille"}
+    )
     assert child.status_code == 201, child.text
     assert _ref_sha(url, "refs/heads/work/fille") == before
 
 
-async def test_base_racine_refusee(space: tuple[AsyncClient, str, str]) -> None:
-    client, space_id, _ = space
+async def test_base_racine_adoptable(space: tuple[AsyncClient, str, str]) -> None:
+    # Dépôt qui n'a que sa racine : elle se choisit comme base, sans écriture.
+    client, space_id, url = space
+    before = _ref_sha(url, "refs/heads/main")
     response = await client.post(f"/api/spaces/{space_id}/branches/base", json={"git_ref": "main"})
-    assert response.status_code == 409
-    assert response.json()["error"] == "branch_root_readonly"
+    assert response.status_code == 201, response.text
+    assert response.json()["git_ref"] == "main"
+    assert _ref_sha(url, "refs/heads/main") == before
+    recreate = await client.post(f"/api/spaces/{space_id}/branches/child", json={"new_ref": "main"})
+    assert recreate.status_code == 409
 
 
 async def test_base_branche_inconnue_ou_choix_ambigu(space: tuple[AsyncClient, str, str]) -> None:

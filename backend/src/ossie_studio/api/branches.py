@@ -24,7 +24,6 @@ from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import GitSpace, SpaceBranch
-from ossie_studio.slugs import is_valid_slug as is_strict_slug
 from ossie_studio.spaces.branch_service import (
     KIND_BASE,
     KIND_CHILD,
@@ -36,7 +35,6 @@ from ossie_studio.spaces.branch_service import (
     db_list_branches,
     db_set_viewed_branch,
     is_valid_git_ref,
-    is_valid_slug,
     slugify,
 )
 from ossie_studio.spaces.service import db_get_space
@@ -50,12 +48,9 @@ WorkdirDep = Annotated[WorkdirManager, Depends(get_workdir_manager)]
 DraftWorkdirDep = Annotated[DraftWorkdir, Depends(get_draft_workdir)]
 
 
-class LabelBody(BaseModel):
+class ChildBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    label: str = ""
-    # Optionnel : l'écran le déduit du libellé et le laisse corriger ; absent, le
-    # serveur le déduit lui-même (règle libellé → slug).
-    slug: str = ""
+    new_ref: str = ""
 
 
 class BaseBody(BaseModel):
@@ -118,20 +113,6 @@ async def list_branches(
     }
 
 
-def _slug_from(body: LabelBody) -> str:
-    if not body.label.strip():
-        raise ApiError("invalid_request", status_code=400, fields=["label_required"])
-    if body.slug.strip():
-        slug = body.slug.strip()
-        if not is_strict_slug(slug):
-            raise ApiError("invalid_request", status_code=400, fields=["branch_slug_invalid"])
-        return slug
-    slug = slugify(body.label)
-    if not is_valid_slug(slug):
-        raise ApiError("invalid_request", status_code=400, fields=["label_invalid"])
-    return slug
-
-
 @router.get("/remote")
 async def list_remote_branches(
     conn: ConnDep,
@@ -141,7 +122,7 @@ async def list_remote_branches(
     space_id: uuid.UUID,
 ) -> dict[str, object]:
     """Branches du dépôt, pour choisir la branche de base. La racine est
-    signalée : elle reste en lecture seule et ne peut pas servir de base."""
+    signalée (elle peut servir de base, notamment quand elle est seule)."""
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         heads, root = await workdir.remote_branches(space_id, space.repo_url, username, token)
@@ -184,10 +165,9 @@ async def create_base(
     if not is_valid_git_ref(ref):
         raise ApiError("invalid_request", status_code=400, fields=["branch_name_invalid"])
     try:
-        heads, root = await workdir.remote_branches(space_id, space.repo_url, username, token)
-        if ref == root:
-            # La racine reste en lecture seule : on ne travaille jamais dessus.
-            raise ApiError("branch_root_readonly", status_code=409, ref=ref)
+        heads, _root = await workdir.remote_branches(space_id, space.repo_url, username, token)
+        # La racine peut être ADOPTÉE comme base (cas d'un dépôt qui n'a qu'elle) ;
+        # la recréer sous son nom n'a pas de sens (elle existe) : « branch_exists ».
         if adopt:
             if adopt not in heads:
                 raise ApiError("branch_not_found", status_code=404)
@@ -209,31 +189,38 @@ async def create_child(
     _: SpacesBranch,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
-    body: LabelBody,
+    body: ChildBody,
 ) -> dict[str, object]:
+    """Branche fille, tirée de la tête de la base, sous le nom git saisi (pas de
+    slug : le nom git est l'identité visible, comme pour la base)."""
     space, username, token = await space_credentials(conn, crypto, space_id)
     base = await db_get_base(conn, space_id)
     if base is None:
         raise ApiError("space_base_required", status_code=409)
-    slug = _slug_from(body)
-    duplicate = await db_get_branch_by_slug(conn, space_id, slug)
-    if duplicate is not None:
-        if duplicate.label == body.label.strip():
-            return {**_payload(duplicate), "already_exists": True}
-        raise ApiError("branch_slug_taken", status_code=409, slug=slug)
+    ref = body.new_ref.strip()
+    if not is_valid_git_ref(ref):
+        raise ApiError("invalid_request", status_code=400, fields=["branch_name_invalid"])
+    tracked = next((b for b in await db_list_branches(conn, space_id) if b.git_ref == ref), None)
+    if tracked is not None:
+        if tracked.kind != KIND_CHILD:
+            # Le nom désigne la base (la racine adoptée, par exemple) : refus.
+            raise ApiError("branch_exists", status_code=409)
+        # Rejeu : fille déjà déclarée sous ce nom, ni doublon ni erreur.
+        return {**_payload(tracked), "already_exists": True}
     try:
+        heads, root = await workdir.remote_branches(space_id, space.repo_url, username, token)
+        if ref == root:
+            raise ApiError("branch_root_readonly", status_code=409, ref=ref)
+        if ref in heads:
+            raise ApiError("branch_exists", status_code=409)
         await workdir.create_child_branch(
-            space_id,
-            base.git_ref,
-            f"work/{slug}",
-            space.repo_url,
-            username,
-            token,
+            space_id, base.git_ref, ref, space.repo_url, username, token
         )
     except WorkdirError as exc:
         status = 409 if exc.code in ("branch_exists", "branch_not_found") else 400
         raise ApiError(exc.code, status_code=status) from None
-    branch = await db_create_branch(conn, space_id, body.label.strip(), slug, KIND_CHILD)
+    slug = await _free_branch_slug(conn, space_id, ref)
+    branch = await db_create_branch(conn, space_id, ref, slug, KIND_CHILD, git_ref=ref)
     return _payload(branch)
 
 
