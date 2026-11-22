@@ -21,6 +21,7 @@ import { ErrorList } from '../components/ErrorList'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { BusyButton } from '../components/BusyButton'
 import { useSourceCollect } from '../useSourceCollect'
+import { CollectChecklist } from '../components/CollectChecklist'
 import { useWorkspace } from '../workspace'
 
 type Tab =
@@ -159,6 +160,21 @@ export function SourceDetailPage() {
       </div>
 
       <ErrorList messages={[...messages, ...collect.messages]} />
+      {collect.progress && (collect.running || collect.state === 'failed') ? (
+        <div className="page-section">
+          <CollectChecklist
+            steps={
+              source?.type === 'openapi'
+                ? ['scan', 'process', 'resolve', 'write']
+                : source?.type === 'git'
+                  ? ['download', 'scan', 'process', 'resolve', 'write']
+                  : ['download', 'process', 'resolve', 'write']
+            }
+            progress={collect.progress}
+            sourceType={source?.type ?? ''}
+          />
+        </div>
+      ) : null}
       {notice ? <p role="status">{notice}</p> : null}
 
       {effectiveTab === 'overview' ? (

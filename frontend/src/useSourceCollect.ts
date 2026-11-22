@@ -53,6 +53,8 @@ export function useSourceCollect(spaceId: string | null, branchId: string | null
     start: (force: boolean) => start.mutate(force),
     running: start.isPending || state === 'running',
     startedAt: status.data?.started_at ?? null,
+    progress: status.data?.progress ?? null,
+    state,
     report,
     messages,
   }

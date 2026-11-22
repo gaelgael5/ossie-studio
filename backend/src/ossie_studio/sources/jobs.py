@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 import structlog
 
 from ossie_studio.errors import ApiError
+from ossie_studio.sources.progress import CollectProgress
 
 log = structlog.get_logger(__name__)
 
@@ -38,6 +39,7 @@ class CollectJob:
     finished_at: datetime | None = None
     report: dict[str, object] | None = None
     error: dict[str, object] | None = None
+    progress: CollectProgress = field(default_factory=CollectProgress)
     task: asyncio.Task[None] | None = field(default=None, repr=False)
 
     def payload(self) -> dict[str, object]:
@@ -47,6 +49,7 @@ class CollectJob:
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "report": self.report,
             "error": self.error,
+            "progress": self.progress.payload(),
         }
 
 
@@ -57,7 +60,9 @@ class CollectJobs:
     def get(self, key: JobKey) -> CollectJob | None:
         return self._jobs.get(key)
 
-    def start(self, key: JobKey, run: Callable[[], Awaitable[dict[str, object]]]) -> CollectJob:
+    def start(
+        self, key: JobKey, run: Callable[[CollectProgress], Awaitable[dict[str, object]]]
+    ) -> CollectJob:
         """Lance la collecte, ou rend celle qui tourne déjà pour cette clé
         (deux clics ne lancent pas deux collectes)."""
         self._forget_old()
@@ -69,9 +74,11 @@ class CollectJobs:
         job.task = asyncio.create_task(self._run(job, run))
         return job
 
-    async def _run(self, job: CollectJob, run: Callable[[], Awaitable[dict[str, object]]]) -> None:
+    async def _run(
+        self, job: CollectJob, run: Callable[[CollectProgress], Awaitable[dict[str, object]]]
+    ) -> None:
         try:
-            job.report = await run()
+            job.report = await run(job.progress)
             job.state = DONE
         except ApiError as exc:
             job.error = {"error": exc.code, "error_args": exc.args_dict, "status": exc.status_code}

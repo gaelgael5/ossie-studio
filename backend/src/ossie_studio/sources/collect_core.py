@@ -253,9 +253,7 @@ def run_collection(
         for dest in previous.entries[source].destinations:
             dead_dests.add(dest)
     for dest in sorted(dead_dests):
-        still_used = any(
-            dest in e.destinations for s, e in plan.manifest.entries.items()
-        )
+        still_used = any(dest in e.destinations for s, e in plan.manifest.entries.items())
         if not still_used and dest in existing_schemas:
             plan.deletes.append(dest)
             plan.deleted += 1

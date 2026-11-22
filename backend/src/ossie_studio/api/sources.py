@@ -68,6 +68,7 @@ from ossie_studio.sources.manifest import (
     manifest_from_mapping,
 )
 from ossie_studio.sources.paths import is_valid_source_slug
+from ossie_studio.sources.progress import CollectProgress
 from ossie_studio.sources.scan_service import (
     ScanFile,
     db_delete_scan_files,
@@ -464,7 +465,7 @@ async def collect_branch_source(
     state = request.app.state
     branch_ref = branch.git_ref
 
-    async def run() -> dict[str, object]:
+    async def run(progress: CollectProgress) -> dict[str, object]:
         # Connexion propre à la tâche : celle de la requête se ferme avec elle.
         async with state.pool.acquire() as job_conn:
             workdir = DraftWorkdir(
@@ -485,6 +486,7 @@ async def collect_branch_source(
                 branch_ref,
                 slug,
                 force,
+                progress,
             )
 
     jobs: CollectJobs = state.collect_jobs
@@ -528,6 +530,7 @@ async def _collect(
     branch_slug: str,
     slug: str,
     force: bool,
+    progress: CollectProgress,
 ) -> dict[str, object]:
     """La collecte elle-même (tâche de fond, connexion propre)."""
     space, space_username, space_token = await space_credentials(conn, crypto, space_id)
@@ -550,6 +553,7 @@ async def _collect(
                 author_name=user.email,
                 author_email=user.email,
                 force=force,
+                progress=progress,
                 plugin_params=plugin_params,
             )
         except CollectionError as exc:
@@ -578,6 +582,7 @@ async def _collect(
                 author_name=user.email,
                 author_email=user.email,
                 force=force,
+                progress=progress,
                 parseurs=_str_list(manifest.parametres.get("parseurs")),
                 repertoires=_str_list(manifest.parametres.get("repertoires")),
                 exclusions=_str_list(manifest.parametres.get("exclusions")),
@@ -611,6 +616,7 @@ async def _collect(
                 author_name=user.email,
                 author_email=user.email,
                 force=force,
+                progress=progress,
             )
         except CollectionError as exc:
             raise _collect_error(exc.code) from None

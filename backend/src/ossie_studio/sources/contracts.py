@@ -127,9 +127,7 @@ def read_contracts_view(workdir: Path, slug: str) -> list[ContractView]:
     entries = _read_index_dir(contrats_dir)
     tech_file = safe_source_path(workdir, slug) / RAW_DIR / _OPENAPI_INDEX
     tech = (
-        parse_tech_manifest(tech_file.read_text(encoding="utf-8"))
-        if tech_file.is_file()
-        else None
+        parse_tech_manifest(tech_file.read_text(encoding="utf-8")) if tech_file.is_file() else None
     )
     views: list[ContractView] = []
     for entry in entries:

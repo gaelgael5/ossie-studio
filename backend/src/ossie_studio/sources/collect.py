@@ -27,6 +27,7 @@ from ossie_studio.parsers.registry import openapi_plugin, select_code_plugins
 from ossie_studio.sources.collect_core import RAW_DIR, checksum
 from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
 from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
+from ossie_studio.sources.progress import CollectProgress
 from ossie_studio.sources.schema_resolve import (
     SchemaIndex,
     is_schema_path,
@@ -79,7 +80,11 @@ DEFAULT_EXCLUSIONS = ("node_modules", "vendor", ".git")
 
 
 def _read_source_files(
-    root: Path, *, repertoires: list[str] | None = None, exclusions: list[str] | None = None
+    root: Path,
+    *,
+    repertoires: list[str] | None = None,
+    exclusions: list[str] | None = None,
+    progress: CollectProgress | None = None,
 ) -> dict[str, bytes]:
     """Lit les fichiers du code descendu, chemin relatif POSIX → octets. Le
     processus maître applique les sous-répertoires du manifeste (si donnés) et les
@@ -101,6 +106,8 @@ def _read_source_files(
         if roots and not any(rel == r or rel.startswith(f"{r}/") for r in roots):
             continue
         files[rel] = path.read_bytes()
+        if progress is not None:
+            progress.scanned = len(files)  # compteur affiché pendant le scan
     return files
 
 
@@ -150,9 +157,7 @@ class _RawSnapshot(RawAccess):
 
     def find_schema(self, name: str) -> str | None:
         if self._index is None:
-            self._index = SchemaIndex(
-                {p: c for p, c in self._files.items() if is_schema_path(p)}
-            )
+            self._index = SchemaIndex({p: c for p, c in self._files.items() if is_schema_path(p)})
         return self._index.resolve(name)
 
 
@@ -229,7 +234,10 @@ class SourceCollector:
         start: float,
         plugin_params: dict[str, dict[str, str]],
         commit_descriptor: str = "",
+        progress: CollectProgress | None = None,
     ) -> CollectReport:
+        progress = progress or CollectProgress()
+        progress.scanned = len(source_files)
         # 1. Instantané de raw/ (index et sorties des plugins), accès lecture seule.
         try:
             raw_files = await workdir.read_branch(
@@ -250,9 +258,18 @@ class SourceCollector:
         messages: dict[str, str] = {}
 
         # 3. Plugins en série ; chacun décide (index + crc), rend des actions.
+        # La barre avance par parseur, au prorata de ses fichiers (un parseur
+        # traite les siens en un seul lot : classes partielles, références).
         agg = _Aggregate()
-        for plugin in plugins:
-            matching = {p: d for p, d in source_files.items() if matches_globs(plugin.globs(), p)}
+        batches = [
+            (plugin, {p: d for p, d in source_files.items() if matches_globs(plugin.globs(), p)})
+            for plugin in plugins
+        ]
+        progress.enter("process")
+        progress.total = sum(len(m) for _, m in batches)
+        progress.processed = 0
+        for plugin, matching in batches:
+            progress.current = plugin.label
             stored = plugin_params.get(plugin.id, {})
             params = {p.slug: stored.get(p.slug, p.default) for p in plugin.parameters()}
             context = PluginContext(
@@ -263,7 +280,10 @@ class SourceCollector:
                 force=force,
                 branche=branche_label,
             )
-            result = plugin.run(context)
+            # Hors de la boucle d'événements : un parseur peut prendre des minutes,
+            # et le serveur doit continuer de répondre (dont l'état de la collecte).
+            result = await asyncio.to_thread(plugin.run, context)
+            progress.processed += len(matching)
             agg.merge(result)
             for src, statut in result.statuses.items():
                 statuts[src] = statut
@@ -273,8 +293,11 @@ class SourceCollector:
 
         # 4. Service de recherche commun : le socle résout les références croisées
         # (x-unresolved-type → $ref) sur l'ensemble des schémas de la source.
+        progress.enter("resolve")
         writes, deletes = list(agg.writes), list(agg.deletes)
-        writes, resolved = resolve_source_schemas(raw_files, writes, deletes)
+        writes, resolved = await asyncio.to_thread(
+            resolve_source_schemas, raw_files, writes, deletes
+        )
 
         # 5. Écriture unique + commit local unique.
         descripteur = commit_descriptor or (
@@ -283,6 +306,7 @@ class SourceCollector:
         message = (
             f"collecte {source_slug}{descripteur} : +{agg.added} ~{agg.modified} -{agg.deleted}"
         )
+        progress.enter("write")
         try:
             local_commit = await workdir.commit_to_branch(
                 space.id,
@@ -298,6 +322,7 @@ class SourceCollector:
         except WorkdirError as exc:
             raise CollectionError(exc.code) from None
 
+        progress.finish()
         log.info(
             "source_collected",
             space_id=str(space.id),
@@ -354,10 +379,13 @@ class SourceCollector:
         repertoires: list[str] | None = None,
         exclusions: list[str] | None = None,
         plugin_params: dict[str, dict[str, str]] | None = None,
+        progress: CollectProgress | None = None,
     ) -> CollectReport:
+        progress = progress or CollectProgress()
         key = f"{space.id}/{branch_slug}/{source_slug}"
         async with self._lock(key):
             start = time.monotonic()
+            progress.enter("download")
             try:
                 source_commit = await self._downloader.download(
                     space.id,
@@ -370,8 +398,13 @@ class SourceCollector:
             except SourceDownloadError as exc:
                 raise CollectionError(exc.code) from None
             source_dir = self._downloader.source_path(space.id, source_slug)
+            progress.enter("scan")
             source_files = await asyncio.to_thread(
-                _read_source_files, source_dir, repertoires=repertoires, exclusions=exclusions
+                _read_source_files,
+                source_dir,
+                repertoires=repertoires,
+                exclusions=exclusions,
+                progress=progress,
             )
             return await self._run(
                 workdir=workdir,
@@ -389,6 +422,7 @@ class SourceCollector:
                 source_commit=source_commit,
                 start=start,
                 plugin_params=plugin_params or {},
+                progress=progress,
             )
 
     async def collect_openapi(
@@ -405,12 +439,15 @@ class SourceCollector:
         author_email: str,
         force: bool,
         plugin_params: dict[str, dict[str, str]] | None = None,
+        progress: CollectProgress | None = None,
     ) -> CollectReport:
         """Collecte une source `openapi` : pas de descente (les contrats sont déjà
         versionnés dans `contrats/`), `source_commit` vide."""
         key = f"{space.id}/{branch_slug}/{source_slug}"
         async with self._lock(key):
             start = time.monotonic()
+            progress = progress or CollectProgress()
+            progress.enter("scan")
             try:
                 contrats = await workdir.read_branch(
                     space.id,
@@ -438,6 +475,7 @@ class SourceCollector:
                 source_commit="",
                 start=start,
                 plugin_params=plugin_params or {},
+                progress=progress,
             )
 
     async def collect_sql(
@@ -459,6 +497,7 @@ class SourceCollector:
         author_name: str,
         author_email: str,
         force: bool,
+        progress: CollectProgress | None = None,
     ) -> CollectReport:
         """Collecte une source base : lit le catalogue (lecture seule, structure
         seulement), transforme chaque objet en schéma. `source_commit` vide : il
@@ -466,6 +505,8 @@ class SourceCollector:
         key = f"{space.id}/{branch_slug}/{source_slug}"
         async with self._lock(key):
             start = time.monotonic()
+            progress = progress or CollectProgress()
+            progress.enter("download")
             try:
                 read = await engine.read_catalog(
                     db_params, secret_value, schemas=schemas, exclusions=exclusions
@@ -490,6 +531,7 @@ class SourceCollector:
                 start=start,
                 plugin_params={},
                 commit_descriptor=" (catalogue)",
+                progress=progress,
             )
             # Schémas inaccessibles (droits insuffisants) : signalés, sans bloquer.
             for schema_name, cause in read.errors:

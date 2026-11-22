@@ -68,7 +68,7 @@ class AssetNotRetainedError(Exception):
 
 @dataclass(frozen=True)
 class EnrichScope:
-    name: str          # "" pour l'objet, sinon le nom du champ
+    name: str  # "" pour l'objet, sinon le nom du champ
     business_name: str
     description: str
     concept: str
@@ -86,23 +86,23 @@ class EnrichView:
 
 @dataclass(frozen=True)
 class CurationObject:
-    path: str          # nom de fichier du schéma (racine de raw/)
+    path: str  # nom de fichier du schéma (racine de raw/)
     title: str
-    kind: str          # x-kind, ou "object"
-    fields: int        # nombre de champs du brut
-    retained: str      # none | partial | full
-    orphan: bool       # retenu mais le brut a disparu (asset sans raw)
-    excluded: bool     # écarté par une règle de tri (caché sauf filtre)
-    excluded_by: str   # libellé de la règle qui l'écarte (ou "")
+    kind: str  # x-kind, ou "object"
+    fields: int  # nombre de champs du brut
+    retained: str  # none | partial | full
+    orphan: bool  # retenu mais le brut a disparu (asset sans raw)
+    excluded: bool  # écarté par une règle de tri (caché sauf filtre)
+    excluded_by: str  # libellé de la règle qui l'écarte (ou "")
 
 
 @dataclass(frozen=True)
 class CurationField:
     name: str
-    type: str          # type, x-kind, ou "$ref"
-    retained: bool     # déjà présent dans l'asset
-    ref: bool          # porte une référence ($ref) — l'écran le signale
-    missing: bool      # retenu dans l'asset mais disparu du brut
+    type: str  # type, x-kind, ou "$ref"
+    retained: bool  # déjà présent dans l'asset
+    ref: bool  # porte une référence ($ref) — l'écran le signale
+    missing: bool  # retenu dans l'asset mais disparu du brut
 
 
 @dataclass(frozen=True)
@@ -200,9 +200,7 @@ def list_curation(
 
 
 def _field_type(prop: dict[str, Any]) -> tuple[str, bool]:
-    has_ref = "$ref" in prop or (
-        isinstance(prop.get("items"), dict) and "$ref" in prop["items"]
-    )
+    has_ref = "$ref" in prop or (isinstance(prop.get("items"), dict) and "$ref" in prop["items"])
     if "$ref" in prop:
         return "$ref", True
     label = prop.get("type") or prop.get("x-kind") or ("enum" if "enum" in prop else "")
@@ -251,9 +249,7 @@ def get_object_detail(
             continue
         prop = asset_data[name] if isinstance(asset_data[name], dict) else {}
         label, ref = _field_type(prop)
-        fields.append(
-            CurationField(name=name, type=label, retained=True, ref=ref, missing=True)
-        )
+        fields.append(CurationField(name=name, type=label, retained=True, ref=ref, missing=True))
     return CurationDetail(
         path=path, title=str(raw.get("title") or raw.get("$id") or path), fields=fields
     )
@@ -508,7 +504,7 @@ def refresh_assets_fn(slug: str, paths: list[str] | None) -> Callable[[Path], No
 @dataclass(frozen=True)
 class ReviewField:
     name: str
-    change: str          # changed | appeared | disappeared
+    change: str  # changed | appeared | disappeared
     type: str
     lost_enrichment: list[str]  # clés x- d'enrichissement perdues (disappeared)
 
@@ -517,7 +513,7 @@ class ReviewField:
 class ReviewObject:
     path: str
     title: str
-    status: str          # retained-touched | object-disappeared | new
+    status: str  # retained-touched | object-disappeared | new
     fields: list[ReviewField]
 
 
@@ -528,11 +524,11 @@ class ReviewResult:
 
 @dataclass(frozen=True)
 class ReviewDecisions:
-    apply_fields: dict[str, list[str]]   # path → champs retenus à rafraîchir (changed)
-    take_fields: dict[str, list[str]]    # path → champs apparus à reprendre (appeared)
+    apply_fields: dict[str, list[str]]  # path → champs retenus à rafraîchir (changed)
+    take_fields: dict[str, list[str]]  # path → champs apparus à reprendre (appeared)
     remove_fields: dict[str, list[str]]  # path → champs disparus à retirer (disappeared)
-    remove_objects: list[str]            # assets à retirer (objet disparu du brut)
-    retain_objects: list[str]            # objets bruts nouveaux à retenir en entier
+    remove_objects: list[str]  # assets à retirer (objet disparu du brut)
+    retain_objects: list[str]  # objets bruts nouveaux à retenir en entier
 
 
 def read_review_point(workdir: Path, slug: str) -> str | None:
@@ -619,7 +615,9 @@ def _review_fields(
             label, _ = _field_type(ap)
             out.append(
                 ReviewField(
-                    name=name, change="disappeared", type=label,
+                    name=name,
+                    change="disappeared",
+                    type=label,
                     lost_enrichment=_lost_enrichment(ap),
                 )
             )
@@ -658,7 +656,8 @@ def build_review(
                         ReviewObject(
                             path=name,
                             title=str(asset.get("title") or asset.get("$id") or name),
-                            status="object-disappeared", fields=[],
+                            status="object-disappeared",
+                            fields=[],
                         )
                     )
                 continue
@@ -668,7 +667,8 @@ def build_review(
                     ReviewObject(
                         path=name,
                         title=str(rh.get("title") or rh.get("$id") or name),
-                        status="retained-touched", fields=fields,
+                        status="retained-touched",
+                        fields=fields,
                     )
                 )
         elif rh is not None and rb is None and object_excluded(rh, rule_list) is None:
@@ -677,15 +677,14 @@ def build_review(
                 ReviewObject(
                     path=name,
                     title=str(rh.get("title") or rh.get("$id") or name),
-                    status="new", fields=[],
+                    status="new",
+                    fields=[],
                 )
             )
     return ReviewResult(objects=objects)
 
 
-def apply_review_fn(
-    slug: str, head_sha: str, decisions: ReviewDecisions
-) -> Callable[[Path], None]:
+def apply_review_fn(slug: str, head_sha: str, decisions: ReviewDecisions) -> Callable[[Path], None]:
     """Applique les décisions de revue **et** avance le point de reprise à
     `head_sha`, le tout en un seul commit. Un changement non décidé est laissé tel
     quel (le point de reprise avance quand même). Déterministe (`dump_schema`)."""

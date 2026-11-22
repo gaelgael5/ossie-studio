@@ -25,8 +25,8 @@ _RULE_KEYS = {"target", "pattern", "kind", "label"}
 class TriRule:
     target: str
     pattern: str
-    kind: str          # glob | regex
-    label: str = ""    # libellé libre (affichage), optionnel
+    kind: str  # glob | regex
+    label: str = ""  # libellé libre (affichage), optionnel
 
 
 def validate_tri_rules(raw: Any) -> list[str]:

@@ -1188,3 +1188,52 @@ input[type='radio'] {
   color: var(--muted);
   cursor: not-allowed;
 }
+
+/* Checklist d'une collecte en cours (CollectChecklist). */
+.collect-steps {
+  list-style: none;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.collect-steps li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.collect-steps li.is-pending {
+  color: var(--muted);
+}
+.collect-steps li.is-done .collect-step-icon {
+  color: var(--primary);
+  font-weight: 700;
+}
+.collect-step-icon {
+  width: 18px;
+  display: inline-flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+.collect-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.collect-bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.collect-bar {
+  width: 100%;
+  max-width: 420px;
+  height: 8px;
+  accent-color: var(--primary);
+}

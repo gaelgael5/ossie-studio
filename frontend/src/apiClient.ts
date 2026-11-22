@@ -313,6 +313,16 @@ export interface CollectJobStatus {
   finished_at?: string | null
   report?: CollectReport | null
   error?: { error: string; error_args: Record<string, unknown>; status: number } | null
+  progress?: CollectProgressInfo
+}
+
+export interface CollectProgressInfo {
+  step: string
+  done: string[]
+  scanned: number
+  total: number
+  processed: number
+  current: string
 }
 
 export interface CollectReport {

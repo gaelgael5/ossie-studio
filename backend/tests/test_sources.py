@@ -591,6 +591,13 @@ async def test_collecte_longue_suivie_en_tache_de_fond(
     assert status["state"] == "done", status
     report = status["report"]
     assert isinstance(report, dict) and report["added"] == 2
+    # Avancement : toutes les étapes franchies (pas de descente pour OpenAPI),
+    # la barre au bout.
+    progress = status["progress"]
+    assert isinstance(progress, dict)
+    assert progress["done"] == ["scan", "process", "resolve", "write"]
+    assert progress["step"] == ""
+    assert progress["processed"] == progress["total"] == progress["scanned"] == 1
 
 
 async def test_collecte_en_echec_rapporte_l_erreur(
