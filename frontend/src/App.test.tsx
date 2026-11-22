@@ -217,6 +217,32 @@ test('forges : une connexion se réédite, slug figé, valeurs reprises', async 
   })
 })
 
+test('espaces : toute la ligne ouvre l’espace, sans bouton « Ouvrir »', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: { bootstrap_required: false, authenticated: true, user: { email: 'g@example.org', role: 'admin' }, capabilities: ADMIN_CAPS },
+    },
+    '/api/spaces': {
+      body: {
+        spaces: [
+          {
+            id: 's1', name: 'test', slug: 'test', connection_id: 'c1', repo_url: 'https://github.com/a/b.git',
+            last_probe_status: 'valid', last_probe_at: null, created_at: '2026-01-01T00:00:00Z',
+          },
+        ],
+      },
+    },
+    '/api/connections': { body: { connections: [] } },
+    '/api/spaces/s1/branches': { body: { branches: [], viewed_branch_id: null } },
+  })
+  renderAt('/spaces')
+  const row = await screen.findByRole('row', { name: 'Ouvrir l’espace test' })
+  expect(screen.queryByRole('link', { name: 'Ouvrir' })).not.toBeInTheDocument()
+  await userEvent.click(within(row).getByText('https://github.com/a/b.git'))
+  await screen.findByText('Branches de travail')
+})
+
 test('espaces : un droit en échec affiche le droit et la cause traduits', async () => {
   await i18n.changeLanguage('fr')
   mockFetch({

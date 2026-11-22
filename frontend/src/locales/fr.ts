@@ -241,7 +241,7 @@ export const fr = {
     probeResiduals: 'À supprimer à la main sur la forge : {{names}}.',
     probePosedMain: '« main » a été posée sur le dépôt vide.',
     deleteSpaceConfirm: "Supprimer cet espace ? Le dépôt n'est pas touché.",
-    openSpace: 'Ouvrir',
+    openSpaceNamed: 'Ouvrir l’espace {{name}}',
     branchesTitle: 'Branches de travail',
     branchesIntro:
       "La branche de base est celle sur laquelle l’espace travaille : une branche existante du dépôt (la racine comprise) ou une nouvelle, tirée de la racine. Une fille se tire de la tête de la base.",

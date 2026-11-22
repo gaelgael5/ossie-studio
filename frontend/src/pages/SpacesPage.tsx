@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { TFunction } from 'i18next'
 import { api } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
@@ -32,6 +32,7 @@ function probeFailureMessages(t: TFunction, err: unknown): string[] {
 
 export function SpacesPage() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
   const pair = useLabelSlug()
@@ -149,9 +150,19 @@ export function SpacesPage() {
               </thead>
               <tbody>
                 {spaces.data.spaces.map((s) => (
-                  <tr key={s.id}>
+                  // Toute la ligne ouvre l'espace ; les boutons d'action arrêtent la propagation.
+                  <tr
+                    key={s.id}
+                    className="row-clickable"
+                    tabIndex={0}
+                    aria-label={t('openSpaceNamed', { name: s.name })}
+                    onClick={() => navigate(`/spaces/${s.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.target === e.currentTarget) navigate(`/spaces/${s.id}`)
+                    }}
+                  >
                     <td>
-                      {s.name}
+                      <span className="link-like">{s.name}</span>
                       <div className="mono muted small">{s.slug}</div>
                     </td>
                     <td>{connLabel(s.connection_id)}</td>
@@ -166,11 +177,8 @@ export function SpacesPage() {
                       )}
                     </td>
                     <td>{formatDate(s.last_probe_at)}</td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <div className="actions">
-                        <Link to={`/spaces/${s.id}`} className="btn btn-sm">
-                          {t('openSpace')}
-                        </Link>
                         <BusyButton
                           type="button"
                           className="btn btn-sm"

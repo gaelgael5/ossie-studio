@@ -240,7 +240,7 @@ export const en = {
     probeResiduals: 'To delete by hand on the forge: {{names}}.',
     probePosedMain: '“main” was posed on the empty repository.',
     deleteSpaceConfirm: 'Delete this space? The repository is not touched.',
-    openSpace: 'Open',
+    openSpaceNamed: 'Open space {{name}}',
     branchesTitle: 'Working branches',
     branchesIntro:
       'The base branch is the one the space works on: an existing repository branch (the root included) or a new one cut from the root. A child is cut from the base head.',
