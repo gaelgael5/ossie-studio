@@ -745,7 +745,7 @@ export const api = {
       body: JSON.stringify({ branch_id: branchId }),
     }),
   listConnectionBranches: (id: string, repo: string) =>
-    apiFetch<{ branches: string[] }>(
+    apiFetch<{ branches: string[]; default: string }>(
       `/api/connections/${id}/branches?repo=${encodeURIComponent(repo)}`,
     ),
   listSources: (spaceId: string, branchId: string) =>

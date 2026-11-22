@@ -228,3 +228,31 @@ async def test_gitlab_portee_insuffisante_distinguee_du_jeton_invalide() -> None
             await GitLabStrategy().verify(client, "https://gitlab.com", "expire")
     assert scope.value.code == "connection_token_scope_insufficient"
     assert invalid.value.code == "connection_token_invalid"
+
+
+def test_branche_par_defaut_declaree_puis_main_master_root() -> None:
+    from ossie_studio.api.connections import pick_default_branch
+
+    assert pick_default_branch(["dev", "main", "release"], "release") == "release"
+    # Déclarée mais absente de la liste (ou inconnue) : main, puis master, puis root.
+    assert pick_default_branch(["dev", "main"], "disparue") == "main"
+    assert pick_default_branch(["dev", "master", "root"], None) == "master"
+    assert pick_default_branch(["dev", "root"], None) == "root"
+    assert pick_default_branch(["dev", "feature"], None) == ""
+
+
+async def test_github_branche_par_defaut_lue_ou_none() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/repos/acme/app"):
+            return httpx.Response(200, json={"default_branch": "develop"})
+        return httpx.Response(404)
+
+    async with _client(handler) as client:
+        assert (
+            await GitHubStrategy().default_branch(client, "https://github.com", "t", "acme/app")
+            == "develop"
+        )
+        assert (
+            await GitHubStrategy().default_branch(client, "https://github.com", "t", "acme/x")
+            is None
+        )

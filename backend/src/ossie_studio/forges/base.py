@@ -92,6 +92,13 @@ class ForgeStrategy(Protocol):
         Sert à proposer la « branche suivie » d'une source Git."""
         ...
 
+    async def default_branch(
+        self, client: httpx.AsyncClient, url: str, token: str, repo: str
+    ) -> str | None:
+        """Branche par défaut déclarée par la forge pour ce dépôt, ou None si elle
+        est inconnue ou illisible (l'appelant se rabat alors sur main / root)."""
+        ...
+
     async def verify_write(
         self, client: httpx.AsyncClient, url: str, repo: str, token: str
     ) -> WriteCheck:

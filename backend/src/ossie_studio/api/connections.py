@@ -171,7 +171,17 @@ async def list_connection_branches(
             branches = await strategy.list_branches(client, connection.url, token, repo.strip())
         except ForgeError as exc:
             raise ApiError(exc.code, status_code=400) from None
-    return {"branches": branches}
+        declared = await strategy.default_branch(client, connection.url, token, repo.strip())
+    return {"branches": branches, "default": pick_default_branch(branches, declared)}
+
+
+def pick_default_branch(branches: list[str], declared: str | None) -> str:
+    """Présélection de la « branche suivie » : celle que la forge déclare par
+    défaut, sinon main, master ou root (dans cet ordre), sinon aucune."""
+    for candidate in (declared, "main", "master", "root"):
+        if candidate and candidate in branches:
+            return candidate
+    return ""
 
 
 @router.post("", status_code=201)

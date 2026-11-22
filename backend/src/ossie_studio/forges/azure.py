@@ -105,6 +105,26 @@ class AzureDevOpsStrategy:
                 names.append(name.removeprefix("refs/heads/"))
         return names
 
+    async def default_branch(
+        self, client: httpx.AsyncClient, url: str, token: str, repo: str
+    ) -> str | None:
+        # Simple confort d'affichage (présélection) : toute erreur → None.
+        project, _, repo_name = repo.partition("/")
+        if not project or not repo_name:
+            return None
+        try:
+            response = await client.get(
+                f"{url.rstrip('/')}/{project}/_apis/git/repositories/{repo_name}",
+                headers=_headers(token),
+                params={"api-version": _API_VERSION},
+            )
+        except httpx.HTTPError:
+            return None
+        if response.status_code >= 400:
+            return None
+        value = response.json().get("defaultBranch")
+        return str(value).removeprefix("refs/heads/") if value else None
+
     async def verify_write(
         self, client: httpx.AsyncClient, url: str, repo: str, token: str
     ) -> WriteCheck:

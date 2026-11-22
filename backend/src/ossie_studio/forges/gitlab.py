@@ -79,6 +79,21 @@ class GitLabStrategy:
                 return names
             page += 1
 
+    async def default_branch(
+        self, client: httpx.AsyncClient, url: str, token: str, repo: str
+    ) -> str | None:
+        # Simple confort d'affichage (présélection) : toute erreur → None.
+        try:
+            response = await client.get(
+                f"{_api(url)}/projects/{quote(repo, safe='')}", headers=_headers(token)
+            )
+        except httpx.HTTPError:
+            return None
+        if response.status_code >= 400:
+            return None
+        value = response.json().get("default_branch")
+        return str(value).removeprefix("refs/heads/") if value else None
+
     async def verify_write(
         self, client: httpx.AsyncClient, url: str, repo: str, token: str
     ) -> WriteCheck:

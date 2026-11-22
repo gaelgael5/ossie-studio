@@ -498,7 +498,7 @@ function GitSourceModal({
   // le manifeste, lui, reçoit le slug.
   const [connexion, setConnexion] = useState('')
   const [depot, setDepot] = useState(String(p.depot ?? ''))
-  const [branche, setBranche] = useState(String(p.branche ?? ''))
+  const [brancheChoice, setBranche] = useState(String(p.branche ?? ''))
   const [dirs, setDirs] = useState(asList(p.repertoires).join(', '))
   const [messages, setMessages] = useState<string[]>([])
 
@@ -515,6 +515,9 @@ function GitSourceModal({
     enabled: !!connexion && !!depot,
     retry: false,
   })
+  // Sans choix explicite, la branche par défaut du dépôt (déclarée par la forge,
+  // sinon main / master / root) : dérivée au rendu, jamais recopiée en état.
+  const branche = brancheChoice || (branches.data?.default ?? '')
 
   const forges = useMemo(() => connections.data?.connections ?? [], [connections.data])
 
