@@ -12,12 +12,19 @@ import { Combobox } from '../components/Combobox'
 import { useWorkspace } from '../workspace'
 import { RawExplorer } from './RawExplorer'
 import { exclusionsOf, parseExclusionInput } from '../sourceExclusions'
+import { TriRulesEditor, useTriRules } from '../components/TriRulesEditor'
 
 function asList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
 }
 
-function whatIsRead(source: SourceItem, t: (k: string) => string): string {
+function whatIsRead(source: SourceItem, t: (k: string, o?: Record<string, unknown>) => string): string {
+  const read = whatIsReadBase(source, t)
+  const rules = source.triage_count ?? 0
+  return rules > 0 ? `${read} · ${t('triageCountShort', { count: rules })}` : read
+}
+
+function whatIsReadBase(source: SourceItem, t: (k: string) => string): string {
   const p = source.parameters ?? {}
   if (source.type === 'openapi') {
     return t('openapiContractsRead')
@@ -364,6 +371,7 @@ function OpenApiSourceModal({
   const { label } = pair
   const slug = pair.finalSlug
   const [messages, setMessages] = useState<string[]>([])
+  const tri = useTriRules(spaceId, branchId, source?.slug)
 
 
   const save = useMutation({
@@ -376,11 +384,16 @@ function OpenApiSourceModal({
         parameters: {},
       }
       return editMode
-        ? api.updateSource(spaceId, branchId, source!.slug, {
-            label,
-            connection: '',
-            parameters: {},
-          })
+        ? api
+            .updateSource(spaceId, branchId, source!.slug, {
+              label,
+              connection: '',
+              parameters: {},
+            })
+            .then(async (saved) => {
+              await tri.persist()
+              return saved
+            })
         : api.declareSource(spaceId, branchId, body)
     },
     // À la création, on ouvre le détail pour y déposer les contrats.
@@ -423,6 +436,7 @@ function OpenApiSourceModal({
             slugLocked={editMode}
           />
         </div>
+        {editMode ? <TriRulesEditor state={tri} /> : null}
         <div className="info-note">{t('openapiSourceNote')}</div>
       </div>
     </Modal>
@@ -541,6 +555,7 @@ function GitSourceModal({
   const [dirs, setDirs] = useState(asList(p.directories).join(', '))
   const [excludedDirs, setExcludedDirs] = useState(exclusionsOf(p).join(', '))
   const [messages, setMessages] = useState<string[]>([])
+  const tri = useTriRules(spaceId, branchId, source?.slug)
 
   const connections = useQuery({ queryKey: ['connections'], queryFn: api.listConnections })
   const repos = useQuery({
@@ -600,11 +615,16 @@ function GitSourceModal({
     mutationFn: () => {
       const body: SourceInput = { slug, label, type: 'git', connection: connSlug, parameters }
       return editMode
-        ? api.updateSource(spaceId, branchId, source!.slug, {
-            label,
-            connection: connSlug,
-            parameters,
-          })
+        ? api
+            .updateSource(spaceId, branchId, source!.slug, {
+              label,
+              connection: connSlug,
+              parameters,
+            })
+            .then(async (saved) => {
+              await tri.persist()
+              return saved
+            })
         : api.declareSource(spaceId, branchId, body)
     },
     onSuccess: (saved) => (collectAfter.current ? onDeclaredCollect(saved.slug) : onSaved()),
@@ -779,6 +799,7 @@ function GitSourceModal({
             )}
             <span className="field-hint">{t('parsersHint')}</span>
           </div>
+          {editMode ? <TriRulesEditor state={tri} /> : null}
         </div>
         <div className="stack">
           <ManifestPreview manifest={preview} />
@@ -814,6 +835,7 @@ function SqlSourceModal({
   const [schemas, setSchemas] = useState(asList(p.schemas).join(', '))
   const [exclusions, setExclusions] = useState(asList(p.exclusions).join(', '))
   const [messages, setMessages] = useState<string[]>([])
+  const tri = useTriRules(spaceId, branchId, source?.slug)
 
   const connections = useQuery({ queryKey: ['db-connections'], queryFn: api.listDbConnections })
   const dbs = useMemo(() => connections.data?.connections ?? [], [connections.data])
@@ -842,7 +864,12 @@ function SqlSourceModal({
     mutationFn: () => {
       const body: SourceInput = { slug, label, type: engine, connection: connSlug, parameters }
       return editMode
-        ? api.updateSource(spaceId, branchId, source!.slug, { label, connection: connSlug, parameters })
+        ? api
+            .updateSource(spaceId, branchId, source!.slug, { label, connection: connSlug, parameters })
+            .then(async (saved) => {
+              await tri.persist()
+              return saved
+            })
         : api.declareSource(spaceId, branchId, body)
     },
     onSuccess: onSaved,
@@ -927,6 +954,7 @@ function SqlSourceModal({
               <input id="s-excl" className="input" value={exclusions} onChange={(e) => setExclusions(e.target.value)} />
             </div>
           </div>
+          {editMode ? <TriRulesEditor state={tri} /> : null}
         </div>
         <div className="stack">
           <ManifestPreview manifest={preview} />

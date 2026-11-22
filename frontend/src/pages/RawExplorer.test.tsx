@@ -64,7 +64,7 @@ function folderBody(path: string) {
         file: 'status.json',
         title: 'Status',
         kind: 'enum',
-        badges: [],
+        badges: STATUS_EXCLUDED.value ? ['excluded'] : [],
         visibility: 'internal',
         visibility_source: 'package-private',
       },
@@ -157,6 +157,23 @@ const DETAIL = {
 }
 
 const SESSION_CAPS = { value: [] as string[] }
+const STATUS_EXCLUDED = { value: false }
+const REVIEW = {
+  base_sha: 'aaa',
+  head_sha: 'bbbbbbb',
+  up_to_date: false,
+  objects: [
+    {
+      path: 'order.json',
+      title: 'Order',
+      status: 'retained-touched',
+      fields: [
+        { name: 'id', change: 'changed', type: 'string', lost_enrichment: [] },
+        { name: 'ancien', change: 'disappeared', type: 'string', lost_enrichment: ['x-businessName'] },
+      ],
+    },
+  ],
+}
 const DETAIL_OVERRIDE = { value: {} as Record<string, unknown> }
 
 function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
@@ -178,6 +195,8 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
           object: { name: '', business_name: 'Commande', description: '', concept: '', tags: [], readonly: {} },
           fields: [{ name: 'id', business_name: '', description: '', concept: '', tags: [], readonly: {} }],
         }
+      else if (u.pathname.endsWith('/curation/review')) body = REVIEW
+      else if (u.pathname.endsWith('/curation/refresh')) body = { ok: true, commit: 'abc', refreshed: ['order.json'] }
       else if (u.pathname.includes('/curation/')) body = { ok: true, commit: 'abc' }
       else if (u.pathname.endsWith('/sources')) body = declared
       else if (u.pathname.endsWith('/raw-explorer')) body = sources
@@ -229,6 +248,7 @@ function renderExplorer(entry = '/sources?tab=raw') {
 beforeEach(() => {
   localStorage.clear()
   SESSION_CAPS.value = []
+  STATUS_EXCLUDED.value = false
   DETAIL_OVERRIDE.value = {}
   setCurrentWorkspace('s1', 'b1')
 })
@@ -580,6 +600,69 @@ describe('RawExplorer', () => {
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
     expect(await screen.findByText('Enrichissement enregistré dans le brouillon.')).toBeInTheDocument()
     expect(calls.bodies.some((b) => b.url.endsWith('/curation/enrich') && b.method === 'PUT')).toBe(true)
+  })
+
+  it('onglet Changements : diff de l’objet, décisions appliquées sans avancer le point de reprise', async () => {
+    SESSION_CAPS.value = ['curation:review']
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    await screen.findByText('Une commande du client.')
+    expect(await screen.findByRole('tab', { name: 'Changements (2)' })).toBeInTheDocument()
+    // « Voir le diff depuis la revue » ouvre cet onglet.
+    await user.click(screen.getByRole('button', { name: 'Voir le diff depuis la revue' }))
+    expect(screen.getByText('Enrichissements perdus : x-businessName')).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: /changé\s*id/ }))
+    await user.click(screen.getByRole('button', { name: 'Appliquer les décisions de cet objet' }))
+    expect(await screen.findByText('Décisions appliquées dans le brouillon.')).toBeInTheDocument()
+    const sent = calls.bodies.find((b) => b.url.endsWith('/curation/review/apply'))!
+    expect(JSON.parse(sent.body!)).toEqual({
+      head_sha: 'bbbbbbb',
+      apply_fields: [{ path: 'order.json', name: 'id' }],
+      take_fields: [],
+      remove_fields: [],
+      remove_objects: [],
+      retain_objects: [],
+      advance: false,
+    })
+  })
+
+  it('revue de la source : bandeau, vue « Revue », validation confirmée qui avance le point', async () => {
+    SESSION_CAPS.value = ['curation:review', 'curation:write']
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&view=list')
+    expect(await screen.findByText('1 objet(s) changé(s) depuis la dernière revue.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Ouvrir la revue' }))
+    expect(screen.getByTestId('loc').textContent).toContain('view=review')
+    expect(await screen.findByText('Revue de la source')).toBeInTheDocument()
+    expect(screen.queryByText('1 objet(s) changé(s) depuis la dernière revue.')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: /disparu\s*ancien/ }))
+    await user.click(screen.getByRole('button', { name: 'Valider la revue' }))
+    expect(screen.getByText('Valider la revue ? 1 décision(s) seront appliquées en un commit.')).toBeInTheDocument()
+    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Valider la revue' }))
+    expect(await screen.findByText('Revue validée : le point de reprise a avancé.')).toBeInTheDocument()
+    const sent = JSON.parse(calls.bodies.find((b) => b.url.endsWith('/curation/review/apply'))!.body!)
+    expect(sent.remove_fields).toEqual([{ path: 'order.json', name: 'ancien' }])
+    expect(sent.advance).toBeUndefined()
+    await user.click(screen.getByRole('button', { name: 'Rafraîchir depuis le brut' }))
+    await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/refresh'))).toBe(true))
+    // Ouvrir un dossier de l'arbre revient à la vue d'avant (liste).
+    const tree = within(screen.getByRole('tree'))
+    await user.click(await tree.findByRole('button', { name: /src/ }))
+    expect(screen.getByTestId('loc').textContent).toContain('view=list')
+  })
+
+  it('« masquer les écartés » cache les objets écartés et se retient dans le navigateur', async () => {
+    STATUS_EXCLUDED.value = true
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain')
+    expect(await screen.findByText('Status')).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: 'masquer les écartés' }))
+    expect(screen.queryByText('Status')).not.toBeInTheDocument()
+    expect(screen.getByText('Order')).toBeInTheDocument()
+    expect(localStorage.getItem('ossie.rawExplorer.hideExcluded')).toBe('yes')
   })
 
   it('graphe : ouvrir un dossier de l’arbre revient à la vue précédente', async () => {

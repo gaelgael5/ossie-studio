@@ -2,6 +2,7 @@ import { type ReactNode, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { AssetButton, AssetEditorProvider, EnrichTab, EyeCell } from './RawAssetEditor'
+import { ChangesTab, useObjectChanges } from './RawChanges'
 import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import type {
@@ -30,6 +31,7 @@ import {
 type Tab =
   | 'overview'
   | 'fields'
+  | 'changes'
   | 'enrichment'
   | 'documentation'
   | 'references'
@@ -39,6 +41,7 @@ type Tab =
 const TABS: Tab[] = [
   'overview',
   'fields',
+  'changes',
   'enrichment',
   'documentation',
   'references',
@@ -80,6 +83,7 @@ export function RawExclusive(props: ExclusiveProps) {
     staleTime: STALE_MS,
     retry: false,
   })
+  const changes = useObjectChanges(spaceId, branchId, slug, file)
   const docs = useQueries({
     queries: (detail.data?.documents ?? []).map((d) => ({
       queryKey: ['rawDocContent', spaceId, branchId, slug, d.path],
@@ -151,6 +155,7 @@ export function RawExclusive(props: ExclusiveProps) {
   const commits = history.data?.commits ?? []
   const counts: Partial<Record<Tab, number>> = {
     fields: d.fields.length,
+    changes: changes.count,
     documentation: d.documents.length,
     references: d.references.length + incoming.length,
     ...(history.data ? { history: commits.length } : {}),
@@ -324,6 +329,11 @@ export function RawExclusive(props: ExclusiveProps) {
       {tab === 'technical' ? (
         <section className="panel">
           <Technical detail={d} />
+        </section>
+      ) : null}
+      {tab === 'changes' ? (
+        <section className="panel">
+          <ChangesTab spaceId={spaceId} branchId={branchId} slug={slug} file={d.file} />
         </section>
       ) : null}
       {tab === 'enrichment' ? (

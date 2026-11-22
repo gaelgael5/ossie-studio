@@ -108,6 +108,10 @@ class ReviewApplyBody(BaseModel):
     remove_fields: list[ReviewFieldRef] = []   # champs disparus à retirer
     remove_objects: list[str] = []             # objets disparus : retirer l'asset
     retain_objects: list[str] = []             # objets nouveaux : retenir en entier
+    # False : décisions d'un seul objet, prises depuis l'aperçu de l'explorateur
+    # raw — le point de reprise de la source n'avance pas (la revue de la source
+    # le fait, une fois tout revu).
+    advance: bool = True
 
 
 class EnrichValues(BaseModel):
@@ -551,8 +555,10 @@ async def apply_source_review(
     try:
         commit = await workdir.commit_to_branch(
             space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, f"curation {slug} : revue validée",
-            apply_review_fn(slug, body.head_sha, decisions),
+            user.email, user.email,
+            f"curation {slug} : revue validée" if body.advance
+            else f"curation {slug} : décisions de revue appliquées",
+            apply_review_fn(slug, body.head_sha, decisions, advance=body.advance),
             expect_head=body.head_sha,
         )
     except WorkdirError as exc:
@@ -564,7 +570,7 @@ async def apply_source_review(
         "curation_review_apply", author=user.email, slug=slug, commit=commit,
         apply=len(body.apply_fields), take=len(body.take_fields),
         remove=len(body.remove_fields), remove_objects=len(body.remove_objects),
-        retain=len(body.retain_objects),
+        retain=len(body.retain_objects), advance=body.advance,
     )
     return {"ok": True, "commit": commit}
 

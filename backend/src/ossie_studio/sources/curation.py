@@ -684,10 +684,14 @@ def build_review(
     return ReviewResult(objects=objects)
 
 
-def apply_review_fn(slug: str, head_sha: str, decisions: ReviewDecisions) -> Callable[[Path], None]:
-    """Applique les décisions de revue **et** avance le point de reprise à
-    `head_sha`, le tout en un seul commit. Un changement non décidé est laissé tel
-    quel (le point de reprise avance quand même). Déterministe (`dump_schema`)."""
+def apply_review_fn(
+    slug: str, head_sha: str, decisions: ReviewDecisions, *, advance: bool = True
+) -> Callable[[Path], None]:
+    """Applique les décisions de revue **et** (si `advance`) avance le point de
+    reprise à `head_sha`, le tout en un seul commit. Un changement non décidé est
+    laissé tel quel (le point de reprise avance quand même). Sans `advance`, seules
+    les décisions s'écrivent : la revue étant relative à l'asset, un changement
+    appliqué n'y figure plus. Déterministe (`dump_schema`)."""
 
     def write(workdir: Path) -> None:
         raw_dir = safe_source_path(workdir, slug) / RAW_DIR
@@ -729,7 +733,8 @@ def apply_review_fn(slug: str, head_sha: str, decisions: ReviewDecisions) -> Cal
             assets_dir.mkdir(parents=True, exist_ok=True)
             asset = build_asset(new_raw, None, None, f"{RAW_DIR}/{path}")
             (assets_dir / path).write_text(dump_schema(asset), encoding="utf-8")
-        _write_review_point(workdir, slug, head_sha)
+        if advance:
+            _write_review_point(workdir, slug, head_sha)
 
     return write
 

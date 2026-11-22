@@ -1573,6 +1573,29 @@ body.resizing-x {
   text-decoration: line-through;
   border: 1px solid var(--border);
 }
+.tri-rules {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px;
+  margin-top: 12px;
+}
+.raw-review-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 6px 12px;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: var(--radius);
+}
+.raw-source-review .panel.selected {
+  border-color: var(--primary);
+}
+.raw-changes-lost {
+  margin-left: 1.4rem;
+}
 .raw-eye-btn {
   background: none;
   border: 1px solid transparent;

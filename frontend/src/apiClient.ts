@@ -298,6 +298,8 @@ export interface SourceItem {
   connection?: SourceConnectionRef
   parameters?: Record<string, unknown>
   error?: string
+  /** Nombre de règles de tri de la source (manifeste). */
+  triage_count?: number
 }
 export interface SourceInput {
   slug: string
@@ -706,6 +708,8 @@ export interface ReviewApplyBody {
   remove_fields: ReviewFieldRef[]
   remove_objects: string[]
   retain_objects: string[]
+  /** false : décisions d'un seul objet, sans avancer le point de reprise (défaut : true). */
+  advance?: boolean
 }
 
 export interface ReviewHistoryCommit {
