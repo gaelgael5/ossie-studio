@@ -24,6 +24,7 @@ from ossie_studio.api.oidc import router as api_oidc_router
 from ossie_studio.api.parsing import router as api_parsing_router
 from ossie_studio.api.profiles import router as api_profiles_router
 from ossie_studio.api.publish import router as api_publish_router
+from ossie_studio.api.raw_explorer import router as api_raw_explorer_router
 from ossie_studio.api.secrets import router as api_secrets_router
 from ossie_studio.api.session import router as api_session_router
 from ossie_studio.api.sources import router as api_sources_router
@@ -132,6 +133,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_sources_router)
     app.include_router(api_parsing_router)
     app.include_router(api_curation_router)
+    app.include_router(api_raw_explorer_router)
     app.include_router(api_governance_router)
     app.include_router(api_certifications_router)
     app.include_router(api_classifications_router)

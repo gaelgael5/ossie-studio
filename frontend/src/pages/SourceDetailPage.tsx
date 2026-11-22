@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import type {
   CollectReport,
@@ -48,6 +48,10 @@ function sourceMeta(s: SourceItem, t: (k: string) => string): string {
 export function SourceDetailPage() {
   const { t } = useTranslation()
   const { slug = '' } = useParams()
+  const navigate = useNavigate()
+  // L'explorateur raw est un onglet de la page « Sources » : on l'ouvre sur
+  // cette source plutôt que de dupliquer l'écran ici.
+  const rawExplorerHref = `/sources?tab=raw&source=${encodeURIComponent(slug)}`
   const ws = useWorkspace()
   const [tab, setTab] = useState<Tab | null>(null)
   const [force, setForce] = useState(false)
@@ -135,8 +139,7 @@ export function SourceDetailPage() {
             key={id}
             type="button"
             className={`tab${effectiveTab === id ? ' active' : ''}`}
-            aria-disabled={id === 'raw'}
-            onClick={() => (id === 'raw' ? undefined : setTab(id))}
+            onClick={() => (id === 'raw' ? navigate(rawExplorerHref) : setTab(id))}
           >
             {t(
               id === 'overview'
@@ -196,8 +199,6 @@ export function SourceDetailPage() {
         />
       ) : null}
 
-      {effectiveTab === 'raw' ? <div className="empty-note">{t('rawExplorerSoon')}</div> : null}
-
       {effectiveTab === 'scan' ? (
         <ScanPanel spaceId={ws.spaceId as string} branchId={ws.branchId as string} slug={slug} />
       ) : null}
@@ -225,7 +226,7 @@ export function SourceDetailPage() {
       {effectiveTab === 'collectes' ? (
         <div className="master-detail">
           <div className="stack">
-            {report ? <ReportCard report={report} publishHref={publishHref} /> : null}
+            {report ? <ReportCard report={report} publishHref={publishHref} rawExplorerHref={rawExplorerHref} /> : null}
             {!report ? <div className="empty-note">{t('collectHint')}</div> : null}
           </div>
           <div className="panel">
@@ -267,9 +268,11 @@ export function SourceDetailPage() {
 function ReportCard({
   report,
   publishHref,
+  rawExplorerHref,
 }: {
   report: CollectReport
   publishHref: string
+  rawExplorerHref: string
 }) {
   const { t } = useTranslation()
   const step = (label: string, detail: string) => (
@@ -331,9 +334,9 @@ function ReportCard({
         <span className="btn btn-sm" aria-disabled="true" title={t('rawExplorerSoon')}>
           {t('viewDiff')}
         </span>
-        <span className="btn btn-sm" aria-disabled="true" title={t('rawExplorerSoon')}>
+        <Link to={rawExplorerHref} className="btn btn-sm">
           {t('openRawExplorer')}
-        </span>
+        </Link>
         {report.local_commit ? (
           <Link to={publishHref} className="btn btn-sm btn-primary">
             {t('publishBranch')}

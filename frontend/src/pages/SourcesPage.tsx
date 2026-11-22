@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import type { SourceInput, SourceItem } from '../apiClient'
 import { errorMessages } from '../errors'
@@ -10,6 +10,7 @@ import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { Combobox } from '../components/Combobox'
 import { useWorkspace } from '../workspace'
+import { RawExplorer } from './RawExplorer'
 
 function asList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
@@ -43,6 +44,10 @@ export function SourcesPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [editing, setEditing] = useState<Editing>(null)
   const [messages, setMessages] = useState<string[]>([])
+  // L'onglet vit dans l'adresse (?tab=raw) : un lien vers l'explorateur, ouvert
+  // sur une source et un dossier, se partage et se rouvre tel quel.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const rawTab = searchParams.get('tab') === 'raw'
 
   const key = ['sources', ws.spaceId, ws.branchId]
   const sources = useQuery({
@@ -141,123 +146,147 @@ export function SourcesPage() {
         </div>
       </div>
 
-      <div className="tabs">
-        <span className="tab active">{t('tabSourcesDeclared')}</span>
-        <span className="tab" aria-disabled="true" title={t('rawExplorerSoon')}>
+      <div className="tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={!rawTab}
+          className={`tab${rawTab ? '' : ' active'}`}
+          onClick={() => setSearchParams({})}
+        >
+          {t('tabSourcesDeclared')}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={rawTab}
+          className={`tab${rawTab ? ' active' : ''}`}
+          onClick={() => setSearchParams({ tab: 'raw' })}
+        >
           {t('tabRawExplorer')}
-        </span>
+        </button>
       </div>
 
       <ErrorList messages={messages} />
 
-      <div className="panel">
-        {list.length > 0 ? (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>{t('colSource')}</th>
-                <th>{t('colTypeConnexion')}</th>
-                <th>{t('colWhatRead')}</th>
-                <th>{t('colState')}</th>
-                <th aria-label={t('colActions')} />
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((source) => (
-                <tr key={source.slug}>
-                  <td>
-                    {source.ok ? (
-                      <>
-                        <Link to={`/sources/${source.slug}`} className="link-strong">
-                          {source.label}
-                        </Link>
-                        <div className="muted mono small">
-                          {source.slug}
+      {rawTab ? (
+        <RawExplorer
+          spaceId={ws.spaceId as string}
+          branchId={ws.branchId as string}
+          spaceName={ws.spaces.find((s) => s.id === ws.spaceId)?.name ?? ''}
+        />
+      ) : (
+        <>
+          <div className="panel">
+            {list.length > 0 ? (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{t('colSource')}</th>
+                    <th>{t('colTypeConnexion')}</th>
+                    <th>{t('colWhatRead')}</th>
+                    <th>{t('colState')}</th>
+                    <th aria-label={t('colActions')} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map((source) => (
+                    <tr key={source.slug}>
+                      <td>
+                        {source.ok ? (
+                          <>
+                            <Link to={`/sources/${source.slug}`} className="link-strong">
+                              {source.label}
+                            </Link>
+                            <div className="muted mono small">
+                              {source.slug}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="mono">{source.slug}</span>
+                        )}
+                      </td>
+                      <td>
+                        {source.ok ? (
+                          <>
+                            {source.type}
+                            <div className="muted small">
+                              {source.connection?.kind === 'missing'
+                                ? t('connectionMissing')
+                                : source.connection?.kind === 'none'
+                                  ? t('sourceNoConnection')
+                                  : source.connection?.label}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                      </td>
+                      <td className="muted">{source.ok ? whatIsRead(source, t) : ''}</td>
+                      <td>
+                        {source.ok ? (
+                          <span className="pill text-ok">
+                            {t('sourceValid')}
+                          </span>
+                        ) : (
+                          <span className="text-danger">
+                            {t(`fields.${source.error}`, {
+                              defaultValue: t('sourceInError'),
+                            })}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="row">
+                          {source.ok && (source.type === 'git' || source.type === 'openapi') ? (
+                            <Link to={`/sources/${source.slug}`} className="btn btn-sm btn-primary">
+                              {source.type === 'openapi' ? t('openContracts') : t('collect')}
+                            </Link>
+                          ) : null}
+                          {source.ok ? (
+                            <button
+                              type="button"
+                              className="btn btn-sm"
+                              onClick={() =>
+                                setEditing({
+                                  kind:
+                                    source.type === 'git'
+                                      ? 'git'
+                                      : source.type === 'openapi'
+                                        ? 'openapi'
+                                        : 'sql',
+                                  source,
+                                })
+                              }
+                            >
+                              {t('editSource')}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-danger"
+                            onClick={() => {
+                              if (window.confirm(t('deleteSourceConfirm'))) remove.mutate(source.slug)
+                            }}
+                          >
+                            {t('delete')}
+                          </button>
                         </div>
-                      </>
-                    ) : (
-                      <span className="mono">{source.slug}</span>
-                    )}
-                  </td>
-                  <td>
-                    {source.ok ? (
-                      <>
-                        {source.type}
-                        <div className="muted small">
-                          {source.connection?.kind === 'missing'
-                            ? t('connectionMissing')
-                            : source.connection?.kind === 'none'
-                              ? t('sourceNoConnection')
-                              : source.connection?.label}
-                        </div>
-                      </>
-                    ) : (
-                      <span className="muted">—</span>
-                    )}
-                  </td>
-                  <td className="muted">{source.ok ? whatIsRead(source, t) : ''}</td>
-                  <td>
-                    {source.ok ? (
-                      <span className="pill text-ok">
-                        {t('sourceValid')}
-                      </span>
-                    ) : (
-                      <span className="text-danger">
-                        {t(`fields.${source.error}`, {
-                          defaultValue: t('sourceInError'),
-                        })}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <div className="row">
-                      {source.ok && (source.type === 'git' || source.type === 'openapi') ? (
-                        <Link to={`/sources/${source.slug}`} className="btn btn-sm btn-primary">
-                          {source.type === 'openapi' ? t('openContracts') : t('collect')}
-                        </Link>
-                      ) : null}
-                      {source.ok ? (
-                        <button
-                          type="button"
-                          className="btn btn-sm"
-                          onClick={() =>
-                            setEditing({
-                              kind:
-                                source.type === 'git'
-                                  ? 'git'
-                                  : source.type === 'openapi'
-                                    ? 'openapi'
-                                    : 'sql',
-                              source,
-                            })
-                          }
-                        >
-                          {t('editSource')}
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-danger"
-                        onClick={() => {
-                          if (window.confirm(t('deleteSourceConfirm'))) remove.mutate(source.slug)
-                        }}
-                      >
-                        {t('delete')}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="empty-note">{t('noSources')}</div>
-        )}
-      </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="empty-note">{t('noSources')}</div>
+            )}
+          </div>
 
-      <div className="info-note" style={{ marginTop: 16 }}>
-        {t('sourceSecretNote')}
-      </div>
+          <div className="info-note" style={{ marginTop: 16 }}>
+            {t('sourceSecretNote')}
+          </div>
+        </>
+      )}
 
       {editing?.kind === 'git' ? (
         <GitSourceModal

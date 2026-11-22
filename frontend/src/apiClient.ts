@@ -398,6 +398,67 @@ export interface ScanFileItem {
   scanned_at: string
 }
 
+// --- Explorateur raw (lecture seule de la couche raw) ---
+export type RawExplorerMode = 'origin' | 'kind' | 'parser'
+export type RawBadge = 'retained' | 'new' | 'modified' | 'excluded' | 'error'
+
+export interface RawCollectState {
+  date: string
+  files: number
+  errors: number
+}
+
+export interface RawExplorerSource {
+  slug: string
+  label: string
+  type: string
+  collected: boolean
+  objects: number
+  documents: number
+  last_collect: RawCollectState | null
+}
+
+export interface RawFolderItem {
+  path: string
+  /** Éléments directs : sous-dossiers + objets + documents. */
+  items: number
+  /** Objets du sous-arbre. */
+  objects: number
+}
+
+export interface RawExplorerTree extends RawExplorerSource {
+  mode: RawExplorerMode
+  folders: RawFolderItem[]
+}
+
+export interface RawObjectItem {
+  file: string
+  title: string
+  kind: string
+  fields: number
+  origin: string
+  parser: string
+  badges: RawBadge[]
+  excluded_by: string
+}
+
+export interface RawDocumentItem {
+  path: string
+  title: string
+  sections: number
+}
+
+export interface RawFolderContent {
+  path: string
+  folders: RawFolderItem[]
+  objects: RawObjectItem[]
+  documents: RawDocumentItem[]
+}
+
+export interface RawSearchResult extends RawObjectItem {
+  folder: string
+}
+
 export interface CurationObjectItem {
   path: string
   title: string
@@ -858,6 +919,34 @@ export const api = {
   listSourceScan: (spaceId: string, branchId: string, slug: string) =>
     apiFetch<{ fichiers: ScanFileItem[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/scan`,
+    ),
+  listRawExplorerSources: (spaceId: string, branchId: string) =>
+    apiFetch<{ sources: RawExplorerSource[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer`,
+    ),
+  getRawExplorerTree: (spaceId: string, branchId: string, slug: string, mode: RawExplorerMode) =>
+    apiFetch<RawExplorerTree>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/tree?mode=${mode}`,
+    ),
+  getRawExplorerFolder: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    mode: RawExplorerMode,
+    path: string,
+  ) =>
+    apiFetch<RawFolderContent>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/folder?mode=${mode}&path=${encodeURIComponent(path)}`,
+    ),
+  searchRawExplorer: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    mode: RawExplorerMode,
+    q: string,
+  ) =>
+    apiFetch<{ results: RawSearchResult[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/search?mode=${mode}&q=${encodeURIComponent(q)}`,
     ),
   listCuration: (spaceId: string, branchId: string, slug: string, showExcluded = false) =>
     apiFetch<{ objects: CurationObjectItem[] }>(
