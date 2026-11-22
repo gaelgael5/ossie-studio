@@ -1237,3 +1237,255 @@ input[type='radio'] {
   height: 8px;
   accent-color: var(--primary);
 }
+
+/* ---------- Explorateur raw ---------- */
+/* Arbre des sources à gauche, dossier courant au centre (le panneau d'aperçu
+   viendra à droite). Les icônes sont des abréviations en chasse fixe, comme les
+   étiquettes du plan : pas de pictogrammes à maintenir. */
+.raw-explorer {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.raw-explorer > .error-list {
+  grid-column: 1 / -1;
+}
+.raw-tree {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+}
+.raw-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 12px;
+}
+.raw-tree > .raw-tree-list {
+  padding-left: 0;
+  margin-top: 12px;
+}
+.raw-tree-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.raw-tree-node:hover {
+  background: var(--surface-muted);
+}
+.raw-tree-node.active {
+  border-left-color: var(--primary);
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  font-weight: 600;
+}
+.raw-tree-glyph {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  min-width: 1.6em;
+}
+.raw-count {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+.raw-main {
+  min-width: 0;
+}
+.raw-toolbar,
+.raw-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
+.raw-toolbar {
+  justify-content: space-between;
+}
+.raw-crumbs {
+  margin: 0;
+}
+.raw-view-toggle {
+  display: flex;
+  gap: 4px;
+}
+.raw-search {
+  position: relative;
+  flex: 1 1 260px;
+}
+.raw-search .input {
+  width: 100%;
+}
+.raw-search-results {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  margin: 2px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  max-height: 320px;
+  overflow: auto;
+}
+.raw-search-results > li.muted {
+  padding: 6px 10px;
+}
+.raw-search-hit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 6px 10px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.raw-search-hit:hover,
+.raw-search-hit:focus-visible {
+  background: var(--surface-muted);
+}
+.raw-search-hit .muted {
+  margin-left: auto;
+  font-size: 0.78rem;
+}
+.raw-collect {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+}
+.raw-sections > section + section {
+  margin-top: 18px;
+}
+.raw-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+.raw-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.raw-tile:hover {
+  border-color: var(--border-strong);
+}
+.raw-tile.selected {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+.raw-tile:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.raw-tile-name {
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.raw-tile-sub {
+  font-size: 0.78rem;
+  color: var(--muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.raw-glyph,
+.raw-glyph-sm {
+  display: inline-block;
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--chip-fg);
+  background: var(--chip-bg);
+  border-radius: var(--radius-sm);
+}
+.raw-glyph {
+  font-size: 0.72rem;
+  padding: 3px 6px;
+}
+.raw-glyph-sm {
+  font-size: 0.65rem;
+  padding: 1px 4px;
+}
+.raw-glyph-folder {
+  color: var(--muted);
+  background: var(--surface-muted);
+}
+.raw-glyph-doc {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+}
+.raw-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.raw-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: var(--surface-muted);
+  white-space: nowrap;
+}
+.raw-badge-retained {
+  color: var(--success);
+  background: var(--success-bg);
+  border-color: transparent;
+}
+.raw-badge-new,
+.raw-badge-modified {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+.raw-badge-error {
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+  border-color: transparent;
+}
+.raw-up {
+  margin-top: 14px;
+}
+@media (max-width: 900px) {
+  .raw-explorer {
+    grid-template-columns: 1fr;
+  }
+  .raw-tree {
+    position: static;
+    max-height: none;
+  }
+}

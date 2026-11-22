@@ -114,6 +114,8 @@ ERROR_CODES: tuple[str, ...] = (
     "parseur_conflict",
     "asset_origin_missing",
     "curation_path_invalid",
+    "raw_explorer_mode_invalid",
+    "raw_explorer_folder_not_found",
     "asset_not_retained",
     "review_branch_behind",
     "review_stale",
