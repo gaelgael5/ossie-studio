@@ -1762,6 +1762,24 @@ td .raw-ref-menu {
 .raw-eye-btn:hover {
   border-color: var(--border-strong);
 }
+.raw-asset-menu {
+  position: relative;
+  display: inline-block;
+}
+.raw-asset-menu-popup {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  padding: 6px 0;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
 .raw-asset-confirm {
   display: inline-flex;
   gap: 6px;

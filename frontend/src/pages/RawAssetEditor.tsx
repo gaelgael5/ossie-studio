@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api, sessionCapabilities } from '../apiClient'
 import type { RawObjectDetail } from '../apiClient'
@@ -21,6 +21,9 @@ interface AssetEditor {
   retained: boolean
   pending: boolean
   create: () => void
+  /** Enfants (objets référencés par les propriétés, récursivement) pas encore retenus. */
+  children: { slug: string; file: string; title: string }[]
+  createWithChildren: () => void
   remove: () => void
   toggle: (field: string) => void
 }
@@ -60,6 +63,34 @@ export function AssetEditorProvider({
     onSuccess: refresh,
     onError,
   })
+  // Enfants de l'objet, pour « ajouter avec ses enfants » : chargés seulement
+  // quand l'objet n'est pas encore retenu (c'est là que le menu sert).
+  const descendants = useQuery({
+    queryKey: ['rawDescendants', spaceId, branchId, slug, detail.file],
+    queryFn: () => api.getRawDescendants(spaceId, branchId, slug, detail.file),
+    enabled: canWrite && !detail.exposure.retained,
+    staleTime: 30_000,
+    retry: false,
+  })
+  const pendingChildren = (descendants.data?.descendants ?? []).filter((d) => !d.retained)
+  const retainFamily = useMutation({
+    // Un commit par source : l'objet et ses enfants de la même source ensemble,
+    // les enfants d'une autre source dans la leur.
+    mutationFn: async () => {
+      const bySlug = new Map<string, string[]>([[slug, [detail.file]]])
+      for (const child of pendingChildren) {
+        bySlug.set(child.slug, [...(bySlug.get(child.slug) ?? []), child.file])
+      }
+      for (const [source, paths] of bySlug) {
+        await api.retainAssets(spaceId, branchId, source, paths)
+      }
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['rawDescendants'] })
+      await refresh()
+    },
+    onError,
+  })
   const drop = useMutation({
     mutationFn: () => api.removeAsset(spaceId, branchId, slug, detail.file),
     onSuccess: refresh,
@@ -69,8 +100,10 @@ export function AssetEditorProvider({
   const editor: AssetEditor = {
     canWrite,
     retained: detail.exposure.retained,
-    pending: retain.isPending || drop.isPending,
+    pending: retain.isPending || drop.isPending || retainFamily.isPending,
     create: () => retain.mutate(null),
+    children: pendingChildren,
+    createWithChildren: () => retainFamily.mutate(),
     remove: () => drop.mutate(),
     toggle: (field) =>
       retain.mutate(
@@ -110,17 +143,71 @@ export function AssetButton() {
   const { t } = useTranslation()
   const editor = useContext(AssetEditorContext)
   const [confirming, setConfirming] = useState(false)
+  const [choosing, setChoosing] = useState(false)
   if (!editor?.canWrite) return null
   if (!editor.retained) {
+    // Sans enfant à ajouter, le bouton crée l'asset directement.
+    if (editor.children.length === 0) {
+      return (
+        <button
+          type="button"
+          className="btn btn-sm btn-primary"
+          disabled={editor.pending}
+          onClick={editor.create}
+        >
+          {t('rawCreateAsset')}
+        </button>
+      )
+    }
     return (
-      <button
-        type="button"
-        className="btn btn-sm btn-primary"
-        disabled={editor.pending}
-        onClick={editor.create}
-      >
-        {t('rawCreateAsset')}
-      </button>
+      <span className="raw-asset-menu">
+        <button
+          type="button"
+          className="btn btn-sm btn-primary"
+          aria-expanded={choosing}
+          disabled={editor.pending}
+          onClick={() => setChoosing((v) => !v)}
+        >
+          {t('rawCreateAsset')}
+          {' ▾'}
+        </button>
+        {choosing ? (
+          <span className="raw-asset-menu-popup" role="menu">
+            <button
+              type="button"
+              role="menuitem"
+              className="raw-ref-item"
+              onClick={() => {
+                setChoosing(false)
+                editor.create()
+              }}
+            >
+              <span className="raw-ref-title">{t('rawCreateAssetAlone')}</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="raw-ref-item"
+              title={editor.children.map((c) => c.title).join(', ')}
+              onClick={() => {
+                setChoosing(false)
+                editor.createWithChildren()
+              }}
+            >
+              <span className="raw-ref-title">
+                {t('rawCreateAssetWithChildren', { count: editor.children.length })}
+              </span>
+              <span className="small muted">
+                {editor.children
+                  .slice(0, 5)
+                  .map((c) => c.title)
+                  .join(', ')}
+                {editor.children.length > 5 ? '…' : ''}
+              </span>
+            </button>
+          </span>
+        ) : null}
+      </span>
     )
   }
   if (!confirming) {

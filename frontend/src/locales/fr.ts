@@ -1120,6 +1120,8 @@ export const fr = {
     rawNotExposedCount: 'non exposé ({{count}})',
     rawObjectNotRetained: 'Objet non retenu : aucun champ exposé.',
     rawCreateAsset: 'Créer un asset',
+    rawCreateAssetAlone: 'Ajouter seul',
+    rawCreateAssetWithChildren: 'Ajouter avec ses enfants (+{{count}} objet(s))',
     rawReferencedByCount: 'Référencé par {{count}} objet(s)',
     rawReferencedByTitle: 'Référencé par ({{count}})',
     rawColReferencedBy: 'Référencé par',

@@ -67,6 +67,11 @@ class RetainBody(BaseModel):
     fields: list[str] | None = None  # None = objet entier
 
 
+class RetainManyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    paths: list[str] = []  # objets à retenir en entier ; les déjà retenus sont laissés
+
+
 class RemoveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str = ""
@@ -329,6 +334,37 @@ async def retain_source_asset(
         fields=("all" if body.fields is None else len(body.fields)),
     )
     return {"ok": True, "commit": result.revision}
+
+
+@router.post("/retain-many")
+async def retain_source_assets(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: RetainManyBody,
+) -> dict[str, object]:
+    """Retenir plusieurs objets d'une source en un commit (« créer un asset avec
+    ses enfants » depuis l'explorateur raw)."""
+    if not body.paths:
+        raise ApiError("curation_path_invalid", status_code=400)
+    for path in body.paths:
+        _check(slug, path)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        result = await curation_actions.retain_many(
+            _target(workdir, space, branch_slug, username, token, user), slug, body.paths
+        )
+    except AssetOriginMissingError as exc:
+        raise ApiError("asset_origin_missing", status_code=404, path=exc.path) from None
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    log.info("curation_retain_many", author=user.email, slug=slug, paths=len(body.paths))
+    return {"ok": True, "commit": result.revision, "retained": result.paths}
 
 
 @router.post("/remove")

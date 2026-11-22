@@ -366,6 +366,26 @@ async def search_explorer(
     }
 
 
+@router.get("/{slug}/descendants")
+async def get_explorer_descendants(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    file: str,
+) -> dict[str, object]:
+    """Enfants de `file` pour « créer un asset avec ses enfants » : les objets
+    référencés par ses propriétés, récursivement, avec leur état (déjà retenu ?)."""
+    if not is_valid_source_slug(slug):
+        raise ApiError("source_not_found", status_code=404, slug=slug)
+    key, _ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    graph = await _reference_graph(conn, key, DEFAULT_MODE)
+    return {"descendants": graph.descendants((slug, file))}
+
+
 @router.get("/{slug}/incoming")
 async def get_explorer_incoming(
     conn: ConnDep,

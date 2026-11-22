@@ -171,6 +171,7 @@ const DETAIL = {
 }
 
 const SESSION_CAPS = { value: [] as string[] }
+const DESCENDANTS = { value: [] as { slug: string; file: string; title: string; retained: boolean }[] }
 const STATUS_EXCLUDED = { value: false }
 const REVIEW = {
   base_sha: 'aaa',
@@ -218,6 +219,8 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
       else if (u.pathname.endsWith('/folder')) body = folderBody(u.searchParams.get('path') ?? '')
       else if (u.pathname.endsWith('/graph')) body = GRAPH
       else if (u.pathname.endsWith('/incoming')) body = { incoming: DETAIL.incoming }
+      else if (u.pathname.endsWith('/descendants')) body = { descendants: DESCENDANTS.value }
+      else if (u.pathname.endsWith('/curation/retain-many')) body = { ok: true, commit: 'abc', retained: [] }
       else if (u.pathname.endsWith('/document/content'))
         body = { path: 'docs/guide.md', title: 'Guide', markdown: '# Guide\n\n## Commandes\n\nUne Order se crée.' }
       else if (u.pathname.endsWith('/object/history'))
@@ -263,6 +266,7 @@ function renderExplorer(entry = '/sources?tab=raw') {
 beforeEach(() => {
   localStorage.clear()
   SESSION_CAPS.value = []
+  DESCENDANTS.value = []
   STATUS_EXCLUDED.value = false
   DETAIL_OVERRIDE.value = {}
   setCurrentWorkspace('s1', 'b1')
@@ -721,6 +725,34 @@ describe('RawExplorer', () => {
     await user.click(screen.getByRole('button', { name: 'Référencé par 3 objet(s)' }))
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('créer un asset avec ses enfants : menu, un commit par source, enfants déjà retenus ignorés', async () => {
+    SESSION_CAPS.value = ['curation:write']
+    DETAIL_OVERRIDE.value = { exposure: { retained: false, exposed: 0, hidden: 3, missing: [] } }
+    DESCENDANTS.value = [
+      { slug: 'app', file: 'customer.json', title: 'Customer', retained: false },
+      { slug: 'app', file: 'address.json', title: 'Address', retained: true },
+      { slug: 'lib', file: 'money.json', title: 'Money', retained: false },
+    ]
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    await screen.findByText('Une commande du client.')
+    await user.click(await screen.findByRole('button', { name: 'Créer un asset ▾' }))
+    const menu = within(screen.getByRole('menu'))
+    expect(menu.getByText('Customer, Money')).toBeInTheDocument()
+    await user.click(menu.getByRole('menuitem', { name: /Ajouter avec ses enfants \(\+2 objet\(s\)\)/ }))
+    await waitFor(() =>
+      expect(calls.bodies.filter((b) => b.url.endsWith('/curation/retain-many')).length).toBe(2),
+    )
+    const sent = calls.bodies
+      .filter((b) => b.url.endsWith('/curation/retain-many'))
+      .map((b) => [b.url.split('/sources/')[1].split('/')[0], JSON.parse(b.body!).paths])
+    expect(sent).toEqual([
+      ['app', ['order.json', 'customer.json']],
+      ['lib', ['money.json']],
+    ])
   })
 
   it('graphe : ouvrir un dossier de l’arbre revient à la vue précédente', async () => {

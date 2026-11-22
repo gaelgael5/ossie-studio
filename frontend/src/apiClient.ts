@@ -1284,6 +1284,17 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/retain`,
       { method: 'POST', body: JSON.stringify({ path, fields }) },
     ),
+  retainAssets: (spaceId: string, branchId: string, slug: string, paths: string[]) =>
+    apiFetch<{ ok: boolean; commit: string | null; retained: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/retain-many`,
+      { method: 'POST', body: JSON.stringify({ paths }) },
+    ),
+  getRawDescendants: (spaceId: string, branchId: string, slug: string, file: string) =>
+    apiFetch<{
+      descendants: { slug: string; file: string; title: string; retained: boolean }[]
+    }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/descendants?file=${encodeURIComponent(file)}`,
+    ),
   removeAsset: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<{ ok: boolean; commit: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/remove`,

@@ -142,6 +142,25 @@ async def retain(
     return _result(revision, slug, [path])
 
 
+async def retain_many(target: CurationTarget, slug: str, paths: list[str]) -> WriteResult:
+    """Retenir plusieurs objets bruts en entier, en un seul commit (« créer un
+    asset avec ses enfants ») ; un objet déjà retenu est laissé tel quel.
+    Lève AssetOriginMissingError si l'un des bruts n'existe pas."""
+    unique = list(dict.fromkeys(paths))
+    written: list[str] = []
+
+    def write(root: Path) -> None:
+        assets = safe_assets_path(root, slug)
+        for path in unique:
+            if (assets / path).is_file():
+                continue
+            retain_asset_fn(slug, path, None)(root)
+            written.append(path)
+
+    revision = await target.write(f"curation {slug} : retenir {len(unique)} objet(s)", write)
+    return _result(revision, slug, written)
+
+
 async def remove(target: CurationTarget, slug: str, path: str) -> WriteResult:
     """Retirer un asset (sans effet s'il n'existe pas)."""
     revision = await target.write(f"curation {slug} : retirer {path}", remove_asset_fn(slug, path))

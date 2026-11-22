@@ -219,3 +219,73 @@ async def test_api_compteur_et_liste_des_references_entrantes(sp: ApiSpace) -> N
     assert incoming[0]["target"]["folder"] == "src/Domain"
     r = await sp.client.get(f"{base}/incoming", params={"file": "absent.json"})
     assert r.json() == {"incoming": []}
+
+
+def test_descendants_recursifs_sans_boucle() -> None:
+    def obj(file: str, refs: list[tuple[str, str]]) -> ExplorerObject:
+        return ExplorerObject(
+            file=file,
+            title=file.removesuffix(".json").upper(),
+            kind="class",
+            fields=len(refs),
+            origin=f"src/{file}",
+            parser="csharp",
+            badges=("retained",) if file == "c.json" else (),
+            excluded_by="",
+            schema_id=file,
+            refs=tuple(SchemaRef(f, k, t, "0..1") for k, t, f in [(k, t, t[:1]) for k, t in refs]),
+        )
+
+    entries = SourceEntries(
+        "app",
+        "APP",
+        "git",
+        "",
+        True,
+        [
+            obj("a.json", [("field", "b.json"), ("inherits", "base.json")]),
+            obj("b.json", [("list", "c.json"), ("field", "a.json")]),  # boucle B → A
+            obj("c.json", [("map", "c.json")]),  # auto-référence
+            obj("base.json", []),
+        ],
+        [],
+    )
+    graph = ReferenceGraph([entries], "origin")
+    got = {d["file"]: d["retained"] for d in graph.descendants(("app", "a.json"))}
+    # L'héritage n'est pas suivi ; la boucle et l'auto-référence se terminent.
+    assert got == {"b.json": False, "c.json": True}
+    assert graph.descendants(("app", "base.json")) == []
+
+
+async def test_api_ajouter_avec_ses_enfants(sp: ApiSpace) -> None:
+    files = _git_files()
+    files["sources/app/raw/order.json"] = dump_schema(
+        {
+            "$id": "order.json",
+            "title": "Order",
+            "type": "object",
+            "x-kind": "class",
+            "properties": {"customer": {"$ref": "customer.json"}},
+        }
+    )
+    forge_edit(sp, files)
+    r = await sp.client.get(
+        f"{sp.base}/raw-explorer/app/descendants", params={"file": "order.json"}
+    )
+    assert r.status_code == 200, r.text
+    assert [(d["file"], d["retained"]) for d in r.json()["descendants"]] == [
+        ("customer.json", False)
+    ]
+    url = f"{sp.base}/sources/app/curation/retain-many"
+    r = await sp.client.post(url, json={"paths": ["order.json", "customer.json"]})
+    assert r.status_code == 200, r.text
+    assert len(r.json()["retained"]) == 2
+    # Déjà retenus : laissés tels quels, rien de réécrit.
+    r = await sp.client.post(url, json={"paths": ["order.json"]})
+    assert r.json()["retained"] == []
+    r = await sp.client.get(
+        f"{sp.base}/raw-explorer/app/descendants", params={"file": "order.json"}
+    )
+    assert r.json()["descendants"][0]["retained"] is True
+    assert (await sp.client.post(url, json={"paths": []})).status_code == 400
+    assert (await sp.client.post(url, json={"paths": ["absent.json"]})).status_code == 404

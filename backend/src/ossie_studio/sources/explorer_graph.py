@@ -14,7 +14,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from ossie_studio.sources.explorer import ExplorerObject, SchemaRef, SourceEntries, object_folder
+from ossie_studio.sources.explorer import (
+    BADGE_RETAINED,
+    ExplorerObject,
+    SchemaRef,
+    SourceEntries,
+    object_folder,
+)
 from ossie_studio.sources.explorer_detail import SpaceObjects, Target
 
 MAX_DEPTH = 3
@@ -72,6 +78,40 @@ class ReferenceGraph:
             "title": located.obj.title,
             "folder": located.folder,
         }
+
+    # Liens de propriété suivis pour « ajouter avec ses enfants » : un champ, une
+    # liste ou un dictionnaire d'objets ; ni l'héritage, ni une clé étrangère SQL.
+    _CHILD_KINDS = frozenset({"field", "list", "map"})
+
+    def descendants(self, key: NodeKey) -> list[dict[str, Any]]:
+        """Objets atteints depuis `key` par ses propriétés, puis par celles de
+        ses enfants, récursivement (parcours en largeur ; `seen` coupe les
+        boucles A → B → A et l'auto-référence). `key` lui-même n'y est pas."""
+        seen = {key}
+        queue = deque([key])
+        out: list[dict[str, Any]] = []
+        while queue:
+            located = self._objects.get(queue.popleft())
+            if located is None:
+                continue
+            for ref in located.obj.refs:
+                if ref.kind not in self._CHILD_KINDS:
+                    continue
+                child = self._resolve(ref)
+                if child is None or child in seen or child not in self._objects:
+                    continue
+                seen.add(child)
+                queue.append(child)
+                obj = self._objects[child].obj
+                out.append(
+                    {
+                        "slug": child[0],
+                        "file": child[1],
+                        "title": obj.title,
+                        "retained": BADGE_RETAINED in obj.badges,
+                    }
+                )
+        return out
 
     def incoming_count(self, key: NodeKey) -> int:
         """Nombre de références entrantes (compteur des vignettes)."""
