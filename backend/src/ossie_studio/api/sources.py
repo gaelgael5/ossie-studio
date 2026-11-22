@@ -437,7 +437,9 @@ def _report_payload(report: CollectReport) -> dict[str, object]:
         "read": report.read,
         "retained": report.retained,
         "duration_ms": report.duration_ms,
-        "errors": [{"source": e.source, "cause": e.cause} for e in report.errors],
+        "errors": [
+            {"source": e.source, "cause": e.cause, "detail": e.detail} for e in report.errors
+        ],
     }
 
 

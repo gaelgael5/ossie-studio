@@ -128,6 +128,26 @@ class DraftWorkdir:
     async def discard_view(self, space_id: uuid.UUID, slug: str) -> None:
         await self._views.discard(space_id, slug, self.user_id)
 
+    async def view_signature(
+        self, space_id: uuid.UUID, slug: str, repo_url: str, username: str, token: str | None
+    ) -> tuple[str, str]:
+        """(vue, signature) de ce que verrait une lecture : `published` ou
+        `merged`, et une empreinte qui change dès que le contenu lu peut changer
+        (tête publiée de la branche, brouillon). Bon marché : la tête vient d'un
+        fetch limité dans le temps (`published_head`), le brouillon d'une ligne
+        de `drafts` — sans charger ses objets ni matérialiser la vue. Sert aux
+        caches dérivés (index de l'explorateur raw)."""
+        head = await self._manager.published_head(space_id, slug, repo_url, username, token)
+        if self.published_only:
+            return "published", head
+        async with self._db() as conn:
+            draft = await db_get_draft(conn, self.user_id, self.branch_id)
+        if draft is None:
+            return "merged", f"{head}:-"
+        # L'identifiant du brouillon en plus de sa révision : un brouillon publié
+        # puis recréé repart à une révision déjà vue.
+        return "merged", f"{head}:{draft.id}:{draft.revision}"
+
     async def has_draft(self) -> bool:
         async with self._db() as conn:
             return await db_get_draft(conn, self.user_id, self.branch_id) is not None

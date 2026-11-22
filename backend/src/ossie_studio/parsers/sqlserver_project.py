@@ -595,11 +595,17 @@ class SqlServerProjectParser:
     ) -> None:
         try:
             data = json.loads(schema_jsons[src_path])
-        except json.JSONDecodeError:
-            plan.errors.append(PluginError(source=src_path, cause="json_schema_invalid"))
+        except json.JSONDecodeError as exc:
+            plan.errors.append(
+                PluginError(source=src_path, cause="json_schema_invalid", detail=str(exc))
+            )
             return
         if not isinstance(data, dict):
-            plan.errors.append(PluginError(source=src_path, cause="json_schema_invalid"))
+            plan.errors.append(
+                PluginError(
+                    source=src_path, cause="json_schema_invalid", detail="root is not an object"
+                )
+            )
             return
         converted, _signals = convert_json_schema(data)
         converted["$id"] = content_id
@@ -620,8 +626,10 @@ class SqlServerProjectParser:
             proj_dir = proj_path.rsplit("/", 1)[0] if "/" in proj_path else ""
             try:
                 included |= sqlproj_includes(raw.decode("utf-8", "replace"), proj_dir, all_sql)
-            except Exception:
-                plan.errors.append(PluginError(source=proj_path, cause="sqlproj_invalid"))
+            except Exception as exc:
+                plan.errors.append(
+                    PluginError(source=proj_path, cause="sqlproj_invalid", detail=str(exc)[:300])
+                )
             plan.statuses[proj_path] = STATUT_TRAITE
         return included
 
@@ -632,9 +640,17 @@ class SqlServerProjectParser:
         for batch, line in split_batches(text):
             try:
                 expressions = sqlglot.parse(batch, dialect="tsql")
-            except Exception:
+            except Exception as exc:
                 plan.statuses[path] = STATUT_ERREUR
-                plan.errors.append(PluginError(source=path, cause="sql_unparseable"))
+                # sqlglot numérote les lignes depuis le début du lot : on donne la
+                # ligne du lot dans le fichier pour que l'utilisateur s'y retrouve.
+                plan.errors.append(
+                    PluginError(
+                        source=path,
+                        cause="sql_unparseable",
+                        detail=f"batch at line {line}: {(str(exc).splitlines() or [''])[0][:300]}",
+                    )
+                )
                 return
             for expr in expressions:
                 if not isinstance(expr, exp.Expression):
@@ -670,7 +686,13 @@ class SqlServerProjectParser:
         if isinstance(expr, _IGNORABLE):
             return False  # grant, insert, set, use… : connu, ignoré
         # Ordre non reconnu (ni table/vue/contrainte/propriété, ni DDL connu).
-        plan.errors.append(PluginError(source=path, cause="sql_unrecognized"))
+        try:
+            statement = expr.sql(dialect="tsql").splitlines()[0][:120]
+        except Exception:  # régénération impossible : le type d'ordre suffit
+            statement = type(expr).__name__
+        plan.errors.append(
+            PluginError(source=path, cause="sql_unrecognized", detail=f"line {line}: {statement}")
+        )
         return False
 
     def _match_json_columns(

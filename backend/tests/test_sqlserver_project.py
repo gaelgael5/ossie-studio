@@ -314,3 +314,16 @@ def test_index_ecrit_en_anglais_et_version_1_relue() -> None:
     raw = FakeRaw({index_name: legacy, "dbo-ancienne.json": "{}"})
     second = _run(files, raw=raw)
     assert "dbo-ancienne.json" in second.deletes
+
+
+def test_erreurs_portent_un_detail() -> None:
+    files = {
+        "db/db.sqlproj": _PROJ,
+        "db/T.sql": "CREATE TABLE dbo.T ([d] NVARCHAR(MAX) NULL);",
+        "db/dbo.T.d.schema.json": "{pas du json",
+        "db/bad.sql": "CREATE TABLE dbo.Ok ([x] INT NOT NULL);\nGO\nTHIS IS NOT SQL;",
+    }
+    result = _run(files)
+    details = {e.source: e.detail for e in result.errors}
+    assert "line 1" in details["db/dbo.T.d.schema.json"]  # message du décodeur JSON
+    assert details["db/bad.sql"].startswith("line 3")  # lot après le GO

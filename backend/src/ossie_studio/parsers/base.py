@@ -42,13 +42,23 @@ class ParsedObject:
     schema: str
 
 
+def decode_error_detail(exc: UnicodeDecodeError) -> str:
+    """Où le décodage UTF-8 a échoué, pour retrouver l'octet fautif."""
+    bad = exc.object[exc.start : exc.start + 1]
+    byte = f"0x{bad[0]:02x}" if bad else "?"
+    return f"byte {byte} at offset {exc.start} (not UTF-8)"
+
+
 class ParserError(Exception):
     """Échec de lecture d'un fichier original, porté par un code stable
-    (unreadable, syntax). La collecte le signale et continue les autres."""
+    (unreadable, syntax). La collecte le signale et continue les autres.
+    `detail` : précision technique affichée telle quelle (ligne, position, clé
+    fautive…), pour que l'utilisateur sache quoi corriger dans son fichier."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, detail: str = "") -> None:
         super().__init__(code)
         self.code = code
+        self.detail = detail
 
 
 @dataclass(frozen=True)
@@ -83,10 +93,12 @@ class OutputAction:
 
 @dataclass(frozen=True)
 class PluginError:
-    """Un fichier source que le plugin n'a pas pu traiter."""
+    """Un fichier source que le plugin n'a pas pu traiter. `cause` est un code
+    stable (traduit par l'interface) ; `detail`, la précision technique."""
 
     source: str
     cause: str
+    detail: str = ""
 
 
 @dataclass

@@ -92,6 +92,8 @@
 
   /* Angles vifs. */
   --radius: 4px;
+  /* Largeur par défaut de l'arbre de l'explorateur raw (réglée par l'écran). */
+  --raw-tree-width: 300px;
   --radius-sm: 3px;
   /* Ombre réservée à ce qui flotte (menus) : les panneaux n'en ont pas. */
   --shadow: 0 6px 18px rgba(13, 28, 38, 0.14);
@@ -1242,11 +1244,37 @@ input[type='radio'] {
 /* Arbre des sources à gauche, dossier courant au centre (le panneau d'aperçu
    viendra à droite). Les icônes sont des abréviations en chasse fixe, comme les
    étiquettes du plan : pas de pictogrammes à maintenir. */
+/* L'explorateur prend toute la largeur de la fenêtre (la page reste bornée à
+   1200px ailleurs) : un dépôt se lit mieux avec de la place. */
+.page:has(.raw-explorer) {
+  max-width: none;
+}
 .raw-explorer {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) 1fr;
-  gap: 16px;
+  grid-template-columns: var(--raw-tree-width) 8px minmax(0, 1fr);
+  gap: 0 8px;
   align-items: start;
+}
+/* Poignée de redimensionnement de l'arbre. */
+.raw-splitter {
+  align-self: stretch;
+  min-height: 120px;
+  cursor: col-resize;
+  border-left: 1px solid transparent;
+  border-right: 1px solid transparent;
+}
+.raw-splitter:hover,
+.raw-splitter:focus-visible {
+  background: var(--surface-muted);
+  border-color: var(--border);
+  outline: none;
+}
+body.resizing-x {
+  cursor: col-resize;
+  user-select: none;
+}
+.raw-filters .select {
+  width: auto;
 }
 .raw-explorer > .error-list {
   grid-column: 1 / -1;
@@ -1484,8 +1512,17 @@ input[type='radio'] {
   .raw-explorer {
     grid-template-columns: 1fr;
   }
+  .raw-splitter {
+    display: none;
+  }
   .raw-tree {
     position: static;
     max-height: none;
   }
+}
+
+/* ---------- Erreur de collecte expliquée ---------- */
+.collect-cause-detail {
+  color: var(--danger-fg);
+  overflow-wrap: anywhere;
 }

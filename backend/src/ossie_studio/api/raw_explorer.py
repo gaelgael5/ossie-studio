@@ -2,7 +2,9 @@
 
 Découpage de l'API (latitude du ticket) : un résumé des sources, l'arbre des
 dossiers d'une source, le contenu d'un dossier, une recherche. Un dossier se
-charge seul : l'écran ne reçoit jamais toute une source d'un coup.
+charge seul : l'écran ne reçoit jamais toute une source d'un coup. Tout est
+servi depuis l'index en base (`raw_explorer_index`), reconstruit seulement quand
+la tête publiée de la branche ou le brouillon de l'utilisateur a changé.
 
 Accès : capacité `sources:read` — l'explorateur est un onglet de la page
 « Sources » et ne fait que lire ce que cette page déclare et collecte ; une
@@ -11,10 +13,12 @@ capacité distincte n'apporterait rien tant qu'il ne modifie rien.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from pathlib import Path
 from typing import Annotated
 
+import structlog
 from fastapi import APIRouter, Depends
 
 from ossie_studio.api.branches import space_credentials
@@ -30,18 +34,29 @@ from ossie_studio.sources.explorer import (
     MODES,
     ExplorerDocument,
     ExplorerObject,
+    SourceEntries,
     SourceIndex,
-    build_source_index,
+    collect_source_entries,
     folder_item_count,
+    index_from_entries,
     list_source_slugs,
     search_objects,
     sort_objects,
-    subtree_object_count,
+    subtree_file_counts,
+)
+from ossie_studio.sources.explorer_store import (
+    IndexKey,
+    db_get_source_entries,
+    db_index_signature,
+    db_list_indexed_sources,
+    db_replace_index,
 )
 from ossie_studio.sources.paths import is_valid_source_slug
 from ossie_studio.sources.scan_service import ScanFile, db_list_scan_files
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
+
+log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/raw-explorer")
 
@@ -103,6 +118,61 @@ async def _scan(conn: ConnDep, space_id: uuid.UUID, branch_ref: str, slug: str) 
     )
 
 
+# Une reconstruction à la fois par index : dix clics pendant qu'un index se
+# reconstruit attendent celle en cours au lieu d'en lancer dix.
+_BUILD_LOCKS: dict[IndexKey, asyncio.Lock] = {}
+
+
+async def _ensure_index(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> tuple[IndexKey, str]:
+    """Clé d'un index à jour (reconstruit si sa signature a changé) et la
+    référence git de la branche. Le cas courant — rien n'a bougé — ne lit que la
+    base : ni vue de brouillon, ni relecture de raw/."""
+    branch_ref = await _branch_ref(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        view, signature = await workdir.view_signature(
+            space.id, branch_ref, space.repo_url, username, token
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    key = IndexKey(space_id=space_id, branch_id=branch_id, user_id=workdir.user_id, view=view)
+    if await db_index_signature(conn, key) == signature:
+        return key, branch_ref
+    lock = _BUILD_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        if await db_index_signature(conn, key) == signature:
+            return key, branch_ref
+
+        def read(wc: Path) -> list[SourceEntries]:
+            return [
+                collect_source_entries(wc, slug, review_base=read_review_point(wc, slug))
+                for slug in list_source_slugs(wc)
+            ]
+
+        try:
+            sources = await workdir.read_branch(
+                space.id, branch_ref, space.repo_url, username, token, read
+            )
+        except WorkdirError as exc:
+            raise _workdir_error(exc) from None
+        await db_replace_index(conn, key, signature, sources)
+        log.info(
+            "raw_explorer_index_rebuilt",
+            space_id=str(space_id),
+            branch=branch_ref,
+            view=view,
+            sources=len(sources),
+            objects=sum(len(s.objects) for s in sources),
+        )
+    return key, branch_ref
+
+
 async def _read_index(
     conn: ConnDep,
     crypto: CryptoDep,
@@ -114,31 +184,13 @@ async def _read_index(
 ) -> tuple[SourceIndex, list[ScanFile]]:
     if not is_valid_source_slug(slug):
         raise ApiError("source_not_found", status_code=404, slug=slug)
-    branch_ref = await _branch_ref(conn, space_id, branch_id)
+    key, branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    entries = await db_get_source_entries(conn, key, slug)
+    if entries is None:
+        raise ApiError("source_not_found", status_code=404, slug=slug)
     scan = await _scan(conn, space_id, branch_ref, slug)
     error_origins = {f.path for f in scan if f.statut == STATUT_ERREUR}
-    space, username, token = await space_credentials(conn, crypto, space_id)
-
-    def read(wc: Path) -> SourceIndex | None:
-        if not (wc / "sources" / slug / "manifest.yaml").is_file():
-            return None
-        return build_source_index(
-            wc,
-            slug,
-            mode,
-            error_origins=error_origins,
-            review_base=read_review_point(wc, slug),
-        )
-
-    try:
-        index = await workdir.read_branch(
-            space.id, branch_ref, space.repo_url, username, token, read
-        )
-    except WorkdirError as exc:
-        raise _workdir_error(exc) from None
-    if index is None:
-        raise ApiError("source_not_found", status_code=404, slug=slug)
-    return index, scan
+    return index_from_entries(entries, mode, error_origins), scan
 
 
 @router.get("")
@@ -152,29 +204,18 @@ async def list_explorer_sources(
 ) -> dict[str, object]:
     """Les sources de la branche, avec ce que la couche raw en contient et l'état
     de leur dernière collecte."""
-    branch_ref = await _branch_ref(conn, space_id, branch_id)
-    space, username, token = await space_credentials(conn, crypto, space_id)
-
-    def read(wc: Path) -> list[SourceIndex]:
-        return [build_source_index(wc, slug, DEFAULT_MODE) for slug in list_source_slugs(wc)]
-
-    try:
-        indexes = await workdir.read_branch(
-            space.id, branch_ref, space.repo_url, username, token, read
-        )
-    except WorkdirError as exc:
-        raise _workdir_error(exc) from None
+    key, branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
     out: list[dict[str, object]] = []
-    for index in indexes:
-        scan = await _scan(conn, space_id, branch_ref, index.slug)
+    for source in await db_list_indexed_sources(conn, key):
+        scan = await _scan(conn, space_id, branch_ref, source.slug)
         out.append(
             {
-                "slug": index.slug,
-                "label": index.label,
-                "type": index.type,
-                "collected": index.collected,
-                "objects": len(index.objects),
-                "documents": len(index.documents),
+                "slug": source.slug,
+                "label": source.label,
+                "type": source.type,
+                "collected": source.collected,
+                "objects": source.objects,
+                "documents": source.documents,
                 "last_collect": _collect_state(scan),
             }
         )
@@ -196,6 +237,7 @@ async def get_explorer_tree(
     index, scan = await _read_index(
         conn, crypto, workdir, space_id, branch_id, slug, _check_mode(mode)
     )
+    counts = subtree_file_counts(index)
     return {
         "slug": index.slug,
         "label": index.label,
@@ -206,11 +248,7 @@ async def get_explorer_tree(
         "documents": len(index.documents),
         "last_collect": _collect_state(scan),
         "folders": [
-            {
-                "path": path,
-                "items": folder_item_count(folder),
-                "objects": subtree_object_count(index, path),
-            }
+            {"path": path, "items": folder_item_count(folder), "files": counts[path]}
             for path, folder in sorted(index.folders.items())
         ],
     }
@@ -235,14 +273,11 @@ async def get_explorer_folder(
     folder = index.folders.get(path)
     if folder is None:
         raise ApiError("raw_explorer_folder_not_found", status_code=404, path=path)
+    counts = subtree_file_counts(index)
     return {
         "path": path,
         "folders": [
-            {
-                "path": sub,
-                "items": folder_item_count(index.folders[sub]),
-                "objects": subtree_object_count(index, sub),
-            }
+            {"path": sub, "items": folder_item_count(index.folders[sub]), "files": counts[sub]}
             for sub in sorted(folder.folders, key=str.casefold)
         ],
         "objects": [_object_payload(o) for o in sort_objects(folder.objects)],

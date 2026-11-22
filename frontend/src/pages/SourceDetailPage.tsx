@@ -22,6 +22,7 @@ import { NoBranchNote } from '../components/NoBranchNote'
 import { BusyButton } from '../components/BusyButton'
 import { useSourceCollect } from '../useSourceCollect'
 import { CollectChecklist } from '../components/CollectChecklist'
+import { CollectErrorCause, splitScanMessage } from '../components/CollectErrorCause'
 import { useWorkspace } from '../workspace'
 
 type Tab =
@@ -322,8 +323,8 @@ function ReportCard({
             {report.errors.map((e) => (
               <tr key={e.source}>
                 <td className="mono">{e.source}</td>
-                <td className="muted">
-                  {e.cause} · {t('collectRetried')}
+                <td>
+                  <CollectErrorCause cause={e.cause} detail={e.detail} />
                 </td>
               </tr>
             ))}
@@ -668,11 +669,7 @@ function ScanPanel({
                 <td className="mono">{row.cible}</td>
                 <td>
                   {t(_STATUT_KEY[row.statut] ?? 'statutEnAttente')}
-                  {row.message ? (
-                    <div className="muted small">
-                      {row.message}
-                    </div>
-                  ) : null}
+                  {row.message ? <CollectErrorCause {...splitScanMessage(row.message)} /> : null}
                 </td>
                 <td className="mono muted small">
                   {row.crc.slice(0, 10)}

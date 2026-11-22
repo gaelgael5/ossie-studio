@@ -18,10 +18,13 @@ from ossie_studio.sources.explorer import (
     BADGE_MODIFIED,
     BADGE_NEW,
     BADGE_RETAINED,
+    SourceEntries,
     build_source_index,
     clear_caches,
+    collect_source_entries,
     git_blob_id,
     search_objects,
+    subtree_file_counts,
 )
 from ossie_studio.sources.manifest import SourceManifest, dump_manifest
 from tests.conftest import create_plain_user, login
@@ -276,7 +279,8 @@ async def test_api_sources_arbre_dossier_recherche(sp: ApiSpace) -> None:
     r = await sp.client.get(f"{base}/app/tree", params={"mode": "origin"})
     assert r.status_code == 200, r.text
     folders = {f["path"]: f for f in r.json()["folders"]}
-    assert folders["src/Domain"]["objects"] == 3  # sous-arbre compris
+    assert folders["src/Domain"]["files"] == 3  # sous-arbre compris
+    assert folders[""]["files"] == 4  # 3 objets + 1 document
     assert folders["src/Domain"]["items"] == 3  # 2 objets + 1 sous-dossier
 
     r = await sp.client.get(f"{base}/app/folder", params={"mode": "origin", "path": "src/Domain"})
@@ -326,3 +330,41 @@ def test_tech_manifest_illisible_ne_bloque_pas(tmp_path: Path) -> None:
     # Sans manifeste technique, les objets restent visibles (à la racine).
     assert len(index.folders[""].objects) == 3
     assert json.loads((tmp_path / "sources/app/raw/order.json").read_text())["title"] == "Order"
+
+
+def test_comptes_de_fichiers_incluent_les_documents(tmp_path: Path) -> None:
+    _write(tmp_path, _git_files())
+    counts = subtree_file_counts(build_source_index(tmp_path, "app", "origin"))
+    assert counts["docs"] == 1  # un dossier de documents seuls n'affiche pas 0
+    assert counts["src"] == 3 and counts[""] == 4
+
+
+def test_entrees_aller_retour_json(tmp_path: Path) -> None:
+    _write(tmp_path, _git_files())
+    entries = collect_source_entries(tmp_path, "app")
+    back = SourceEntries.from_json(
+        "app",
+        entries.label,
+        entries.type,
+        entries.collected,
+        json.loads(json.dumps(entries.to_json())),
+    )
+    assert back == entries
+
+
+async def test_api_index_reutilise_puis_reconstruit(sp: ApiSpace, app: FastAPI) -> None:
+    forge_edit(sp, _git_files())
+    base = f"{sp.base}/raw-explorer"
+    assert (await sp.client.get(base)).status_code == 200
+    async with app.state.pool.acquire() as conn:
+        first = await conn.fetchval("SELECT max(built_at) FROM raw_explorer_index")
+    # Rien n'a changé : l'index est relu, pas reconstruit.
+    r = await sp.client.get(f"{base}/app/folder", params={"path": "src/Domain"})
+    assert r.status_code == 200
+    async with app.state.pool.acquire() as conn:
+        assert await conn.fetchval("SELECT max(built_at) FROM raw_explorer_index") == first
+    # Un commit sur la forge : la signature change, l'index suit.
+    forge_edit(sp, {"sources/app/raw/invoice.json": _schema("Invoice")})
+    app.state.workdir_manager._head_cache.clear()  # pas d'attente du délai de fetch
+    r = await sp.client.get(f"{base}/app/search", params={"q": "invoice"})
+    assert [x["file"] for x in r.json()["results"]] == ["invoice.json"]

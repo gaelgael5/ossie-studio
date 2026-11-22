@@ -23,6 +23,7 @@ import yaml
 from ossie_studio.parsers.base import (
     CIBLE_RAW,
     STATUT_ERREUR,
+    STATUT_IGNORE,
     STATUT_INCHANGE,
     STATUT_TRAITE,
     OutputAction,
@@ -30,6 +31,7 @@ from ossie_studio.parsers.base import (
     PluginError,
     PluginParam,
     PluginResult,
+    decode_error_detail,
     matches_globs,
 )
 
@@ -187,18 +189,34 @@ class MarkdownPlugin:
                 continue
             raw = context.contents[file.path]
             if len(raw) > max_bytes:
-                result.errors.append(PluginError(source=file.path, cause="too_large"))
+                size_kb = (len(raw) + 1023) // 1024
+                result.errors.append(
+                    PluginError(
+                        source=file.path,
+                        cause="too_large",
+                        detail=f"{size_kb} KB > {max_bytes // 1024} KB ({PARAM_MAX_KB})",
+                    )
+                )
                 result.statuses[file.path] = STATUT_ERREUR
                 continue
             try:
                 text = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                result.errors.append(PluginError(source=file.path, cause="unreadable"))
+            except UnicodeDecodeError as exc:
+                result.errors.append(
+                    PluginError(
+                        source=file.path, cause="unreadable", detail=decode_error_detail(exc)
+                    )
+                )
                 result.statuses[file.path] = STATUT_ERREUR
                 continue
             if not text.strip():
-                result.errors.append(PluginError(source=file.path, cause="empty"))
-                result.statuses[file.path] = STATUT_ERREUR
+                # Un document vide n'apprend rien : on ne le traite pas, sans
+                # erreur (décision de Gael, 22/11/2026). S'il avait du contenu à
+                # la collecte précédente, sa copie dans raw/docs/ part avec lui.
+                result.statuses[file.path] = STATUT_IGNORE
+                if prev is not None:
+                    result.deletes.append(f"{DOCS_DIR}/{file.path}")
+                    result.deleted += 1
                 continue
             index[file.path] = analyze_markdown(file.path, text, file.crc)
             result.writes.append(OutputAction(path=f"{DOCS_DIR}/{file.path}", content=text))

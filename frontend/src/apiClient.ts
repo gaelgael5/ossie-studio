@@ -335,7 +335,8 @@ export interface CollectReport {
   read: number
   retained: number
   duration_ms: number
-  errors: { source: string; cause: string }[]
+  /** `cause` : code stable traduit par l'interface ; `detail` : précision technique. */
+  errors: { source: string; cause: string; detail?: string }[]
 }
 /** Un commit publié qui a touché la source (l'historique est porté par Git). */
 export interface CollectionRun {
@@ -422,8 +423,8 @@ export interface RawFolderItem {
   path: string
   /** Éléments directs : sous-dossiers + objets + documents. */
   items: number
-  /** Objets du sous-arbre. */
-  objects: number
+  /** Fichiers (objets + documents) du sous-arbre. */
+  files: number
 }
 
 export interface RawExplorerTree extends RawExplorerSource {
