@@ -20,6 +20,9 @@ from ossie_studio.mcp_surface.primitives import IMPLEMENTATIONS
 from tests.conftest import ADMIN_EMAIL, ADMIN_PASSWORD, bootstrap_admin, create_plain_user, login
 from tests.mcp_helpers import call_tool, tool_names
 
+# Primitives qui ne supposent que la lecture des espaces.
+SPACES_READ = {p.id for p in CATALOG if p.capability == "spaces:read"}
+
 KEY_TOKEN = "test-key-token-0123456789"
 OAUTH_TOKEN = "test-oauth-token-0123456789"
 METADATA = "http://test/.well-known/oauth-protected-resource/mcp"
@@ -274,7 +277,7 @@ async def test_oauth_borne_par_les_capacites_de_la_personne(app: FastAPI) -> Non
     assert _refusal(await _call(app, OAUTH_TOKEN, "list_spaces")) == "primitive_forbidden"
 
     await _set_person_caps(app, user_id, ["spaces:read"])
-    assert await _tool_names(app, OAUTH_TOKEN) == ["list_spaces"]
+    assert set(await _tool_names(app, OAUTH_TOKEN)) == SPACES_READ
     result = await _call(app, OAUTH_TOKEN, "list_spaces")
     assert [s["name"] for s in result.structured_content["spaces"]] == ["ventes"]
 

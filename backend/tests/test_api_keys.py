@@ -194,12 +194,12 @@ async def test_profil_au_dela_de_ses_droits_refuse_en_nommant_la_primitive(
         refused = await ana.post("/api/api-keys", json={"label": "x", "agent_profile_id": lecture})
         assert refused.status_code == 403
         assert refused.json()["error"] == "agent_profile_beyond_rights"
-        assert refused.json()["error_args"]["primitives"] == "list_spaces"
+        assert refused.json()["error_args"]["primitives"] == ", ".join(sorted(READ_PRIMITIVES))
 
         options = (await ana.get("/api/api-keys/options")).json()
         by_name = {p["name"]: p for p in options["agent_profiles"]}
         assert by_name["Lecture"]["grantable"] is False
-        assert by_name["Lecture"]["beyond"] == ["list_spaces"]
+        assert by_name["Lecture"]["beyond"] == sorted(READ_PRIMITIVES)
 
         # Un profil sans primitive qu'elle n'a pas : accordé.
         empty = await _agent_profile(app, "Vide", [])

@@ -35,7 +35,13 @@ class Primitive:
 # L'ordre fixe l'affichage. Une primitive ajoutée ici n'est donnée à aucun
 # profil agent existant, sauf à ceux marqués « toutes les primitives de lecture »
 # s'il s'agit d'une lecture.
+_DRAFT_NOTE = (
+    " With view='draft', items marked unpublished come from the user's draft: "
+    "not validated, not yet published."
+)
+
 CATALOG: tuple[Primitive, ...] = (
+    # --- Se repérer
     Primitive(
         id="list_spaces",
         domain="spaces",
@@ -45,6 +51,118 @@ CATALOG: tuple[Primitive, ...] = (
             "List the Git spaces you can see, each with its branches. "
             "Use the returned space and branch ids with the other tools."
         ),
+    ),
+    Primitive(
+        id="list_versions",
+        domain="spaces",
+        access="read",
+        capability="spaces:read",
+        description="List the published versions (numbered snapshots) of a branch.",
+    ),
+    # --- Le brouillon de la personne
+    Primitive(
+        id="get_my_draft",
+        domain="drafts",
+        access="read",
+        capability="spaces:read",
+        description=(
+            "Show what the user changed on a branch and has not published yet (created, "
+            "modified or deleted files), and which of them also changed on the published side "
+            "since. Only when acting for a user."
+        ),
+    ),
+    Primitive(
+        id="get_publish_readiness",
+        domain="drafts",
+        access="read",
+        capability="spaces:read",
+        description=(
+            "Tell whether the user's draft on a branch can be published now, and if not why "
+            "(conflicts, impacts to check, validation errors, missing credential, no right). "
+            "Only when acting for a user."
+        ),
+    ),
+    # --- Sources et schémas bruts
+    Primitive(
+        id="list_sources",
+        domain="sources",
+        access="read",
+        capability="sources:read",
+        description=(
+            "List the data sources declared on a branch (type, connection, parameters)."
+            + _DRAFT_NOTE
+        ),
+    ),
+    Primitive(
+        id="list_raw_schemas",
+        domain="sources",
+        access="read",
+        capability="sources:read",
+        description=(
+            "List the raw schemas collected from a source (one per object: table, entity, "
+            "API schema), with their field count and whether they are retained as assets."
+            + _DRAFT_NOTE
+        ),
+    ),
+    Primitive(
+        id="read_raw_schema",
+        domain="sources",
+        access="read",
+        capability="sources:read",
+        description="Read one raw schema of a source, as collected (JSON Schema)." + _DRAFT_NOTE,
+    ),
+    # --- Assets (curation)
+    Primitive(
+        id="list_assets",
+        domain="curation",
+        access="read",
+        capability="curation:read",
+        description=(
+            "List the assets of a source: the raw objects retained (fully or partly) for the "
+            "semantic layer; orphan = its raw object disappeared." + _DRAFT_NOTE
+        ),
+    ),
+    Primitive(
+        id="read_asset",
+        domain="curation",
+        access="read",
+        capability="curation:read",
+        description=(
+            "Read one asset: its fields (retained or not, type, reference) and its business "
+            "enrichment (business name, description, concept, tags)." + _DRAFT_NOTE
+        ),
+    ),
+    Primitive(
+        id="get_tri_rules",
+        domain="curation",
+        access="read",
+        capability="curation:rules",
+        description="Read the triage rules of a source (patterns that set noise aside).",
+    ),
+    Primitive(
+        id="get_review",
+        domain="curation",
+        access="read",
+        capability="curation:review",
+        description=(
+            "Show the raw changes of a source not reviewed yet since its last review point: "
+            "retained objects touched, objects disappeared, new objects."
+        ),
+    ),
+    # --- Gouvernance
+    Primitive(
+        id="list_tags",
+        domain="governance",
+        access="read",
+        capability="governance:read",
+        description="List the governed tags of a branch (owner, description, links).",
+    ),
+    Primitive(
+        id="list_classifications",
+        domain="governance",
+        access="read",
+        capability="governance:read",
+        description="List the classification schemes of a branch and their levels.",
     ),
 )
 

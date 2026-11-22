@@ -37,18 +37,17 @@ from starlette.applications import Starlette
 from ossie_studio.mcp_surface.authz import allowed_primitives, authorize, caller_user
 from ossie_studio.mcp_surface.caller import McpCaller, current_caller
 from ossie_studio.mcp_surface.catalog import BY_ID, CATALOG
-from ossie_studio.mcp_surface.primitives import (
-    IMPLEMENTATIONS,
-    PrimitiveContext,
-    PrimitiveError,
-)
+from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
+from ossie_studio.mcp_surface.primitives import IMPLEMENTATIONS
 
 log = structlog.get_logger(__name__)
 
 _INSTRUCTIONS = (
     "Ossie-studio builds a semantic layer from data sources versioned in Git spaces. "
-    "Start with list_spaces to find a space and a branch, then use their ids with the "
-    "other tools."
+    "Start with list_spaces to find a space and a branch, then use their ids with the other "
+    "tools. When you act for a user, reads show by default the published content plus the "
+    "user's unpublished draft (view='draft'); items marked unpublished are not validated yet. "
+    "Pass view='published' to see only what has been published."
 )
 
 

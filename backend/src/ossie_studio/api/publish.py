@@ -106,7 +106,7 @@ async def _credential_reason(
 
 
 async def publish_readiness(
-    request: Request,
+    pool: asyncpg.Pool,
     conn: asyncpg.Connection,
     crypto: CryptoService,
     workdir: DraftWorkdir,
@@ -140,7 +140,7 @@ async def publish_readiness(
     reason = await _credential_reason(conn, user, space["connection_id"])
     if reason:
         ready.reasons.append(reason)
-    if await _publish_in_progress(request.app.state.pool, branch_id):
+    if await _publish_in_progress(pool, branch_id):
         ready.reasons.append("publish_in_progress")
     return ready
 
@@ -156,7 +156,9 @@ async def get_readiness(
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
-    ready = await publish_readiness(request, conn, crypto, workdir, user, space_id, branch_id)
+    ready = await publish_readiness(
+        request.app.state.pool, conn, crypto, workdir, user, space_id, branch_id
+    )
     return {"ok": ready.ok, "reasons": ready.reasons, "conflicts": ready.conflicts}
 
 
@@ -239,7 +241,9 @@ async def _publish_locked(
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
     await _automerge(conn, crypto, workdir, space_id, branch_id, branch.git_ref)
-    ready = await publish_readiness(request, conn, crypto, workdir, user, space_id, branch_id)
+    ready = await publish_readiness(
+        request.app.state.pool, conn, crypto, workdir, user, space_id, branch_id
+    )
     # Le verrou est le nôtre : « publication en cours » ne bloque pas ici.
     reasons = [r for r in ready.reasons if r != "publish_in_progress"]
     if reasons:

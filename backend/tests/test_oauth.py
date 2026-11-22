@@ -24,11 +24,14 @@ from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider, TokenS
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
+from ossie_studio.mcp_surface.catalog import CATALOG, READ_PRIMITIVES
 from ossie_studio.oidc.redirect import safe_next
 from tests.conftest import ADMIN_EMAIL, ADMIN_PASSWORD, bootstrap_admin, create_plain_user, login
 from tests.mcp_helpers import tool_names
 
 BASE = "https://ossie.example.org"
+# Primitives qui ne supposent que la lecture des espaces.
+SPACES_READ = {p.id for p in CATALOG if p.capability == "spaces:read"}
 RESOURCE = f"{BASE}/mcp"
 REDIRECT = "http://localhost:3118/callback"
 PASSWORD = "motdepasse-solide"
@@ -272,7 +275,7 @@ async def test_client_mcp_standard_decouvre_s_enregistre_et_obtient_un_jeton(
             tools = [t.name for t in (await mcp.list_tools()).tools]
             result = await mcp.call_tool("list_spaces", {})
 
-    assert tools == ["list_spaces"]
+    assert set(tools) == READ_PRIMITIVES
     assert not result.is_error
     assert storage.tokens is not None and storage.tokens.access_token.startswith("osa_")
     out = capsys.readouterr().out
@@ -359,7 +362,7 @@ async def test_seuls_les_profils_utilisables_sont_proposes(
         await _set_caps(app, user_id, ["spaces:read"])
         consent = (await ana.get(f"/api/oauth/requests/{flow.request_id}")).json()
         assert [(p["name"], p["granted"]) for p in consent["agent_profiles"]] == [
-            ("Lecture", ["list_spaces"])
+            ("Lecture", sorted(SPACES_READ))
         ]
 
 
@@ -373,7 +376,7 @@ async def test_capacite_retiree_a_la_personne_retiree_a_l_agent(
     async with _as(app, "ana@example.org") as ana:
         tokens = await _connect(app, ana, await _profile_id(app))
     access = tokens["access_token"]
-    assert await tool_names(app, access) == ["list_spaces"]
+    assert set(await tool_names(app, access)) == SPACES_READ
 
     await _set_caps(app, user_id, [])
     assert await tool_names(app, access) == []
