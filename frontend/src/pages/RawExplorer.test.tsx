@@ -424,6 +424,20 @@ describe('RawExplorer', () => {
     expect(loc).not.toContain('center=')
   })
 
+  it('graphe : ouvrir un dossier de l’arbre revient à la vue précédente', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json&view=list')
+    await user.click(await screen.findByRole('button', { name: 'Graphe' }))
+    await screen.findByText('order · 0..1')
+    const tree = within(screen.getByRole('tree'))
+    await user.click(await tree.findByRole('button', { name: /src/ }))
+    const loc = screen.getByTestId('loc').textContent ?? ''
+    expect(loc).toContain('view=list')
+    expect(loc).not.toContain('back=')
+    expect(loc).toContain('path=src')
+  })
+
   it('graphe : les filtres masquent une catégorie de liens sans recharger', async () => {
     const calls = mockApi()
     const user = userEvent.setup()
