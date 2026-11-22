@@ -268,3 +268,78 @@ def path_matches(path: str, patterns: tuple[str, ...]) -> str | None:
         if fnmatch.fnmatchcase(target, pattern):
             return pattern
     return None
+
+
+# --- Retraits ------------------------------------------------------------------------
+#
+# Un tag posé par règle que l'utilisateur a retiré d'un objet. Décision du
+# cadrage : le retrait est mémorisé dans le Git de l'espace (une nouvelle
+# collecte ne remet pas le tag) et rattaché à l'identité de l'objet raw,
+# « source/fichier » — le fichier raw dérive du nom qualifié de la classe : une
+# classe renommée ou déplacée est un nouvel objet et le tag revient (accepté).
+
+TAG_REMOVALS_FILE = f"{GOVERNANCE_DIR}/tag-removals.yaml"
+
+
+@dataclass(frozen=True)
+class TagRemoval:
+    object: str  # « source/fichier »
+    tag: str
+    title: str = ""  # titre de l'objet au moment du retrait (lisibilité du fichier)
+
+
+def read_tag_removals(root: Path) -> list[TagRemoval]:
+    """Retraits du dépôt ; un fichier illisible ou une entrée mal formée sont
+    ignorés (signalés par la validation) plutôt que de bloquer l'indexation."""
+    file = root / TAG_REMOVALS_FILE
+    if not file.is_file():
+        return []
+    try:
+        data = yaml.safe_load(file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return []
+    items = data.get("removals") if isinstance(data, dict) else None
+    out: list[TagRemoval] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        obj, tag = str(item.get("object") or ""), normalize_tag_id(str(item.get("tag") or ""))
+        if "/" in obj and is_valid_tag_id(tag):
+            out.append(TagRemoval(obj, tag, str(item.get("title") or "")))
+    return out
+
+
+def removal_errors(root: Path) -> list[str]:
+    """Codes de validation du fichier des retraits (vide s'il est absent ou sain)."""
+    file = root / TAG_REMOVALS_FILE
+    if not file.is_file():
+        return []
+    try:
+        data = yaml.safe_load(file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return ["tag_removals_unreadable"]
+    items = data.get("removals") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return ["tag_removals_invalid"]
+    valid = len(read_tag_removals(root))
+    return [] if valid == len(items) else ["tag_removals_invalid"]
+
+
+def write_tag_removals(root: Path, removals: list[TagRemoval]) -> None:
+    target = root / TAG_REMOVALS_FILE
+    unique = {(r.object, r.tag): r for r in removals}
+    if not unique:
+        if target.is_file():
+            target.unlink()
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "removals": [
+            {"object": r.object, "tag": r.tag, **({"title": r.title} if r.title else {})}
+            for r in sorted(unique.values(), key=lambda r: (r.object, r.tag))
+        ]
+    }
+    target.write_text(
+        yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False),
+        encoding="utf-8",
+    )

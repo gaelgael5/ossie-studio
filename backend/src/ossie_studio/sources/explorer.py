@@ -47,7 +47,7 @@ MODES: tuple[str, ...] = ("origin", "kind", "parser")
 GIT_SOURCE_TYPE = "git"
 # Version du format des entrées mises en index : la changer (champ ajouté…)
 # force la reconstruction des index existants à la livraison suivante.
-INDEX_FORMAT = "6"
+INDEX_FORMAT = "7"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -141,6 +141,10 @@ class ExplorerObject:
     description: str = ""
     top_fields: tuple[str, ...] = ()
     tags: tuple[ObjectTag, ...] = ()
+    # Tags qu'une règle poserait mais que l'utilisateur a retirés de CET objet
+    # (montrés à part, avec « remettre ») ; les descendants qui ne les tenaient
+    # que de lui ne les portent pas et n'apparaissent pas ici.
+    removed_tags: tuple[ObjectTag, ...] = ()
     facts: ObjectFacts = field(default=ObjectFacts(), compare=False, repr=False)
 
 
@@ -560,6 +564,10 @@ class SourceEntries:
                         for t in o.tags
                     ],
                     [list(o.facts.annotations), list(o.facts.field_names)],
+                    [
+                        [t.tag, t.rule, t.rule_name, t.reason, t.value, t.via, t.via_title]
+                        for t in o.removed_tags
+                    ],
                 ]
                 for o in self.objects
             ],
@@ -601,6 +609,7 @@ class SourceEntries:
                     facts=ObjectFacts(tuple(o[17][0]), tuple(o[17][1]))
                     if len(o) > 17
                     else ObjectFacts(),
+                    removed_tags=tuple(ObjectTag(*t) for t in o[18]) if len(o) > 18 else (),
                 )
                 for o in data.get("objects") or []
             ],

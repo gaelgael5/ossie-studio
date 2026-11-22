@@ -110,6 +110,7 @@ class _Type:
     attributes: list[dict[str, Any]]
     members: list[_Member] = field(default_factory=list)
     enum_members: list[str] = field(default_factory=list)
+    namespace: str = ""
 
     def merge(self, other: _Type) -> None:
         seen = {m.name for m in self.members}
@@ -278,6 +279,7 @@ def _build_type(src: bytes, node: Node, *, namespace: str, enclosing: str) -> _T
         generics=generics,
         bases=bases,
         attributes=attributes,
+        namespace=namespace,
     )
     if info.kind == "enum":
         body = node.child_by_field_name("body")
@@ -413,6 +415,10 @@ def _build_schema(info: _Type, known: dict[str, str]) -> dict[str, Any]:
         "x-kind": info.kind,
         "x-visibility": info.visibility,
     }
+    # Espace de noms d'origine (namespace C#, paquet Java/Kotlin, module TS/Python),
+    # affiché tel quel par l'explorateur raw : le `$id`, slugifié, ne le rend pas.
+    if info.namespace:
+        schema["x-namespace"] = info.namespace
     if info.visibility_source:
         schema["x-visibility-source"] = info.visibility_source
     if info.doc:
@@ -454,7 +460,7 @@ class CSharpParser:
     id = "csharp"
     cible = CIBLE_RAW
     label = "C#"
-    version = f"1.0-ts{grammar_version('csharp')}"
+    version = f"1.1-ts{grammar_version('csharp')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)

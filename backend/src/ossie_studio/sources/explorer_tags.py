@@ -77,20 +77,33 @@ def _match(rule: TagRule, obj: ExplorerObject, bases: list[str]) -> tuple[str, s
 
 
 def apply_tag_rules(
-    sources: Iterable[SourceEntries], rules: Iterable[TagRule]
+    sources: Iterable[SourceEntries],
+    rules: Iterable[TagRule],
+    removals: Iterable[tuple[str, str]] = (),
 ) -> list[SourceEntries]:
     """Les sources avec, sur chaque objet, les tags posés par les règles (et
-    seulement eux)."""
+    seulement eux). `removals` : (« source/fichier », tag) retirés par
+    l'utilisateur — le tag ne se pose pas sur cet objet et ne descend pas par
+    lui ; un tag hérité reste ainsi aligné sur la classe dont il vient. Un
+    descendant qui satisfait lui-même une règle garde le tag (il n'est pas
+    hérité)."""
     source_list = list(sources)
     active = [r for r in rules if r.enabled]
     if not active:
-        return [replace(s, objects=[replace(o, tags=()) for o in s.objects]) for s in source_list]
+        return [
+            replace(s, objects=[replace(o, tags=(), removed_tags=()) for o in s.objects])
+            for s in source_list
+        ]
+    removed_set = set(removals)
     space = SpaceObjects(source_list, "origin")
     objects: dict[ObjKey, ExplorerObject] = {
         (s.slug, o.file): o for s in source_list for o in s.objects
     }
     titles = {key: obj.title for key, obj in objects.items()}
     bases = {key: _base_names(obj, titles, space) for key, obj in objects.items()}
+
+    def is_removed(key: ObjKey, tag: str) -> bool:
+        return (f"{key[0]}/{key[1]}", tag) in removed_set
 
     # Classes qui dérivent directement de chaque objet de l'espace.
     children: dict[ObjKey, list[ObjKey]] = {}
@@ -102,6 +115,7 @@ def apply_tag_rules(
                     children.setdefault((found.slug, found.file), []).append(key)
 
     tags: dict[ObjKey, dict[str, ObjectTag]] = {}
+    removed: dict[ObjKey, dict[str, ObjectTag]] = {}
     transmitted: list[tuple[ObjKey, TagRule, str]] = []
     for rule in active:
         for key, obj in objects.items():
@@ -109,9 +123,11 @@ def apply_tag_rules(
             if hit is None:
                 continue
             for tag in rule.tags:
-                own = tags.setdefault(key, {})
-                if tag not in own:
-                    own[tag] = ObjectTag(tag, rule.id, rule.name, hit[0], hit[1])
+                found_tag = ObjectTag(tag, rule.id, rule.name, hit[0], hit[1])
+                if is_removed(key, tag):
+                    removed.setdefault(key, {}).setdefault(tag, found_tag)
+                    continue  # retiré ici : rien ne descend par lui
+                tags.setdefault(key, {}).setdefault(tag, found_tag)
                 if rule.inherit_tags:
                     transmitted.append((key, rule, tag))
 
@@ -126,16 +142,24 @@ def apply_tag_rules(
                 if child in seen:
                     continue
                 seen.add(child)
-                own = tags.setdefault(child, {})
-                if tag not in own:
-                    own[tag] = ObjectTag(
-                        tag,
-                        rule.id,
-                        rule.name,
-                        via=f"{parent[0]}/{parent[1]}",
-                        via_title=titles[parent],
-                    )
+                inherited = ObjectTag(
+                    tag,
+                    rule.id,
+                    rule.name,
+                    via=f"{parent[0]}/{parent[1]}",
+                    via_title=titles[parent],
+                )
+                if is_removed(child, tag):
+                    # Retiré sur cette classe : ni elle ni ses descendantes ne
+                    # le tiennent par elle.
+                    if tag not in tags.get(child, {}):
+                        removed.setdefault(child, {}).setdefault(tag, inherited)
+                    continue
+                tags.setdefault(child, {}).setdefault(tag, inherited)
                 queue.append(child)
+
+    def ordered(found: dict[str, ObjectTag] | None) -> tuple[ObjectTag, ...]:
+        return tuple(sorted((found or {}).values(), key=lambda t: t.tag))
 
     # Les tags sont toujours recalculés en entier : des tags déjà présents
     # (index relu pour un aperçu) ne doivent pas survivre à la règle modifiée.
@@ -145,12 +169,39 @@ def apply_tag_rules(
             objects=[
                 replace(
                     o,
-                    tags=tuple(
-                        sorted(tags.get((s.slug, o.file), {}).values(), key=lambda t: t.tag)
-                    ),
+                    tags=ordered(tags.get((s.slug, o.file))),
+                    removed_tags=ordered(removed.get((s.slug, o.file))),
                 )
                 for o in s.objects
             ],
         )
         for s in source_list
     ]
+
+
+def index_removals(sources: Iterable[SourceEntries]) -> set[tuple[str, str]]:
+    """Retraits déjà appliqués dans un index (relu pour un aperçu) : on les
+    retrouve sur les objets, sans relire le dépôt."""
+    return {
+        (f"{s.slug}/{o.file}", t.tag) for s in sources for o in s.objects for t in o.removed_tags
+    }
+
+
+def dependents_losing(sources: Iterable[SourceEntries], obj_key: str, tag: str) -> int:
+    """Nombre d'objets qui perdraient `tag` si on le retirait de `obj_key` : ceux
+    qui le tiennent par héritage d'une chaîne passant par cet objet."""
+    via: dict[str, str] = {}
+    for s in sources:
+        for o in s.objects:
+            for t in o.tags:
+                if t.tag == tag and t.via:
+                    via[f"{s.slug}/{o.file}"] = t.via
+    count = 0
+    for start in via:
+        current, steps = via.get(start), 0
+        while current and steps <= len(via):
+            if current == obj_key:
+                count += 1
+                break
+            current, steps = via.get(current), steps + 1
+    return count

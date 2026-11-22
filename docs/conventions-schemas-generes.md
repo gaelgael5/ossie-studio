@@ -91,6 +91,8 @@ voir un objet `internal` ou `private`, pas le perdre.
 
 Sous des clefs `x-` : `x-source` (fichier, ligne ou objet de catalogue),
 `x-kind` (class, record, enum, table, view, materialized-view, json-content…),
+`x-namespace` (espace de noms d'origine : namespace C#, paquet Java/Kotlin,
+module TypeScript ou Python ; absent pour une table ou un contrat),
 `x-language` ou `x-engine`, et
 `x-annotations` (attributs, décorateurs, annotations : `[Table]`, `@Entity`,
 `@Column`, `Field(...)`…). Ces annotations serviront à relier une classe à sa

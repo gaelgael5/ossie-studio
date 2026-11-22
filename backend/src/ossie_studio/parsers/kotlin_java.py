@@ -135,6 +135,7 @@ class _Type:
     annotations: list[dict[str, Any]]
     members: list[_Member] = field(default_factory=list)
     enum_members: list[str] = field(default_factory=list)
+    namespace: str = ""
 
 
 def _text(src: bytes, node: Node | None) -> str:
@@ -366,6 +367,8 @@ def _java_extract(src: bytes, root: Node, *, prefix: str) -> list[_Type]:
     base = package or prefix
     out: list[_Type] = []
     _java_walk(src, root, enclosing=base, out=out)
+    for info in out:
+        info.namespace = base
     return out
 
 
@@ -537,6 +540,8 @@ def _kotlin_extract(src: bytes, root: Node, *, prefix: str) -> list[_Type]:
     base = package or prefix
     out: list[_Type] = []
     _kotlin_walk(src, root, enclosing=base, out=out)
+    for info in out:
+        info.namespace = base
     return out
 
 
@@ -768,6 +773,10 @@ def _build_schema(info: _Type, known: dict[str, str]) -> dict[str, Any]:
         "x-kind": info.kind,
         "x-visibility": info.visibility,
     }
+    # Espace de noms d'origine (namespace C#, paquet Java/Kotlin, module TS/Python),
+    # affiché tel quel par l'explorateur raw : le `$id`, slugifié, ne le rend pas.
+    if info.namespace:
+        schema["x-namespace"] = info.namespace
     if info.doc:
         schema["description"] = info.doc
     if info.generics:
@@ -810,7 +819,7 @@ class KotlinJavaParser:
     id = "kotlin-java"
     cible = CIBLE_RAW
     label = "Kotlin / Java"
-    version = f"1.0-java{grammar_version('java')}-kt{grammar_version('kotlin')}"
+    version = f"1.1-java{grammar_version('java')}-kt{grammar_version('kotlin')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)

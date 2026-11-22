@@ -530,12 +530,18 @@ export interface RawObjectDetail {
   file: string
   title: string
   qualified_name: string
+  /** Espace de noms d'origine (namespace, paquet, module) ; vide si inconnu. */
+  namespace: string
   kind: string
   badges: RawBadge[]
   excluded_by: string
   visibility: string
   visibility_source: string
   tags: (RawObjectTag & { via_target: RawTarget | null })[]
+  /** Tags qu'une règle poserait mais que l'utilisateur a retirés de cet objet. */
+  removed_tags: RawObjectTag[]
+  /** Par tag : classes dérivées qui le perdront aussi si on le retire ici. */
+  tag_dependents: Record<string, number>
   description: string
   enum: string[]
   fields: {
@@ -1379,6 +1385,13 @@ export const api = {
     }),
   deleteGovernedTag: (id: string) =>
     apiFetch(`/api/governance/tags/${id}`, { method: 'DELETE' }),
+  removeObjectTag: (body: { object: string; tag: string; title: string }) =>
+    apiFetch('/api/governance/tag-removals', { method: 'POST', body: JSON.stringify(body) }),
+  restoreObjectTag: (body: { object: string; tag: string; title: string }) =>
+    apiFetch('/api/governance/tag-removals/restore', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   listTagRules: () => apiFetch<{ rules: TagRuleFile[] }>('/api/governance/tag-rules'),
   saveTagRule: (id: string, body: TagRuleInput) =>
     apiFetch<TagRuleFile & { created_tags: string[] }>(`/api/governance/tag-rules/${id}`, {

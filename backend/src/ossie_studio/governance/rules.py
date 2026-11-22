@@ -29,7 +29,7 @@ from ossie_studio.governance.repo import (
     scheme_path,
     tag_path,
 )
-from ossie_studio.governance.tag_rules import read_tag_rules
+from ossie_studio.governance.tag_rules import TAG_REMOVALS_FILE, read_tag_rules, removal_errors
 from ossie_studio.governance.tags import validate_tag_fields
 
 
@@ -66,6 +66,8 @@ class GovernanceRule:
         for rule_file in read_tag_rules(view):
             for code in rule_file.errors:
                 add(rule_file.rel, code)
+        for code in removal_errors(view):
+            add(TAG_REMOVALS_FILE, code)
         primaries = [s for s in read_schemes(view) if s.is_primary]
         if len(primaries) > 1:
             for scheme in primaries:

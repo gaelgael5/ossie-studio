@@ -200,4 +200,10 @@ def test_fichier_sans_type_ne_produit_rien() -> None:
 
 
 def test_version_inclut_la_grammaire() -> None:
-    assert TypeScriptParser().version.startswith("1.0-ts")
+    assert TypeScriptParser().version.startswith("1.1-ts")
+
+
+def test_module_comme_espace_de_noms() -> None:
+    schemas = _parse("export interface Order { id: number }", path="src/api/order.ts")
+    ns = next(iter(schemas.values()))["x-namespace"]
+    assert ns and "order" in ns

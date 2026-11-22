@@ -147,6 +147,7 @@ class _Type:
     total: bool = True
     members: list[_Member] = field(default_factory=list)
     enum_members: list[str] = field(default_factory=list)
+    namespace: str = ""
 
 
 # --- Navigation de l'arbre ---------------------------------------------------
@@ -586,6 +587,10 @@ def _build_schema(info: _Type, *, total: bool, known: dict[str, str]) -> dict[st
         "x-kind": info.kind,
         "x-visibility": _obj_visibility(info.name),
     }
+    # Espace de noms d'origine (namespace C#, paquet Java/Kotlin, module TS/Python),
+    # affiché tel quel par l'explorateur raw : le `$id`, slugifié, ne le rend pas.
+    if info.namespace:
+        schema["x-namespace"] = info.namespace
     if info.doc:
         schema["description"] = info.doc
     if info.decorators:
@@ -624,7 +629,7 @@ class PythonParser:
     id = "python"
     cible = CIBLE_RAW
     label = "Python"
-    version = f"1.0-ts{grammar_version('python')}"
+    version = f"1.1-ts{grammar_version('python')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)
@@ -654,6 +659,7 @@ class PythonParser:
             for info in _extract_file(raw, tree.root_node):
                 qualified = f"{module}.{info.qualified}" if module else info.qualified
                 info.qualified = qualified
+                info.namespace = module
                 if qualified not in merged:
                     merged[qualified] = info
                     totals[qualified] = info.total

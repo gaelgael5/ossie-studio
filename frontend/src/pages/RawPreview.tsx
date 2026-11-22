@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { Link } from 'react-router-dom'
-import { api } from '../apiClient'
+import { api, sessionCapabilities } from '../apiClient'
+import { useSession } from '../hooks'
+import { AssetButton, AssetEditorProvider, EyeCell, useCanEditAsset } from './RawAssetEditor'
 import type {
   RawObjectTag,
   RawBadge,
@@ -243,10 +245,13 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
   }
 
   return (
+    <AssetEditorProvider spaceId={spaceId} branchId={branchId} slug={slug} detail={d}>
     <div className="raw-preview-body">
       <header className="raw-preview-title">
         <h2>{d.title}</h2>
-        <div className="mono small muted">{d.qualified_name}</div>
+        <div className="mono small muted" title={d.qualified_name}>
+          {d.namespace ? t('rawNamespaceLine', { namespace: d.namespace }) : d.qualified_name}
+        </div>
         <div className="raw-badges">
           <span className="pill">{t(`rawKind.${d.kind}`, { defaultValue: d.kind })}</span>
           <VisibilityBadge visibility={d.visibility} source={d.visibility_source} />
@@ -327,17 +332,15 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
         )
       ) : null}
     </div>
+    </AssetEditorProvider>
   )
 }
 
 function Shortcuts({ slug, detail }: { slug: string; detail: RawObjectDetail }) {
   const { t } = useTranslation()
-  const curation = `/sources/${encodeURIComponent(slug)}?tab=curation&object=${encodeURIComponent(detail.file)}`
   return (
     <div className="raw-shortcuts">
-      <Link to={curation} className="btn btn-sm">
-        {t('rawSeeInCuration')}
-      </Link>
+      <AssetButton />
       {detail.forge_url ? (
         <a href={detail.forge_url} className="btn btn-sm" target="_blank" rel="noreferrer">
           {t('rawOpenInForge')}
@@ -353,11 +356,11 @@ function Shortcuts({ slug, detail }: { slug: string; detail: RawObjectDetail }) 
 export function ExposureLegend({ detail, slug }: { detail: RawObjectDetail; slug: string }) {
   const { t } = useTranslation()
   const e = detail.exposure
-  const curation = `/sources/${encodeURIComponent(slug)}?tab=curation&object=${encodeURIComponent(detail.file)}`
+  const canEdit = useCanEditAsset()
   if (!e.retained) {
     return (
       <p className="small raw-exposure">
-        {t('rawObjectNotRetained')} <Link to={curation}>{t('rawSeeInCuration')}</Link>
+        {canEdit ? t('rawObjectNotRetainedCreate') : t('rawObjectNotRetained')}
       </p>
     )
   }
@@ -377,6 +380,133 @@ export function ExposureLegend({ detail, slug }: { detail: RawObjectDetail; slug
         </>
       ) : null}
     </p>
+  )
+}
+
+/**
+ * Tags de gouvernance posés par règle, avec leur provenance. Avec le droit
+ * d'écrire la gouvernance : retirer un tag (mémorisé dans le brouillon, une
+ * nouvelle collecte ne le remet pas ; les classes qui ne le tiennent que de
+ * celle-ci le perdent aussi, annoncé avant de confirmer) et remettre un tag retiré.
+ */
+function TagsSection({
+  detail,
+  slug,
+  onOpen,
+}: {
+  detail: RawObjectDetail
+  slug: string
+  onOpen: (t: RawTarget) => void
+}) {
+  const { t } = useTranslation()
+  const session = useSession()
+  const canWrite = sessionCapabilities(session.data).includes('governance:write')
+  const queryClient = useQueryClient()
+  const [confirming, setConfirming] = useState<string | null>(null)
+  const [messages, setMessages] = useState<string[]>([])
+  const target = (tag: string) => ({ object: `${slug}/${detail.file}`, tag, title: detail.title })
+  const refresh = async () => {
+    setConfirming(null)
+    setMessages([])
+    await Promise.all(
+      ['rawObject', 'rawFolder', 'rawSearch', 'tag-rules-usage'].map((key) =>
+        queryClient.invalidateQueries({ queryKey: [key] }),
+      ),
+    )
+  }
+  const onError = (err: unknown) => setMessages(errorMessages(t, err))
+  const remove = useMutation({
+    mutationFn: (tag: string) => api.removeObjectTag(target(tag)),
+    onSuccess: refresh,
+    onError,
+  })
+  const restore = useMutation({
+    mutationFn: (tag: string) => api.restoreObjectTag(target(tag)),
+    onSuccess: refresh,
+    onError,
+  })
+  const busy = remove.isPending || restore.isPending
+  const removed = detail.removed_tags ?? []
+  if (detail.tags.length === 0 && removed.length === 0) return null
+  return (
+    <section>
+      <h3 className="panel-label">{t('rawTagsTitle')}</h3>
+      <ErrorList messages={messages} />
+      <ul className="list-plain raw-tag-list">
+        {detail.tags.map((tag) => {
+          const dependents = detail.tag_dependents?.[tag.tag] ?? 0
+          return (
+            <li key={tag.tag}>
+              <span className={`raw-tag${tag.via ? ' inherited' : ''}`}>{tag.tag}</span>{' '}
+              <span className="small muted">
+                {tag.via && tag.via_target ? (
+                  <>
+                    {t('rawTagProvenanceRule', { rule: tag.rule_name })}{' '}
+                    {t('rawTagInheritedFrom')}{' '}
+                    <TargetLink target={tag.via_target} label={tag.via_title} onOpen={onOpen} />
+                  </>
+                ) : (
+                  tagProvenance(t, tag)
+                )}
+              </span>{' '}
+              {canWrite && confirming !== tag.tag ? (
+                <button
+                  type="button"
+                  className="btn-link small"
+                  onClick={() => setConfirming(tag.tag)}
+                >
+                  {t('rawTagRemove')}
+                </button>
+              ) : null}
+              {confirming === tag.tag ? (
+                <div className="raw-tag-confirm" role="alertdialog" aria-label={t('rawTagRemove')}>
+                  <p className="small">
+                    {t('rawTagRemoveConfirm', { tag: tag.tag, title: detail.title })}{' '}
+                    {dependents > 0 ? t('rawTagRemoveDependents', { count: dependents }) : null}
+                  </p>
+                  <div className="row">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-danger"
+                      disabled={busy}
+                      onClick={() => remove.mutate(tag.tag)}
+                    >
+                      {t('rawTagRemoveYes')}
+                    </button>
+                    <button type="button" className="btn btn-sm" onClick={() => setConfirming(null)}>
+                      {t('cancelEdit')}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+      {removed.length > 0 ? (
+        <>
+          <p className="small muted">{t('rawTagsRemovedTitle')}</p>
+          <ul className="list-plain raw-tag-list">
+            {removed.map((tag) => (
+              <li key={tag.tag}>
+                <span className="raw-tag removed">{tag.tag}</span>{' '}
+                <span className="small muted">{tagProvenance(t, tag)}</span>{' '}
+                {canWrite ? (
+                  <button
+                    type="button"
+                    className="btn-link small"
+                    disabled={busy}
+                    onClick={() => restore.mutate(tag.tag)}
+                  >
+                    {t('rawTagRestore')}
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </section>
   )
 }
 
@@ -402,33 +532,7 @@ function Summary({
         )}
       </section>
 
-      {detail.tags.length > 0 ? (
-        <section>
-          <h3 className="panel-label">{t('rawTagsTitle')}</h3>
-          <ul className="list-plain raw-tag-list">
-            {detail.tags.map((tag) => (
-              <li key={tag.tag}>
-                <span className={`raw-tag${tag.via ? ' inherited' : ''}`}>{tag.tag}</span>{' '}
-                <span className="small muted">
-                  {tag.via && tag.via_target ? (
-                    <>
-                      {t('rawTagProvenanceRule', { rule: tag.rule_name })}{' '}
-                      {t('rawTagInheritedFrom')}{' '}
-                      <TargetLink
-                        target={tag.via_target}
-                        label={tag.via_title}
-                        onOpen={onOpen}
-                      />
-                    </>
-                  ) : (
-                    tagProvenance(t, tag)
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+      <TagsSection detail={detail} slug={slug} onOpen={onOpen} />
 
       {detail.enum.length > 0 ? (
         <section>
@@ -473,7 +577,7 @@ function Summary({
               {detail.fields.map((f) => (
                 <tr key={f.name}>
                   <td>
-                    <EyeIcon exposed={f.exposed} />
+                    <EyeCell name={f.name} exposed={f.exposed} />
                   </td>
                   <td>
                     <span className="mono">{f.name}</span>
@@ -558,7 +662,9 @@ export function Technical({ detail }: { detail: RawObjectDetail }) {
       fileText
     )
   const rows: [string, ReactNode][] = [
+    [t('rawTechNamespace'), detail.namespace || '—'],
     [t('rawTechFile'), file],
+    [t('rawTechRawId'), detail.qualified_name],
     [t('rawTechChecksum'), o.checksum || '—'],
     [t('rawTechParser'), o.parser || '—'],
     [t('rawTechBranch'), o.branch || '—'],

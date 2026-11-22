@@ -1595,6 +1595,39 @@ body.resizing-x {
   background: transparent;
   border: 1px dashed var(--chip-fg);
 }
+.raw-tag.removed {
+  background: transparent;
+  color: var(--muted);
+  text-decoration: line-through;
+  border: 1px solid var(--border);
+}
+.raw-eye-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  cursor: pointer;
+  line-height: 0;
+}
+.raw-eye-btn:hover {
+  border-color: var(--border-strong);
+}
+.raw-asset-confirm {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 8px;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+}
+.raw-tag-confirm {
+  margin: 6px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+}
 .raw-tag-list li {
   margin-bottom: 4px;
 }

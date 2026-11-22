@@ -31,7 +31,7 @@ from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.links import forge_file_url
-from ossie_studio.governance.tag_rules import active_rules, parse_rule
+from ossie_studio.governance.tag_rules import active_rules, parse_rule, read_tag_removals
 from ossie_studio.parsers.base import STATUT_ERREUR
 from ossie_studio.sources.curation import is_schema_file, read_review_point
 from ossie_studio.sources.explorer import (
@@ -64,7 +64,7 @@ from ossie_studio.sources.explorer_store import (
     db_list_indexed_sources,
     db_replace_index,
 )
-from ossie_studio.sources.explorer_tags import apply_tag_rules
+from ossie_studio.sources.explorer_tags import apply_tag_rules, dependents_losing, index_removals
 from ossie_studio.sources.manifest import ManifestError, parse_manifest
 from ossie_studio.sources.paths import is_valid_source_slug
 from ossie_studio.sources.scan_service import ScanFile, db_list_scan_files
@@ -193,6 +193,7 @@ async def _ensure_index(
                     for slug in list_source_slugs(wc)
                 ],
                 active_rules(wc),
+                {(r.object, r.tag) for r in read_tag_removals(wc)},
             )
 
         try:
@@ -424,7 +425,9 @@ async def tag_rule_preview(
     if rule is None:
         raise ApiError("tag_rule_invalid", status_code=400, fields=errors)
     key, _ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
-    tagged = apply_tag_rules(await db_all_source_entries(conn, key), [rule])
+    entries = await db_all_source_entries(conn, key)
+    # Les retraits déjà faits valent aussi pour l'aperçu (ils sont dans l'index).
+    tagged = apply_tag_rules(entries, [rule], index_removals(entries))
     count, inherited, examples = _rule_objects(tagged, preview_id)
     return {"objects": count, "inherited": inherited, "examples": examples}
 
@@ -538,6 +541,12 @@ async def get_explorer_object(
         }
         for t in obj.tags
     ]
+    # Retirer un tag le retire aussi des classes qui ne le tiennent que de cet
+    # objet : l'écran l'annonce avant de confirmer.
+    detail["tag_dependents"] = {
+        t.tag: dependents_losing(graph.sources, f"{slug}/{file}", t.tag) for t in obj.tags
+    }
+    detail["removed_tags"] = [_tag_payload(t) for t in obj.removed_tags]
     origin = detail["origin"]
     detail["forge_url"] = await _forge_link(conn, manifest_text, obj.origin, origin["line"])
     return detail

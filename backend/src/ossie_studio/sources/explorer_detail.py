@@ -275,6 +275,9 @@ def object_detail(
         "file": obj.file,
         "title": obj.title,
         "qualified_name": obj.schema_id.removesuffix(".json") or obj.file.removesuffix(".json"),
+        # Espace de noms tel qu'écrit dans le code (`x-namespace`) ; vide pour une
+        # table ou un contrat, et pour un objet collecté avant que le parseur le pose.
+        "namespace": str(schema.get("x-namespace") or ""),
         "kind": obj.kind,
         "badges": list(obj.badges),
         "excluded_by": obj.excluded_by,
