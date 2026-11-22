@@ -3,7 +3,7 @@
 Branche : **`feature/profils-agents-mcp`**, poussée, `origin/dev` intégré (jusqu'à `6ac59d5`).
 Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
-La pull request vers `dev` se fait **à la main** par Gael (pas par MCP).
+**Poussé sur `dev` le 22 novembre** à la demande de Gael (avance rapide depuis `6ac59d5`, sans pull request). Vérifié avant : une base déjà en 0035 passe proprement à 0037.
 
 ## Tickets livrés (docflow → « En review »)
 
@@ -39,7 +39,7 @@ La pull request vers `dev` se fait **à la main** par Gael (pas par MCP).
 
 ## Migrations
 
-`0033_agent_profiles`, `0034_api_keys`, `0036_oauth`, `0037_agent_profile_deleted`. La `0035` est à l'explorateur raw (autre session, sur `dev`). Vérifier les numéros sur `origin/dev` avant la pull request.
+`0033_agent_profiles`, `0034_api_keys`, `0036_oauth`, `0037_agent_profile_deleted`. La `0035` est à l'explorateur raw (autre session). Le runner joue toute migration absente, quel que soit son numéro : une base en 0035 reçoit bien 0033 et 0034. Prochaine migration libre : **0038**.
 
 ## Nouvelles capacités
 
