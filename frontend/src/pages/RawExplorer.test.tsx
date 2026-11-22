@@ -267,15 +267,22 @@ describe('RawExplorer', () => {
     expect(localStorage.getItem('ossie.rawExplorer.mode')).toBe('kind')
   })
 
-  it('la recherche ouvre le dossier de l’objet trouvé, sélectionné', async () => {
+  it('la recherche remplace le contenu par les objets trouvés ; un clic ouvre leur dossier', async () => {
     mockApi()
     const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app')
     await user.type(await screen.findByLabelText('Rechercher un objet dans la source'), 'ord')
-    await user.click(await screen.findByRole('button', { name: /Order\s*Domain$/ }))
+    expect(await screen.findByText('1 objet(s) trouvé(s) pour « ord » dans la source.')).toBeInTheDocument()
+    // Les dossiers de la racine ne s'affichent plus : seulement les résultats.
+    expect(screen.queryByRole('button', { name: /^DIR\s*src/ })).not.toBeInTheDocument()
+    await user.click(screen.getByText('Order'))
     const loc = screen.getByTestId('loc').textContent ?? ''
     expect(loc).toContain('path=src%2FDomain')
     expect(loc).toContain('sel=order.json')
+    // Les résultats restent affichés tant que la recherche n'est pas effacée.
+    expect(screen.getByText('1 objet(s) trouvé(s) pour « ord » dans la source.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Effacer la recherche' }))
+    expect(await screen.findByText('Status')).toBeInTheDocument()
   })
 
   it('filtre par nature dans le dossier courant', async () => {

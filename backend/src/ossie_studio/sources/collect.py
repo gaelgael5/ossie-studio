@@ -332,8 +332,10 @@ class SourceCollector:
         # (x-unresolved-type → $ref) sur l'ensemble des schémas de la source.
         progress.enter("resolve")
         writes, deletes = list(agg.writes), list(agg.deletes)
+        # Les fichiers du dépôt donnent la carte des projets (.csproj) qui
+        # départage les homonymes entre projets d'une solution.
         writes, resolved = await asyncio.to_thread(
-            resolve_source_schemas, raw_files, writes, deletes
+            resolve_source_schemas, raw_files, writes, deletes, source_files
         )
 
         # 5. Écriture unique + commit local unique.

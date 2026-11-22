@@ -186,7 +186,7 @@ def test_fichier_sans_type_ne_produit_rien() -> None:
 
 
 def test_version_inclut_la_grammaire() -> None:
-    assert CSharpParser().version.startswith("1.2-ts")
+    assert CSharpParser().version.startswith("1.3-ts")
 
 
 def test_namespace_d_origine() -> None:
@@ -210,7 +210,7 @@ def test_commentaire_xml_balises_internes_nettoyees() -> None:
         "/// </summary>\n"
         "/// <remarks>Ignoré.</remarks>\n"
         "public class C {\n"
-        "  /// <summary>Poids en <b>grammes</b> (<paramref name=\"x\"/>).</summary>\n"
+        '  /// <summary>Poids en <b>grammes</b> (<paramref name="x"/>).</summary>\n'
         "  public int Weight { get; set; }\n"
         "}\n"
     )
@@ -232,3 +232,13 @@ def test_record_positionnel_doc_des_parametres() -> None:
     assert props["City"]["description"] == "La ville."
     assert "description" not in props["Zip"]
     assert schemas["app-address"]["description"] == "Adresse."
+
+
+def test_usings_du_fichier_et_du_namespace() -> None:
+    schemas = _parse(
+        "using System;\nusing static System.Math;\nusing Alias = Colis.Other;\n"
+        "using Colis.Shipment;\n"
+        "namespace Colis.Api {\n  using Colis.Model;\n"
+        "  public class C { public int A {get;set;} }\n}\n"
+    )
+    assert schemas["colis-api-c"]["x-usings"] == ["System", "Colis.Shipment", "Colis.Model"]

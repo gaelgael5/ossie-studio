@@ -47,6 +47,8 @@ const BADGES: RawBadge[] = ['retained', 'new', 'modified', 'excluded', 'error']
 const MODE_KEY = 'ossie.rawExplorer.mode'
 const WIDTH_KEY = 'ossie.rawExplorer.treeWidth'
 const PREVIEW_KEY = 'ossie.rawExplorer.preview'
+// Résultats rendus au plus par le serveur (raw_explorer `_SEARCH_LIMIT`).
+const SEARCH_LIMIT = 50
 const TREE_MIN = 180
 const TREE_MAX = 720
 const TREE_DEFAULT = 300
@@ -319,11 +321,15 @@ export function RawExplorer({
 
   // Un filtre ne survit pas au changement de dossier : il masquerait tout dans
   // un dossier où sa valeur n'existe pas.
+  // Pendant une recherche, les filtres portent sur les résultats : ouvrir le
+  // dossier d'un résultat ne les remet pas à zéro.
   useEffect(() => {
+    if (search.trim()) return
     setKindFilter('')
     setBadgeFilter('')
     setTagFilter('')
     setVisFilter([])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceSlug, mode, path])
 
   useEffect(() => {
@@ -352,7 +358,29 @@ export function RawExplorer({
     return name
   }
 
-  const objects = useMemo(() => folder.data?.objects ?? [], [folder.data])
+  // Recherche en cours : la grille montre les objets trouvés dans toute la
+  // source (et non plus le dossier), les autres filtres s'appliquant dessus.
+  const searching = debounced.length > 0 && !!results.data
+  const objects = useMemo(
+    () => (searching ? (results.data?.results ?? []) : (folder.data?.objects ?? [])),
+    [searching, results.data, folder.data],
+  )
+  const resultFolder = useMemo(
+    () => new Map((results.data?.results ?? []).map((r) => [r.file, r.folder])),
+    [results.data],
+  )
+  // Le dossier courant reste visible dans l'arbre (après un clic sur un
+  // résultat de recherche, il peut être loin dans une longue arborescence).
+  useEffect(() => {
+    document
+      .querySelector('.raw-tree .raw-tree-node.active')
+      ?.scrollIntoView?.({ block: 'nearest' })
+  }, [path, sourceSlug])
+  /** Sélection d'un objet ; pour un résultat de recherche, son dossier s'ouvre dans l'arbre. */
+  const selectObject = (file: string) =>
+    searching && resultFolder.has(file)
+      ? go({ path: resultFolder.get(file) || null, sel: file })
+      : go({ sel: file }, true)
   const kinds = useMemo(() => [...new Set(objects.map((o) => o.kind))].sort(), [objects])
   const presentVisibilities = useMemo(
     () => VISIBILITIES.filter((v) => objects.some((o) => o.visibility === v)),
@@ -378,8 +406,9 @@ export function RawExplorer({
       (visFilter.length === 0 || visFilter.includes(o.visibility)),
   )
   const filtering = !!kindFilter || !!badgeFilter || !!tagFilter || visFilter.length > 0
-  const shownFolders = filtering ? [] : (folder.data?.folders ?? [])
-  const shownDocuments = filtering ? [] : (folder.data?.documents ?? [])
+  const shownFolders = filtering || searching ? [] : (folder.data?.folders ?? [])
+  const shownDocuments = filtering || searching ? [] : (folder.data?.documents ?? [])
+  const hasContent = searching || !!folder.data
 
   const messages = [sources.error, tree.error, results.error]
     .filter((e): e is Error => !!e)
@@ -551,6 +580,8 @@ export function RawExplorer({
         />
 
         <section className="raw-main">
+          {/* Fil d'Ariane, vues et filtres restent visibles quand la grille défile. */}
+          <div className="raw-head">
           <div className="raw-toolbar">
             <nav className="breadcrumb raw-crumbs" aria-label={t('rawBreadcrumb')}>
               <span>{spaceName}</span>
@@ -612,7 +643,6 @@ export function RawExplorer({
           </div>
 
           {current && current.collected ? (
-            <>
               <div className="raw-filters">
                 <div className="raw-search">
                   <input
@@ -623,33 +653,6 @@ export function RawExplorer({
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
-                  {debounced && results.data ? (
-                    <ul className="raw-search-results" role="listbox">
-                      {results.data.results.length === 0 ? (
-                        <li className="muted">{t('rawSearchNone')}</li>
-                      ) : (
-                        results.data.results.map((r) => (
-                          <li key={r.file}>
-                            <button
-                              type="button"
-                              className="raw-search-hit"
-                              onClick={() => {
-                                setSearch('')
-                                setDebounced('')
-                                go({ path: r.folder, sel: r.file })
-                              }}
-                            >
-                              <span className="raw-glyph-sm">{kindGlyph(r.kind)}</span>
-                              {r.title}
-                              <span className="muted mono">
-                                {r.folder ? folderLabel(r.folder) : '/'}
-                              </span>
-                            </button>
-                          </li>
-                        ))
-                      )}
-                    </ul>
-                  ) : null}
                 </div>
                 {kinds.length > 1 ? (
                   <select
@@ -716,6 +719,31 @@ export function RawExplorer({
                   </fieldset>
                 ) : null}
               </div>
+          ) : null}
+          </div>
+
+          {current && current.collected ? (
+            <>
+              {searching ? (
+                <p className="raw-search-summary" role="status">
+                  {t(
+                    (results.data?.results.length ?? 0) >= SEARCH_LIMIT
+                      ? 'rawSearchSummaryLimit'
+                      : 'rawSearchSummary',
+                    { count: results.data?.results.length ?? 0, query: debounced },
+                  )}{' '}
+                  <button
+                    type="button"
+                    className="btn-link"
+                    onClick={() => {
+                      setSearch('')
+                      setDebounced('')
+                    }}
+                  >
+                    {t('rawSearchClear')}
+                  </button>
+                </p>
+              ) : null}
               <CollectLine source={tree.data ?? current} />
               {exclusionsApply && path && declaredSource ? (
                 <ExclusionBar
@@ -758,16 +786,20 @@ export function RawExplorer({
             ) : (
               <div className="empty-note">{t('rawGraphPick')}</div>
             )
-          ) : folder.isLoading ? (
+          ) : folder.isLoading && !searching ? (
             <div className="panel" aria-busy="true">
               <span className="spinner" aria-hidden="true" /> {t('rawLoading')}
             </div>
-          ) : folder.data &&
+          ) : hasContent &&
             shownFolders.length + shownObjects.length + shownDocuments.length === 0 ? (
             <div className="empty-note">
-              {filtering ? t('rawFilterEmpty') : t('rawFolderEmpty')}
+              {searching
+                ? t('rawSearchNone')
+                : filtering
+                  ? t('rawFilterEmpty')
+                  : t('rawFolderEmpty')}
             </div>
-          ) : folder.data && view === 'tiles' ? (
+          ) : hasContent && view === 'tiles' ? (
             <Tiles
               folders={shownFolders}
               objects={shownObjects}
@@ -775,11 +807,11 @@ export function RawExplorer({
               selected={selected}
               folderLabel={folderLabel}
               onOpenFolder={(p) => go({ path: p, sel: null })}
-              onSelect={(file) => go({ sel: file }, true)}
+              onSelect={selectObject}
               onOpenItem={(file) => go({ open: file, sel: file })}
               excludedBy={excludedBy}
             />
-          ) : folder.data ? (
+          ) : hasContent ? (
             <ListView
               folders={shownFolders}
               objects={shownObjects}
@@ -789,11 +821,11 @@ export function RawExplorer({
               onSort={(key) => setSort((s) => ({ key, asc: s.key === key ? !s.asc : true }))}
               folderLabel={folderLabel}
               onOpenFolder={(p) => go({ path: p, sel: null })}
-              onSelect={(file) => go({ sel: file }, true)}
+              onSelect={selectObject}
               onOpenItem={(file) => go({ open: file, sel: file })}
             />
           ) : null}
-          {path && folder.data ? (
+          {path && folder.data && !searching ? (
             <button
               type="button"
               className="btn btn-sm raw-up"
