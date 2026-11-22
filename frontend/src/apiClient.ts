@@ -307,6 +307,14 @@ export interface SourceInput {
   parametres: Record<string, unknown>
 }
 
+export interface CollectJobStatus {
+  state: 'idle' | 'running' | 'done' | 'failed'
+  started_at?: string
+  finished_at?: string | null
+  report?: CollectReport | null
+  error?: { error: string; error_args: Record<string, unknown>; status: number } | null
+}
+
 export interface CollectReport {
   source_commit: string
   local_commit: string | null
@@ -771,11 +779,15 @@ export const api = {
     apiFetch(`/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}`, {
       method: 'DELETE',
     }),
+  // Rapport si la collecte finit vite ; sinon l'état « running » (202) à suivre
+  // par getCollectStatus — la collecte continue côté serveur.
   collectSource: (spaceId: string, branchId: string, slug: string, force: boolean) =>
-    apiFetch<CollectReport>(
+    apiFetch<CollectReport | CollectJobStatus>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/collect?force=${force}`,
       { method: 'POST' },
     ),
+  getCollectStatus: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CollectJobStatus>(`/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/collect`),
   listCollections: (spaceId: string, branchId: string, slug: string) =>
     apiFetch<{ collections: CollectionRun[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/collections`,

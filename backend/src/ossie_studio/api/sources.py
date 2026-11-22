@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
+import asyncpg
 import httpx
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
@@ -32,6 +34,7 @@ from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.base import ForgeError
 from ossie_studio.forges.registry import get_strategy
+from ossie_studio.models import User
 from ossie_studio.parsers.openapi import (
     Analysis,
     OpenApiError,
@@ -55,6 +58,7 @@ from ossie_studio.sources.contracts import (
     remove_contract_fn,
 )
 from ossie_studio.sources.download import SourceDownloader
+from ossie_studio.sources.jobs import DONE, FAILED, CollectJobs, JobKey
 from ossie_studio.sources.manifest import (
     DB_TYPES,
     GIT_TYPE,
@@ -432,13 +436,23 @@ def _report_payload(report: CollectReport) -> dict[str, object]:
     }
 
 
+# Une collecte courte répond directement (rapport) ; au-delà, 202 et l'écran
+# suit l'état par GET /collect — la collecte continue même si la page est
+# rechargée ou fermée.
+COLLECT_WAIT_SECONDS = 20.0
+
+
+def _job_key(space_id: uuid.UUID, branch_id: uuid.UUID, user: User, slug: str) -> JobKey:
+    return (space_id, branch_id, user.id, slug)
+
+
 @router.post("/{slug}/collect")
 async def collect_branch_source(
+    request: Request,
+    response: Response,
     conn: ConnDep,
     crypto: CryptoDep,
     user: SourcesCollect,
-    workdir: WorkdirDep,
-    collector: CollectorDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
     slug: str,
@@ -447,7 +461,75 @@ async def collect_branch_source(
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
-    branch_slug = branch.git_ref
+    state = request.app.state
+    branch_ref = branch.git_ref
+
+    async def run() -> dict[str, object]:
+        # Connexion propre à la tâche : celle de la requête se ferme avec elle.
+        async with state.pool.acquire() as job_conn:
+            workdir = DraftWorkdir(
+                state.workdir_manager,
+                state.draft_views,
+                state.pool,
+                user.id,
+                branch_id,
+                conn=job_conn,
+            )
+            return await _collect(
+                job_conn,
+                crypto,
+                user,
+                workdir,
+                state.source_collector,
+                space_id,
+                branch_ref,
+                slug,
+                force,
+            )
+
+    jobs: CollectJobs = state.collect_jobs
+    job = jobs.start(_job_key(space_id, branch_id, user, slug), run)
+    assert job.task is not None
+    # asyncio.wait n'annule pas la tâche si le client se déconnecte.
+    await asyncio.wait({job.task}, timeout=COLLECT_WAIT_SECONDS)
+    if job.state == DONE and job.report is not None:
+        return job.report
+    if job.state == FAILED and job.error is not None:
+        raise ApiError(
+            str(job.error["error"]),
+            status_code=int(str(job.error["status"])),
+            **dict(job.error["error_args"]),  # type: ignore[call-overload]
+        )
+    response.status_code = 202
+    return job.payload()
+
+
+@router.get("/{slug}/collect")
+async def collect_status(
+    request: Request,
+    user: SourcesCollect,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    """État de la dernière collecte de cette source par cette personne."""
+    jobs: CollectJobs = request.app.state.collect_jobs
+    job = jobs.get(_job_key(space_id, branch_id, user, slug))
+    return job.payload() if job is not None else {"state": "idle"}
+
+
+async def _collect(
+    conn: asyncpg.Connection,
+    crypto: CryptoService,
+    user: User,
+    workdir: DraftWorkdir,
+    collector: SourceCollector,
+    space_id: uuid.UUID,
+    branch_slug: str,
+    slug: str,
+    force: bool,
+) -> dict[str, object]:
+    """La collecte elle-même (tâche de fond, connexion propre)."""
     space, space_username, space_token = await space_credentials(conn, crypto, space_id)
     entries = await list_sources(workdir, space, branch_slug, space_username, space_token)
     entry = next((e for e in entries if e.slug == slug and e.manifest is not None), None)

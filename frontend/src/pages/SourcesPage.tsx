@@ -272,6 +272,13 @@ export function SourcesPage() {
           onDeclaredCollect={async (slug) => {
             setEditing(null)
             await invalidate()
+            // La collecte part en tâche de fond côté serveur ; la page de la source
+            // suit son état (elle redemande l'état à l'ouverture).
+            void api
+              .collectSource(ws.spaceId as string, ws.branchId as string, slug, false)
+              .catch(() => undefined)
+              .finally(() => void queryClient.invalidateQueries({ queryKey: ['collect-status'] }))
+            await queryClient.invalidateQueries({ queryKey: ['collect-status'] })
             navigate(`/sources/${slug}`)
           }}
         />

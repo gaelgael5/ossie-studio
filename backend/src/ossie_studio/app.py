@@ -41,6 +41,7 @@ from ossie_studio.logging import setup_logging
 from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
+from ossie_studio.sources.jobs import CollectJobs
 from ossie_studio.spaces.git_probe import prove_five_rights
 from ossie_studio.spaces.views import DraftViewManager
 from ossie_studio.spaces.workdir import WorkdirManager
@@ -95,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.draft_views = DraftViewManager(app.state.workdir_manager)
     app.state.source_downloader = SourceDownloader(settings.sources_volume_path)
     app.state.source_collector = SourceCollector(app.state.source_downloader)
+    app.state.collect_jobs = CollectJobs()
 
     @app.get("/api/health")
     async def health(request: Request) -> Response:

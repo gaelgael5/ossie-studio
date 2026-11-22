@@ -19,6 +19,8 @@ import type {
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { NoBranchNote } from '../components/NoBranchNote'
+import { BusyButton } from '../components/BusyButton'
+import { useSourceCollect } from '../useSourceCollect'
 import { useWorkspace } from '../workspace'
 
 type Tab =
@@ -46,10 +48,8 @@ export function SourceDetailPage() {
   const { t } = useTranslation()
   const { slug = '' } = useParams()
   const ws = useWorkspace()
-  const queryClient = useQueryClient()
   const [tab, setTab] = useState<Tab | null>(null)
   const [force, setForce] = useState(false)
-  const [report, setReport] = useState<CollectReport | null>(null)
   const [messages, setMessages] = useState<string[]>([])
   const [notice, setNotice] = useState('')
 
@@ -74,17 +74,9 @@ export function SourceDetailPage() {
     retry: false,
   })
 
-  const collect = useMutation({
-    mutationFn: () => api.collectSource(ws.spaceId as string, ws.branchId as string, slug, force),
-    onSuccess: async (r) => {
-      setReport(r)
-      setMessages([])
-      setNotice('')
-      setTab('collectes')
-      await queryClient.invalidateQueries({ queryKey: ['collections'] })
-    },
-    onError: (err) => setMessages(errorMessages(t, err)),
-  })
+  // Collecte en tâche de fond : suivie par le serveur, elle survit à un rechargement.
+  const collect = useSourceCollect(ws.spaceId, ws.branchId, slug)
+  const report = collect.report
   // La collecte va dans mon brouillon : on la publie depuis l'écran de publication.
   const publishHref = `/spaces/${ws.spaceId}/branches/${ws.branchId}/publish`
 
@@ -114,14 +106,25 @@ export function SourceDetailPage() {
           <Link to="/sources" className="btn">
             {t('editSource')}
           </Link>
-          <button
+          <BusyButton
             type="button"
             className="btn btn-primary"
-            disabled={collect.isPending || !collectable}
-            onClick={() => collect.mutate()}
+            busy={collect.running}
+            busyText={
+              collect.startedAt
+                ? t('collectRunningSince', { time: new Date(collect.startedAt).toLocaleTimeString() })
+                : t('collectRunning')
+            }
+            disabled={!collectable}
+            onClick={() => {
+              setMessages([])
+              setNotice('')
+              setTab('collectes')
+              collect.start(force)
+            }}
           >
             {t('collect')}
-          </button>
+          </BusyButton>
         </div>
       </div>
 
@@ -155,7 +158,7 @@ export function SourceDetailPage() {
         ))}
       </div>
 
-      <ErrorList messages={messages} />
+      <ErrorList messages={[...messages, ...collect.messages]} />
       {notice ? <p role="status">{notice}</p> : null}
 
       {effectiveTab === 'overview' ? (

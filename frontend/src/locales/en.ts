@@ -81,6 +81,8 @@ export const en = {
     deleteConnectorReminder:
       '{{count}} linked account(s): not deleted, their identity is kept. The button disappears from the sign-in screen; local sign-in stays open.',
     confirmDelete: 'Confirm deletion',
+    collectRunning: 'Collecting…',
+    collectRunningSince: 'Collecting since {{time}}…',
     tabBranches: 'Branches',
     tabHistory: 'History',
     railmapLoading: 'Building the version diagram…',

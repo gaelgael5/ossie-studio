@@ -559,3 +559,48 @@ async def test_table_de_travail_apres_collecte(
     assert row["cible"] == "raw"
     assert row["statut"] == "traité"
     assert row["crc"]
+
+
+async def test_collecte_longue_suivie_en_tache_de_fond(
+    branch: tuple[AsyncClient, str, str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Collecte « longue » (aucune attente) : 202 tout de suite, la tâche continue
+    # côté serveur et l'état se suit jusqu'au rapport — même sans la requête.
+    import asyncio
+
+    from ossie_studio.api import sources as sources_api
+
+    monkeypatch.setattr(sources_api, "COLLECT_WAIT_SECONDS", 0.0)
+    client, space_id, branch_id, _ = branch
+    base = f"/api/spaces/{space_id}/branches/{branch_id}/sources"
+    assert (await client.get(f"{base}/api-paiement/collect")).json() == {"state": "idle"}
+    await _declare_openapi(client, base)
+    await client.post(
+        f"{base}/api-paiement/contracts",
+        json={"filename": "p.yaml", "content": _CONTRACT_31, "version": "v2", "replace": False},
+    )
+    started = await client.post(f"{base}/api-paiement/collect")
+    assert started.status_code == 202, started.text
+    assert started.json()["state"] == "running"
+    status: dict[str, object] = {}
+    for _ in range(200):
+        status = (await client.get(f"{base}/api-paiement/collect")).json()
+        if status["state"] != "running":
+            break
+        await asyncio.sleep(0.05)
+    assert status["state"] == "done", status
+    report = status["report"]
+    assert isinstance(report, dict) and report["added"] == 2
+
+
+async def test_collecte_en_echec_rapporte_l_erreur(
+    branch: tuple[AsyncClient, str, str, str],
+) -> None:
+    client, space_id, branch_id, _ = branch
+    base = f"/api/spaces/{space_id}/branches/{branch_id}/sources"
+    failed = await client.post(f"{base}/inconnue/collect")
+    assert failed.status_code == 404
+    assert failed.json()["error"] == "source_not_found"
+    status = (await client.get(f"{base}/inconnue/collect")).json()
+    assert status["state"] == "failed"
+    assert status["error"]["error"] == "source_not_found"

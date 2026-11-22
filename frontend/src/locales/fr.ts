@@ -82,6 +82,8 @@ export const fr = {
     deleteConnectorReminder:
       '{{count}} compte(s) rattaché(s) : non supprimés, leur identité est conservée. Le bouton disparaît de l’écran de connexion ; la connexion locale reste ouverte.',
     confirmDelete: 'Confirmer la suppression',
+    collectRunning: 'Collecte en cours…',
+    collectRunningSince: 'Collecte en cours depuis {{time}}…',
     tabBranches: 'Branches',
     tabHistory: 'Historique',
     railmapLoading: 'Calcul du diagramme des versions…',
