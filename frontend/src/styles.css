@@ -1438,44 +1438,9 @@ body.resizing-x {
 .raw-search .input {
   width: 100%;
 }
-.raw-search-results {
-  position: absolute;
-  z-index: 20;
-  left: 0;
-  right: 0;
-  margin: 2px 0 0;
-  padding: 4px 0;
-  list-style: none;
-  background: var(--panel);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  max-height: 320px;
-  overflow: auto;
-}
-.raw-search-results > li.muted {
-  padding: 6px 10px;
-}
-.raw-search-hit {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  background: none;
-  border: none;
-  padding: 6px 10px;
-  font: inherit;
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
-}
-.raw-search-hit:hover,
-.raw-search-hit:focus-visible {
-  background: var(--surface-muted);
-}
-.raw-search-hit .muted {
-  margin-left: auto;
-  font-size: 0.78rem;
+.raw-search-summary {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
 }
 .raw-collect {
   margin: 0 0 12px;
