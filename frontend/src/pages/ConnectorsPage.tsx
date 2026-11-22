@@ -116,7 +116,9 @@ function ConnectorMappings({
                       <button
                         type="button"
                         className="btn btn-sm btn-danger"
-                        onClick={() => removeMapping.mutate(m.id)}
+                        onClick={() => {
+                          if (window.confirm(t('deleteMappingConfirm', { role: m.role_value }))) removeMapping.mutate(m.id)
+                        }}
                       >
                         {t('delete')}
                       </button>

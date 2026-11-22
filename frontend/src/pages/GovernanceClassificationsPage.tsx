@@ -568,7 +568,9 @@ function SchemeDetail({
                       <button type="button" className="btn btn-sm" onClick={() => startEditLevel(lv)}>
                         {t('editTag')}
                       </button>
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => removeLevel.mutate(lv.id)}>
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => {
+                          if (window.confirm(t('deleteLevelConfirm', { name: lv.name }))) removeLevel.mutate(lv.id)
+                        }}>
                         {t('delete')}
                       </button>
                     </div>

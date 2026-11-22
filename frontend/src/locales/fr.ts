@@ -82,6 +82,9 @@ export const fr = {
     deleteConnectorReminder:
       '{{count}} compte(s) rattaché(s) : non supprimés, leur identité est conservée. Le bouton disparaît de l’écran de connexion ; la connexion locale reste ouverte.',
     confirmDelete: 'Confirmer la suppression',
+    deleteLevelConfirm: 'Supprimer le niveau « {{name}} » ?',
+    deleteMappingConfirm: 'Supprimer la correspondance du rôle « {{role}} » ?',
+    deleteSecretConfirm: 'Supprimer le secret « {{label}} » ({{slug}}) ? Sa valeur sera perdue définitivement.',
     cancel: 'Annuler',
     deleteTypeLabel: 'Pour confirmer, saisissez le libellé « {{label}} »',
     discoveryOk: 'Découverte OK',

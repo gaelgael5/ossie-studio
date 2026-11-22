@@ -29,6 +29,8 @@ function SecretRow({
   const { t } = useTranslation()
   const [label, setLabel] = useState(secret.label)
   const [newValue, setNewValue] = useState('')
+  // Suppression irréversible (la valeur chiffrée est perdue) : confirmée en ligne.
+  const [confirming, setConfirming] = useState(false)
 
   const rename = useMutation({
     mutationFn: () => api.updateSecretLabel(secret.slug, label.trim()),
@@ -46,7 +48,10 @@ function SecretRow({
   const remove = useMutation({
     mutationFn: () => api.deleteSecret(secret.slug),
     onSuccess: invalidate,
-    onError,
+    onError: (err: unknown) => {
+      setConfirming(false)
+      onError(err)
+    },
   })
 
   return (
@@ -94,10 +99,30 @@ function SecretRow({
           >
             {t('replace')}
           </button>
-          <button type="button" className="btn btn-sm btn-danger" onClick={() => remove.mutate()}>
-            {t('delete')}
-          </button>
+          {confirming ? null : (
+            <button type="button" className="btn btn-sm btn-danger" onClick={() => setConfirming(true)}>
+              {t('delete')}
+            </button>
+          )}
         </div>
+        {confirming ? (
+          <div className="stack stack-tight" role="alert">
+            <span>{t('deleteSecretConfirm', { label: secret.label, slug: secret.slug })}</span>
+            <span className="actions">
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate()}
+              >
+                {t('confirmDelete')}
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => setConfirming(false)}>
+                {t('cancel')}
+              </button>
+            </span>
+          </div>
+        ) : null}
       </td>
     </tr>
   )
