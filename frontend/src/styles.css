@@ -1579,6 +1579,204 @@ body.resizing-x {
   font-size: 0.85rem;
   color: var(--warn-fg);
 }
+/* ---------- Vue exclusive d'un objet ---------- */
+.raw-exclusive-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.raw-exclusive-step {
+  display: flex;
+  gap: 6px;
+}
+.raw-exclusive-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.raw-exclusive-head h2 {
+  margin: 0 0 2px;
+}
+.raw-exclusive-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+.raw-exclusive-main > .panel + .panel,
+.raw-exclusive-side > .panel + .panel {
+  margin-top: 12px;
+}
+.raw-ref-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.raw-changes {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 0.85rem;
+}
+.raw-json-full {
+  max-height: none;
+}
+.raw-doc + .raw-doc {
+  margin-top: 12px;
+}
+/* Markdown rendu (sûr) des documents de la couche raw. */
+.md {
+  line-height: 1.55;
+}
+.md mark {
+  background: var(--warn-bg);
+  color: var(--text);
+  padding: 0 2px;
+}
+.md-code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  background: var(--surface-muted);
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  overflow: auto;
+}
+.md code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+.md blockquote {
+  margin: 8px 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+}
+.md-missing {
+  font-size: 0.8em;
+  color: var(--muted);
+  font-style: italic;
+}
+@media (max-width: 900px) {
+  .raw-exclusive-overview {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Vue graphe (couche raw) ---------- */
+.raw-graph-banner {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+}
+.raw-graph-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+}
+.raw-graph-controls .select {
+  width: auto;
+}
+.raw-graph-legend {
+  display: inline-flex;
+  gap: 10px;
+  color: var(--muted);
+}
+.raw-graph-legend > span::before {
+  content: '';
+  display: inline-block;
+  width: 22px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-top: 2px solid var(--border-strong);
+}
+.raw-graph-legend-inherits::before {
+  border-top-style: dashed !important;
+  border-top-color: var(--primary) !important;
+}
+.raw-graph-legend-external::before {
+  border-top-style: dotted !important;
+}
+.raw-graph-alert {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: var(--warn-fg);
+}
+.raw-graph-tooltip {
+  min-height: 3.2em;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.raw-graph-canvas {
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.raw-graph-edge path {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.raw-graph-edge.inherits path {
+  stroke: var(--primary);
+  stroke-dasharray: 6 4;
+}
+.raw-graph-edge text {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--muted);
+}
+.raw-graph-arrow {
+  fill: var(--border-strong);
+}
+.raw-graph-node {
+  cursor: pointer;
+}
+.raw-graph-node rect {
+  fill: var(--panel);
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+}
+.raw-graph-node:hover rect {
+  stroke: var(--primary);
+}
+.raw-graph-node.center rect {
+  fill: var(--chip-bg);
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+.raw-graph-node.external {
+  cursor: default;
+}
+.raw-graph-node.external rect {
+  stroke-dasharray: 4 3;
+  fill: var(--surface-muted);
+}
+.raw-graph-node-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  fill: var(--text);
+}
+.raw-graph-node-sub {
+  font-family: var(--mono);
+  font-size: 10px;
+  fill: var(--muted);
+}
+.raw-graph-table {
+  margin-top: 12px;
+}
 /* Œil « exposé » : plein en couleur de ligne, barré et gris sinon. */
 .raw-eye {
   display: inline-flex;

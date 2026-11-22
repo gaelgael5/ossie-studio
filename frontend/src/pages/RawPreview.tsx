@@ -41,7 +41,7 @@ export function VisibilityBadge({ visibility, source }: { visibility: string; so
 }
 
 /** Œil « exposé » (plein) ou « non exposé » (barré, gris) : un indicateur, pas une commande. */
-function EyeIcon({ exposed }: { exposed: boolean }) {
+export function EyeIcon({ exposed }: { exposed: boolean }) {
   const { t } = useTranslation()
   const label = exposed ? t('rawExposed') : t('rawNotExposed')
   return (
@@ -136,7 +136,7 @@ function FolderSummary({ objects }: { objects: RawObjectItem[] }) {
   )
 }
 
-function TargetLink({
+export function TargetLink({
   target,
   label,
   onOpen,
@@ -153,7 +153,13 @@ function TargetLink({
   )
 }
 
-function FieldType({ type, onOpen }: { type: RawFieldType; onOpen: (t: RawTarget) => void }) {
+export function FieldType({
+  type,
+  onOpen,
+}: {
+  type: RawFieldType
+  onOpen: (t: RawTarget) => void
+}) {
   const { t } = useTranslation()
   if (type.external) {
     return (
@@ -314,7 +320,7 @@ function Shortcuts({ slug, detail }: { slug: string; detail: RawObjectDetail }) 
   )
 }
 
-function ExposureLegend({ detail, slug }: { detail: RawObjectDetail; slug: string }) {
+export function ExposureLegend({ detail, slug }: { detail: RawObjectDetail; slug: string }) {
   const { t } = useTranslation()
   const e = detail.exposure
   const curation = `/sources/${encodeURIComponent(slug)}?tab=curation&object=${encodeURIComponent(detail.file)}`
@@ -479,7 +485,7 @@ function Summary({
   )
 }
 
-function Technical({ detail }: { detail: RawObjectDetail }) {
+export function Technical({ detail }: { detail: RawObjectDetail }) {
   const { t } = useTranslation()
   const o = detail.origin
   const rows: [string, string][] = [

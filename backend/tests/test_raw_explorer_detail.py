@@ -367,3 +367,32 @@ def test_oeil_champ_expose_disparu_du_raw() -> None:
     detail = _exposure_case(asset)
     assert "ancien" not in [f["name"] for f in detail["fields"]]
     assert detail["exposure"]["missing"] == ["ancien"]
+
+
+def test_historique_lisible() -> None:
+    from ossie_studio.sources.explorer_history import schema_changes
+
+    before = json.dumps(
+        {
+            "description": "a",
+            "required": ["total"],
+            "properties": {"total": {"type": "number"}, "old": {"type": "string"}},
+        }
+    )
+    after = json.dumps(
+        {
+            "description": "b",
+            "properties": {"total": {"$ref": "money.json"}, "new": {"type": "string"}},
+        }
+    )
+    codes = schema_changes(before, after)
+    assert {"code": "field_type", "field": "total", "before": "number", "after": "money"} in codes
+    assert {"code": "field_required", "field": "total", "required": False} in codes
+    assert {"code": "field_added", "field": "new"} in codes
+    assert {"code": "field_removed", "field": "old"} in codes
+    assert {"code": "description_changed"} in codes
+    # Réordonnancement sans changement de contenu : rien.
+    same = json.dumps({"properties": {"b": {"type": "string"}, "a": {"type": "string"}}})
+    other = json.dumps({"properties": {"a": {"type": "string"}, "b": {"type": "string"}}})
+    assert schema_changes(same, other) == []
+    assert schema_changes(None, other) == [{"code": "created"}]

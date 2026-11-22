@@ -266,6 +266,11 @@ def object_detail(
                 "exposed": name in exposed,
             }
         )
+    cardinality = {(r.field, r.kind): r.cardinality for r in obj.refs}
+    references = [
+        {**ref, "cardinality": cardinality.get((ref["field"], ref["kind"]), "")}
+        for ref in _references(schema, space)
+    ]
     return {
         "file": obj.file,
         "title": obj.title,
@@ -278,7 +283,7 @@ def object_detail(
         "description": str(schema.get("description") or ""),
         "enum": [str(v) for v in schema.get("enum") or []],
         "fields": fields,
-        "references": _references(schema, space),
+        "references": references,
         "exposure": _exposure(schema, asset),
         "annotations": _annotations(schema),
         "origin": {

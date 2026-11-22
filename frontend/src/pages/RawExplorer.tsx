@@ -26,6 +26,8 @@ import { ApiRequestError } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { BusyButton } from '../components/BusyButton'
 import { RawPreview, VisibilityBadge, isObjectSelection } from './RawPreview'
+import { RawGraph } from './RawGraph'
+import { RawDocumentPage, RawExclusive } from './RawExclusive'
 import {
   DEFAULT_EXCLUSIONS,
   excludingEntry,
@@ -53,6 +55,11 @@ function clampWidth(value: number): number {
   return Math.min(TREE_MAX, Math.max(TREE_MIN, Math.round(value)))
 }
 
+function asParsers(parameters: Record<string, unknown> | undefined): string[] {
+  const value = parameters?.parsers
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+}
+
 function storedPreviewOpen(): boolean {
   try {
     return localStorage.getItem(PREVIEW_KEY) !== 'closed'
@@ -73,7 +80,7 @@ function storedWidth(): number {
 // un dossier déjà vu à chaque clic.
 const STALE_MS = 30_000
 
-type View = 'tiles' | 'list'
+type View = 'tiles' | 'list' | 'graph'
 type SortKey = 'name' | 'kind' | 'fields' | 'origin' | 'state'
 
 function storedMode(): RawExplorerMode {
@@ -205,7 +212,20 @@ export function RawExplorer({
   const sourceSlug = params.get('source') ?? ''
   const path = params.get('path') ?? ''
   const selected = params.get('sel') ?? ''
-  const view: View = params.get('view') === 'list' ? 'list' : 'tiles'
+  const opened = params.get('open') ?? ''
+  const viewParam = params.get('view')
+  const view: View = viewParam === 'list' || viewParam === 'graph' ? viewParam : 'tiles'
+  // Centre du graphe : `center` (« source/fichier ») s'il est posé — un clic sur
+  // un nœud sélectionne sans recentrer — sinon l'objet sélectionné.
+  const centerParam = params.get('center')
+  const graphCenter = centerParam?.includes('/')
+    ? {
+        slug: centerParam.slice(0, centerParam.indexOf('/')),
+        file: centerParam.slice(centerParam.indexOf('/') + 1),
+      }
+    : selected && isObjectSelection(selected)
+      ? { slug: sourceSlug, file: selected }
+      : null
 
   /** Navigation : chaque changement de dossier est une entrée d'historique. */
   const go = (changes: Record<string, string | null>, replace = false) => {
@@ -388,6 +408,52 @@ export function RawExplorer({
     go({ source: target.slug, path: folder || null, sel: target.file })
   }
 
+  // Vue exclusive (?open=…) : à la place de l'arbre et des vignettes. L'état de
+  // l'explorateur (filtres, tri, largeur) reste vivant derrière : « Retour aux
+  // vignettes » et le bouton retour du navigateur retrouvent tout.
+  if (opened && current?.collected) {
+    const back = () => go({ open: null, sel: opened })
+    if (!isObjectSelection(opened)) {
+      return (
+        <RawDocumentPage
+          spaceId={spaceId}
+          branchId={branchId}
+          slug={sourceSlug}
+          path={opened}
+          onBack={back}
+        />
+      )
+    }
+    const folderParams = new URLSearchParams(params)
+    folderParams.delete('open')
+    return (
+      <RawExclusive
+        key={opened}
+        spaceId={spaceId}
+        branchId={branchId}
+        slug={sourceSlug}
+        mode={mode}
+        file={opened}
+        siblings={shownObjects.map((o) => o.file)}
+        folderHref={`/sources?${folderParams.toString()}`}
+        markdownParser={asParsers(declaredSource?.parameters).includes('markdown')}
+        onBack={back}
+        onNavigate={(file) => go({ open: file, sel: file }, true)}
+        onOpenTarget={(target) =>
+          isObjectSelection(target.file)
+            ? go({
+                source: target.slug,
+                path: target.folder || null,
+                sel: target.file,
+                open: target.file,
+              })
+            : openTarget(target)
+        }
+        onGraph={() => go({ open: null, view: 'graph', sel: opened, center: null })}
+      />
+    )
+  }
+
   return (
     <>
       <ErrorList messages={messages} />
@@ -509,7 +575,12 @@ export function RawExplorer({
               >
                 {t('rawViewList')}
               </button>
-              <button type="button" className="btn btn-sm" disabled title={t('rawGraphSoon')}>
+              <button
+                type="button"
+                className={`btn btn-sm${view === 'graph' ? ' btn-primary' : ''}`}
+                aria-pressed={view === 'graph'}
+                onClick={() => go({ view: 'graph', center: null }, true)}
+              >
                 {t('rawViewGraph')}
               </button>
             </div>
@@ -625,6 +696,28 @@ export function RawExplorer({
               {t('rawNotCollected')}{' '}
               <Link to={`/sources/${current.slug}`}>{t('rawGoCollect')}</Link>
             </div>
+          ) : view === 'graph' ? (
+            graphCenter ? (
+              <RawGraph
+                spaceId={spaceId}
+                branchId={branchId}
+                mode={mode}
+                center={graphCenter}
+                onSelect={(n) =>
+                  go({
+                    source: n.slug,
+                    path: n.folder || null,
+                    sel: n.file,
+                    center: `${graphCenter.slug}/${graphCenter.file}`,
+                  })
+                }
+                onRecenter={(n) =>
+                  go({ source: n.slug, path: n.folder || null, sel: n.file, center: null })
+                }
+              />
+            ) : (
+              <div className="empty-note">{t('rawGraphPick')}</div>
+            )
           ) : folder.isLoading ? (
             <div className="panel" aria-busy="true">
               <span className="spinner" aria-hidden="true" /> {t('rawLoading')}
@@ -643,6 +736,7 @@ export function RawExplorer({
               folderLabel={folderLabel}
               onOpenFolder={(p) => go({ path: p, sel: null })}
               onSelect={(file) => go({ sel: file }, true)}
+              onOpenItem={(file) => go({ open: file, sel: file })}
               excludedBy={excludedBy}
             />
           ) : folder.data ? (
@@ -656,6 +750,7 @@ export function RawExplorer({
               folderLabel={folderLabel}
               onOpenFolder={(p) => go({ path: p, sel: null })}
               onSelect={(file) => go({ sel: file }, true)}
+              onOpenItem={(file) => go({ open: file, sel: file })}
             />
           ) : null}
           {path && folder.data ? (
@@ -870,6 +965,8 @@ interface ContentProps {
   onOpenFolder: (path: string) => void
   onSelect: (file: string) => void
   excludedBy?: (path: string) => string | null
+  /** Double-clic : vue exclusive d'un objet, ou document en pleine page. */
+  onOpenItem?: (file: string) => void
 }
 
 function Tiles({
@@ -881,6 +978,7 @@ function Tiles({
   onOpenFolder,
   onSelect,
   excludedBy,
+  onOpenItem,
 }: ContentProps) {
   const { t } = useTranslation()
   return (
@@ -920,6 +1018,7 @@ function Tiles({
                 className={`raw-tile${selected === o.file ? ' selected' : ''}`}
                 aria-pressed={selected === o.file}
                 onClick={() => onSelect(o.file)}
+                onDoubleClick={() => onOpenItem?.(o.file)}
               >
                 <span className="raw-glyph">{kindGlyph(o.kind)}</span>
                 <span className="raw-tile-name">{o.title}</span>
@@ -944,6 +1043,7 @@ function Tiles({
                 className={`raw-tile${selected === d.path ? ' selected' : ''}`}
                 aria-pressed={selected === d.path}
                 onClick={() => onSelect(d.path)}
+                onDoubleClick={() => onOpenItem?.(d.path)}
               >
                 <span className="raw-glyph raw-glyph-doc">DOC</span>
                 <span className="raw-tile-name">{d.title}</span>
@@ -967,6 +1067,7 @@ function ListView({
   folderLabel,
   onOpenFolder,
   onSelect,
+  onOpenItem,
 }: ContentProps & {
   sort: { key: SortKey; asc: boolean }
   onSort: (key: SortKey) => void
@@ -1036,6 +1137,7 @@ function ListView({
               key={o.file}
               className={`row-clickable${selected === o.file ? ' selected' : ''}`}
               onClick={() => onSelect(o.file)}
+              onDoubleClick={() => onOpenItem?.(o.file)}
             >
               <td>
                 <span className="raw-glyph-sm">{kindGlyph(o.kind)}</span> {o.title}
@@ -1053,6 +1155,7 @@ function ListView({
               key={`doc:${d.path}`}
               className={`row-clickable${selected === d.path ? ' selected' : ''}`}
               onClick={() => onSelect(d.path)}
+              onDoubleClick={() => onOpenItem?.(d.path)}
             >
               <td>
                 <span className="raw-glyph-sm raw-glyph-doc">DOC</span> {d.title}

@@ -50,6 +50,8 @@ from ossie_studio.sources.explorer import (
     subtree_file_counts,
 )
 from ossie_studio.sources.explorer_detail import SpaceObjects, document_detail, object_detail
+from ossie_studio.sources.explorer_graph import ReferenceGraph
+from ossie_studio.sources.explorer_history import schema_changes
 from ossie_studio.sources.explorer_store import (
     IndexKey,
     db_all_source_entries,
@@ -328,21 +330,26 @@ async def search_explorer(
 
 # Résolveur des références de l'espace, gardé par (index, signature, mode) : tant
 # que l'index ne change pas, un clic ne relit pas toutes les sources.
-_SPACE_CACHE: dict[tuple[IndexKey, str, str], SpaceObjects] = {}
+# Le graphe porte aussi l'index inverse des références (entrantes).
+_SPACE_CACHE: dict[tuple[IndexKey, str, str], ReferenceGraph] = {}
 _SPACE_CACHE_MAX = 32
 
 
-async def _space_objects(conn: ConnDep, key: IndexKey, mode: str) -> SpaceObjects:
+async def _reference_graph(conn: ConnDep, key: IndexKey, mode: str) -> ReferenceGraph:
     signature = await db_index_signature(conn, key) or ""
     cache_key = (key, signature, mode)
     cached = _SPACE_CACHE.get(cache_key)
     if cached is not None:
         return cached
-    space = SpaceObjects(await db_all_source_entries(conn, key), mode)
+    graph = ReferenceGraph(await db_all_source_entries(conn, key), mode)
     if len(_SPACE_CACHE) >= _SPACE_CACHE_MAX:
         _SPACE_CACHE.clear()
-    _SPACE_CACHE[cache_key] = space
-    return space
+    _SPACE_CACHE[cache_key] = graph
+    return graph
+
+
+async def _space_objects(conn: ConnDep, key: IndexKey, mode: str) -> SpaceObjects:
+    return (await _reference_graph(conn, key, mode)).space
 
 
 def _json_object(text: str) -> dict[str, object]:
@@ -419,7 +426,9 @@ async def get_explorer_object(
         raise ApiError("raw_explorer_object_not_found", status_code=404, file=file)
     schema = _json_object(text)
     asset = _json_object(asset_text) if asset_text is not None else None
-    detail = object_detail(schema, text, obj, entries, await _space_objects(conn, key, mode), asset)
+    graph = await _reference_graph(conn, key, mode)
+    detail = object_detail(schema, text, obj, entries, graph.space, asset)
+    detail["incoming"] = graph.incoming((slug, file))
     origin = detail["origin"]
     detail["forge_url"] = await _forge_link(conn, manifest_text, obj.origin, origin["line"])
     return detail
@@ -442,24 +451,33 @@ async def get_explorer_object_history(
         raise ApiError("raw_explorer_object_not_found", status_code=404, file=file)
     branch_ref = await _branch_ref(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
+    rel = f"sources/{slug}/raw/{file}"
     try:
         commits = await workdir.file_history(
-            space.id,
-            branch_ref,
-            space.repo_url,
-            username,
-            token,
-            f"sources/{slug}/raw/{file}",
-            HISTORY_LIMIT,
+            space.id, branch_ref, space.repo_url, username, token, rel, HISTORY_LIMIT
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
-    return {
-        "commits": [
-            {"sha": c.sha, "author": c.author, "date": c.date, "message": c.message}
-            for c in commits
-        ]
-    }
+    manager = workdir.manager
+    out: list[dict[str, object]] = []
+    for c in commits:
+        # Version au commit et juste avant (parent) : lues dans les objets git de
+        # la copie, que file_history vient d'aligner (pas de fetch par commit).
+        after = await manager.local_file_at(space.id, branch_ref, c.sha, rel)
+        before = await manager.local_file_at(space.id, branch_ref, f"{c.sha}^", rel)
+        changes = schema_changes(before, after)
+        if not changes:
+            continue  # aucun changement lisible (critère 6)
+        out.append(
+            {
+                "sha": c.sha,
+                "author": c.author,
+                "date": c.date,
+                "message": c.message,
+                "changes": changes,
+            }
+        )
+    return {"commits": out}
 
 
 @router.get("/{slug}/document")
@@ -484,3 +502,60 @@ async def get_explorer_document(
     if doc is None:
         raise ApiError("raw_explorer_object_not_found", status_code=404, file=path)
     return document_detail(doc, await _space_objects(conn, key, mode))
+
+
+@router.get("/{slug}/graph")
+async def get_explorer_graph(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    file: str,
+    depth: int = 1,
+    mode: str = DEFAULT_MODE,
+) -> dict[str, object]:
+    """Graphe des références d'un objet (sortantes à droite, entrantes à gauche,
+    toutes sources de l'espace), jusqu'à la profondeur demandée (1 à 3)."""
+    if not is_valid_source_slug(slug) or not is_schema_file(file):
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=file)
+    _check_mode(mode)
+    key, _branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    graph = (await _reference_graph(conn, key, mode)).build((slug, file), depth)
+    if graph is None:
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=file)
+    return graph
+
+
+@router.get("/{slug}/document/content")
+async def get_explorer_document_content(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    path: str,
+) -> dict[str, object]:
+    """Texte Markdown d'un document de `raw/docs/` (rendu sûr côté écran) et ses
+    ressources non copiées (signalées par l'index)."""
+    if not is_valid_source_slug(slug) or ".." in path.split("/") or path.startswith("/"):
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=path)
+    key, branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    entries = await db_get_source_entries(conn, key, slug)
+    doc = next((d for d in entries.documents if d.path == path), None) if entries else None
+    if doc is None:
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=path)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        text = await workdir.read_file(
+            space.id, branch_ref, space.repo_url, username, token, f"sources/{slug}/raw/docs/{path}"
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    if text is None:
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=path)
+    return {"path": doc.path, "title": doc.title, "markdown": text}
