@@ -321,8 +321,13 @@ async def test_primitives_du_brouillon_pour_une_personne_seulement(app: FastAPI)
     user_id = await _person(app, "ana@example.org", ["spaces:read"])
     _wire(app, KEY_TOKEN, _key(lecture))
     _wire(app, OAUTH_TOKEN, _oauth(lecture, user_id))
-    draft_reads = {p for p in PERSON_ONLY if p in READ_PRIMITIVES}
-    assert draft_reads == {"get_my_draft", "get_publish_readiness"}
+    # Lectures propres à une personne : son brouillon, et la collecte qu'elle a lancée.
+    assert {p for p in PERSON_ONLY if p in READ_PRIMITIVES} == {
+        "get_my_draft",
+        "get_publish_readiness",
+        "get_collect_status",
+    }
+    draft_reads = {"get_my_draft", "get_publish_readiness"}
     assert not PERSON_ONLY & set(await _tool_names(app, KEY_TOKEN))
     assert draft_reads <= set(await _tool_names(app, OAUTH_TOKEN))
     assert _refusal(await _call(app, KEY_TOKEN, "get_my_draft", {})) == "primitive_forbidden"

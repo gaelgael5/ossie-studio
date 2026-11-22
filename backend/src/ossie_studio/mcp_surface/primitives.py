@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ossie_studio.mcp_surface import reads, writes
+from ossie_studio.mcp_surface import reads, source_writes, writes
 from ossie_studio.mcp_surface.branch import BranchArgs, ObjectArgs, SourceArgs, ViewArgs
 from ossie_studio.mcp_surface.core import (
     Implementation,
@@ -37,4 +37,25 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "refresh_assets": Implementation(writes.RefreshArgs, writes.refresh_assets),
     "set_tri_rules": Implementation(writes.SetTriRulesArgs, writes.set_tri_rules),
     "apply_review": Implementation(writes.ApplyReviewArgs, writes.apply_review),
+    # Sources (option 1 : réutilise l'écran des sources tel quel, ticket 1920df67)
+    "declare_source": Implementation(
+        source_writes.DeclareSourceArgs, source_writes.declare_source_primitive
+    ),
+    "update_source": Implementation(
+        source_writes.UpdateSourceArgs, source_writes.update_source_primitive
+    ),
+    "delete_source": Implementation(
+        writes.SourceWriteArgs, source_writes.delete_source_primitive
+    ),
+    "collect_source": Implementation(
+        source_writes.CollectSourceArgs, source_writes.collect_source
+    ),
+    "get_collect_status": Implementation(writes.SourceWriteArgs, source_writes.get_collect_status),
+    "list_contracts": Implementation(SourceArgs, source_writes.list_contracts),
+    "deposit_contract": Implementation(
+        source_writes.DepositContractArgs, source_writes.deposit_contract
+    ),
+    "remove_contract": Implementation(
+        source_writes.ContractVersionArgs, source_writes.remove_contract
+    ),
 }

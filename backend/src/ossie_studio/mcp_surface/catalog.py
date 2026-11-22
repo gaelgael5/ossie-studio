@@ -233,6 +233,95 @@ CATALOG: tuple[Primitive, ...] = (
         person_only=True,
         destructive=True,
     ),
+    # --- Sources (lectures, puis écritures dans le brouillon de la personne)
+    Primitive(
+        id="list_contracts",
+        domain="sources",
+        access="read",
+        capability="sources:read",
+        description="List the OpenAPI contract versions deposited on an OpenAPI source.",
+    ),
+    Primitive(
+        id="get_collect_status",
+        domain="sources",
+        access="read",
+        capability="sources:collect",
+        description=(
+            "State of the last collection of a source launched by the user (running, done, "
+            "failed), with its progress and report."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="declare_source",
+        domain="sources",
+        access="write",
+        capability="sources:declare",
+        description=(
+            "Declare a data source on a branch: Git repository, database, or OpenAPI (contracts "
+            "deposited later). Same checks as the screen. Written to the user's draft."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="update_source",
+        domain="sources",
+        access="write",
+        capability="sources:declare",
+        description=(
+            "Change the label, connection or parameters of a source (its triage rules are "
+            "kept). Written to the user's draft."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="delete_source",
+        domain="sources",
+        access="write",
+        capability="sources:declare",
+        description=(
+            "Delete a source from the branch, with its downloaded code and collection index. "
+            "Written to the user's draft."
+        ),
+        person_only=True,
+        destructive=True,
+    ),
+    Primitive(
+        id="collect_source",
+        domain="sources",
+        access="write",
+        capability="sources:collect",
+        description=(
+            "Collect a source: read it and write its raw schemas to the user's draft. Long task: "
+            "returns the report if it finishes quickly, otherwise its state; then follow it "
+            "with get_collect_status. A collection already running is not started again."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="deposit_contract",
+        domain="sources",
+        access="write",
+        capability="sources:declare",
+        description=(
+            "Deposit an OpenAPI contract (YAML or JSON text) on an OpenAPI source, under a "
+            "version name. Never replaces an existing version: remove it first. Written to "
+            "the user's draft."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="remove_contract",
+        domain="sources",
+        access="write",
+        capability="sources:declare",
+        description=(
+            "Remove a contract version from an OpenAPI source. Written to the user's draft."
+        ),
+        person_only=True,
+        destructive=True,
+    ),
     # --- Gouvernance
     Primitive(
         id="list_tags",
