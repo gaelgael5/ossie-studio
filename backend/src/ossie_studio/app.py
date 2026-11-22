@@ -38,6 +38,9 @@ from ossie_studio.errors import ApiError, api_error_handler
 from ossie_studio.governance import rules as _governance_rules  # noqa: F401 — enregistre les règles
 from ossie_studio.health import resolve_health
 from ossie_studio.logging import setup_logging
+from ossie_studio.mcp_surface.caller import CallerResolver
+from ossie_studio.mcp_surface.guard import McpSurfaceMiddleware
+from ossie_studio.mcp_surface.server import build_session_manager
 from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
@@ -77,7 +80,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.pool = pool
         await run_migrations(pool)
         purge = asyncio.create_task(_purge_draft_views_forever(app))
-        yield
+        async with app.state.mcp_session_manager.run():
+            yield
         purge.cancel()
         await pool.close()
 
@@ -97,6 +101,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.source_downloader = SourceDownloader(settings.sources_volume_path)
     app.state.source_collector = SourceCollector(app.state.source_downloader)
     app.state.collect_jobs = CollectJobs()
+    # Surface MCP : les résolveurs de jetons (clés d'API, OAuth) s'y ajoutent ;
+    # sans résolveur, aucun jeton n'est accepté (fermé par défaut).
+    mcp_resolvers: list[CallerResolver] = []
+    app.state.mcp_resolvers = mcp_resolvers
+    app.state.mcp_session_manager = build_session_manager(app)
 
     @app.get("/api/health")
     async def health(request: Request) -> Response:
@@ -133,4 +142,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_publish_router)
     # Flux OIDC : navigations du navigateur (redirections), pas de l'API JSON.
     app.include_router(oidc_login_router)
+    # Ajouté en dernier, donc le plus à l'extérieur : `/mcp` est aiguillé avant
+    # la session et le routeur de l'IHM (voir mcp_surface/guard.py).
+    app.add_middleware(McpSurfaceMiddleware)
     return app

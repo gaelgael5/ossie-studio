@@ -26,6 +26,7 @@ dependencies = [
     "tree-sitter-kotlin>=1.1.0",
     "sqlglot==30.33.0",
     "defusedxml==0.7.1",
+    "mcp>=2.3.0,<3",
 ]
 
 [dependency-groups]

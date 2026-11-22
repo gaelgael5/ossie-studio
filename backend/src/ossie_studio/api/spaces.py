@@ -23,7 +23,7 @@ from ossie_studio.deps import (
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import GitSpace
-from ossie_studio.profiles.service import load_capabilities, load_capabilities_by_space
+from ossie_studio.profiles.service import load_capabilities
 from ossie_studio.slugs import free_slug, is_valid_slug, slugify
 from ossie_studio.spaces.branch_service import db_get_viewed_branch, db_list_branches
 from ossie_studio.spaces.forms import normalize_repo_url, validate_space
@@ -36,8 +36,8 @@ from ossie_studio.spaces.service import (
     db_create_space,
     db_delete_space,
     db_get_space,
-    db_list_spaces,
     db_update_space_probe,
+    list_visible_spaces,
 )
 from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
 
@@ -105,10 +105,7 @@ async def _run_probe(
 async def list_spaces(conn: ConnDep, user: CurrentUser) -> dict[str, object]:
     # `spaces:read` du profil de base → tous les espaces ; sinon, seulement ceux
     # où une équipe de la personne est rattachée avec ce droit (droits par espace).
-    spaces = await db_list_spaces(conn)
-    if "spaces:read" not in await load_capabilities(conn, user):
-        by_space = await load_capabilities_by_space(conn, user.id)
-        spaces = [s for s in spaces if "spaces:read" in by_space.get(s.id, set())]
+    spaces = await list_visible_spaces(conn, user)
     return {"spaces": [_payload(s) for s in spaces]}
 
 
