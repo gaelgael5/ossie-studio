@@ -751,6 +751,41 @@ export interface RailMapData {
   has_more: boolean
 }
 
+export type TagRuleCondition = 'inherits' | 'annotation' | 'name' | 'path' | 'field'
+export const TAG_RULE_CONDITIONS: TagRuleCondition[] = [
+  'inherits',
+  'annotation',
+  'name',
+  'path',
+  'field',
+]
+
+/** Règle de tags telle qu'écrite dans `governance/tag-rules/<id>.yaml`. */
+export interface TagRuleInput {
+  name: string
+  description?: string
+  enabled: boolean
+  files: string[]
+  match: 'any' | 'all'
+  when: Partial<Record<TagRuleCondition, string[]>>
+  tags: string[]
+  inherit_tags: boolean
+}
+
+export interface TagRuleFile {
+  id: string
+  path: string
+  /** Absente quand le fichier est invalide (voir `errors`). */
+  rule: (TagRuleInput & { id: string }) | null
+  errors: string[]
+}
+
+export interface TagRuleHits {
+  objects: number
+  inherited: number
+  examples: { slug: string; file: string; title: string; folder: string; inherited: boolean }[]
+}
+
 export interface GovernedTag {
   id: string
   owner: string
@@ -1344,6 +1379,22 @@ export const api = {
     }),
   deleteGovernedTag: (id: string) =>
     apiFetch(`/api/governance/tags/${id}`, { method: 'DELETE' }),
+  listTagRules: () => apiFetch<{ rules: TagRuleFile[] }>('/api/governance/tag-rules'),
+  saveTagRule: (id: string, body: TagRuleInput) =>
+    apiFetch<TagRuleFile & { created_tags: string[] }>(`/api/governance/tag-rules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteTagRule: (id: string) => apiFetch(`/api/governance/tag-rules/${id}`, { method: 'DELETE' }),
+  tagRulesUsage: (spaceId: string, branchId: string) =>
+    apiFetch<{ rules: Record<string, TagRuleHits> }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/tag-rules/usage`,
+    ),
+  previewTagRule: (spaceId: string, branchId: string, body: TagRuleInput) =>
+    apiFetch<TagRuleHits>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/tag-rules/preview`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
   exportGovernedTags: () => apiFetch<{ yaml: string }>('/api/governance/tags/export'),
   importGovernedTags: (yaml: string) =>
     apiFetch<{ imported: number }>('/api/governance/tags/import', {

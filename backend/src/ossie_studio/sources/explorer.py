@@ -47,7 +47,7 @@ MODES: tuple[str, ...] = ("origin", "kind", "parser")
 GIT_SOURCE_TYPE = "git"
 # Version du format des entrées mises en index : la changer (champ ajouté…)
 # force la reconstruction des index existants à la livraison suivante.
-INDEX_FORMAT = "5"
+INDEX_FORMAT = "6"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -114,8 +114,9 @@ class ObjectTag:
 
 @dataclass(frozen=True)
 class ObjectFacts:
-    """Ce que les règles de tags regardent et que l'index ne garde pas : calculé
-    à la lecture de raw/, utilisé avant la mise en base, jamais sérialisé."""
+    """Ce que les règles de tags regardent (au-delà des bases, déjà dans `refs`).
+    Gardé dans l'index : l'aperçu d'une règle et le décompte de ses objets se
+    calculent alors sans relire raw/."""
 
     annotations: tuple[str, ...] = ()
     field_names: tuple[str, ...] = ()
@@ -558,6 +559,7 @@ class SourceEntries:
                         [t.tag, t.rule, t.rule_name, t.reason, t.value, t.via, t.via_title]
                         for t in o.tags
                     ],
+                    [list(o.facts.annotations), list(o.facts.field_names)],
                 ]
                 for o in self.objects
             ],
@@ -596,6 +598,9 @@ class SourceEntries:
                     description=o[14] if len(o) > 14 else "",
                     top_fields=tuple(o[15]) if len(o) > 15 else (),
                     tags=tuple(ObjectTag(*t) for t in o[16]) if len(o) > 16 else (),
+                    facts=ObjectFacts(tuple(o[17][0]), tuple(o[17][1]))
+                    if len(o) > 17
+                    else ObjectFacts(),
                 )
                 for o in data.get("objects") or []
             ],

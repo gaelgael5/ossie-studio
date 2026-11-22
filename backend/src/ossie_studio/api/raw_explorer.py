@@ -24,13 +24,14 @@ from fastapi import APIRouter, Depends
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import SourcesRead
+from ossie_studio.api.tag_rules import TagRuleBody
 from ossie_studio.connections.service import db_get_connection_by_slug
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.links import forge_file_url
-from ossie_studio.governance.tag_rules import active_rules
+from ossie_studio.governance.tag_rules import active_rules, parse_rule
 from ossie_studio.parsers.base import STATUT_ERREUR
 from ossie_studio.sources.curation import is_schema_file, read_review_point
 from ossie_studio.sources.explorer import (
@@ -47,6 +48,7 @@ from ossie_studio.sources.explorer import (
     folder_item_count,
     index_from_entries,
     list_source_slugs,
+    object_folder,
     search_objects,
     sort_objects,
     subtree_file_counts,
@@ -352,6 +354,81 @@ async def search_explorer(
 
 # Résolveur des références de l'espace, gardé par (index, signature, mode) : tant
 # que l'index ne change pas, un clic ne relit pas toutes les sources.
+# --- Règles de tags : décompte et aperçu, calculés sur l'index -----------------
+
+# Exemples montrés par l'aperçu d'une règle (latitude du ticket « écran des règles »).
+TAG_RULE_EXAMPLES = 8
+
+
+def _rule_objects(
+    sources: list[SourceEntries], rule_id: str
+) -> tuple[int, int, list[dict[str, object]]]:
+    """(objets tagués, dont hérités, exemples) d'une règle dans des sources taguées."""
+    count = inherited = 0
+    examples: list[dict[str, object]] = []
+    for entries in sources:
+        for obj in entries.objects:
+            own = [t for t in obj.tags if t.rule == rule_id]
+            if not own:
+                continue
+            count += 1
+            is_inherited = all(t.via for t in own)
+            inherited += is_inherited
+            if len(examples) < TAG_RULE_EXAMPLES:
+                examples.append(
+                    {
+                        "slug": entries.slug,
+                        "file": obj.file,
+                        "title": obj.title,
+                        "folder": object_folder(DEFAULT_MODE, entries, obj),
+                        "inherited": is_inherited,
+                    }
+                )
+    return count, inherited, examples
+
+
+@router.get("/tag-rules/usage")
+async def tag_rules_usage(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    """Pour chaque règle de tags, les objets qu'elle tague actuellement."""
+    key, _ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    sources = await db_all_source_entries(conn, key)
+    rule_ids = sorted({t.rule for e in sources for o in e.objects for t in o.tags})
+    out: dict[str, object] = {}
+    for rule_id in rule_ids:
+        count, inherited, examples = _rule_objects(sources, rule_id)
+        out[rule_id] = {"objects": count, "inherited": inherited, "examples": examples}
+    return {"rules": out}
+
+
+@router.post("/tag-rules/preview")
+async def tag_rule_preview(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: TagRuleBody,
+) -> dict[str, object]:
+    """Ce qu'une règle taguerait, avant de l'enregistrer : elle est appliquée
+    seule (et active) aux objets de l'index, sans rien écrire."""
+    preview_id = "preview"
+    rule, errors = parse_rule(preview_id, {**body.model_dump(), "enabled": True})
+    if rule is None:
+        raise ApiError("tag_rule_invalid", status_code=400, fields=errors)
+    key, _ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    tagged = apply_tag_rules(await db_all_source_entries(conn, key), [rule])
+    count, inherited, examples = _rule_objects(tagged, preview_id)
+    return {"objects": count, "inherited": inherited, "examples": examples}
+
+
 # Le graphe porte aussi l'index inverse des références (entrantes).
 _SPACE_CACHE: dict[tuple[IndexKey, str, str], ReferenceGraph] = {}
 _SPACE_CACHE_MAX = 32
