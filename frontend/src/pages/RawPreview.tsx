@@ -405,7 +405,7 @@ export function ExposureLegend({ detail, slug }: { detail: RawObjectDetail; slug
           <span className="raw-exposure-missing" title={e.missing.join(', ')}>
             {t('rawExposedMissing', { count: e.missing.length })}
           </span>{' '}
-          <Link to={`/sources/${encodeURIComponent(slug)}?tab=revue`}>
+          <Link to={`/sources?tab=raw&source=${encodeURIComponent(slug)}&view=review`}>
             {t('rawDiffSinceReview')}
           </Link>
         </>
