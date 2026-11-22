@@ -137,6 +137,8 @@ export const en = {
     discoveryFailed: 'Discovery failed: nothing will be saved.',
     callbackUrlHint: 'Callback URL to declare at the provider:',
     copy: 'copy',
+    copied: 'copied',
+    copyFailed: 'copy failed — select the text',
     scopesLabel: 'Scopes',
     verifyAndSave: 'Verify and save',
     noConnectors: 'No connector declared.',

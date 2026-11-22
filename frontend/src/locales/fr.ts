@@ -138,6 +138,8 @@ export const fr = {
     discoveryFailed: 'Découverte impossible : rien ne sera enregistré.',
     callbackUrlHint: 'URL de retour à déclarer chez le fournisseur :',
     copy: 'copier',
+    copied: 'copié',
+    copyFailed: 'copie impossible — sélectionnez le texte',
     scopesLabel: 'Scopes',
     verifyAndSave: 'Vérifier et enregistrer',
     noConnectors: 'Aucun connecteur déclaré.',

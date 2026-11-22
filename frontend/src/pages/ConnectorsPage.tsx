@@ -8,6 +8,7 @@ import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
+import { CopyButton } from '../components/CopyButton'
 
 function ConnectorMappings({
   connector,
@@ -480,13 +481,7 @@ export function ConnectorsPage() {
               {callbackUrl ? (
                 <p className="muted">
                   {t('callbackUrlHint')} <code>{callbackUrl}</code>{' '}
-                  <button
-                    type="button"
-                    className="btn-link"
-                    onClick={() => navigator.clipboard?.writeText(callbackUrl)}
-                  >
-                    {t('copy')}
-                  </button>
+                  <CopyButton text={callbackUrl} />
                 </p>
               ) : null}
               <div>

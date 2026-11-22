@@ -6,6 +6,7 @@ import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
+import { CopyButton } from '../components/CopyButton'
 
 // Clés d'API de service : un compte de service par clé, qui n'ouvre que la
 // surface MCP avec les droits de son profil agent. La clé n'est montrée qu'une
@@ -15,15 +16,6 @@ type AgentProfileOption = ApiKeyOptions['agent_profiles'][number]
 
 function claudeCodeCommand(endpoint: string, secret: string): string {
   return `claude mcp add --transport http ossie-studio ${endpoint} --header "Authorization: Bearer ${secret}"`
-}
-
-function CopyButton({ text }: { text: string }) {
-  const { t } = useTranslation()
-  return (
-    <button type="button" className="btn-link" onClick={() => navigator.clipboard?.writeText(text)}>
-      {t('copy')}
-    </button>
-  )
 }
 
 /** Choix d'un profil agent : ceux au-delà des droits de la personne restent visibles, mais grisés. */
