@@ -20,19 +20,19 @@ from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import CurrentUser, SpacesRead
-from ossie_studio.api.drafts import (
-    _merge_context,
-    auto_merge,
-    changed_upstream,
-    draft_impacts,
-    draft_validation,
-)
 from ossie_studio.connections.service import db_get_connection
 from ossie_studio.credentials.service import STATUS_VALID, resolve_personal_token
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
-from ossie_studio.drafts.merge import merge_object
+from ossie_studio.drafts.preparation import (
+    auto_merge,
+    draft_impacts,
+    draft_validation,
+    merge_context,
+    pending_merges,
+)
 from ossie_studio.drafts.store import (
+    db_decision_agents,
     db_get_draft,
     db_list_objects,
     db_remove_published,
@@ -121,13 +121,8 @@ async def publish_readiness(
     if draft is None or draft.space_id != space_id:
         ready.reasons.append("empty_draft")
         return ready
-    _d, objects, versions = await _merge_context(conn, crypto, workdir, space_id, branch_id)
-    for obj in objects:
-        v = versions[obj.path]
-        if changed_upstream(obj, v.current_blob):
-            kind = merge_object(obj.path, v.base, v.theirs, obj.content).kind
-            if kind not in ("auto", "text"):
-                ready.conflicts.append(obj.path)
+    _d, objects, versions = await merge_context(conn, crypto, workdir, space_id, branch_id)
+    ready.conflicts = [p.obj.path for p in pending_merges(objects, versions) if p.needs_decision]
     if ready.conflicts:
         ready.reasons.append("conflicts")
     _d2, _o, impacts = await draft_impacts(conn, crypto, workdir, space_id, branch_id)
@@ -177,10 +172,21 @@ async def _automerge(
         await auto_merge(conn, crypto, workdir, space_id, branch_id)
 
 
-def _message(comment: str, verified: list[str], accepted: list[str]) -> str:
+def _decision_line(label: str, subject: str, agent: str | None) -> str:
+    """Une décision du message de commit ; prise par un agent pour la personne,
+    elle le dit."""
+    return f"{label} : {subject}" + (f" (via l'agent {agent})" if agent else "")
+
+
+def _message(
+    comment: str,
+    verified: list[tuple[str, str | None]],
+    accepted: list[tuple[str, str | None]],
+) -> str:
+    """Message du commit. `verified` / `accepted` : (objet, agent ou None)."""
     lines = [f"{_COMMIT_PREFIX}{comment.strip()}"]
-    decisions = [f"Impact vérifié : {p}" for p in verified]
-    decisions += [f"Avertissement accepté : {a}" for a in accepted]
+    decisions = [_decision_line("Impact vérifié", p, a) for p, a in verified]
+    decisions += [_decision_line("Avertissement accepté", w, a) for w, a in accepted]
     if decisions:
         lines += ["", *decisions]
     return "\n".join(lines) + "\n"
@@ -258,10 +264,16 @@ async def _publish_locked(
     token = await resolve_personal_token(conn, crypto, user.id, space.connection_id)
     if connection is None or token is None:
         raise ApiError("publish_not_ready", status_code=409, reasons=["credential_not_valid"])
+    impact_agents = await db_decision_agents(conn, draft.id, "impact_verified")
+    warning_agents = await db_decision_agents(conn, draft.id, "warning_accepted")
     message = _message(
         comment,
-        [i.path for i in impacts if i.verified],
-        [f"{e.finding.rule} {e.finding.path}" for e in log_entries if e.accepted],
+        [(i.path, impact_agents.get(i.path)) for i in impacts if i.verified],
+        [
+            (f"{e.finding.rule} {e.finding.path}", warning_agents.get(e.finding.key))
+            for e in log_entries
+            if e.accepted
+        ],
     )
     try:
         sha = await workdir.manager.push_objects(

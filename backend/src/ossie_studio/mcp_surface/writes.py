@@ -25,7 +25,7 @@ from ossie_studio.mcp_surface.branch import (
     open_branch,
     source_dir,
 )
-from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
+from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError, agent_name
 from ossie_studio.sources import curation_actions
 from ossie_studio.sources.curation import (
     AssetNotRetainedError,
@@ -138,7 +138,7 @@ def write_target(ctx: PrimitiveContext, bv: BranchView, author: str) -> Curation
         bv.username,
         bv.token,
         author,
-        via=f"via l'agent {ctx.caller.client_id or ctx.caller.ref}",
+        via=f"via l'agent {agent_name(ctx)}",
         strict=True,
     )
 

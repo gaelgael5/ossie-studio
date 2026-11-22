@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ossie_studio.mcp_surface import governance_writes as gov
+from ossie_studio.mcp_surface import preparation as prep
 from ossie_studio.mcp_surface import reads, source_writes, writes
 from ossie_studio.mcp_surface.branch import BranchArgs, ObjectArgs, SourceArgs, ViewArgs
 from ossie_studio.mcp_surface.core import (
@@ -22,6 +23,14 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "list_versions": Implementation(BranchArgs, reads.list_versions),
     "get_my_draft": Implementation(BranchArgs, reads.get_my_draft),
     "get_publish_readiness": Implementation(BranchArgs, reads.get_publish_readiness),
+    # Préparer la publication (brouillon de la personne)
+    "get_merge_conflicts": Implementation(prep.MergeConflictsArgs, prep.get_merge_conflicts),
+    "resolve_merge": Implementation(prep.ResolveMergeArgs, prep.resolve_merge),
+    "auto_merge": Implementation(BranchArgs, prep.auto_merge),
+    "list_impacts": Implementation(BranchArgs, prep.list_impacts),
+    "verify_impact": Implementation(prep.ImpactArgs, prep.verify_impact),
+    "get_validation_log": Implementation(BranchArgs, prep.get_validation_log),
+    "accept_validation_warning": Implementation(prep.WarningArgs, prep.accept_validation_warning),
     "list_sources": Implementation(ViewArgs, reads.list_sources),
     "list_raw_schemas": Implementation(SourceArgs, reads.list_raw_schemas),
     "read_raw_schema": Implementation(ObjectArgs, reads.read_raw_schema),

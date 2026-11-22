@@ -217,4 +217,6 @@ async def test_accepter_une_erreur_refuse(app: FastAPI, sp: ApiSpace) -> None:
             "message_code": "ref_broken",
         },
     )
-    assert response.status_code == 404
+    # Refus dédié : une erreur se corrige, elle ne s'accepte pas.
+    assert response.status_code == 409
+    assert response.json()["error"] == "validation_error_not_acceptable"

@@ -41,3 +41,9 @@ class NoArgs(BaseModel):
 class Implementation:
     args_model: type[BaseModel]
     run: Callable[[PrimitiveContext, Any], Awaitable[dict[str, Any]]]
+
+
+def agent_name(ctx: PrimitiveContext) -> str:
+    """Le nom de l'agent tel qu'il est tracé (messages de commit, décisions) :
+    son client OAuth, sinon la référence de sa connexion ou de sa clé."""
+    return ctx.caller.client_id or ctx.caller.ref

@@ -16,8 +16,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from ossie_studio.api.drafts import changed_upstream
 from ossie_studio.api.publish import publish_readiness
+from ossie_studio.drafts.preparation import changed_upstream
 from ossie_studio.drafts.store import db_get_draft, db_list_objects
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
@@ -66,14 +66,14 @@ from ossie_studio.spaces.workdir import WorkdirError
 _RAW_SCHEMA_MAX_BYTES = 1_000_000
 
 
-def _person(ctx: PrimitiveContext) -> User:
+def person_of(ctx: PrimitiveContext) -> User:
     """Primitives propres au brouillon : il faut une personne (connexion OAuth)."""
     if ctx.user is None:
         raise PrimitiveError("draft_requires_person")
     return ctx.user
 
 
-def _person_workdir(ctx: PrimitiveContext, user: User, branch: SpaceBranch) -> DraftWorkdir:
+def person_workdir(ctx: PrimitiveContext, user: User, branch: SpaceBranch) -> DraftWorkdir:
     return DraftWorkdir(
         ctx.state.workdir_manager,
         ctx.state.draft_views,
@@ -128,14 +128,14 @@ async def list_versions(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, An
 
 
 async def get_my_draft(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
-    user = _person(ctx)
+    user = person_of(ctx)
     space, branch, username, token = await branch_of(ctx, args.space_id, args.branch_id)
     draft = await db_get_draft(ctx.conn, user.id, branch.id)
     if draft is None or draft.space_id != space.id:
         return {"count": 0, "objects": []}
     objects = await db_list_objects(ctx.conn, draft.id)
     try:
-        current = await _person_workdir(ctx, user, branch).published_blobs(
+        current = await person_workdir(ctx, user, branch).published_blobs(
             space.id, branch.git_ref, space.repo_url, username, token, [o.path for o in objects]
         )
     except WorkdirError as exc:
@@ -155,14 +155,14 @@ async def get_my_draft(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any
 
 
 async def get_publish_readiness(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
-    user = _person(ctx)
+    user = person_of(ctx)
     space, branch, _username, _token = await branch_of(ctx, args.space_id, args.branch_id)
     try:
         ready = await publish_readiness(
             ctx.state.pool,
             ctx.conn,
             ctx.state.crypto,
-            _person_workdir(ctx, user, branch),
+            person_workdir(ctx, user, branch),
             user,
             space.id,
             branch.id,

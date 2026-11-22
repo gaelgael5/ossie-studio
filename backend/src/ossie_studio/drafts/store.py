@@ -236,17 +236,41 @@ async def db_decisions(conn: asyncpg.Connection, draft_id: uuid.UUID, kind: str)
     return {r["key"]: r["fingerprint"] for r in rows}
 
 
+async def db_decision_agents(
+    conn: asyncpg.Connection, draft_id: uuid.UUID, kind: str
+) -> dict[str, str]:
+    """Décisions d'un type prises par un agent pour la personne : clé → agent."""
+    rows = await conn.fetch(
+        "SELECT key, via FROM draft_decisions "
+        "WHERE draft_id = $1 AND kind = $2 AND via IS NOT NULL",
+        draft_id,
+        kind,
+    )
+    return {r["key"]: r["via"] for r in rows}
+
+
 async def db_set_decision(
-    conn: asyncpg.Connection, draft_id: uuid.UUID, kind: str, key: str, fingerprint: str
+    conn: asyncpg.Connection,
+    draft_id: uuid.UUID,
+    kind: str,
+    key: str,
+    fingerprint: str,
+    *,
+    via: str | None = None,
 ) -> None:
+    """Pose (ou renouvelle) une décision. `via` : l'agent qui l'a prise pour la
+    personne ; None quand c'est la personne (une décision reprise par elle
+    efface la mention de l'agent)."""
     await conn.execute(
-        "INSERT INTO draft_decisions (draft_id, kind, key, fingerprint) VALUES ($1, $2, $3, $4) "
+        "INSERT INTO draft_decisions (draft_id, kind, key, fingerprint, via) "
+        "VALUES ($1, $2, $3, $4, $5) "
         "ON CONFLICT (draft_id, kind, key) DO UPDATE SET fingerprint = EXCLUDED.fingerprint, "
-        "created_at = now()",
+        "via = EXCLUDED.via, created_at = now()",
         draft_id,
         kind,
         key,
         fingerprint,
+        via,
     )
 
 

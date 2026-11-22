@@ -91,6 +91,93 @@ CATALOG: tuple[Primitive, ...] = (
         ),
         person_only=True,
     ),
+    # --- Préparer la publication du brouillon (rien ne se publie ici)
+    Primitive(
+        id="get_merge_conflicts",
+        domain="drafts",
+        access="read",
+        capability="spaces:read",
+        description=(
+            "List the objects of the user's draft that changed on the published side and need a "
+            "decision: for each conflicting property, the base, published ('theirs') and draft "
+            "('mine') values; also the objects auto_merge can merge alone. Give a path to get "
+            "that object's three full versions and the proposed merge."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="resolve_merge",
+        domain="drafts",
+        access="write",
+        capability="spaces:read",
+        description=(
+            "Resolve one object in conflict: per conflicting JSON pointer keep 'theirs', 'mine' "
+            "or a value; or, for an object deleted on one side, accept the deletion or not. "
+            "Every conflict must be decided. Keeping the published version discards the user's "
+            "change. Written to the user's draft (not published)."
+        ),
+        person_only=True,
+        destructive=True,
+    ),
+    Primitive(
+        id="auto_merge",
+        domain="drafts",
+        access="write",
+        capability="spaces:read",
+        description=(
+            "Merge into the user's draft every object changed on the published side that merges "
+            "without conflict; the others stay in conflict (see get_merge_conflicts)."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="list_impacts",
+        domain="drafts",
+        access="read",
+        capability="spaces:read",
+        description=(
+            "List the impacts of the user's draft: objects that read what the draft changed, "
+            "verified or not. Every impact must be verified before publishing."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="verify_impact",
+        domain="drafts",
+        access="write",
+        capability="spaces:read",
+        description=(
+            "Attest that an impact was checked and needs no change. Valid while the objects it "
+            "reads do not change; recorded in the publication commit as made by you, the agent."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="get_validation_log",
+        domain="drafts",
+        access="read",
+        capability="spaces:read",
+        description=(
+            "Validation log of the branch as the user sees it (with the draft): warnings and "
+            "errors, whether they block publishing, accepted or pre-existing."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="accept_validation_warning",
+        domain="drafts",
+        access="write",
+        capability="spaces:read",
+        description=(
+            "Accept a validation warning so it no longer blocks; an error cannot be accepted "
+            "(fix the object). Valid while the object does not change; recorded in the "
+            "publication commit as made by you, the agent."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
     # --- Sources et schémas bruts
     Primitive(
         id="list_sources",
