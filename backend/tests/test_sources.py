@@ -288,13 +288,27 @@ async def test_slug_traversant_refuse(branch: tuple[AsyncClient, str, str, str])
     assert "slug_invalid" in r.json()["error_args"]["fields"]
 
 
-async def test_supprimer_source(branch: tuple[AsyncClient, str, str, str]) -> None:
+async def test_supprimer_source(branch: tuple[AsyncClient, str, str, str], app: FastAPI) -> None:
     client, space_id, branch_id, connection_id = branch
     base = f"/api/spaces/{space_id}/branches/{branch_id}/sources"
     await client.post(base, json=_git_body(connection_id))
+    # Un index de collecte existe pour la source (comme après une collecte).
+    async with app.state.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO scan_files (space_id, branch_slug, source_slug, path, crc, cible, "
+            "statut, message) VALUES ($1, 'work/principale', 'api-boutique', 'a.cs', 'c', "
+            "'raw', 'ok', '')",
+            uuid.UUID(space_id),
+        )
     deleted = await client.delete(f"{base}/api-boutique")
     assert deleted.status_code == 204
     assert (await client.get(base)).json()["sources"] == []
+    # L'index part avec la source.
+    async with app.state.pool.acquire() as conn:
+        left = await conn.fetchval(
+            "SELECT count(*) FROM scan_files WHERE source_slug = 'api-boutique'"
+        )
+    assert left == 0
 
 
 async def test_liste_reservee_a_la_capacite(

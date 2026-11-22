@@ -64,7 +64,12 @@ from ossie_studio.sources.manifest import (
     manifest_from_mapping,
 )
 from ossie_studio.sources.paths import is_valid_source_slug
-from ossie_studio.sources.scan_service import ScanFile, db_list_scan_files, db_replace_scan_files
+from ossie_studio.sources.scan_service import (
+    ScanFile,
+    db_delete_scan_files,
+    db_list_scan_files,
+    db_replace_scan_files,
+)
 from ossie_studio.sources.service import (
     SourceEntry,
     SourceExistsError,
@@ -136,9 +141,7 @@ async def _branch_slug(conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID)
     return branch.git_ref
 
 
-async def _resolve_connection(
-    conn: ConnDep, source_type: str, connexion: str
-) -> dict[str, object]:
+async def _resolve_connection(conn: ConnDep, source_type: str, connexion: str) -> dict[str, object]:
     """Vérifie que la connexion (désignée par son slug) existe et est du bon genre
     pour le type de source, et rend de quoi l'afficher. Jamais de valeur secrète."""
     slug = connexion.strip()
@@ -347,7 +350,12 @@ async def update_branch_source(
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     existing = await _existing_manifest(conn, crypto, workdir, space_id, branch_slug, slug)
     manifest, connection = await _build_manifest(
-        conn, slug, body.label, existing.type, body.connexion, body.parametres,
+        conn,
+        slug,
+        body.label,
+        existing.type,
+        body.connexion,
+        body.parametres,
         tri=existing.tri,  # les règles de tri se gèrent à part : une édition de source les préserve
     )
     if manifest.type == GIT_TYPE:
@@ -395,8 +403,10 @@ async def delete_branch_source(
         raise ApiError("source_not_found", status_code=404, slug=slug) from None
     except WorkdirError as exc:
         raise _workdir_http_error(exc) from None
-    # Le code descendu sur le volume des sources part avec la source.
+    # Le code descendu sur le volume des sources et l'index de collecte partent
+    # avec la source.
     await downloader.remove(space_id, slug)
+    await db_delete_scan_files(conn, space_id=space_id, branch_slug=branch_slug, source_slug=slug)
 
 
 def _collect_error(code: str) -> ApiError:
@@ -694,7 +704,11 @@ async def list_branch_contracts(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         views = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             lambda wc: read_contracts_view(wc, slug),
         )
     except WorkdirError as exc:
@@ -739,8 +753,13 @@ async def deposit_branch_contract(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
+            user.email,
+            user.email,
             f"dépose le contrat {slug} {version}",
             deposit_contract_fn(slug, entry, raw, replace=body.replace),
         )
@@ -767,8 +786,13 @@ async def remove_branch_contract(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
+            user.email,
+            user.email,
             f"retire le contrat {slug} {version}",
             remove_contract_fn(slug, version),
         )
@@ -796,9 +820,7 @@ async def download_branch_contract(
         content = read_contract_bytes(wc, slug, version)
         if content is None:
             return None
-        view = next(
-            (v for v in read_contracts_view(wc, slug) if v.entry.version == version), None
-        )
+        view = next((v for v in read_contracts_view(wc, slug) if v.entry.version == version), None)
         name = view.entry.fichier_origine if view is not None else f"{version}.yaml"
         return content, name
 
