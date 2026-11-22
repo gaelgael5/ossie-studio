@@ -44,8 +44,20 @@ class McpCaller:
         }
 
 
-# Résolveur : jeton présenté → appelant, ou None s'il ne le reconnaît pas.
-CallerResolver = Callable[[asyncpg.Connection, str], Awaitable[McpCaller | None]]
+class TokenRefusedError(Exception):
+    """Jeton reconnu mais inutilisable ici, pour une raison que le client peut
+    corriger (expiré → rafraîchir ; autre audience → bon serveur). Le motif est
+    rendu dans le 401. Un jeton inconnu ou révoqué ne lève pas : il rend None,
+    sans rien qui le distingue."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+# Résolveur : (connexion, jeton présenté, adresse de la surface MCP attendue
+# comme audience) → appelant, ou None s'il ne le reconnaît pas.
+CallerResolver = Callable[[asyncpg.Connection, str, str], Awaitable[McpCaller | None]]
 
 current_caller: contextvars.ContextVar[McpCaller | None] = contextvars.ContextVar(
     "mcp_current_caller", default=None

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { SUPPORTED_LANGUAGES } from './i18n'
 import { useSession } from './hooks'
@@ -26,7 +26,22 @@ import { ProfilesPage } from './pages/ProfilesPage'
 import { TeamsPage } from './pages/TeamsPage'
 import { UsersPage } from './pages/UsersPage'
 import { ApiKeysPage } from './pages/ApiKeysPage'
+import { ConsentPage } from './pages/ConsentPage'
+import { AgentConnectionsPage } from './pages/AgentConnectionsPage'
+import { loginWithNext, safeNext } from './safeNext'
 import { StatusPage } from './StatusPage'
+
+/** Déjà connecté sur /login : on va là où la connexion devait ramener. */
+function AfterLogin() {
+  const [params] = useSearchParams()
+  return <Navigate to={safeNext(params.get('next')) ?? '/'} replace />
+}
+
+/** Page réservée aux personnes connectées, qui y revient après la connexion. */
+function RequireLogin({ authenticated, children }: { authenticated: boolean; children: JSX.Element }) {
+  const location = useLocation()
+  return authenticated ? children : <Navigate to={loginWithNext(location.pathname + location.search)} replace />
+}
 
 export function App() {
   return (
@@ -84,7 +99,7 @@ function AppRoutes() {
             bootstrap_required ? (
               <Navigate to="/setup" replace />
             ) : authenticated ? (
-              <Navigate to="/" replace />
+              <AfterLogin />
             ) : (
               <LoginPage />
             )
@@ -131,6 +146,29 @@ function AppRoutes() {
         <Route path="/teams" element={gate('users:read', <TeamsPage />)} />
         <Route path="/users" element={gate('users:read', <UsersPage />)} />
         <Route path="/api-keys" element={gate('api_keys:read', <ApiKeysPage />)} />
+        <Route
+          path="/oauth/consent"
+          element={
+            bootstrap_required ? (
+              <Navigate to="/setup" replace />
+            ) : (
+              <RequireLogin authenticated={Boolean(authenticated)}>
+                <ConsentPage />
+              </RequireLogin>
+            )
+          }
+        />
+        <Route
+          path="/agent-connections"
+          element={
+            <RequireLogin authenticated={Boolean(authenticated)}>
+              <AgentConnectionsPage
+                canSeeAll={caps.includes('agent_connections:read')}
+                canRevokeAll={caps.includes('agent_connections:write')}
+              />
+            </RequireLogin>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

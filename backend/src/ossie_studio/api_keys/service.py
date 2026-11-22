@@ -121,7 +121,9 @@ async def db_revoke_api_key(
     return result != "UPDATE 0"
 
 
-async def resolve_api_key(conn: asyncpg.Connection, token: str) -> McpCaller | None:
+async def resolve_api_key(
+    conn: asyncpg.Connection, token: str, _resource: str
+) -> McpCaller | None:
     """Résolveur de la surface MCP : une clé active → son compte de service.
 
     Inconnue ou révoquée : None, sans rien qui les distingue. Le dernier usage

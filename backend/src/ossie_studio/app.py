@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
+from ossie_studio.api.agent_connections import router as api_agent_connections_router
 from ossie_studio.api.api_keys import router as api_api_keys_router
 from ossie_studio.api.branches import router as api_branches_router
 from ossie_studio.api.classifications import router as api_classifications_router
@@ -20,6 +21,7 @@ from ossie_studio.api.db_connections import router as api_db_connections_router
 from ossie_studio.api.drafts import router as api_drafts_router
 from ossie_studio.api.governance import certifications_router as api_certifications_router
 from ossie_studio.api.governance import router as api_governance_router
+from ossie_studio.api.oauth import router as api_oauth_router
 from ossie_studio.api.oidc import router as api_oidc_router
 from ossie_studio.api.parsing import router as api_parsing_router
 from ossie_studio.api.profiles import router as api_profiles_router
@@ -44,6 +46,8 @@ from ossie_studio.logging import setup_logging
 from ossie_studio.mcp_surface.caller import CallerResolver
 from ossie_studio.mcp_surface.guard import McpSurfaceMiddleware
 from ossie_studio.mcp_surface.server import build_session_manager
+from ossie_studio.oauth.routes import OAuthEndpoints
+from ossie_studio.oauth.service import resolve_oauth_token
 from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
@@ -81,6 +85,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         pool = await create_pool(settings.asyncpg_dsn())
         app.state.pool = pool
+        # Serveur d'autorisation de la surface MCP (a besoin du pool).
+        app.state.oauth_endpoints = OAuthEndpoints(pool, app.state.crypto)
         await run_migrations(pool)
         purge = asyncio.create_task(_purge_draft_views_forever(app))
         async with app.state.mcp_session_manager.run():
@@ -106,7 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.collect_jobs = CollectJobs()
     # Surface MCP : un résolveur par sorte de jeton (clés d'API, puis OAuth) ;
     # un jeton qu'aucun ne reconnaît est refusé (fermé par défaut).
-    mcp_resolvers: list[CallerResolver] = [resolve_api_key]
+    mcp_resolvers: list[CallerResolver] = [resolve_api_key, resolve_oauth_token]
     app.state.mcp_resolvers = mcp_resolvers
     app.state.mcp_session_manager = build_session_manager(app)
 
@@ -145,6 +151,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_drafts_router)
     app.include_router(api_publish_router)
     app.include_router(api_api_keys_router)
+    app.include_router(api_oauth_router)
+    app.include_router(api_agent_connections_router)
     # Flux OIDC : navigations du navigateur (redirections), pas de l'API JSON.
     app.include_router(oidc_login_router)
     # Ajouté en dernier, donc le plus à l'extérieur : `/mcp` est aiguillé avant

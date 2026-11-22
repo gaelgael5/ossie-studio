@@ -242,6 +242,9 @@ function AppNav({
               <Link to="/" role="menuitem">
                 {t('home')}
               </Link>
+              <Link to="/agent-connections" role="menuitem" onClick={() => setUserOpen(false)}>
+                {t('navAgentConnections')}
+              </Link>
               <button
                 type="button"
                 className="btn btn-sm"

@@ -133,6 +133,10 @@ ERROR_CODES: tuple[str, ...] = (
     "api_key_revoked",
     "agent_profile_not_found",
     "agent_profile_beyond_rights",
+    "oauth_request_not_found",
+    "agent_profile_not_usable",
+    "agent_connection_not_found",
+    "agent_connection_revoked",
 )
 
 

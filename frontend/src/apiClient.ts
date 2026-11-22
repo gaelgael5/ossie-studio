@@ -709,6 +709,32 @@ export type ApiKeyOptions = {
   }[]
 }
 
+export type UsableAgentProfile = {
+  id: string
+  name: string
+  description: string
+  granted: string[]
+  withheld: string[]
+}
+
+export type OAuthConsentRequest = {
+  client: { id: string; name: string; redirect_uri: string }
+  agent_profiles: UsableAgentProfile[]
+  current_agent_profile_id: string | null
+}
+
+export type AgentConnection = {
+  id: string
+  client: { id: string; name: string }
+  agent_profile: { id: string; name: string }
+  user: string
+  state: 'active' | 'revoked'
+  created_at: string
+  updated_at: string
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setLanguage: (language: string) =>
@@ -1297,4 +1323,28 @@ export const api = {
     }),
   revokeApiKey: (id: string) =>
     apiFetch<ApiKeyItem>(`/api/api-keys/${id}/revoke`, { method: 'POST' }),
+  oauthRequest: (id: string) =>
+    apiFetch<OAuthConsentRequest>(`/api/oauth/requests/${encodeURIComponent(id)}`),
+  approveOAuthRequest: (id: string, agentProfileId: string) =>
+    apiFetch<{ redirect_url: string }>(`/api/oauth/requests/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ agent_profile_id: agentProfileId }),
+    }),
+  denyOAuthRequest: (id: string) =>
+    apiFetch<{ redirect_url: string }>(`/api/oauth/requests/${encodeURIComponent(id)}/deny`, {
+      method: 'POST',
+    }),
+  myAgentConnections: () =>
+    apiFetch<{ connections: AgentConnection[]; agent_profiles: UsableAgentProfile[] }>(
+      '/api/agent-connections',
+    ),
+  allAgentConnections: () =>
+    apiFetch<{ connections: AgentConnection[] }>('/api/agent-connections/all'),
+  changeAgentConnectionProfile: (id: string, agentProfileId: string) =>
+    apiFetch<AgentConnection>(`/api/agent-connections/${id}/profile`, {
+      method: 'PUT',
+      body: JSON.stringify({ agent_profile_id: agentProfileId }),
+    }),
+  revokeAgentConnection: (id: string) =>
+    apiFetch<AgentConnection>(`/api/agent-connections/${id}/revoke`, { method: 'POST' }),
 }

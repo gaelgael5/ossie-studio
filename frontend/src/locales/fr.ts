@@ -567,6 +567,7 @@ export const fr = {
       parsing_manage: 'Gérer les paramètres',
     },
     capDomain: {
+      agent_connections: 'Connexions d’agents',
       api_keys: 'Clés d’API',
       secrets: 'Secrets',
       connections: 'Forges et connexions',
@@ -693,6 +694,40 @@ export const fr = {
     navProfiles: 'Profils',
     navTeams: 'Équipes',
     navUsers: 'Utilisateurs',
+    navAgentConnections: 'Mes connexions agents',
+    consentTitle: 'Connecter un agent à Ossie-studio',
+    consentIntro:
+      '« {{client}} » demande à agir pour vous sur Ossie-studio. Choisissez le profil agent à lui accorder : il ne pourra jamais faire plus que vous.',
+    consentRedirect: 'Retour vers : {{uri}}',
+    consentProfile: 'Profil agent',
+    consentGranted: 'Ce qui sera accordé',
+    consentWithheld: 'Non accordé (vous n’avez pas la capacité) : {{primitives}}',
+    consentNoProfile:
+      'Aucun profil agent ne vous donne accès à quoi que ce soit : il n’y a rien à accorder. Demandez des droits à un administrateur.',
+    consentApprove: 'Autoriser',
+    consentDeny: 'Refuser',
+    consentRedirecting: 'Retour vers le client…',
+    consentExpired:
+      'Cette demande de connexion n’existe plus (expirée ou déjà traitée). Relancez la connexion depuis le client.',
+    agentConnectionsTitle: 'Mes connexions agents',
+    agentConnectionsIntro:
+      'Les clients (Claude…) que vous avez connectés à Ossie-studio. Chacun agit pour vous avec son profil agent, jamais au-delà de vos propres droits.',
+    agentConnectionsNone: 'Aucun client connecté.',
+    agentConnectionsAllTitle: 'Toutes les connexions',
+    agentConnectionsColClient: 'Client',
+    agentConnectionsColUser: 'Personne',
+    agentConnectionsColProfile: 'Profil agent',
+    agentConnectionsColCreated: 'Connecté le',
+    agentConnectionsColLastUsed: 'Dernier usage',
+    agentConnectionsColState: 'État',
+    agentConnectionsActive: 'active',
+    agentConnectionsRevoked: 'révoquée',
+    agentConnectionsNeverUsed: 'jamais',
+    agentConnectionsApply: 'Appliquer',
+    agentConnectionsRevoke: 'Révoquer',
+    agentConnectionsRevokeConfirm:
+      'Révoquer la connexion de « {{client}} » ? Le client sera refusé dès son appel suivant et devra se reconnecter.',
+    agentConnectionsConfirmRevoke: 'Confirmer la révocation',
     navApiKeys: 'Clés d’API',
     apiKeysTitle: 'Clés d’API',
     apiKeysIntro:
@@ -1127,6 +1162,11 @@ export const fr = {
     statutEnAttente: 'en attente',
 
     errors: {
+      oauth_request_not_found:
+        'Cette demande de connexion n’existe plus (expirée ou déjà traitée). Relancez la connexion depuis le client.',
+      agent_profile_not_usable: 'Ce profil agent ne vous donne accès à aucune primitive.',
+      agent_connection_not_found: 'Connexion introuvable.',
+      agent_connection_revoked: 'Cette connexion est révoquée : son profil ne se change plus.',
       api_key_not_found: 'Clé d’API introuvable.',
       api_key_revoked: 'Cette clé est révoquée : son profil ne se change plus.',
       agent_profile_not_found: 'Profil agent introuvable.',

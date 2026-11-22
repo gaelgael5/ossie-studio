@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages, translateError } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { safeNext } from '../safeNext'
 
 export function LoginPage() {
   const { t } = useTranslation()
@@ -16,12 +17,14 @@ export function LoginPage() {
   const [messages, setMessages] = useState<string[]>([])
 
   const connectors = useQuery({ queryKey: ['publicConnectors'], queryFn: api.publicConnectors })
+  // Où revenir une fois connecté (ex. l'écran de consentement d'un client MCP).
+  const next = safeNext(searchParams.get('next'))
 
   const mutation = useMutation({
     mutationFn: () => api.login(email, password),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['session'] })
-      navigate('/')
+      navigate(next ?? '/')
     },
     onError: (err) => setMessages(errorMessages(t, err)),
   })
@@ -37,7 +40,11 @@ export function LoginPage() {
       {connectors.data && connectors.data.length > 0 && (
         <>
           {connectors.data.map((c) => (
-            <a key={c.id} href={`/auth/oidc/${c.id}/login`} className="btn btn-block">
+            <a
+              key={c.id}
+              href={`/auth/oidc/${c.id}/login${next ? `?next=${encodeURIComponent(next)}` : ''}`}
+              className="btn btn-block"
+            >
               {t('loginWith', { label: c.label })}
             </a>
           ))}

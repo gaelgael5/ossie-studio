@@ -53,7 +53,7 @@ async def _lecture_profile(app: FastAPI) -> uuid.UUID:
 def _wire(app: FastAPI, token: str, caller: McpCaller) -> None:
     """Branche un résolveur de test : ce jeton → cet appelant."""
 
-    async def resolver(_conn: asyncpg.Connection, presented: str) -> McpCaller | None:
+    async def resolver(_conn: asyncpg.Connection, presented: str, _res: str) -> McpCaller | None:
         return caller if presented == token else None
 
     app.state.mcp_resolvers.append(resolver)

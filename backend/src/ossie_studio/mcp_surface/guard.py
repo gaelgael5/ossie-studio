@@ -19,7 +19,12 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from ossie_studio.mcp_surface.caller import CallerResolver, McpCaller, current_caller
+from ossie_studio.mcp_surface.caller import (
+    CallerResolver,
+    McpCaller,
+    TokenRefusedError,
+    current_caller,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -53,42 +58,63 @@ def _bearer(scope: Scope) -> tuple[bool, str | None]:
     return True, token
 
 
-def _unauthorized(request: Request, presented: bool) -> JSONResponse:
+def _unauthorized(request: Request, presented: bool, reason: str | None = None) -> JSONResponse:
     metadata = f"{public_base(request)}{PROTECTED_RESOURCE_METADATA_PATH}"
-    # RFC 6750 §3.1 : sans jeton, pas de code d'erreur ; jeton refusé → invalid_token.
+    # RFC 6750 §3.1 : sans jeton, pas de code d'erreur ; jeton refusé →
+    # invalid_token, avec le motif quand le client peut y remédier.
     params = [f'resource_metadata="{metadata}"']
+    body: dict[str, str] = {"error": "invalid_token" if presented else "unauthenticated"}
     if presented:
         params.insert(0, 'error="invalid_token"')
+    if reason is not None:
+        params.insert(1, f'error_description="{reason}"')
+        body["error_description"] = reason
     return JSONResponse(
-        {"error": "invalid_token" if presented else "unauthenticated"},
-        status_code=401,
-        headers={"WWW-Authenticate": "Bearer " + ", ".join(params)},
+        body, status_code=401, headers={"WWW-Authenticate": "Bearer " + ", ".join(params)}
     )
 
 
 async def _resolve(request: Request, token: str) -> McpCaller | None:
     resolvers: list[CallerResolver] = request.app.state.mcp_resolvers
+    resource = resource_url(request)
     async with request.app.state.pool.acquire() as conn:
         for resolver in resolvers:
-            caller = await resolver(conn, token)
+            caller = await resolver(conn, token, resource)
             if caller is not None:
                 return caller
     return None
 
 
 class McpSurfaceMiddleware:
-    """Envoie `/mcp` à la surface MCP (derrière la garde), le reste à l'IHM."""
+    """Envoie `/mcp` à la surface MCP (derrière la garde), les points d'entrée
+    OAuth à leur application, et le reste à l'IHM."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or scope["path"] not in _MCP_PATHS:
-            await self.app(scope, receive, send)
-            return
+        if scope["type"] == "http":
+            path = scope["path"]
+            if path in _MCP_PATHS:
+                await self._mcp(scope, receive, send)
+                return
+            # Points d'entrée OAuth (découverte, autorisation, jetons) : publics,
+            # servis eux aussi hors de la pile de l'IHM.
+            oauth = getattr(scope["app"].state, "oauth_endpoints", None)
+            if oauth is not None and path in oauth.paths:
+                await oauth(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+    async def _mcp(self, scope: Scope, receive: Receive, send: Send) -> None:
         request = Request(scope)
         presented, token = _bearer(scope)
-        caller = await _resolve(request, token) if token is not None else None
+        try:
+            caller = await _resolve(request, token) if token is not None else None
+        except TokenRefusedError as refused:
+            log.info("mcp_unauthenticated", reason=refused.reason)
+            await _unauthorized(request, True, refused.reason)(scope, receive, send)
+            return
         if caller is None:
             log.info("mcp_unauthenticated", reason="invalid" if presented else "missing")
             await _unauthorized(request, presented)(scope, receive, send)

@@ -39,6 +39,8 @@ CATALOG: tuple[Domain, ...] = (
     Domain("profiles", ("profiles:read", "profiles:write")),
     Domain("users", ("users:read", "users:write")),
     Domain("api_keys", ("api_keys:read", "api_keys:write")),
+    # Toutes les connexions OAuth d'agents (chacun gère toujours les siennes).
+    Domain("agent_connections", ("agent_connections:read", "agent_connections:write")),
 )
 
 ALL_CAPABILITIES: frozenset[str] = frozenset(
@@ -50,7 +52,7 @@ ALL_CAPABILITIES: frozenset[str] = frozenset(
 # (sa lecture, ses branches, sa publication, ses versions, et le travail qu'il
 # porte : sources, curation, gouvernance). Toutes les autres sont globales :
 # administration (secrets, connexions, OIDC, profils, utilisateurs, parseurs,
-# clés d'API) et création d'un espace, qui ne se fait pas depuis l'intérieur
+# clés d'API, connexions d'agents) et création d'un espace, qui ne se fait pas depuis l'intérieur
 # d'un espace.
 # Une capacité ajoutée au catalogue déclare ici sa portée.
 SPACE_SCOPED: frozenset[str] = frozenset(

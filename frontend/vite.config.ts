@@ -9,6 +9,7 @@ export default defineConfig({
       '/api': 'http://localhost:8000',
       '/mcp': 'http://localhost:8000',
       '/.well-known/oauth-': 'http://localhost:8000',
+      '^/(authorize|token|register|revoke)$': 'http://localhost:8000',
     },
   },
   test: {
