@@ -82,6 +82,9 @@ export const fr = {
     deleteConnectorReminder:
       '{{count}} compte(s) rattaché(s) : non supprimés, leur identité est conservée. Le bouton disparaît de l’écran de connexion ; la connexion locale reste ouverte.',
     confirmDelete: 'Confirmer la suppression',
+    tabBranches: 'Branches',
+    tabHistory: 'Historique',
+    railmapLoading: 'Calcul du diagramme des versions…',
     childNameLabel: 'Nom de la branche',
     childNameHint: 'Tirée de la tête de la branche de base. Exemple : work/ma-fonctionnalite.',
     baseBranchIntro: 'Choisissez la branche du dépôt sur laquelle l’espace travaille (la racine comprise), ou créez-en une nouvelle à partir de la racine.',

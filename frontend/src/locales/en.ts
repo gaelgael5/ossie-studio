@@ -81,6 +81,9 @@ export const en = {
     deleteConnectorReminder:
       '{{count}} linked account(s): not deleted, their identity is kept. The button disappears from the sign-in screen; local sign-in stays open.',
     confirmDelete: 'Confirm deletion',
+    tabBranches: 'Branches',
+    tabHistory: 'History',
+    railmapLoading: 'Building the version diagram…',
     childNameLabel: 'Branch name',
     childNameHint: 'Branched from the head of the base branch. Example: work/my-feature.',
     baseBranchIntro: 'Pick the repository branch this space works on (the root included), or create a new one from the root.',

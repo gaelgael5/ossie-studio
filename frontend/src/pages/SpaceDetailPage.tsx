@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
@@ -112,10 +112,16 @@ export function SpaceDetailPage() {
   })
 
   const hasBranches = (branches.data?.branches.length ?? 0) > 0
+  // Onglet dans l'URL (?onglet=historique) : un lien ou un rechargement y ramène.
+  const [params, setParams] = useSearchParams()
+  const tab: 'branches' | 'history' = params.get('onglet') === 'historique' ? 'history' : 'branches'
+  const setTab = (next: 'branches' | 'history') =>
+    setParams(next === 'history' ? { onglet: 'historique' } : {}, { replace: true })
   const railmap = useQuery({
     queryKey: ['railmap', spaceId, railLimit],
     queryFn: () => api.getRailmap(spaceId, railLimit),
-    enabled: hasBranches,
+    // Le diagramme n'est calculé que lorsque son onglet est ouvert.
+    enabled: hasBranches && tab === 'history',
   })
 
   const data = branches.data
@@ -196,6 +202,28 @@ export function SpaceDetailPage() {
 
       {data && data.branches.length > 0 ? (
         <>
+          <div className="tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'branches'}
+              className={`tab${tab === 'branches' ? ' active' : ''}`}
+              onClick={() => setTab('branches')}
+            >
+              {t('tabBranches')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'history'}
+              className={`tab${tab === 'history' ? ' active' : ''}`}
+              onClick={() => setTab('history')}
+            >
+              {t('tabHistory')}
+            </button>
+          </div>
+          {tab === 'branches' ? (
+          <>
           <div className="page-body stack">
             <div className="field measure">
               <label className="field-label" htmlFor="viewed">
@@ -364,8 +392,13 @@ export function SpaceDetailPage() {
           </section>
 
           <SpaceTeamsSection spaceId={spaceId} canManage={canManageTeams} />
-
-          {railmap.data && railmap.data.lines ? (
+          </>
+          ) : railmap.isLoading ? (
+            <div className="page-body combo-busy" role="status">
+              <span className="spinner" aria-hidden="true" />
+              {t('railmapLoading')}
+            </div>
+          ) : railmap.data && railmap.data.lines ? (
             <section className="page-section">
               <div className="section-head">
                 <h2 className="section-title">{t('railmapTitle')}</h2>

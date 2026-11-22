@@ -443,6 +443,9 @@ test('détail espace : affiche le diagramme réseau ferroviaire', async () => {
     },
   })
   renderAt('/spaces/s1')
+  // Le diagramme vit dans l’onglet « Historique », calculé seulement à son ouverture.
+  expect(screen.queryByText('Diagramme des versions')).not.toBeInTheDocument()
+  await userEvent.click(await screen.findByRole('tab', { name: 'Historique' }))
   await screen.findByText('Diagramme des versions')
   // La gare (version 1) et la légende de ligne sont rendues.
   await waitFor(() => expect(screen.getAllByText(/Première/).length).toBeGreaterThan(0))
