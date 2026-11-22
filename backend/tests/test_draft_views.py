@@ -83,14 +83,14 @@ def _read(rel: str) -> Callable[[Path], str | None]:
 async def _setup(app: FastAPI, tmp_path: Path) -> tuple[DraftWorkdir, object, str]:
     url = _seed_bare(tmp_path)
     manager, workdir, space = await draft_workdir(app, tmp_path, url)
-    await manager.create_base_branch(space.id, "principale", url, "x", None)
+    await manager.create_base_branch(space.id, "work/principale", url, "x", None)
     return workdir, space, url
 
 
 async def _commit(workdir: DraftWorkdir, space: object, fn: Callable[[Path], None]) -> str | None:
     return await workdir.commit_to_branch(
         space.id,
-        "principale",
+        "work/principale",
         space.repo_url,
         "x",
         None,
@@ -104,7 +104,7 @@ async def _commit(workdir: DraftWorkdir, space: object, fn: Callable[[Path], Non
 async def _read_as(workdir: DraftWorkdir, space: object, rel: str) -> str | None:
     return await workdir.read_branch(
         space.id,
-        "principale",
+        "work/principale",
         space.repo_url,
         "x",
         None,
@@ -118,7 +118,7 @@ async def test_ecriture_va_au_brouillon_sans_commit(app: FastAPI, tmp_path: Path
     marker = await _commit(workdir, space, _write("sources/a.yaml", "v1"))
     assert marker == "draft:1"
     assert _remote_head(url) == head  # rien n'est poussé
-    copy = tmp_path / "work" / str(space.id) / "principale"  # type: ignore[attr-defined]
+    copy = tmp_path / "work" / str(space.id) / "work~principale"  # type: ignore[attr-defined]
     copy_head = _git(copy, "rev-parse", "HEAD")
     assert copy_head == head  # la copie de lecture ne porte jamais de commit local
     async with app.state.pool.acquire() as conn:
@@ -162,7 +162,7 @@ async def test_creer_modifier_supprimer_superposes(app: FastAPI, tmp_path: Path)
     assert await _read_as(workdir, space, "publie.txt") is None
     published = await workdir.read_branch(
         space.id,
-        "principale",
+        "work/principale",
         url,
         "x",
         None,
@@ -220,7 +220,7 @@ async def test_brouillon_de_500_objets_lecture(app: FastAPI, tmp_path: Path) -> 
     started = time.perf_counter()
     count = await workdir.read_branch(
         space.id,
-        "principale",
+        "work/principale",
         space.repo_url,
         "x",
         None,  # type: ignore[attr-defined]

@@ -57,7 +57,9 @@ async def setup(app: FastAPI, tmp_path: Path) -> tuple[DraftCollector, GitSpace,
 
 
 async def _base_branch(collector: SourceCollector, space: GitSpace) -> None:
-    await collector._workdir.create_base_branch(space.id, "principale", space.repo_url, "x", None)
+    await collector._workdir.create_base_branch(
+        space.id, "work/principale", space.repo_url, "x", None
+    )
 
 
 def _raw(tmp_path: Path, space: GitSpace) -> Path:
@@ -68,7 +70,7 @@ def _raw(tmp_path: Path, space: GitSpace) -> Path:
 async def _collect(collector, space, source_url, *, force=False):
     return await collector.collect(
         space=space,
-        branch_slug="principale",
+        branch_slug="work/principale",
         branche_label="principale",
         space_username="x",
         space_token=None,
@@ -239,7 +241,7 @@ class _FakeEngine:
 async def _collect_sql(collector, space, engine, *, force=False):
     return await collector.collect_sql(
         space=space,
-        branch_slug="principale",
+        branch_slug="work/principale",
         branche_label="principale",
         space_username="x",
         space_token=None,
@@ -291,5 +293,3 @@ async def test_collect_sql_signale_les_schemas_inaccessibles(
     engine = _FakeEngine([], errors=[("prive", "insufficient_privilege")])
     report = await _collect_sql(collector, space, engine)
     assert any(e.source == "prive" for e in report.errors)
-
-

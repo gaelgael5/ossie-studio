@@ -7,6 +7,7 @@ import type { SourceInput, SourceItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { NoBranchNote } from '../components/NoBranchNote'
 import { useWorkspace } from '../workspace'
 
 function asList(value: unknown): string[] {
@@ -68,7 +69,7 @@ export function SourcesPage() {
   if (!ws.branchId) {
     return (
       <Frame>
-        <div className="empty-note">{t('noBranchYet')}</div>
+        <NoBranchNote spaceId={ws.spaceId} />
       </Frame>
     )
   }

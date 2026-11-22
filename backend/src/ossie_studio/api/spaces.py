@@ -263,11 +263,11 @@ async def get_railmap(
 ) -> dict[str, object]:
     space, username, token = await space_credentials(conn, crypto, space_id)
     branch_rows = await db_list_branches(conn, space_id)
-    branches = [(b.slug, b.kind) for b in branch_rows]
+    branches = [(b.git_ref, b.slug, b.kind) for b in branch_rows]
     user = await get_current_user(request, conn)
     assert user is not None
     viewed_id = await db_get_viewed_branch(conn, user.id, space_id)
-    viewed_slug = next((b.slug for b in branch_rows if b.id == viewed_id), None)
+    viewed_slug = next((b.git_ref for b in branch_rows if b.id == viewed_id), None)
     window = max(1, min(limit, _RAILMAP_MAX))
     start = max(0, offset)
     try:

@@ -77,4 +77,4 @@ async def gov_ctx(
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    return GovCtx(workdir, space_id, branch.slug, space.repo_url, username, token)
+    return GovCtx(workdir, space_id, branch.git_ref, space.repo_url, username, token)

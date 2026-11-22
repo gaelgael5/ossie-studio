@@ -51,6 +51,7 @@ ERROR_CODES: tuple[str, ...] = (
     "space_not_found",
     "space_base_required",
     "branch_slug_taken",
+    "branch_root_readonly",
     "branch_exists",
     "branch_not_found",
     "branch_changed",

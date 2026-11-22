@@ -69,7 +69,7 @@ async def draft_workdir(
 
 def view_dir(tmp_path: Path, space: GitSpace, branch_slug: str = "principale") -> Path:
     """Vue éphémère (la seule) de la branche : là où l'utilisateur voit son brouillon."""
-    views = sorted((tmp_path / "work" / str(space.id) / f"{branch_slug}.views").glob("*"))
+    views = sorted((tmp_path / "work" / str(space.id) / f"work~{branch_slug}.views").glob("*"))
     dirs = [v for v in views if v.is_dir()]
     assert dirs, "aucune vue de brouillon"
     return dirs[0]

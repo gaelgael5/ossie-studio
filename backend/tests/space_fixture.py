@@ -104,7 +104,9 @@ async def make_api_space(client: AsyncClient, app: FastAPI, tmp: Path) -> ApiSpa
             uuid.UUID(connection["id"]),
             url,
         )
-    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
+    base = await client.post(
+        f"/api/spaces/{space_id}/branches/base", json={"new_ref": "work/principale"}
+    )
     assert base.status_code == 201, base.text
     return ApiSpace(client, str(space_id), base.json()["id"], url, tmp)
 
@@ -134,7 +136,7 @@ async def draft_write(app: FastAPI, space: ApiSpace, rel: str, value: object | N
         target.write_text(json.dumps(value))
 
     await workdir.commit_to_branch(
-        uuid.UUID(space.space_id), "principale", space.url, "x", None, "a", "a", "écrit", write
+        uuid.UUID(space.space_id), "work/principale", space.url, "x", None, "a", "a", "écrit", write
     )
 
 

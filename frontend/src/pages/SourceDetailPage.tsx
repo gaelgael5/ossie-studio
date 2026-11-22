@@ -18,6 +18,7 @@ import type {
 } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { NoBranchNote } from '../components/NoBranchNote'
 import { useWorkspace } from '../workspace'
 
 type Tab =
@@ -90,7 +91,7 @@ export function SourceDetailPage() {
   if (!ready) {
     return (
       <main>
-        <div className="empty-note">{t('noBranchYet')}</div>
+        <NoBranchNote spaceId={ws.spaceId} />
       </main>
     )
   }

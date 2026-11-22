@@ -75,7 +75,7 @@ async def my_draft(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         current = await workdir.published_blobs(
-            space_id, branch.slug, space.repo_url, username, token, [o.path for o in objects]
+            space_id, branch.git_ref, space.repo_url, username, token, [o.path for o in objects]
         )
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
@@ -126,7 +126,7 @@ async def _merge_context(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         versions = await workdir.object_versions(
-            space_id, branch.slug, space.repo_url, username, token, objects
+            space_id, branch.git_ref, space.repo_url, username, token, objects
         )
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
@@ -137,7 +137,7 @@ async def _branch_slug(conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID)
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
-    return branch.slug
+    return branch.git_ref
 
 
 def _json(value: Any) -> Any:
@@ -362,7 +362,7 @@ async def draft_impacts(
     try:
         impacts = await workdir.read_branch(
             space_id,
-            branch.slug,
+            branch.git_ref,
             space.repo_url,
             username,
             token,
@@ -435,7 +435,7 @@ async def draft_validation(
         raise ApiError("branch_not_found", status_code=404)
     draft = await db_get_draft(conn, workdir.user_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    args = (space_id, branch.slug, space.repo_url, username, token, run_rules)
+    args = (space_id, branch.git_ref, space.repo_url, username, token, run_rules)
     try:
         published = await workdir.read_branch(*args, published=True)
         merged = await workdir.read_branch(*args) if draft is not None else published

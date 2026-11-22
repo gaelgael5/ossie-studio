@@ -35,6 +35,7 @@ from ossie_studio.spaces.branch_service import (
     db_get_viewed_branch,
     db_list_branches,
     db_set_viewed_branch,
+    is_valid_git_ref,
     is_valid_slug,
     slugify,
 )
@@ -55,6 +56,16 @@ class LabelBody(BaseModel):
     # Optionnel : l'écran le déduit du libellé et le laisse corriger ; absent, le
     # serveur le déduit lui-même (règle libellé → slug).
     slug: str = ""
+
+
+class BaseBody(BaseModel):
+    """Branche de base : on ADOPTE une branche existante de la forge (`git_ref`)
+    ou on en CRÉE une, tirée de la racine, sous le nom saisi (`new_ref`). Pas de
+    slug à saisir : le nom git est l'identité visible de la branche."""
+
+    model_config = ConfigDict(extra="forbid")
+    git_ref: str = ""
+    new_ref: str = ""
 
 
 class ViewedBody(BaseModel):
@@ -121,6 +132,37 @@ def _slug_from(body: LabelBody) -> str:
     return slug
 
 
+@router.get("/remote")
+async def list_remote_branches(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: SpacesBranch,
+    workdir: WorkdirDep,
+    space_id: uuid.UUID,
+) -> dict[str, object]:
+    """Branches du dépôt, pour choisir la branche de base. La racine est
+    signalée : elle reste en lecture seule et ne peut pas servir de base."""
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        heads, root = await workdir.remote_branches(space_id, space.repo_url, username, token)
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    tracked = {b.git_ref for b in await db_list_branches(conn, space_id)}
+    return {
+        "root": root,
+        "branches": [{"name": h, "is_root": h == root, "tracked": h in tracked} for h in heads],
+    }
+
+
+async def _free_branch_slug(conn: ConnDep, space_id: uuid.UUID, ref: str) -> str:
+    """Slug interne (jamais saisi) déduit du nom git, rendu libre par suffixe."""
+    base = slugify(ref.replace("/", "-")) or "branche"
+    slug, counter = base, 2
+    while await db_get_branch_by_slug(conn, space_id, slug) is not None:
+        slug, counter = f"{base}-{counter}", counter + 1
+    return slug
+
+
 @router.post("/base", status_code=201)
 async def create_base(
     conn: ConnDep,
@@ -128,21 +170,35 @@ async def create_base(
     _: SpacesBranch,
     workdir: WorkdirDep,
     space_id: uuid.UUID,
-    body: LabelBody,
+    body: BaseBody,
 ) -> dict[str, object]:
     space, username, token = await space_credentials(conn, crypto, space_id)
     existing_base = await db_get_base(conn, space_id)
     if existing_base is not None:
         # Rejeu : la base existe déjà, ni seconde branche ni erreur.
         return {**_payload(existing_base), "already_exists": True}
-    slug = _slug_from(body)
-    if await db_get_branch_by_slug(conn, space_id, slug) is not None:
-        raise ApiError("branch_slug_taken", status_code=409, slug=slug)
+    adopt, new = body.git_ref.strip(), body.new_ref.strip()
+    if bool(adopt) == bool(new):
+        raise ApiError("invalid_request", status_code=400, fields=["base_ref_required"])
+    ref = adopt or new
+    if not is_valid_git_ref(ref):
+        raise ApiError("invalid_request", status_code=400, fields=["branch_name_invalid"])
     try:
-        await workdir.create_base_branch(space_id, slug, space.repo_url, username, token)
+        heads, root = await workdir.remote_branches(space_id, space.repo_url, username, token)
+        if ref == root:
+            # La racine reste en lecture seule : on ne travaille jamais dessus.
+            raise ApiError("branch_root_readonly", status_code=409, ref=ref)
+        if adopt:
+            if adopt not in heads:
+                raise ApiError("branch_not_found", status_code=404)
+        else:
+            if new in heads:
+                raise ApiError("branch_exists", status_code=409)
+            await workdir.create_base_branch(space_id, new, space.repo_url, username, token)
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=409 if exc.code == "branch_exists" else 400) from None
-    branch = await db_create_branch(conn, space_id, body.label.strip(), slug, KIND_BASE)
+    slug = await _free_branch_slug(conn, space_id, ref)
+    branch = await db_create_branch(conn, space_id, ref, slug, KIND_BASE, git_ref=ref)
     return _payload(branch)
 
 
@@ -168,8 +224,8 @@ async def create_child(
     try:
         await workdir.create_child_branch(
             space_id,
-            base.slug,
-            slug,
+            base.git_ref,
+            f"work/{slug}",
             space.repo_url,
             username,
             token,
@@ -196,9 +252,7 @@ async def set_viewed(
     return {"ok": True}
 
 
-async def _branch_in_space(
-    conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID
-) -> SpaceBranch:
+async def _branch_in_space(conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID) -> SpaceBranch:
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
@@ -243,7 +297,7 @@ async def list_versions(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         versions = await workdir.list_versions(
-            space_id, branch.slug, space.repo_url, username, token
+            space_id, branch.git_ref, space.repo_url, username, token
         )
     except WorkdirError as exc:
         raise _version_error(exc) from None
@@ -277,7 +331,7 @@ async def create_version(
     try:
         result = await workdir.tag_version(
             space_id,
-            branch.slug,
+            branch.git_ref,
             space.repo_url,
             username,
             token,
@@ -309,7 +363,7 @@ async def restore_version(
     try:
         result = await workdir.restore_version(
             space_id,
-            branch.slug,
+            branch.git_ref,
             space.repo_url,
             username,
             token,
@@ -340,7 +394,9 @@ async def branch_head(
     branch = await _branch_in_space(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
-        sha = await workdir.published_head(space_id, branch.slug, space.repo_url, username, token)
+        sha = await workdir.published_head(
+            space_id, branch.git_ref, space.repo_url, username, token
+        )
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     return {"sha": sha}

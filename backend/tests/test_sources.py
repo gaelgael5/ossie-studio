@@ -156,7 +156,9 @@ async def branch(
             uuid.UUID(connection["id"]),
             url,
         )
-    base = await client.post(f"/api/spaces/{space_id}/branches/base", json={"label": "Principale"})
+    base = await client.post(
+        f"/api/spaces/{space_id}/branches/base", json={"new_ref": "work/principale"}
+    )
     branch_id = base.json()["id"]
     # La source référence la connexion par son slug (lisible et stable).
     return client, str(space_id), str(branch_id), connection["slug"]
@@ -164,7 +166,9 @@ async def branch(
 
 def _view(tmp_path: Path, space_id: str) -> Path:
     """Ce que voit la personne : la branche publiée avec son brouillon (vue éphémère)."""
-    views = [p for p in (tmp_path / "work" / space_id / "principale.views").glob("*") if p.is_dir()]
+    views = [
+        p for p in (tmp_path / "work" / space_id / "work~principale.views").glob("*") if p.is_dir()
+    ]
     assert views, "aucune vue de brouillon"
     return views[0]
 
@@ -195,9 +199,7 @@ async def test_declarer_git_source_ecrit_le_manifeste(
     listed = (await client.get(base)).json()["sources"]
     assert any(s["slug"] == "api-boutique" and s["ok"] for s in listed)
     # Le manifeste existe dans la copie de travail et ne contient aucun secret.
-    manifest = (
-        _view(tmp_path, space_id) / "sources" / "api-boutique" / "manifest.yaml"
-    )
+    manifest = _view(tmp_path, space_id) / "sources" / "api-boutique" / "manifest.yaml"
     content = manifest.read_text(encoding="utf-8")
     assert "type: git" in content
     assert GOOD_TOKEN not in content
@@ -376,9 +378,7 @@ async def test_declarer_openapi_sans_connexion(
     source = next(s for s in listed if s["slug"] == "api-paiement")
     assert source["type"] == "openapi"
     assert source["connexion"] == {"kind": "none"}
-    manifest = (
-        _view(tmp_path, space_id) / "sources" / "api-paiement" / "manifest.yaml"
-    )
+    manifest = _view(tmp_path, space_id) / "sources" / "api-paiement" / "manifest.yaml"
     assert "type: openapi" in manifest.read_text(encoding="utf-8")
 
 

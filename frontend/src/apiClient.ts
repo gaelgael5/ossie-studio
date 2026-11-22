@@ -723,11 +723,16 @@ export const api = {
       branches: { id: string; label: string; slug: string; kind: string; git_ref: string }[]
       viewed_branch_id: string | null
     }>(`/api/spaces/${spaceId}/branches`),
-  createBaseBranch: (spaceId: string, label: string, slug = '') =>
+  // Branche de base : adopter une branche existante (git_ref) OU en créer une (new_ref).
+  createBaseBranch: (spaceId: string, body: { git_ref: string } | { new_ref: string }) =>
     apiFetch(`/api/spaces/${spaceId}/branches/base`, {
       method: 'POST',
-      body: JSON.stringify({ label, slug }),
+      body: JSON.stringify(body),
     }),
+  listRemoteBranches: (spaceId: string) =>
+    apiFetch<{ root: string; branches: { name: string; is_root: boolean; tracked: boolean }[] }>(
+      `/api/spaces/${spaceId}/branches/remote`,
+    ),
   createChildBranch: (spaceId: string, label: string, slug = '') =>
     apiFetch(`/api/spaces/${spaceId}/branches/child`, {
       method: 'POST',

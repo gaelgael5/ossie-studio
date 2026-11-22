@@ -238,7 +238,7 @@ async def _publish_locked(
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
-    await _automerge(conn, crypto, workdir, space_id, branch_id, branch.slug)
+    await _automerge(conn, crypto, workdir, space_id, branch_id, branch.git_ref)
     ready = await publish_readiness(request, conn, crypto, workdir, user, space_id, branch_id)
     # Le verrou est le nôtre : « publication en cours » ne bloque pas ici.
     reasons = [r for r in ready.reasons if r != "publish_in_progress"]
@@ -262,7 +262,7 @@ async def _publish_locked(
     try:
         sha = await workdir.manager.push_objects(
             space_id,
-            branch.slug,
+            branch.git_ref,
             space.repo_url,
             read_username,
             read_token,
@@ -277,7 +277,7 @@ async def _publish_locked(
         raise _publish_error(exc) from None
     # Ne retirer du brouillon que ce qui vient d'être publié tel quel : une
     # écriture faite pendant le push (collecte, autre onglet) reste au brouillon.
-    async with workdir.draft_lock(space_id, branch.slug):
+    async with workdir.draft_lock(space_id, branch.git_ref):
         emptied = await db_remove_published(
             conn,
             draft.id,
@@ -287,6 +287,6 @@ async def _publish_locked(
             ],
         )
     if emptied:
-        await workdir.discard_view(space_id, branch.slug)
+        await workdir.discard_view(space_id, branch.git_ref)
     log.info("draft_publication_done", space_id=str(space_id), objects=len(objects))
     return {"commit": sha, "published": len(objects)}

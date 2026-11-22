@@ -11,6 +11,7 @@ import { useSession } from '../hooks'
 import { SpaceTeamsSection } from './SpaceTeamsSection'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { CreateButton, CreatePanel } from '../components/CreatePanel'
+import { BaseBranchPicker } from '../components/BaseBranchPicker'
 import { CredentialBlock } from '../components/CredentialBlock'
 
 export function SpaceDetailPage() {
@@ -25,11 +26,9 @@ export function SpaceDetailPage() {
   }
   const closeCreate = () => {
     setCreating(false)
-    base.reset()
     child.reset()
   }
   const [notice, setNotice] = useState('')
-  const base = useLabelSlug()
   const child = useLabelSlug()
   const [versionLabel, setVersionLabel] = useState('')
   const [railLimit, setRailLimit] = useState(200)
@@ -60,14 +59,6 @@ export function SpaceDetailPage() {
       timeStyle: 'short',
     }).format(new Date(iso))
 
-  const createBase = useMutation({
-    mutationFn: () => api.createBaseBranch(spaceId, base.label, base.finalSlug),
-    onSuccess: async () => {
-      closeCreate()
-      await invalidate()
-    },
-    onError,
-  })
   const createChild = useMutation({
     mutationFn: () => api.createChildBranch(spaceId, child.label, child.finalSlug),
     onSuccess: async () => {
@@ -142,48 +133,41 @@ export function SpaceDetailPage() {
         title={t('branchesTitle')}
         subtitle={t('branchesIntro')}
         actions={
-          <CreateButton open={creating} onOpen={openCreate}>
-            {hasBase ? t('newChildButton') : t('newBaseButton')}
-          </CreateButton>
+          hasBase ? (
+            <CreateButton open={creating} onOpen={openCreate}>
+              {t('newChildButton')}
+            </CreateButton>
+          ) : null
         }
       />
       <ErrorList messages={messages} />
-      {creating ? (
+      {data && !hasBase ? (
         <div className="page-section">
-          <CreatePanel title={hasBase ? t('newChildTitle') : t('newBaseTitle')} onCancel={closeCreate}>
-            {hasBase ? (
-              <form
-                className="stack"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  setMessages([])
-                  createChild.mutate()
-                }}
-              >
-                <LabelSlugFields idPrefix="child" state={child} labelText={t('childLabelField')} slugText={t('slugLabel')} />
-                <div>
-                  <button type="submit" className="btn btn-primary" disabled={createChild.isPending}>
-                    {t('createChildButton')}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <form
-                className="stack"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  setMessages([])
-                  createBase.mutate()
-                }}
-              >
-                <LabelSlugFields idPrefix="base" state={base} labelText={t('baseLabelField')} slugText={t('slugLabel')} />
-                <div>
-                  <button type="submit" className="btn btn-primary" disabled={createBase.isPending}>
-                    {t('createBaseButton')}
-                  </button>
-                </div>
-              </form>
-            )}
+          <section className="panel panel-form stack" aria-label={t('newBaseTitle')}>
+            <h3 className="panel-title">{t('newBaseTitle')}</h3>
+            <p className="muted">{t('baseBranchIntro')}</p>
+            <BaseBranchPicker spaceId={spaceId} onDone={invalidate} onError={setMessages} />
+          </section>
+        </div>
+      ) : null}
+      {creating && hasBase ? (
+        <div className="page-section">
+          <CreatePanel title={t('newChildTitle')} onCancel={closeCreate}>
+            <form
+              className="stack"
+              onSubmit={(e) => {
+                e.preventDefault()
+                setMessages([])
+                createChild.mutate()
+              }}
+            >
+              <LabelSlugFields idPrefix="child" state={child} labelText={t('childLabelField')} slugText={t('slugLabel')} />
+              <div>
+                <button type="submit" className="btn btn-primary" disabled={createChild.isPending}>
+                  {t('createChildButton')}
+                </button>
+              </div>
+            </form>
           </CreatePanel>
         </div>
       ) : null}

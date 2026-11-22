@@ -55,7 +55,9 @@ async def test_deux_espaces_gouvernances_independantes(
             connection_id,
             other_url,
         )
-    base = await client.post(f"/api/spaces/{other_id}/branches/base", json={"label": "Principale"})
+    base = await client.post(
+        f"/api/spaces/{other_id}/branches/base", json={"new_ref": "work/principale"}
+    )
     other = ApiSpace(client, str(other_id), base.json()["id"], other_url, gov.space.tmp)
     listing = (await Rebased(client, other).get("/api/governance/tags")).json()
     assert listing["tags"] == []

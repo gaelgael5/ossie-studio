@@ -86,11 +86,11 @@ def _raw(tmp_path: Path, space: GitSpace) -> Path:
 
 
 async def _prepare_source(collector: SourceCollector, space: GitSpace) -> None:
-    await collector._workdir.create_base_branch(space.id, "principale", space.repo_url, "x", None)
-    manifest = SourceManifest(slug="api", label="API", type="openapi", connexion="", parametres={})
-    await declare_source(
-        collector.dw, space, "principale", "x", None, "a@a", "a@a", manifest
+    await collector._workdir.create_base_branch(
+        space.id, "work/principale", space.repo_url, "x", None
     )
+    manifest = SourceManifest(slug="api", label="API", type="openapi", connexion="", parametres={})
+    await declare_source(collector.dw, space, "work/principale", "x", None, "a@a", "a@a", manifest)
 
 
 def _entry(version: str) -> ContractEntry:
@@ -109,14 +109,14 @@ def _entry(version: str) -> ContractEntry:
 
 async def _commit(collector: SourceCollector, space: GitSpace, write_fn, msg: str) -> None:
     await collector.dw.commit_to_branch(
-        space.id, "principale", space.repo_url, "x", None, "a@a", "a@a", msg, write_fn
+        space.id, "work/principale", space.repo_url, "x", None, "a@a", "a@a", msg, write_fn
     )
 
 
 async def _collect(collector: SourceCollector, space: GitSpace, *, force: bool = False):
     return await collector.collect_openapi(
         space=space,
-        branch_slug="principale",
+        branch_slug="work/principale",
         branche_label="principale",
         space_username="x",
         space_token=None,

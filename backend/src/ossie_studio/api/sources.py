@@ -133,7 +133,7 @@ async def _branch_slug(conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID)
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
-    return branch.slug
+    return branch.git_ref
 
 
 async def _resolve_connection(
@@ -437,7 +437,7 @@ async def collect_branch_source(
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
-    branch_slug = branch.slug
+    branch_slug = branch.git_ref
     space, space_username, space_token = await space_credentials(conn, crypto, space_id)
     entries = await list_sources(workdir, space, branch_slug, space_username, space_token)
     entry = next((e for e in entries if e.slug == slug and e.manifest is not None), None)
@@ -552,7 +552,7 @@ async def list_source_collections(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         commits = await workdir.file_history(
-            space_id, branch.slug, space.repo_url, username, token, f"sources/{slug}", 100
+            space_id, branch.git_ref, space.repo_url, username, token, f"sources/{slug}", 100
         )
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
@@ -589,7 +589,7 @@ async def list_source_scan(
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
     files = await db_list_scan_files(
-        conn, space_id=space_id, branch_slug=branch.slug, source_slug=slug
+        conn, space_id=space_id, branch_slug=branch.git_ref, source_slug=slug
     )
     return {"fichiers": [_scan_payload(f) for f in files]}
 

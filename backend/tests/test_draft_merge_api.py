@@ -45,7 +45,7 @@ async def _draft_write(app: FastAPI, sp: ApiSpace, rel: str, value: object | Non
         target.write_text(json.dumps(value))
 
     await workdir.commit_to_branch(
-        uuid.UUID(sp.space_id), "principale", sp.url, "x", None, "a", "a", "écrit", write
+        uuid.UUID(sp.space_id), "work/principale", sp.url, "x", None, "a", "a", "écrit", write
     )
 
 

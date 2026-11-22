@@ -37,7 +37,7 @@ async def test_create_base_pose_arborescence(tmp_path: Path) -> None:
     url = _seed_bare(tmp_path)
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.create_base_branch(space_id, "work/principale", url, "x", None)
     assert "refs/heads/work/principale" in _refs(url)
 
 
@@ -45,9 +45,9 @@ async def test_base_existante_rejetee(tmp_path: Path) -> None:
     url = _seed_bare(tmp_path)
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.create_base_branch(space_id, "work/principale", url, "x", None)
     with pytest.raises(WorkdirError) as exc:
-        await manager.create_base_branch(space_id, "principale", url, "x", None)
+        await manager.create_base_branch(space_id, "work/principale", url, "x", None)
     assert exc.value.code == "branch_exists"
 
 
@@ -55,8 +55,8 @@ async def test_child_depuis_la_base(tmp_path: Path) -> None:
     url = _seed_bare(tmp_path)
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    await manager.create_child_branch(space_id, "principale", "feature-a", url, "x", None)
+    await manager.create_base_branch(space_id, "work/principale", url, "x", None)
+    await manager.create_child_branch(space_id, "work/principale", "work/feature-a", url, "x", None)
     assert "refs/heads/work/feature-a" in _refs(url)
 
 
@@ -134,15 +134,15 @@ async def test_tag_version_cree_un_tag_annote(tmp_path: Path) -> None:
     url = _seed_bare(tmp_path)
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.create_base_branch(space_id, "work/principale", url, "x", None)
     created = await manager.tag_version(
-        space_id, "principale", url, "x", None, "Première", "Alice", "alice@example.org"
+        space_id, "work/principale", url, "x", None, "Première", "Alice", "alice@example.org"
     )
     assert created.number == 1
     assert created.already_exists is False
     assert "refs/tags/version/1" in _refs(url)
 
-    listed = await manager.list_versions(space_id, "principale", url, "x", None)
+    listed = await manager.list_versions(space_id, "work/principale", url, "x", None)
     assert len(listed) == 1
     assert listed[0].number == 1
     assert listed[0].label == "Première"
@@ -153,11 +153,11 @@ async def test_tag_version_rien_a_figer(tmp_path: Path) -> None:
     url = _seed_bare(tmp_path)
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    await manager.tag_version(space_id, "principale", url, "x", None, "A", "Alice", "a@a")
+    await manager.create_base_branch(space_id, "work/principale", url, "x", None)
+    await manager.tag_version(space_id, "work/principale", url, "x", None, "A", "Alice", "a@a")
     # Même tête, autre libellé : rien de neuf à figer.
     with pytest.raises(WorkdirError) as exc:
-        await manager.tag_version(space_id, "principale", url, "x", None, "B", "Alice", "a@a")
+        await manager.tag_version(space_id, "work/principale", url, "x", None, "B", "Alice", "a@a")
     assert exc.value.code == "nothing_to_version"
 
 
@@ -165,10 +165,12 @@ async def test_tag_version_rejeu_signale(tmp_path: Path) -> None:
     url = _seed_bare(tmp_path)
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    await manager.tag_version(space_id, "principale", url, "x", None, "A", "Alice", "a@a")
+    await manager.create_base_branch(space_id, "work/principale", url, "x", None)
+    await manager.tag_version(space_id, "work/principale", url, "x", None, "A", "Alice", "a@a")
     # Même tête, même libellé : sans effet, signalé.
-    again = await manager.tag_version(space_id, "principale", url, "x", None, "A", "Alice", "a@a")
+    again = await manager.tag_version(
+        space_id, "work/principale", url, "x", None, "A", "Alice", "a@a"
+    )
     assert again.number == 1
     assert again.already_exists is True
 
@@ -180,12 +182,12 @@ async def test_tag_version_numero_suit_le_depot(tmp_path: Path) -> None:
     _push_tag(tmp_path, url, "version/5", annotated=False, name="m5")
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
+    await manager.create_base_branch(space_id, "work/principale", url, "x", None)
     created = await manager.tag_version(
-        space_id, "principale", url, "x", None, "Six", "Alice", "a@a"
+        space_id, "work/principale", url, "x", None, "Six", "Alice", "a@a"
     )
     assert created.number == 6
-    listed = await manager.list_versions(space_id, "principale", url, "x", None)
+    listed = await manager.list_versions(space_id, "work/principale", url, "x", None)
     assert [v.number for v in listed] == [6]
 
 
@@ -195,8 +197,8 @@ async def test_tag_version_numero_pris_refuse(
     url = _seed_bare(tmp_path)
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    await manager.tag_version(space_id, "principale", url, "x", None, "A", "Alice", "a@a")
+    await manager.create_base_branch(space_id, "work/principale", url, "x", None)
+    await manager.tag_version(space_id, "work/principale", url, "x", None, "A", "Alice", "a@a")
     # La tête avance sur la forge (sinon « rien à figer »).
     _advance_forge(tmp_path, url, "work/principale", "x")
 
@@ -205,12 +207,10 @@ async def test_tag_version_numero_pris_refuse(
 
     monkeypatch.setattr(manager, "_remote_version_numbers", _stale)
     with pytest.raises(WorkdirError) as exc:
-        await manager.tag_version(space_id, "principale", url, "x", None, "B", "Alice", "a@a")
+        await manager.tag_version(space_id, "work/principale", url, "x", None, "B", "Alice", "a@a")
     assert exc.value.code == "version_taken"
     # Le tag reste tel quel sur la forge (push sans force, aucune réécriture).
     assert "refs/tags/version/1" in _refs(url)
-
-
 
 
 async def test_copie_de_lecture_jette_les_commits_locaux_herites(tmp_path: Path) -> None:
@@ -219,13 +219,13 @@ async def test_copie_de_lecture_jette_les_commits_locaux_herites(tmp_path: Path)
     url = _seed_bare(tmp_path)
     manager = WorkdirManager(tmp_path / "vol")
     space_id = uuid.uuid4()
-    await manager.create_base_branch(space_id, "principale", url, "x", None)
-    copy = manager.copy_dir(space_id, "principale")
+    await manager.create_base_branch(space_id, "work/principale", url, "x", None)
+    copy = manager.copy_dir(space_id, "work/principale")
     (copy / "local.txt").write_text("hérité")
     _local_commit(copy)
     _advance_forge(tmp_path, url, "work/principale", "x")
     seen = await manager.read_branch(
-        space_id, "principale", url, "x", None, lambda wc: sorted(p.name for p in wc.iterdir())
+        space_id, "work/principale", url, "x", None, lambda wc: sorted(p.name for p in wc.iterdir())
     )
     assert "local.txt" not in seen
     assert "x.txt" in seen  # la tête distante est bien là
