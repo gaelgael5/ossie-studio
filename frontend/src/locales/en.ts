@@ -755,6 +755,7 @@ export const en = {
       governance: 'Governance',
     },
     mcpPrim: {
+      get_reference_graph: 'Neighbourhood of a raw object: what it references and who references it',
       list_contracts: 'List the OpenAPI contracts of a source',
       get_collect_status: 'Follow a collection',
       declare_source: 'Declare a source',

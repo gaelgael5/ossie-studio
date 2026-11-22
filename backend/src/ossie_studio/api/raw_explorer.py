@@ -13,10 +13,8 @@ capacité distincte n'apporterait rien tant qu'il ne modifie rien.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
-from pathlib import Path
 from typing import Annotated
 
 import structlog
@@ -31,24 +29,20 @@ from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.links import forge_file_url
-from ossie_studio.governance.builtin_tag_rules import BUILTIN_RULES_VERSION
-from ossie_studio.governance.tag_rules import active_rules, parse_rule, read_tag_removals
+from ossie_studio.governance.tag_rules import parse_rule
 from ossie_studio.parsers.base import STATUT_ERREUR
-from ossie_studio.sources.curation import is_schema_file, read_review_point
+from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.explorer import (
     DEFAULT_MODE,
     GIT_SOURCE_TYPE,
-    INDEX_FORMAT,
     MODES,
     ExplorerDocument,
     ExplorerObject,
     ObjectTag,
     SourceEntries,
     SourceIndex,
-    collect_source_entries,
     folder_item_count,
     index_from_entries,
-    list_source_slugs,
     object_folder,
     search_objects,
     sort_objects,
@@ -57,13 +51,12 @@ from ossie_studio.sources.explorer import (
 from ossie_studio.sources.explorer_detail import SpaceObjects, document_detail, object_detail
 from ossie_studio.sources.explorer_graph import ReferenceGraph
 from ossie_studio.sources.explorer_history import schema_changes
+from ossie_studio.sources.explorer_service import ensure_index, reference_graph
 from ossie_studio.sources.explorer_store import (
     IndexKey,
     db_all_source_entries,
     db_get_source_entries,
-    db_index_signature,
     db_list_indexed_sources,
-    db_replace_index,
 )
 from ossie_studio.sources.explorer_tags import apply_tag_rules, dependents_losing, index_removals
 from ossie_studio.sources.manifest import ManifestError, parse_manifest
@@ -153,11 +146,6 @@ async def _scan(conn: ConnDep, space_id: uuid.UUID, branch_ref: str, slug: str) 
     )
 
 
-# Une reconstruction à la fois par index : dix clics pendant qu'un index se
-# reconstruit attendent celle en cours au lieu d'en lancer dix.
-_BUILD_LOCKS: dict[IndexKey, asyncio.Lock] = {}
-
-
 async def _ensure_index(
     conn: ConnDep,
     crypto: CryptoDep,
@@ -166,55 +154,15 @@ async def _ensure_index(
     branch_id: uuid.UUID,
 ) -> tuple[IndexKey, str]:
     """Clé d'un index à jour (reconstruit si sa signature a changé) et la
-    référence git de la branche. Le cas courant — rien n'a bougé — ne lit que la
-    base : ni vue de brouillon, ni relecture de raw/."""
+    référence git de la branche (service partagé avec la surface MCP)."""
     branch_ref = await _branch_ref(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
-        view, signature = await workdir.view_signature(
-            space.id, branch_ref, space.repo_url, username, token
+        key, _signature = await ensure_index(
+            conn, workdir, space, branch_id, branch_ref, username, token
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
-    # Les règles fournies par Ossie font partie du produit : leur version entre
-    # dans la signature (une nouvelle livraison de règles reconstruit l'index).
-    signature = f"v{INDEX_FORMAT}.{BUILTIN_RULES_VERSION}:{signature}"
-    key = IndexKey(space_id=space_id, branch_id=branch_id, user_id=workdir.user_id, view=view)
-    if await db_index_signature(conn, key) == signature:
-        return key, branch_ref
-    lock = _BUILD_LOCKS.setdefault(key, asyncio.Lock())
-    async with lock:
-        if await db_index_signature(conn, key) == signature:
-            return key, branch_ref
-
-        def read(wc: Path) -> list[SourceEntries]:
-            # Les tags se calculent ici, sur toutes les sources à la fois (une
-            # chaîne d'héritage peut en traverser deux) ; les règles sont dans
-            # le dépôt, donc dans la signature : les modifier reconstruit l'index.
-            return apply_tag_rules(
-                [
-                    collect_source_entries(wc, slug, review_base=read_review_point(wc, slug))
-                    for slug in list_source_slugs(wc)
-                ],
-                active_rules(wc),
-                {(r.object, r.tag) for r in read_tag_removals(wc)},
-            )
-
-        try:
-            sources = await workdir.read_branch(
-                space.id, branch_ref, space.repo_url, username, token, read
-            )
-        except WorkdirError as exc:
-            raise _workdir_error(exc) from None
-        await db_replace_index(conn, key, signature, sources)
-        log.info(
-            "raw_explorer_index_rebuilt",
-            space_id=str(space_id),
-            branch=branch_ref,
-            view=view,
-            sources=len(sources),
-            objects=sum(len(s.objects) for s in sources),
-        )
     return key, branch_ref
 
 
@@ -488,22 +436,8 @@ async def tag_rule_preview(
     return {"objects": count, "inherited": inherited, "examples": examples}
 
 
-# Le graphe porte aussi l'index inverse des références (entrantes).
-_SPACE_CACHE: dict[tuple[IndexKey, str, str], ReferenceGraph] = {}
-_SPACE_CACHE_MAX = 32
-
-
 async def _reference_graph(conn: ConnDep, key: IndexKey, mode: str) -> ReferenceGraph:
-    signature = await db_index_signature(conn, key) or ""
-    cache_key = (key, signature, mode)
-    cached = _SPACE_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
-    graph = ReferenceGraph(await db_all_source_entries(conn, key), mode)
-    if len(_SPACE_CACHE) >= _SPACE_CACHE_MAX:
-        _SPACE_CACHE.clear()
-    _SPACE_CACHE[cache_key] = graph
-    return graph
+    return await reference_graph(conn, key, mode)
 
 
 async def _space_objects(conn: ConnDep, key: IndexKey, mode: str) -> SpaceObjects:

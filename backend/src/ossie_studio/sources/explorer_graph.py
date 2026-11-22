@@ -169,11 +169,14 @@ class ReferenceGraph:
             "level": level,
         }
 
-    def build(self, center: NodeKey, depth: int = 1) -> dict[str, Any] | None:
+    def build(
+        self, center: NodeKey, depth: int = 1, direction: str = "both"
+    ) -> dict[str, Any] | None:
         """Graphe centré sur `center` jusqu'à `depth` (1 à 3). Les sortantes
         s'étendent vers la droite (niveaux positifs), les entrantes vers la
         gauche ; un objet déjà placé ne l'est pas deux fois, un lien (cycle
-        compris) n'est dessiné qu'une fois."""
+        compris) n'est dessiné qu'une fois. `direction` : `both`, `outgoing`
+        (seulement ce que l'objet référence) ou `incoming` (qui le référence)."""
         if center not in self._objects:
             return None
         depth = max(1, min(MAX_DEPTH, depth))
@@ -214,13 +217,13 @@ class ReferenceGraph:
             level = levels[key]
             out_level = level + 1 if level >= 0 else level - 1
             in_level = level - 1 if level <= 0 else level + 1
-            for ref in self._objects[key].obj.refs:
+            for ref in self._objects[key].obj.refs if direction != "incoming" else ():
                 target = self._resolve(ref)
                 if target is None:
                     target = ("", f"ext:{ref.target.rsplit('/', 1)[-1]}")
                 if place(target, out_level):
                     link(key, target, ref, "outgoing")
-            for source, ref in self._incoming.get(key, []):
+            for source, ref in self._incoming.get(key, []) if direction != "outgoing" else []:
                 if place(source, in_level):
                     link(source, key, ref, "incoming")
 

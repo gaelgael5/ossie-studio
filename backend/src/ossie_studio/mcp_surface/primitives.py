@@ -7,7 +7,7 @@ from collections.abc import Mapping
 
 from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
-from ossie_studio.mcp_surface import reads, source_writes, writes
+from ossie_studio.mcp_surface import reads, references, source_writes, writes
 from ossie_studio.mcp_surface.branch import BranchArgs, ObjectArgs, SourceArgs, ViewArgs
 from ossie_studio.mcp_surface.core import (
     Implementation,
@@ -34,6 +34,9 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "list_sources": Implementation(ViewArgs, reads.list_sources),
     "list_raw_schemas": Implementation(SourceArgs, reads.list_raw_schemas),
     "read_raw_schema": Implementation(ObjectArgs, reads.read_raw_schema),
+    "get_reference_graph": Implementation(
+        references.ReferenceGraphArgs, references.get_reference_graph
+    ),
     "list_assets": Implementation(SourceArgs, reads.list_assets),
     "read_asset": Implementation(ObjectArgs, reads.read_asset),
     "get_tri_rules": Implementation(SourceArgs, reads.get_tri_rules),

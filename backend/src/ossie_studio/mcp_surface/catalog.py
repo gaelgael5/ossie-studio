@@ -207,6 +207,23 @@ CATALOG: tuple[Primitive, ...] = (
         capability="sources:read",
         description="Read one raw schema of a source, as collected (JSON Schema)." + _DRAFT_NOTE,
     ),
+    Primitive(
+        id="get_reference_graph",
+        domain="sources",
+        access="read",
+        capability="sources:read",
+        description=(
+            "Neighbourhood of a raw object in the reference graph: what it references "
+            "(direction='outgoing'), who references it across all sources of the space "
+            "(direction='incoming'), or both, over 1 to 3 levels. Edges carry the field, the "
+            "kind (field, list, map, inherits, foreign_key) and the cardinality. Use it to find "
+            "the objects that reference an object instead of reading every schema. Limits: a "
+            "reference left unresolved (external type) has no incoming side; across two "
+            "sources only SQL foreign keys are linked. Truncated beyond 40 nodes."
+            + _DRAFT_NOTE
+        ),
+        idempotent=True,
+    ),
     # --- Assets (curation)
     Primitive(
         id="list_assets",
