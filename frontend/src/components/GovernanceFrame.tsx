@@ -2,10 +2,11 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
-export type GovernanceTab = 'tags' | 'certifications' | 'classifications' | 'invalid'
+export type GovernanceTab = 'tags' | 'tagRules' | 'certifications' | 'classifications' | 'invalid'
 
 const TABS: { id: GovernanceTab; to: string; key: string }[] = [
   { id: 'tags', to: '/governance/tags', key: 'tabTags' },
+  { id: 'tagRules', to: '/governance/tag-rules', key: 'tabTagRules' },
   { id: 'certifications', to: '/governance/certifications', key: 'tabCertifications' },
   { id: 'classifications', to: '/governance/classifications', key: 'tabClassifications' },
   { id: 'invalid', to: '/governance/invalid-values', key: 'tabInvalidValues' },
@@ -13,7 +14,7 @@ const TABS: { id: GovernanceTab; to: string; key: string }[] = [
 
 /**
  * Cadre partagé par les pages Gouvernance : fil d'Ariane, titre, sous-titre
- * propre à l'onglet, actions à droite, et la barre des quatre onglets.
+ * propre à l'onglet, actions à droite, et la barre des onglets.
  */
 export function GovernanceFrame({
   active,

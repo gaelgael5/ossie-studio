@@ -322,3 +322,36 @@ async def test_api_regle_invalide_et_suppression(sp: ApiSpace) -> None:
     assert (await sp.client.put(f"{url}/x", json=ok)).status_code == 200
     assert (await sp.client.delete(f"{url}/x")).status_code == 204
     assert (await sp.client.get(url)).json()["rules"] == []
+
+
+async def test_api_decompte_et_apercu_sur_l_index(sp: ApiSpace) -> None:
+    forge_edit(sp, _files())
+    explorer = f"{sp.base}/raw-explorer/tag-rules"
+    body = {
+        "name": "Contrôleurs",
+        "files": ["*.cs"],
+        "when": {"inherits": ["ControllerBase"]},
+        "tags": ["service"],
+        "inherit_tags": True,
+    }
+    # Aperçu avant enregistrement : rien n'est écrit, la règle s'applique seule.
+    r = await sp.client.post(f"{explorer}/preview", json=body)
+    assert r.status_code == 200, r.text
+    preview = r.json()
+    assert preview["objects"] == 3 and preview["inherited"] == 2
+    first = {e["title"]: e for e in preview["examples"]}["OrdersController"]
+    assert first["folder"] == "src/Api" and first["inherited"] is False
+    assert (await sp.client.get(f"{explorer}/usage")).json()["rules"] == {}
+    # Aucun objet reconnu : zéro, sans erreur.
+    r = await sp.client.post(f"{explorer}/preview", json={**body, "when": {"name": ["Nope*"]}})
+    assert r.json() == {"objects": 0, "inherited": 0, "examples": []}
+    r = await sp.client.post(f"{explorer}/preview", json={**body, "files": []})
+    assert r.status_code == 400 and r.json()["error"] == "tag_rule_invalid"
+
+    await sp.client.put(f"{sp.base}/governance/tag-rules/ctrl", json=body)
+    usage = (await sp.client.get(f"{explorer}/usage")).json()["rules"]
+    assert usage["ctrl"]["objects"] == 3 and usage["ctrl"]["inherited"] == 2
+    # Aperçu d'une modification de la règle enregistrée : les anciens tags ne
+    # survivent pas (seuls ceux de la règle modifiée comptent).
+    r = await sp.client.post(f"{explorer}/preview", json={**body, "inherit_tags": False})
+    assert r.json()["objects"] == 1

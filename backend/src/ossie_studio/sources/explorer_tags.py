@@ -79,11 +79,12 @@ def _match(rule: TagRule, obj: ExplorerObject, bases: list[str]) -> tuple[str, s
 def apply_tag_rules(
     sources: Iterable[SourceEntries], rules: Iterable[TagRule]
 ) -> list[SourceEntries]:
-    """Les sources avec, sur chaque objet, les tags posés par les règles."""
+    """Les sources avec, sur chaque objet, les tags posés par les règles (et
+    seulement eux)."""
     source_list = list(sources)
     active = [r for r in rules if r.enabled]
     if not active:
-        return source_list
+        return [replace(s, objects=[replace(o, tags=()) for o in s.objects]) for s in source_list]
     space = SpaceObjects(source_list, "origin")
     objects: dict[ObjKey, ExplorerObject] = {
         (s.slug, o.file): o for s in source_list for o in s.objects
@@ -136,13 +137,18 @@ def apply_tag_rules(
                     )
                 queue.append(child)
 
+    # Les tags sont toujours recalculés en entier : des tags déjà présents
+    # (index relu pour un aperçu) ne doivent pas survivre à la règle modifiée.
     return [
         replace(
             s,
             objects=[
-                replace(o, tags=tuple(sorted(tags[(s.slug, o.file)].values(), key=lambda t: t.tag)))
-                if (s.slug, o.file) in tags
-                else o
+                replace(
+                    o,
+                    tags=tuple(
+                        sorted(tags.get((s.slug, o.file), {}).values(), key=lambda t: t.tag)
+                    ),
+                )
                 for o in s.objects
             ],
         )
