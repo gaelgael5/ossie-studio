@@ -71,10 +71,26 @@ export function Layout({ children }: { children: ReactNode }) {
   )
 }
 
+// Pages sans rapport avec le contenu d'une branche : les Réglages (globaux) et
+// les pages personnelles. La barre du brouillon et de la publication n'y a pas
+// de sens ; elle n'y est pas affichée.
+const OUTSIDE_BRANCH_PREFIXES = [
+  ...SETTINGS_NAV.map((item) => item.prefix),
+  '/agent-connections',
+  '/oauth/consent',
+]
+
+export function showsBranchDraftBar(pathname: string): boolean {
+  return !OUTSIDE_BRANCH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+}
+
 function BranchDraftBar() {
   const ws = useWorkspace()
-  useBranchHead(ws.spaceId, ws.branchId)
-  if (!ws.spaceId || !ws.branchId) return null
+  const { pathname } = useLocation()
+  const shown = showsBranchDraftBar(pathname)
+  // Hors branche, inutile de suivre la tête de la branche non plus.
+  useBranchHead(shown ? ws.spaceId : null, shown ? ws.branchId : null)
+  if (!shown || !ws.spaceId || !ws.branchId) return null
   return <DraftBar spaceId={ws.spaceId} branchId={ws.branchId} />
 }
 
