@@ -15,21 +15,20 @@ from ossie_studio.api.common import GovernanceRead, GovernanceWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep, gov_ctx
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
-from ossie_studio.governance.certifications import PRESETS, validate_certification
+from ossie_studio.governance import actions
+from ossie_studio.governance.certifications import PRESETS
 from ossie_studio.governance.repo import (
     Cert,
     Tag,
-    delete_cert,
-    delete_tag,
     new_id,
     read_certs,
     read_tags,
     write_cert,
     write_tag,
 )
-from ossie_studio.governance.tags import normalize_tag_id, validate_tag_fields
+from ossie_studio.governance.tags import normalize_tag_id
 from ossie_studio.governance.yaml_io import TagImportError, export_tags_yaml, parse_tags_yaml
-from ossie_studio.slugs import is_valid_slug, slugify
+from ossie_studio.slugs import slugify
 
 log = structlog.get_logger(__name__)
 
@@ -93,22 +92,14 @@ async def create_tag(
     branch_id: uuid.UUID,
     body: TagCreate,
 ) -> dict[str, object]:
-    tag_id = normalize_tag_id(body.id)
-    errors = validate_tag_fields(tag_id, body.links, body.properties)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    tag = Tag(
-        tag_id, body.owner.strip(), body.description.strip(), body.links, dict(body.properties)
-    )
-
-    def write(root: Path) -> None:
-        if any(t.id == tag_id for t in read_tags(root)):
-            raise ApiError("tag_id_taken", status_code=409, tag_id=tag_id)
-        write_tag(root, tag)
-
+    values = body.model_dump(exclude={"id"})
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"tag {tag_id}", write)
-    log.info("governed_tag_created", tag_id=tag_id)
+    tag = await ctx.write(
+        user.email,
+        f"tag {normalize_tag_id(body.id)}",
+        lambda root: actions.create_tag(root, body.id, values),
+    )
+    log.info("governed_tag_created", tag_id=tag.id)
     return _payload(tag)
 
 
@@ -160,21 +151,14 @@ async def update_tag(
     tag_id: str,
     body: TagUpdate,
 ) -> dict[str, object]:
-    normalized = normalize_tag_id(tag_id)
-    errors = validate_tag_fields(normalized, body.links, body.properties)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    tag = Tag(
-        normalized, body.owner.strip(), body.description.strip(), body.links, dict(body.properties)
-    )
-
-    def write(root: Path) -> None:
-        if not any(t.id == normalized for t in read_tags(root)):
-            raise ApiError("tag_not_found", status_code=404, tag_id=normalized)
-        write_tag(root, tag)
-
+    # L'écran remplace le tag : il donne tous les champs.
+    changes = body.model_dump()
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"tag {normalized}", write)
+    tag = await ctx.write(
+        user.email,
+        f"tag {normalize_tag_id(tag_id)}",
+        lambda root: actions.update_tag(root, tag_id, changes),
+    )
     return _payload(tag)
 
 
@@ -188,16 +172,12 @@ async def remove_tag(
     branch_id: uuid.UUID,
     tag_id: str,
 ) -> None:
-    normalized = normalize_tag_id(tag_id)
-    if validate_tag_fields(normalized, {}, {}):
-        raise ApiError("tag_not_found", status_code=404, tag_id=normalized)
-
-    def write(root: Path) -> None:
-        if not delete_tag(root, normalized):
-            raise ApiError("tag_not_found", status_code=404, tag_id=normalized)
-
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"supprime le tag {normalized}", write)
+    await ctx.write(
+        user.email,
+        f"supprime le tag {normalize_tag_id(tag_id)}",
+        lambda root: actions.delete_tag(root, tag_id),
+    )
 
 
 # --- Certifications ---------------------------------------------------------------
@@ -230,33 +210,6 @@ def _cert_payload(cert: Cert) -> dict[str, object]:
     }
 
 
-def _cert_from(cert_id: str, body: CertificationBody) -> Cert:
-    tag = normalize_tag_id(body.tag)
-    errors = validate_certification(body.name, body.rank, tag)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    return Cert(
-        cert_id,
-        body.name.strip(),
-        body.rank,
-        body.description.strip(),
-        body.criteria,
-        tag,
-        body.icon.strip(),
-        body.restricted,
-    )
-
-
-def _check_slug_free(root: Path, cert: Cert) -> None:
-    if any(c.slug == cert.slug and c.id != cert.id for c in read_certs(root)):
-        raise ApiError("certification_slug_taken", status_code=409, slug=cert.slug)
-
-
-def _check_tag_free(root: Path, cert: Cert) -> None:
-    if any(c.tag == cert.tag and c.id != cert.id for c in read_certs(root)):
-        raise ApiError("certification_tag_taken", status_code=409, tag=cert.tag)
-
-
 @certifications_router.get("")
 async def list_certifications(
     conn: ConnDep,
@@ -280,28 +233,13 @@ async def create_certification(
     branch_id: uuid.UUID,
     body: CertificationBody,
 ) -> dict[str, object]:
-    cert = _cert_from(new_id(), body)
-    given = body.slug.strip()
-    if given and not is_valid_slug(given):
-        raise ApiError("invalid_request", status_code=400, fields=["certification_slug_invalid"])
-
-    def write(root: Path) -> None:
-        if given:
-            cert.slug = given
-            _check_slug_free(root, cert)
-        else:
-            # Déduit du nom : suffixé s'il est pris (jamais d'erreur sur ce que
-            # l'utilisateur n'a pas saisi).
-            taken = {c.slug for c in read_certs(root)}
-            base = slugify(cert.name, fallback="certification")
-            cert.slug, counter = base, 2
-            while cert.slug in taken:
-                cert.slug, counter = f"{base}-{counter}", counter + 1
-        _check_tag_free(root, cert)
-        write_cert(root, cert)
-
+    values = body.model_dump(exclude={"slug"})
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"certification {cert.name}", write)
+    cert = await ctx.write(
+        user.email,
+        f"certification {body.name.strip()}",
+        lambda root: actions.create_certification(root, values, body.slug),
+    )
     return _cert_payload(cert)
 
 
@@ -352,18 +290,14 @@ async def update_certification(
     cert_id: str,
     body: CertificationBody,
 ) -> dict[str, object]:
-    cert = _cert_from(cert_id, body)
-
-    def write(root: Path) -> None:
-        current = next((c for c in read_certs(root) if c.id == cert_id), None)
-        if current is None:
-            raise ApiError("certification_not_found", status_code=404)
-        cert.slug = current.slug  # figé à la création
-        _check_tag_free(root, cert)
-        write_cert(root, cert)
-
+    # L'écran remplace la certification (tous les champs) ; le slug reste figé.
+    changes = body.model_dump(exclude={"slug"})
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"certification {cert.name}", write)
+    cert = await ctx.write(
+        user.email,
+        f"certification {body.name.strip()}",
+        lambda root: actions.update_certification(root, cert_id, changes),
+    )
     return _cert_payload(cert)
 
 
@@ -377,9 +311,9 @@ async def remove_certification(
     branch_id: uuid.UUID,
     cert_id: str,
 ) -> None:
-    def write(root: Path) -> None:
-        if not delete_cert(root, cert_id):
-            raise ApiError("certification_not_found", status_code=404)
-
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, "supprime une certification", write)
+    await ctx.write(
+        user.email,
+        "supprime une certification",
+        lambda root: actions.delete_certification(root, cert_id),
+    )

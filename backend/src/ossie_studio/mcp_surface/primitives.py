@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import reads, source_writes, writes
 from ossie_studio.mcp_surface.branch import BranchArgs, ObjectArgs, SourceArgs, ViewArgs
 from ossie_studio.mcp_surface.core import (
@@ -44,12 +45,8 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "update_source": Implementation(
         source_writes.UpdateSourceArgs, source_writes.update_source_primitive
     ),
-    "delete_source": Implementation(
-        writes.SourceWriteArgs, source_writes.delete_source_primitive
-    ),
-    "collect_source": Implementation(
-        source_writes.CollectSourceArgs, source_writes.collect_source
-    ),
+    "delete_source": Implementation(writes.SourceWriteArgs, source_writes.delete_source_primitive),
+    "collect_source": Implementation(source_writes.CollectSourceArgs, source_writes.collect_source),
     "get_collect_status": Implementation(writes.SourceWriteArgs, source_writes.get_collect_status),
     "list_contracts": Implementation(SourceArgs, source_writes.list_contracts),
     "deposit_contract": Implementation(
@@ -58,4 +55,23 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "remove_contract": Implementation(
         source_writes.ContractVersionArgs, source_writes.remove_contract
     ),
+    # Gouvernance
+    "list_certifications": Implementation(ViewArgs, reads.list_certifications),
+    "create_tag": Implementation(gov.CreateTagArgs, gov.create_tag),
+    "update_tag": Implementation(gov.UpdateTagArgs, gov.update_tag),
+    "delete_tag": Implementation(gov.TagArgs, gov.delete_tag),
+    "create_classification": Implementation(
+        gov.CreateClassificationArgs, gov.create_classification
+    ),
+    "update_classification": Implementation(
+        gov.UpdateClassificationArgs, gov.update_classification
+    ),
+    "delete_classification": Implementation(gov.SchemeArgs, gov.delete_classification),
+    "create_level": Implementation(gov.CreateLevelArgs, gov.create_level),
+    "update_level": Implementation(gov.UpdateLevelArgs, gov.update_level),
+    "delete_level": Implementation(gov.LevelArgs, gov.delete_level),
+    "reorder_levels": Implementation(gov.ReorderLevelsArgs, gov.reorder_levels),
+    "create_certification": Implementation(gov.CreateCertificationArgs, gov.create_certification),
+    "update_certification": Implementation(gov.UpdateCertificationArgs, gov.update_certification),
+    "delete_certification": Implementation(gov.CertificationArgs, gov.delete_certification),
 }

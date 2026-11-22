@@ -130,7 +130,7 @@ async def open_for_write(ctx: PrimitiveContext, args: BranchArgs) -> tuple[Branc
     return await open_branch(ctx, args, "draft"), ctx.user
 
 
-def _target(ctx: PrimitiveContext, bv: BranchView, author: str) -> CurationTarget:
+def write_target(ctx: PrimitiveContext, bv: BranchView, author: str) -> CurationTarget:
     return CurationTarget(
         bv.workdir,
         bv.space,
@@ -168,7 +168,7 @@ async def _write(action: Callable[[], Awaitable[WriteResult]]) -> WriteResult:
         raise PrimitiveError(exc.code) from None
 
 
-def _written(result: WriteResult) -> dict[str, Any]:
+def written_payload(result: WriteResult) -> dict[str, Any]:
     return {
         "view": "draft",
         "changed": result.revision is not None,
@@ -203,27 +203,27 @@ async def retain_asset(ctx: PrimitiveContext, args: RetainArgs) -> dict[str, Any
     _check_path(args.path)
     bv, user = await open_for_write(ctx, args)
     await _source_ready(bv, args.source)
-    target = _target(ctx, bv, user.email)
+    target = write_target(ctx, bv, user.email)
     result = await _write(
         lambda: curation_actions.retain(target, args.source, args.path, args.fields)
     )
-    return {**_written(result), "asset": await _asset_after(ctx, args)}
+    return {**written_payload(result), "asset": await _asset_after(ctx, args)}
 
 
 async def remove_asset(ctx: PrimitiveContext, args: ObjectWriteArgs) -> dict[str, Any]:
     _check_path(args.path)
     bv, user = await open_for_write(ctx, args)
     await _source_ready(bv, args.source)
-    target = _target(ctx, bv, user.email)
+    target = write_target(ctx, bv, user.email)
     result = await _write(lambda: curation_actions.remove(target, args.source, args.path))
-    return {**_written(result), "asset": await _asset_after(ctx, args)}
+    return {**written_payload(result), "asset": await _asset_after(ctx, args)}
 
 
 async def enrich_asset(ctx: PrimitiveContext, args: EnrichArgs) -> dict[str, Any]:
     _check_path(args.path)
     bv, user = await open_for_write(ctx, args)
     await _source_ready(bv, args.source)
-    target = _target(ctx, bv, user.email)
+    target = write_target(ctx, bv, user.email)
     object_values = args.object.model_dump(exclude_unset=True) if args.object else None
     field_values = {name: v.model_dump(exclude_unset=True) for name, v in args.fields.items()}
     result = await _write(
@@ -231,7 +231,7 @@ async def enrich_asset(ctx: PrimitiveContext, args: EnrichArgs) -> dict[str, Any
             target, args.source, args.path, object_values, field_values
         )
     )
-    return {**_written(result), "asset": await _asset_after(ctx, args)}
+    return {**written_payload(result), "asset": await _asset_after(ctx, args)}
 
 
 async def refresh_assets(ctx: PrimitiveContext, args: RefreshArgs) -> dict[str, Any]:
@@ -239,9 +239,9 @@ async def refresh_assets(ctx: PrimitiveContext, args: RefreshArgs) -> dict[str, 
         _check_path(path)
     bv, user = await open_for_write(ctx, args)
     await _source_ready(bv, args.source)
-    target = _target(ctx, bv, user.email)
+    target = write_target(ctx, bv, user.email)
     result = await _write(lambda: curation_actions.refresh(target, args.source, args.paths))
-    return {**_written(result), "refreshed": [p.rsplit("/", 1)[-1] for p in result.paths]}
+    return {**written_payload(result), "refreshed": [p.rsplit("/", 1)[-1] for p in result.paths]}
 
 
 # --- Règles de tri et revue -------------------------------------------------------------------
@@ -252,7 +252,7 @@ _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 async def set_tri_rules(ctx: PrimitiveContext, args: SetTriRulesArgs) -> dict[str, Any]:
     bv, user = await open_for_write(ctx, args)
     await _source_ready(bv, args.source)
-    target = _target(ctx, bv, user.email)
+    target = write_target(ctx, bv, user.email)
     try:
         result, rules = await curation_actions.set_tri_rules(
             target, args.source, [rule.model_dump() for rule in args.rules]
@@ -265,7 +265,7 @@ async def set_tri_rules(ctx: PrimitiveContext, args: SetTriRulesArgs) -> dict[st
         raise PrimitiveError("manifest_invalid", fields=exc.fields) from None
     except WorkdirError as exc:
         raise PrimitiveError(exc.code) from None
-    return {**_written(result), "rules": rules}
+    return {**written_payload(result), "rules": rules}
 
 
 def _group(refs: list[ReviewFieldRef]) -> dict[str, list[str]]:
@@ -298,9 +298,10 @@ async def apply_review(ctx: PrimitiveContext, args: ApplyReviewArgs) -> dict[str
     invalid = curation_actions.invalid_review_decisions(review, decisions)
     if invalid:
         raise PrimitiveError("review_decision_invalid", decisions=invalid)
-    target = _target(ctx, bv, user.email)
+    target = write_target(ctx, bv, user.email)
     result = await _write(
         lambda: curation_actions.apply_review(target, args.source, args.head_sha, decisions)
     )
     after_head, after_base, after = await reads.compute_review(bv, args.source)
-    return {**_written(result), "review": reads.review_payload(after_head, after_base, after)}
+    after_review = reads.review_payload(after_head, after_base, after)
+    return {**written_payload(result), "review": after_review}

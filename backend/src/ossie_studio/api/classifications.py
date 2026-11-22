@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 import structlog
 from fastapi import APIRouter
@@ -13,19 +12,8 @@ from ossie_studio.api.common import GovernanceRead, GovernanceWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep, gov_ctx
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
-from ossie_studio.governance.classifications import (
-    derive_scheme_id,
-    validate_level,
-    validate_scheme,
-)
-from ossie_studio.governance.repo import (
-    Level,
-    Scheme,
-    delete_scheme,
-    new_id,
-    read_schemes,
-    write_scheme,
-)
+from ossie_studio.governance import actions
+from ossie_studio.governance.repo import Level, Scheme, new_id, read_schemes
 from ossie_studio.governance.yaml_io import (
     SchemeImportError,
     export_scheme_yaml,
@@ -108,50 +96,6 @@ def _scheme_payload(scheme: Scheme) -> dict[str, object]:
     }
 
 
-def _level(scheme_id: str, body: LevelBody, level_id: str, position: int) -> Level:
-    return Level(
-        level_id,
-        scheme_id,
-        body.name.strip(),
-        body.label.strip(),
-        body.short_name.strip(),
-        body.rank,
-        body.description,
-        body.criteria,
-        body.color,
-        body.icon,
-        position,
-    )
-
-
-def _check_level_free(scheme: Scheme, level: Level) -> None:
-    """Unicité du nom et du nom court dans le schéma (autrefois contrainte de base)."""
-    for other in scheme.levels:
-        if other.id == level.id:
-            continue
-        if other.name == level.name:
-            raise ApiError("level_name_taken", status_code=409)
-        if level.short_name and other.short_name == level.short_name:
-            raise ApiError("level_short_name_taken", status_code=409)
-
-
-def _find(root: Path, scheme_id: str) -> Scheme:
-    scheme = next((s for s in read_schemes(root) if s.id == scheme_id), None)
-    if scheme is None:
-        raise ApiError("scheme_not_found", status_code=404)
-    return scheme
-
-
-def _new_scheme(root: Path, scheme: Scheme) -> None:
-    existing = read_schemes(root)
-    if any(s.id == scheme.id for s in existing):
-        raise ApiError("scheme_id_taken", status_code=409, scheme_id=scheme.id)
-    scheme.display_order = max((s.display_order for s in existing), default=-1) + 1
-    for level in scheme.levels:
-        _check_level_free(scheme, level)
-    write_scheme(root, scheme)
-
-
 @router.get("")
 async def list_schemes(
     conn: ConnDep,
@@ -175,23 +119,14 @@ async def create_scheme(
     branch_id: uuid.UUID,
     body: SchemeCreate,
 ) -> dict[str, object]:
-    errors = validate_scheme(body.name, body.multi_value, body.is_primary)
-    for level in body.levels:
-        errors.extend(validate_level(level.name, level.short_name))
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    scheme_id = derive_scheme_id(body.id) if body.id.strip() else derive_scheme_id(body.name)
-    scheme = Scheme(
-        scheme_id,
-        body.name.strip(),
-        body.description.strip(),
-        body.badge_prefix.strip(),
-        body.multi_value,
-        body.is_primary,
-    )
-    scheme.levels = [_level(scheme_id, lv, new_id(), i) for i, lv in enumerate(body.levels)]
+    values = body.model_dump(exclude={"levels"})
+    levels = [level.model_dump() for level in body.levels]
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"schéma {scheme_id}", lambda root: _new_scheme(root, scheme))
+    scheme = await ctx.write(
+        user.email,
+        f"schéma {body.id.strip() or body.name.strip()}",
+        lambda root: actions.create_scheme(root, values, levels),
+    )
     return _scheme_payload(scheme)
 
 
@@ -235,7 +170,9 @@ async def import_scheme(
     ]
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
     await ctx.write(
-        user.email, f"import du schéma {scheme.id}", lambda root: _new_scheme(root, scheme)
+        user.email,
+        f"import du schéma {scheme.id}",
+        lambda root: actions.insert_scheme(root, scheme),
     )
     return _scheme_payload(scheme)
 
@@ -251,7 +188,7 @@ async def export_scheme(
     scheme_id: str,
 ) -> dict[str, str]:
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    scheme = await ctx.read(lambda root: _find(root, scheme_id))
+    scheme = await ctx.read(lambda root: actions.find_scheme(root, scheme_id))
     return {"yaml": export_scheme_yaml(scheme, scheme.levels)}
 
 
@@ -266,22 +203,15 @@ async def update_scheme(
     scheme_id: str,
     body: SchemeUpdate,
 ) -> dict[str, object]:
-    errors = validate_scheme(body.name, body.multi_value, body.is_primary)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    result: dict[str, Scheme] = {}
-
-    def write(root: Path) -> None:
-        scheme = _find(root, scheme_id)
-        scheme.name, scheme.description = body.name.strip(), body.description.strip()
-        scheme.badge_prefix, scheme.multi_value = body.badge_prefix.strip(), body.multi_value
-        scheme.is_primary, scheme.display_order = body.is_primary, body.display_order
-        write_scheme(root, scheme)
-        result["scheme"] = scheme
-
+    # L'écran remplace le schéma : il donne tous les champs.
+    changes = body.model_dump()
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"schéma {scheme_id}", write)
-    return _scheme_payload(result["scheme"])
+    scheme = await ctx.write(
+        user.email,
+        f"schéma {scheme_id}",
+        lambda root: actions.update_scheme(root, scheme_id, changes),
+    )
+    return _scheme_payload(scheme)
 
 
 @router.delete("/{scheme_id}", status_code=204)
@@ -294,12 +224,12 @@ async def remove_scheme(
     branch_id: uuid.UUID,
     scheme_id: str,
 ) -> None:
-    def write(root: Path) -> None:
-        if not delete_scheme(root, scheme_id):
-            raise ApiError("scheme_not_found", status_code=404)
-
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"supprime le schéma {scheme_id}", write)
+    await ctx.write(
+        user.email,
+        f"supprime le schéma {scheme_id}",
+        lambda root: actions.delete_scheme(root, scheme_id),
+    )
 
 
 @router.post("/{scheme_id}/levels", status_code=201)
@@ -313,22 +243,14 @@ async def add_level(
     scheme_id: str,
     body: LevelBody,
 ) -> dict[str, object]:
-    errors = validate_level(body.name, body.short_name)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    result: dict[str, Level] = {}
-
-    def write(root: Path) -> None:
-        scheme = _find(root, scheme_id)
-        level = _level(scheme_id, body, new_id(), len(scheme.levels))
-        _check_level_free(scheme, level)
-        scheme.levels.append(level)
-        write_scheme(root, scheme)
-        result["level"] = level
-
+    values = body.model_dump()
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"niveau du schéma {scheme_id}", write)
-    return _level_payload(result["level"])
+    level = await ctx.write(
+        user.email,
+        f"niveau du schéma {scheme_id}",
+        lambda root: actions.add_level(root, scheme_id, values),
+    )
+    return _level_payload(level)
 
 
 @router.put("/{scheme_id}/levels/{level_id}")
@@ -343,25 +265,15 @@ async def update_level(
     level_id: str,
     body: LevelBody,
 ) -> dict[str, object]:
-    errors = validate_level(body.name, body.short_name)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    result: dict[str, Level] = {}
-
-    def write(root: Path) -> None:
-        scheme = _find(root, scheme_id)
-        index = next((i for i, lv in enumerate(scheme.levels) if lv.id == level_id), None)
-        if index is None:
-            raise ApiError("level_not_found", status_code=404)
-        level = _level(scheme_id, body, level_id, index)
-        _check_level_free(scheme, level)
-        scheme.levels[index] = level
-        write_scheme(root, scheme)
-        result["level"] = level
-
+    # L'écran remplace le niveau : il donne tous les champs.
+    changes = body.model_dump()
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"niveau du schéma {scheme_id}", write)
-    return _level_payload(result["level"])
+    level = await ctx.write(
+        user.email,
+        f"niveau du schéma {scheme_id}",
+        lambda root: actions.update_level(root, scheme_id, level_id, changes),
+    )
+    return _level_payload(level)
 
 
 @router.delete("/{scheme_id}/levels/{level_id}", status_code=204)
@@ -375,16 +287,12 @@ async def delete_level(
     scheme_id: str,
     level_id: str,
 ) -> None:
-    def write(root: Path) -> None:
-        scheme = _find(root, scheme_id)
-        kept = [lv for lv in scheme.levels if lv.id != level_id]
-        if len(kept) == len(scheme.levels):
-            raise ApiError("level_not_found", status_code=404)
-        scheme.levels = kept
-        write_scheme(root, scheme)
-
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"supprime un niveau du schéma {scheme_id}", write)
+    await ctx.write(
+        user.email,
+        f"supprime un niveau du schéma {scheme_id}",
+        lambda root: actions.delete_level(root, scheme_id, level_id),
+    )
 
 
 @router.put("/{scheme_id}/levels")
@@ -398,14 +306,10 @@ async def reorder_levels(
     scheme_id: str,
     body: ReorderBody,
 ) -> dict[str, bool]:
-    def write(root: Path) -> None:
-        scheme = _find(root, scheme_id)
-        by_id = {lv.id: lv for lv in scheme.levels}
-        if set(body.order) != set(by_id):
-            raise ApiError("invalid_request", status_code=400)
-        scheme.levels = [by_id[i] for i in body.order]
-        write_scheme(root, scheme)
-
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    await ctx.write(user.email, f"ordre des niveaux du schéma {scheme_id}", write)
+    await ctx.write(
+        user.email,
+        f"ordre des niveaux du schéma {scheme_id}",
+        lambda root: actions.reorder_levels(root, scheme_id, body.order),
+    )
     return {"ok": True}

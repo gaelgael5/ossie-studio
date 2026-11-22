@@ -337,6 +337,164 @@ CATALOG: tuple[Primitive, ...] = (
         capability="governance:read",
         description="List the classification schemes of a branch and their levels.",
     ),
+    Primitive(
+        id="list_certifications",
+        domain="governance",
+        access="read",
+        capability="governance:read",
+        description=(
+            "List the certifications of a branch: name, rank, the tag that links it to assets, "
+            "restricted or not." + _DRAFT_NOTE
+        ),
+    ),
+    # --- Écriture : gouvernance (toujours dans le brouillon de la personne). Les
+    # modifications sont partielles : seuls les champs donnés changent.
+    Primitive(
+        id="create_tag",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Create a governed tag (identifier like 'gouvernance/pii', owner, description, "
+            "links, properties). Written to the user's draft (not published)."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="update_tag",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Change a governed tag. Only the given fields change; links and properties replace "
+            "the whole map when given. Written to the user's draft (not published)."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="delete_tag",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description="Delete a governed tag. Written to the user's draft (not published).",
+        person_only=True,
+        destructive=True,
+    ),
+    Primitive(
+        id="create_classification",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Create a classification scheme (e.g. Sensitivity), optionally with its levels. "
+            "Written to the user's draft (not published)."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="update_classification",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Change a classification scheme (not its levels). Only the given fields change. "
+            "Written to the user's draft (not published)."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="delete_classification",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Delete a classification scheme with all its levels. Written to the user's draft "
+            "(not published)."
+        ),
+        person_only=True,
+        destructive=True,
+    ),
+    Primitive(
+        id="create_level",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Add a level at the end of a classification scheme (name and short name unique in "
+            "the scheme). Written to the user's draft (not published)."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="update_level",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Change a level of a classification scheme. Only the given fields change. Written "
+            "to the user's draft (not published)."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="delete_level",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Delete a level of a classification scheme. Written to the user's draft "
+            "(not published)."
+        ),
+        person_only=True,
+        destructive=True,
+    ),
+    Primitive(
+        id="reorder_levels",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Set the order of the levels of a classification scheme: give all its level ids, "
+            "each once. Written to the user's draft (not published)."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="create_certification",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Create a certification (e.g. Gold), linked to assets by its own tag. Written to "
+            "the user's draft (not published)."
+        ),
+        person_only=True,
+    ),
+    Primitive(
+        id="update_certification",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description=(
+            "Change a certification (its slug stays). Only the given fields change. Written to "
+            "the user's draft (not published)."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="delete_certification",
+        domain="governance",
+        access="write",
+        capability="governance:write",
+        description="Delete a certification. Written to the user's draft (not published).",
+        person_only=True,
+        destructive=True,
+    ),
 )
 
 BY_ID: Mapping[str, Primitive] = {p.id: p for p in CATALOG}

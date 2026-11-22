@@ -16,6 +16,7 @@ from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
+from ossie_studio.governance.actions import GovernanceRefused
 from ossie_studio.governance.repo import InvalidGovernanceId
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
@@ -40,13 +41,21 @@ class GovCtx:
             return await self.workdir.read_branch(
                 self.space_id, self.slug, self.repo_url, self.username, self.token, fn
             )
+        except GovernanceRefused as exc:
+            raise ApiError(exc.code, status_code=exc.status, **exc.detail) from None
         except WorkdirError as exc:
             raise ApiError(exc.code, status_code=502) from None
 
-    async def write(self, author: str, message: str, fn: Callable[[Path], None]) -> None:
+    async def write(self, author: str, message: str, fn: Callable[[Path], _T]) -> _T:
+        """Applique `fn` dans le brouillon de la personne et rend ce qu'elle rend.
+        Les refus du service de gouvernance deviennent des erreurs d'API."""
+        result: list[_T] = []
+
         def guarded(root: Path) -> None:
             try:
-                fn(root)
+                result.append(fn(root))
+            except GovernanceRefused as exc:
+                raise ApiError(exc.code, status_code=exc.status, **exc.detail) from None
             except InvalidGovernanceId:
                 raise ApiError("not_found", status_code=404) from None
 
@@ -64,6 +73,7 @@ class GovCtx:
             )
         except WorkdirError as exc:
             raise ApiError(exc.code, status_code=502) from None
+        return result[-1]
 
 
 async def gov_ctx(
