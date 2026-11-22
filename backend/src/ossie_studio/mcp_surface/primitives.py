@@ -35,4 +35,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "remove_asset": Implementation(writes.ObjectWriteArgs, writes.remove_asset),
     "enrich_asset": Implementation(writes.EnrichArgs, writes.enrich_asset),
     "refresh_assets": Implementation(writes.RefreshArgs, writes.refresh_assets),
+    "set_tri_rules": Implementation(writes.SetTriRulesArgs, writes.set_tri_rules),
+    "apply_review": Implementation(writes.ApplyReviewArgs, writes.apply_review),
 }

@@ -207,6 +207,32 @@ CATALOG: tuple[Primitive, ...] = (
         ),
         person_only=True,
     ),
+    Primitive(
+        id="set_tri_rules",
+        domain="curation",
+        access="write",
+        capability="curation:rules",
+        description=(
+            "Replace the triage rules of a source (patterns that set noise aside). Give the "
+            "complete list; an empty list removes all rules. Written to the user's draft."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="apply_review",
+        domain="curation",
+        access="write",
+        capability="curation:review",
+        description=(
+            "Apply decisions to the review read with get_review (same head_sha): refresh "
+            "changed fields, add appeared fields, remove disappeared fields or objects, retain "
+            "new objects. Undecided changes are left as they are and the review point moves "
+            "forward. Every decision must match the review. Written to the user's draft."
+        ),
+        person_only=True,
+        destructive=True,
+    ),
     # --- Gouvernance
     Primitive(
         id="list_tags",

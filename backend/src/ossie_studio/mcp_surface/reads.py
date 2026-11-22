@@ -42,6 +42,7 @@ from ossie_studio.models import SpaceBranch, User
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
     CurationObject,
+    ReviewResult,
     build_review,
     get_object_detail,
     is_schema_file,
@@ -361,10 +362,11 @@ async def get_tri_rules(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, An
     return {"view": bv.view, "source": args.source, "rules": rules}
 
 
-async def get_review(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args, args.view)
-    slug = args.source
+async def compute_review(bv: BranchView, slug: str) -> tuple[str, str | None, ReviewResult]:
+    """(tête publiée, point de reprise, revue) d'une source, dans la vue lue.
+    Calcul partagé par la lecture `get_review` et l'écriture `apply_review` :
+    l'agent applique ses décisions à exactement ce qu'il a lu."""
+    directory = source_dir(slug)
     try:
         head_sha, base_sha, raw_base_text, bundle = await bv.workdir.review_inputs(
             bv.space.id, bv.branch.git_ref, bv.space.repo_url, bv.username, bv.token,
@@ -375,15 +377,23 @@ async def get_review(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
     except WorkdirError as exc:
         raise PrimitiveError(exc.code) from None
     (raw_head, assets), rules = bundle
-    result = build_review(parse_schema_texts(raw_base_text), raw_head, assets, rules)
+    review = build_review(parse_schema_texts(raw_base_text), raw_head, assets, rules)
+    return head_sha, base_sha, review
+
+
+def review_payload(head_sha: str, base_sha: str | None, review: ReviewResult) -> dict[str, Any]:
     return {
-        "view": bv.view,
-        "source": slug,
         "base_sha": base_sha,
         "head_sha": head_sha,
         "up_to_date": base_sha == head_sha,
-        "objects": [asdict(o) for o in result.objects],
+        "objects": [asdict(o) for o in review.objects],
     }
+
+
+async def get_review(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
+    bv = await open_branch(ctx, args, args.view)
+    head_sha, base_sha, review = await compute_review(bv, args.source)
+    return {"view": bv.view, "source": args.source, **review_payload(head_sha, base_sha, review)}
 
 
 # --- Gouvernance ----------------------------------------------------------------------

@@ -752,6 +752,8 @@ export const fr = {
       governance: 'Gouvernance',
     },
     mcpPrim: {
+      set_tri_rules: 'Poser les règles de tri d’une source',
+      apply_review: 'Appliquer une revue des changements',
       retain_asset: 'Retenir un objet comme asset',
       remove_asset: 'Retirer un asset',
       enrich_asset: 'Enrichir un asset (nom métier, description, concept, tags)',

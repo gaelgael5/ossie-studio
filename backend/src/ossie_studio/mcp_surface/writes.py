@@ -11,6 +11,7 @@ Règles (epic « Primitives MCP d'écriture ») :
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -29,9 +30,11 @@ from ossie_studio.sources import curation_actions
 from ossie_studio.sources.curation import (
     AssetNotRetainedError,
     AssetOriginMissingError,
+    ReviewDecisions,
     is_schema_file,
 )
 from ossie_studio.sources.curation_actions import CurationTarget, UnknownFieldsError, WriteResult
+from ossie_studio.sources.manifest import ManifestError
 from ossie_studio.spaces.workdir import WorkdirError
 
 # --- Arguments --------------------------------------------------------------------------
@@ -67,6 +70,45 @@ class EnrichArgs(ObjectWriteArgs):
     )
     fields: dict[str, EnrichValues] = Field(
         default_factory=dict, description="Enrichment per field name."
+    )
+
+
+class TriRuleArg(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    target: str = Field(description="What the pattern matches, as in get_tri_rules.")
+    pattern: str
+    kind: str = Field(description="'glob' or 'regex'.")
+    label: str = ""
+
+
+class SetTriRulesArgs(SourceWriteArgs):
+    rules: list[TriRuleArg] = Field(
+        description="The complete list of rules (replaces the current one; empty = none)."
+    )
+
+
+class ReviewFieldRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str
+    name: str
+
+
+class ApplyReviewArgs(SourceWriteArgs):
+    head_sha: str = Field(description="head_sha returned by get_review.")
+    apply_fields: list[ReviewFieldRef] = Field(
+        default_factory=list, description="Changed retained fields to refresh from the raw."
+    )
+    take_fields: list[ReviewFieldRef] = Field(
+        default_factory=list, description="Appeared fields to add to the asset."
+    )
+    remove_fields: list[ReviewFieldRef] = Field(
+        default_factory=list, description="Disappeared fields to remove from the asset."
+    )
+    remove_objects: list[str] = Field(
+        default_factory=list, description="Assets whose raw object disappeared, to remove."
+    )
+    retain_objects: list[str] = Field(
+        default_factory=list, description="New raw objects to retain as assets."
     )
 
 
@@ -200,3 +242,65 @@ async def refresh_assets(ctx: PrimitiveContext, args: RefreshArgs) -> dict[str, 
     target = _target(ctx, bv, user.email)
     result = await _write(lambda: curation_actions.refresh(target, args.source, args.paths))
     return {**_written(result), "refreshed": [p.rsplit("/", 1)[-1] for p in result.paths]}
+
+
+# --- Règles de tri et revue -------------------------------------------------------------------
+
+_SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
+
+
+async def set_tri_rules(ctx: PrimitiveContext, args: SetTriRulesArgs) -> dict[str, Any]:
+    bv, user = await open_for_write(ctx, args)
+    await _source_ready(bv, args.source)
+    target = _target(ctx, bv, user.email)
+    try:
+        result, rules = await curation_actions.set_tri_rules(
+            target, args.source, [rule.model_dump() for rule in args.rules]
+        )
+    except curation_actions.RulesInvalidError as exc:
+        raise PrimitiveError("tri_rules_invalid", fields=exc.fields) from None
+    except curation_actions.SourceMissingError:
+        raise PrimitiveError("source_not_found", source=args.source) from None
+    except ManifestError as exc:
+        raise PrimitiveError("manifest_invalid", fields=exc.fields) from None
+    except WorkdirError as exc:
+        raise PrimitiveError(exc.code) from None
+    return {**_written(result), "rules": rules}
+
+
+def _group(refs: list[ReviewFieldRef]) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {}
+    for ref in refs:
+        grouped.setdefault(ref.path, []).append(ref.name)
+    return grouped
+
+
+async def apply_review(ctx: PrimitiveContext, args: ApplyReviewArgs) -> dict[str, Any]:
+    if not _SHA_RE.match(args.head_sha):
+        raise PrimitiveError("invalid_arguments", fields=["head_sha"])
+    refs = [*args.apply_fields, *args.take_fields, *args.remove_fields]
+    for path in (*(r.path for r in refs), *args.remove_objects, *args.retain_objects):
+        _check_path(path)
+    bv, user = await open_for_write(ctx, args)
+    await _source_ready(bv, args.source)
+    decisions = ReviewDecisions(
+        apply_fields=_group(args.apply_fields),
+        take_fields=_group(args.take_fields),
+        remove_fields=_group(args.remove_fields),
+        remove_objects=list(dict.fromkeys(args.remove_objects)),
+        retain_objects=list(dict.fromkeys(args.retain_objects)),
+    )
+    # La revue que l'agent a lue (même calcul que get_review) : ses décisions
+    # doivent toutes y correspondre, sinon rien n'est écrit.
+    head_sha, _base, review = await reads.compute_review(bv, args.source)
+    if head_sha != args.head_sha:
+        raise PrimitiveError("review_stale")
+    invalid = curation_actions.invalid_review_decisions(review, decisions)
+    if invalid:
+        raise PrimitiveError("review_decision_invalid", decisions=invalid)
+    target = _target(ctx, bv, user.email)
+    result = await _write(
+        lambda: curation_actions.apply_review(target, args.source, args.head_sha, decisions)
+    )
+    after_head, after_base, after = await reads.compute_review(bv, args.source)
+    return {**_written(result), "review": reads.review_payload(after_head, after_base, after)}

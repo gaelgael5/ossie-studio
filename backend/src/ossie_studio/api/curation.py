@@ -31,7 +31,6 @@ from ossie_studio.sources.curation import (
     EnrichView,
     ReviewDecisions,
     ReviewObject,
-    apply_review_fn,
     build_review,
     get_object_detail,
     is_schema_file,
@@ -42,12 +41,11 @@ from ossie_studio.sources.curation import (
     read_source_trees,
     read_tri_rules,
     read_tri_rules_raw,
-    set_tri_rules_fn,
 )
 from ossie_studio.sources.curation_actions import CurationTarget
 from ossie_studio.sources.manifest import ManifestError
 from ossie_studio.sources.paths import is_valid_source_slug, source_rel_dir
-from ossie_studio.sources.tri import TRI_KINDS, TRI_TARGETS, validate_tri_rules
+from ossie_studio.sources.tri import TRI_KINDS, TRI_TARGETS
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
 
@@ -422,32 +420,23 @@ async def set_source_rules(
 ) -> dict[str, object]:
     if not is_valid_source_slug(slug):
         raise ApiError("curation_path_invalid", status_code=400)
-    cleaned: list[dict[str, object]] = []
-    for rule in body.rules:
-        item: dict[str, object] = {
-            "target": rule.target, "pattern": rule.pattern, "kind": rule.kind,
-        }
-        if rule.label.strip():
-            item["label"] = rule.label.strip()
-        cleaned.append(item)
-    # Motif/ cible / genre invalide → refus nommant la règle (triage[i]:...).
-    errors = validate_tri_rules(cleaned)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, f"curation {slug} : règles de tri",
-            set_tri_rules_fn(slug, cleaned),
+        result, cleaned = await curation_actions.set_tri_rules(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug, [rule.model_dump() for rule in body.rules],
         )
-    except FileNotFoundError:
+    except curation_actions.RulesInvalidError as exc:
+        # Motif / cible / genre invalide → refus nommant la règle (triage[i]:...).
+        raise ApiError("invalid_request", status_code=400, fields=exc.fields) from None
+    except curation_actions.SourceMissingError:
         raise ApiError("source_not_found", status_code=404, slug=slug) from None
     except ManifestError as exc:
         raise ApiError("invalid_request", status_code=400, fields=exc.fields) from None
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
+    commit = result.revision
     log.info("curation_rules_set", author=user.email, slug=slug, count=len(cleaned))
     return {"ok": True, "commit": commit, "rules": cleaned}
 
@@ -538,12 +527,11 @@ async def apply_source_review(
         retain_objects=list(dict.fromkeys(body.retain_objects)),
     )
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, f"curation {slug} : revue validée",
-            apply_review_fn(slug, body.head_sha, decisions),
-            expect_head=body.head_sha,
+        result = await curation_actions.apply_review(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug, body.head_sha, decisions,
         )
+        commit = result.revision
     except WorkdirError as exc:
         if exc.code == "review_stale":
             raise ApiError("review_stale", status_code=409) from None

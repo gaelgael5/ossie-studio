@@ -750,6 +750,8 @@ export const en = {
       governance: 'Governance',
     },
     mcpPrim: {
+      set_tri_rules: 'Set the triage rules of a source',
+      apply_review: 'Apply a change review',
       retain_asset: 'Retain an object as an asset',
       remove_asset: 'Remove an asset',
       enrich_asset: 'Enrich an asset (business name, description, concept, tags)',

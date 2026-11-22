@@ -22,18 +22,39 @@ from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.models import GitSpace
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
+    ReviewDecisions,
+    ReviewResult,
+    apply_review_fn,
     enrich_asset_fn,
     refresh_assets_fn,
     refresh_targets,
     remove_asset_fn,
     retain_asset_fn,
+    set_tri_rules_fn,
 )
 from ossie_studio.sources.paths import (
     ASSETS_DIR,
+    MANIFEST_FILENAME,
+    REVIEW_FILE,
     safe_assets_path,
     safe_source_path,
     source_rel_dir,
 )
+from ossie_studio.sources.tri import validate_tri_rules
+
+
+class RulesInvalidError(Exception):
+    """Règles de tri invalides : chaque erreur nomme la règle (`triage[i]:…`)."""
+
+    def __init__(self, fields: list[str]) -> None:
+        super().__init__(", ".join(fields))
+        self.fields = fields
+
+
+class SourceMissingError(Exception):
+    def __init__(self, slug: str) -> None:
+        super().__init__(slug)
+        self.slug = slug
 
 
 class UnknownFieldsError(Exception):
@@ -59,11 +80,13 @@ class CurationTarget:
     via: str | None = None
     strict: bool = False
 
-    async def write(self, intent: str, fn: Callable[[Path], None]) -> str | None:
+    async def write(
+        self, intent: str, fn: Callable[[Path], None], *, expect_head: str | None = None
+    ) -> str | None:
         message = f"{intent} ({self.via})" if self.via else intent
         return await self.workdir.commit_to_branch(
             self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token,
-            self.author, self.author, message, fn,
+            self.author, self.author, message, fn, expect_head=expect_head,
         )
 
 
@@ -158,3 +181,110 @@ async def refresh(target: CurationTarget, slug: str, paths: list[str] | None) ->
     intent = f"curation {slug} : rafraîchir {len(changed)} asset(s) : {', '.join(changed)}"
     revision = await target.write(intent, refresh_assets_fn(slug, changed))
     return _result(revision, slug, changed)
+
+
+# --- Règles de tri ------------------------------------------------------------------------
+
+
+def clean_tri_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Forme enregistrée d'une règle : cible, motif, genre, et libellé s'il est
+    renseigné."""
+    cleaned: list[dict[str, Any]] = []
+    for rule in rules:
+        item: dict[str, Any] = {
+            "target": rule.get("target"),
+            "pattern": rule.get("pattern"),
+            "kind": rule.get("kind"),
+        }
+        label = str(rule.get("label") or "").strip()
+        if label:
+            item["label"] = label
+        cleaned.append(item)
+    return cleaned
+
+
+async def set_tri_rules(
+    target: CurationTarget, slug: str, rules: list[dict[str, Any]]
+) -> tuple[WriteResult, list[dict[str, Any]]]:
+    """Remplacer les règles de tri d'une source (liste vide = aucune règle).
+    Lève RulesInvalidError, SourceMissingError, ManifestError (manifeste illisible)."""
+    cleaned = clean_tri_rules(rules)
+    errors = validate_tri_rules(cleaned)
+    if errors:
+        raise RulesInvalidError(errors)
+    try:
+        revision = await target.write(
+            f"curation {slug} : règles de tri", set_tri_rules_fn(slug, cleaned)
+        )
+    except FileNotFoundError:
+        raise SourceMissingError(slug) from None
+    paths = [f"{source_rel_dir(slug)}/{MANIFEST_FILENAME}"] if revision else []
+    return WriteResult(revision, paths), cleaned
+
+
+# --- Revue des changements -------------------------------------------------------------------
+
+
+def invalid_review_decisions(review: ReviewResult, decisions: ReviewDecisions) -> list[str]:
+    """Mode strict : décisions qui ne visent pas un élément de la revue, ou pas
+    un élément de la bonne nature. Vide = toutes les décisions sont valides.
+
+    rafraîchir ↔ champ « changed », reprendre ↔ champ « appeared », retirer un
+    champ ↔ champ « disappeared », retirer un objet ↔ objet « object-disappeared »,
+    retenir un objet ↔ objet « new »."""
+    objects = {o.path: o for o in review.objects}
+
+    def field_change(path: str, name: str) -> str | None:
+        obj = objects.get(path)
+        found = next((f for f in obj.fields if f.name == name), None) if obj else None
+        return found.change if found else None
+
+    bad: list[str] = []
+    for kind, grouped, expected in (
+        ("apply_fields", decisions.apply_fields, "changed"),
+        ("take_fields", decisions.take_fields, "appeared"),
+        ("remove_fields", decisions.remove_fields, "disappeared"),
+    ):
+        for path, names in sorted(grouped.items()):
+            bad.extend(
+                f"{kind}:{path}#{name}" for name in names if field_change(path, name) != expected
+            )
+    for kind, paths, expected in (
+        ("remove_objects", decisions.remove_objects, "object-disappeared"),
+        ("retain_objects", decisions.retain_objects, "new"),
+    ):
+        for path in paths:
+            obj = objects.get(path)
+            if obj is None or obj.status != expected:
+                bad.append(f"{kind}:{path}")
+    return bad
+
+
+def review_paths(slug: str, decisions: ReviewDecisions) -> list[str]:
+    """Chemins qu'une revue appliquée peut toucher : les assets visés et le point
+    de reprise."""
+    names = (
+        set(decisions.apply_fields)
+        | set(decisions.take_fields)
+        | set(decisions.remove_fields)
+        | set(decisions.remove_objects)
+        | set(decisions.retain_objects)
+    )
+    return [asset_repo_path(slug, n) for n in sorted(names)] + [
+        f"{source_rel_dir(slug)}/{REVIEW_FILE}"
+    ]
+
+
+async def apply_review(
+    target: CurationTarget, slug: str, head_sha: str, decisions: ReviewDecisions
+) -> WriteResult:
+    """Appliquer des décisions de revue et avancer le point de reprise à
+    `head_sha`, en une écriture. Si le brut a bougé depuis (tête publiée ≠
+    `head_sha`), WorkdirError « review_stale » avant toute écriture. Un
+    changement non décidé est laissé tel quel ; le point de reprise avance."""
+    revision = await target.write(
+        f"curation {slug} : revue validée",
+        apply_review_fn(slug, head_sha, decisions),
+        expect_head=head_sha,
+    )
+    return WriteResult(revision, review_paths(slug, decisions) if revision else [])
