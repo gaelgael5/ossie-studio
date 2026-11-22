@@ -289,7 +289,9 @@ class SourceCollector:
                 statuts[src] = statut
             for err in result.errors:
                 statuts[err.source] = STATUT_ERREUR
-                messages[err.source] = err.cause
+                # scan_files n'a qu'une colonne de message : le code d'abord, la
+                # précision sur la ligne suivante (l'interface sépare les deux).
+                messages[err.source] = f"{err.cause}\n{err.detail}" if err.detail else err.cause
 
         # 4. Service de recherche commun : le socle résout les références croisées
         # (x-unresolved-type → $ref) sur l'ensemble des schémas de la source.

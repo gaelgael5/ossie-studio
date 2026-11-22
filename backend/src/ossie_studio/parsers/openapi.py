@@ -319,7 +319,7 @@ def _contract_schemas(filename: str, raw: bytes) -> list[ParsedObject]:
     try:
         doc = load_document(raw)
     except OpenApiError as exc:
-        raise ParserError("syntax") from exc
+        raise ParserError("syntax", exc.detail or exc.code) from exc
     version = PurePosixPath(filename).stem
     major = _major(doc)
     schemas = _schemas(doc)

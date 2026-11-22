@@ -90,6 +90,7 @@ def dump_tech_manifest(manifest: TechManifest) -> str:
 class CollectError:
     source: str
     cause: str
+    detail: str = ""
 
 
 @dataclass
@@ -205,7 +206,7 @@ def run_collection(
             objects = parser.parse(files)
         except ParserError as exc:
             for source in sorted(group):
-                plan.errors.append(CollectError(source=source, cause=exc.code))
+                plan.errors.append(CollectError(source=source, cause=exc.code, detail=exc.detail))
                 plan.statuses[source] = STATUT_ERREUR
             continue
         # Validateur partagé des conventions : un schéma non conforme fait échouer
@@ -215,12 +216,16 @@ def run_collection(
                 validate_schema(json.loads(obj.schema))
         except ConventionError as exc:
             for source in sorted(group):
-                plan.errors.append(CollectError(source=source, cause=f"convention:{exc.rule}"))
+                plan.errors.append(
+                    CollectError(source=source, cause=f"convention:{exc.rule}", detail=exc.detail)
+                )
                 plan.statuses[source] = STATUT_ERREUR
             continue
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
             for source in sorted(group):
-                plan.errors.append(CollectError(source=source, cause="convention:not_json"))
+                plan.errors.append(
+                    CollectError(source=source, cause="convention:not_json", detail=str(exc))
+                )
                 plan.statuses[source] = STATUT_ERREUR
             continue
         by_source: dict[str, list[str]] = {s: [] for s in group}
@@ -301,7 +306,7 @@ def schema_plugin_run(
         writes=writes,
         deletes=list(plan.deletes),
         statuses=dict(plan.statuses),
-        errors=[PluginError(source=e.source, cause=e.cause) for e in plan.errors],
+        errors=[PluginError(source=e.source, cause=e.cause, detail=e.detail) for e in plan.errors],
         added=plan.added,
         modified=plan.modified,
         deleted=plan.deleted,

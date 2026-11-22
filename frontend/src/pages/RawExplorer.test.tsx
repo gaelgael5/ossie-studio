@@ -32,9 +32,9 @@ const TREE = {
   ...SOURCES.sources[0],
   mode: 'origin',
   folders: [
-    { path: '', items: 1, objects: 2 },
-    { path: 'src', items: 1, objects: 2 },
-    { path: 'src/Domain', items: 2, objects: 2 },
+    { path: '', items: 1, files: 2 },
+    { path: 'src', items: 1, files: 2 },
+    { path: 'src/Domain', items: 2, files: 2 },
   ],
 }
 
@@ -47,9 +47,9 @@ const OBJ = {
 }
 
 function folderBody(path: string) {
-  if (path === '') return { path, folders: [{ path: 'src', items: 1, objects: 2 }], objects: [], documents: [] }
+  if (path === '') return { path, folders: [{ path: 'src', items: 1, files: 2 }], objects: [], documents: [] }
   if (path === 'src')
-    return { path, folders: [{ path: 'src/Domain', items: 2, objects: 2 }], objects: [], documents: [] }
+    return { path, folders: [{ path: 'src/Domain', items: 2, files: 2 }], objects: [], documents: [] }
   return {
     path,
     folders: [],
@@ -177,5 +177,32 @@ describe('RawExplorer', () => {
     expect(rows()[0]).toContain('Order')
     await user.click(screen.getByRole('button', { name: 'Nom ▲' }))
     expect(rows()[0]).toContain('Status')
+  })
+
+  it('pas de filtre sans objet dans le dossier ; l’état ne propose que ceux présents', async () => {
+    mockApi()
+    renderExplorer('/sources?tab=raw&source=app&path=src')
+    await screen.findByRole('button', { name: /^DIR\s*Domain/ })
+    expect(screen.queryByLabelText('Nature')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('État')).not.toBeInTheDocument()
+  })
+
+  it('les filtres proposés sont ceux du dossier', async () => {
+    mockApi()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain')
+    await screen.findByText('Order')
+    const states = screen.getByLabelText('État') as HTMLSelectElement
+    expect([...states.options].map((o) => o.textContent)).toEqual(['Tous les états', 'retenu'])
+  })
+
+  it('la largeur de l’arbre se règle et se retient', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app')
+    const handle = await screen.findByRole('separator', { name: 'Largeur de l’arbre des sources' })
+    handle.focus()
+    await user.keyboard('{ArrowRight}')
+    expect(handle).toHaveAttribute('aria-valuenow', '320')
+    expect(localStorage.getItem('ossie.rawExplorer.treeWidth')).toBe('320')
   })
 })

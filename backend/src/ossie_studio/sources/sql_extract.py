@@ -176,7 +176,7 @@ class SqlExtractor:
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError as exc:
-                raise ParserError("unreadable") from exc
+                raise ParserError("unreadable", str(exc)) from exc
             schema = _build_schema(data)
             objects.append(
                 ParsedObject(

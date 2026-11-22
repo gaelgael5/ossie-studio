@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type PointerEvent, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -23,6 +23,23 @@ import { ErrorList } from '../components/ErrorList'
 const MODES: RawExplorerMode[] = ['origin', 'kind', 'parser']
 const BADGES: RawBadge[] = ['retained', 'new', 'modified', 'excluded', 'error']
 const MODE_KEY = 'ossie.rawExplorer.mode'
+const WIDTH_KEY = 'ossie.rawExplorer.treeWidth'
+const TREE_MIN = 180
+const TREE_MAX = 720
+const TREE_DEFAULT = 300
+
+function clampWidth(value: number): number {
+  return Math.min(TREE_MAX, Math.max(TREE_MIN, Math.round(value)))
+}
+
+function storedWidth(): number {
+  try {
+    const value = Number(localStorage.getItem(WIDTH_KEY))
+    return value ? clampWidth(value) : TREE_DEFAULT
+  } catch {
+    return TREE_DEFAULT
+  }
+}
 // Chaque lecture réaligne la copie sur la forge côté serveur : on ne relit pas
 // un dossier déjà vu à chaque clic.
 const STALE_MS = 30_000
@@ -98,6 +115,33 @@ export function RawExplorer({
     key: 'name',
     asc: true,
   })
+  const [treeWidth, setTreeWidth] = useState(storedWidth)
+
+  // Largeur de l'arbre réglable à la souris (ou aux flèches), retenue d'une
+  // visite à l'autre : les noms de dossiers d'un dépôt .NET sont longs.
+  const resizeTree = (value: number) => {
+    const width = clampWidth(value)
+    setTreeWidth(width)
+    try {
+      localStorage.setItem(WIDTH_KEY, String(width))
+    } catch {
+      // stockage indisponible : la largeur vaut pour cette visite
+    }
+  }
+  const startResize = (e: PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = treeWidth
+    const move = (ev: globalThis.PointerEvent) => resizeTree(startWidth + ev.clientX - startX)
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      document.body.classList.remove('resizing-x')
+    }
+    document.body.classList.add('resizing-x')
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
 
   const urlMode = params.get('mode')
   const mode: RawExplorerMode = MODES.includes(urlMode as RawExplorerMode)
@@ -165,6 +209,13 @@ export function RawExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder.error])
 
+  // Un filtre ne survit pas au changement de dossier : il masquerait tout dans
+  // un dossier où sa valeur n'existe pas.
+  useEffect(() => {
+    setKindFilter('')
+    setBadgeFilter('')
+  }, [sourceSlug, mode, path])
+
   useEffect(() => {
     const id = setTimeout(() => setDebounced(search.trim()), 300)
     return () => clearTimeout(id)
@@ -193,6 +244,12 @@ export function RawExplorer({
 
   const objects = useMemo(() => folder.data?.objects ?? [], [folder.data])
   const kinds = useMemo(() => [...new Set(objects.map((o) => o.kind))].sort(), [objects])
+  // Seuls les états réellement portés par un objet du dossier sont proposés :
+  // un filtre sans choix utile ne s'affiche pas.
+  const presentBadges = useMemo(
+    () => BADGES.filter((b) => objects.some((o) => o.badges.includes(b))),
+    [objects],
+  )
   const shownObjects = objects.filter(
     (o) =>
       (!kindFilter || o.kind === kindFilter) &&
@@ -237,7 +294,7 @@ export function RawExplorer({
   const crumbs = path ? path.split('/') : []
 
   return (
-    <div className="raw-explorer">
+    <div className="raw-explorer" style={{ '--raw-tree-width': `${treeWidth}px` } as CSSProperties}>
       <ErrorList messages={messages} />
       <aside className="panel raw-tree" aria-label={t('rawTreeLabel')}>
         <label className="field-label" htmlFor="raw-mode">
@@ -265,7 +322,7 @@ export function RawExplorer({
               >
                 <span className="raw-tree-glyph">SRC</span>
                 {s.label}
-                <span className="raw-count">{s.objects}</span>
+                <span className="raw-count">{s.objects + s.documents}</span>
               </button>
               {s.slug === sourceSlug && tree.data ? (
                 <FolderBranch
@@ -280,6 +337,21 @@ export function RawExplorer({
           ))}
         </ul>
       </aside>
+      <div
+        className="raw-splitter"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t('rawResizeTree')}
+        aria-valuenow={treeWidth}
+        aria-valuemin={TREE_MIN}
+        aria-valuemax={TREE_MAX}
+        tabIndex={0}
+        onPointerDown={startResize}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft') resizeTree(treeWidth - 20)
+          if (e.key === 'ArrowRight') resizeTree(treeWidth + 20)
+        }}
+      />
 
       <section className="raw-main">
         <div className="raw-toolbar">
@@ -372,32 +444,36 @@ export function RawExplorer({
                   </ul>
                 ) : null}
               </div>
-              <select
-                className="select"
-                aria-label={t('rawFilterKind')}
-                value={kindFilter}
-                onChange={(e) => setKindFilter(e.target.value)}
-              >
-                <option value="">{t('rawFilterKindAll')}</option>
-                {kinds.map((k) => (
-                  <option key={k} value={k}>
-                    {t(`rawKind.${k}`, { defaultValue: k })}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="select"
-                aria-label={t('rawFilterState')}
-                value={badgeFilter}
-                onChange={(e) => setBadgeFilter(e.target.value)}
-              >
-                <option value="">{t('rawFilterStateAll')}</option>
-                {BADGES.map((b) => (
-                  <option key={b} value={b}>
-                    {t(`rawBadge.${b}`)}
-                  </option>
-                ))}
-              </select>
+              {kinds.length > 1 ? (
+                <select
+                  className="select"
+                  aria-label={t('rawFilterKind')}
+                  value={kindFilter}
+                  onChange={(e) => setKindFilter(e.target.value)}
+                >
+                  <option value="">{t('rawFilterKindAll')}</option>
+                  {kinds.map((k) => (
+                    <option key={k} value={k}>
+                      {t(`rawKind.${k}`, { defaultValue: k })}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {presentBadges.length > 0 ? (
+                <select
+                  className="select"
+                  aria-label={t('rawFilterState')}
+                  value={badgeFilter}
+                  onChange={(e) => setBadgeFilter(e.target.value)}
+                >
+                  <option value="">{t('rawFilterStateAll')}</option>
+                  {presentBadges.map((b) => (
+                    <option key={b} value={b}>
+                      {t(`rawBadge.${b}`)}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
             </div>
             <CollectLine source={tree.data ?? current} />
           </>
@@ -481,7 +557,7 @@ function FolderBranch({
             >
               <span className="raw-tree-glyph">{open ? '▾' : '▸'}</span>
               {label(f.path)}
-              <span className="raw-count">{f.objects}</span>
+              <span className="raw-count">{f.files}</span>
             </button>
             {open ? (
               <FolderBranch

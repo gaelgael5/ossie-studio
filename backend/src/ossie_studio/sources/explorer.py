@@ -10,10 +10,12 @@ Les schémas sont **à plat** à la racine de `raw/` (un fichier par objet) : le
 - `kind` : la nature de l'objet (`x-kind`) ;
 - `parser` : le parseur qui l'a produit.
 
-Rien n'est jamais écrit. L'index est recalculé à chaque requête mais chaque
-schéma n'est relu que si son fichier a changé (cache par chemin, taille et date
-de modification) : un dossier s'affiche sans relire les milliers de schémas
-d'une grosse source à chaque clic.
+Rien n'est jamais écrit dans la copie. `collect_source_entries` lit la couche
+raw (une fois par changement : le résultat est mis en index en base, voir
+`explorer_store`) ; `index_from_entries` range ensuite, à chaque requête et sans
+toucher au disque, les objets en dossiers pour le mode demandé. La lecture
+elle-même ne relit un schéma que si son fichier a changé (cache par chemin,
+taille et date de modification).
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ import json
 import subprocess
 import threading
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -330,29 +332,29 @@ def _dirname(path: str) -> str:
     return path.rsplit("/", 1)[0] if "/" in path else ""
 
 
-def _object_folder(mode: str, meta: _SourceMeta, obj: ExplorerObject) -> str:
+def _object_folder(mode: str, entries: SourceEntries, obj: ExplorerObject) -> str:
     if mode == "kind":
         return obj.kind
     if mode == "parser":
         return obj.parser or "unknown"
-    if meta.type == "git":
+    if entries.type == "git":
         return _dirname(obj.origin)
-    if meta.type == "openapi":
+    if entries.type == "openapi":
         return obj.origin
-    if meta.type:  # base de données : base > schéma (clé d'origine `schéma.objet`)
+    if entries.type:  # base de données : base > schéma (clé d'origine `schéma.objet`)
         schema = obj.origin.split(".", 1)[0] if "." in obj.origin else ""
         if not schema:
             schema = obj.file.split(".", 1)[0] if obj.file.count(".") >= 2 else ""
-        return "/".join(p for p in (meta.database, schema) if p)
+        return "/".join(p for p in (entries.database, schema) if p)
     return ""
 
 
-def _document_folder(mode: str, meta: _SourceMeta, doc: ExplorerDocument) -> str:
+def _document_folder(mode: str, entries: SourceEntries, doc: ExplorerDocument) -> str:
     if mode == "kind":
         return DOCUMENTS_FOLDER
     if mode == "parser":
         return MARKDOWN_PARSER
-    return _dirname(doc.path) if meta.type == "git" else ""
+    return _dirname(doc.path) if entries.type == "git" else ""
 
 
 def _ensure_folder(folders: dict[str, _Folder], path: str) -> _Folder:
@@ -367,25 +369,81 @@ def _ensure_folder(folders: dict[str, _Folder], path: str) -> _Folder:
     return folder
 
 
-def build_source_index(
-    workdir: Path,
-    slug: str,
-    mode: str = DEFAULT_MODE,
-    *,
-    error_origins: Iterable[str] = (),
-    review_base: str | None = None,
-) -> SourceIndex:
-    """Index d'une source dans une copie de travail. `error_origins` : fichiers
-    d'origine signalés en erreur par la dernière collecte ; `review_base` : commit
-    du point de reprise (`review.yaml`), None si jamais revue."""
-    if mode not in MODES:
-        mode = DEFAULT_MODE
+@dataclass
+class SourceEntries:
+    """Ce que la couche raw d'une source contient, indépendamment du mode
+    d'affichage : c'est ce qui est mis en index (base), les dossiers se calculant
+    ensuite à la volée pour le mode demandé."""
+
+    slug: str
+    label: str
+    type: str
+    database: str
+    collected: bool
+    objects: list[ExplorerObject]
+    documents: list[ExplorerDocument]
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "objects": [
+                [
+                    o.file,
+                    o.title,
+                    o.kind,
+                    o.fields,
+                    o.origin,
+                    o.parser,
+                    list(o.badges),
+                    o.excluded_by,
+                ]
+                for o in self.objects
+            ],
+            "documents": [[d.path, d.title, d.sections] for d in self.documents],
+            "database": self.database,
+        }
+
+    @classmethod
+    def from_json(
+        cls, slug: str, label: str, type_: str, collected: bool, data: dict[str, Any]
+    ) -> SourceEntries:
+        # Listes positionnelles plutôt qu'objets : l'index d'une grosse source
+        # pèse deux fois moins lourd en base et se relit plus vite.
+        return cls(
+            slug=slug,
+            label=label,
+            type=type_,
+            database=str(data.get("database") or ""),
+            collected=collected,
+            objects=[
+                ExplorerObject(
+                    file=o[0],
+                    title=o[1],
+                    kind=o[2],
+                    fields=int(o[3]),
+                    origin=o[4],
+                    parser=o[5],
+                    badges=tuple(o[6]),
+                    excluded_by=o[7],
+                )
+                for o in data.get("objects") or []
+            ],
+            documents=[
+                ExplorerDocument(path=d[0], title=d[1], sections=int(d[2]))
+                for d in data.get("documents") or []
+            ],
+        )
+
+
+def collect_source_entries(
+    workdir: Path, slug: str, *, review_base: str | None = None
+) -> SourceEntries:
+    """Lit la couche raw d'une source dans une copie de travail. `review_base` :
+    commit du point de reprise (`review.yaml`), None si jamais revue."""
     source_dir = safe_source_path(workdir, slug)
     meta = _read_source_meta(source_dir, slug)
     raw_dir = source_dir / RAW_DIR
-    folders: dict[str, _Folder] = {"": _Folder(path="")}
     if not raw_dir.is_dir():
-        return SourceIndex(slug, meta.label, meta.type, mode, False, [], [], folders)
+        return SourceEntries(slug, meta.label, meta.type, meta.database, False, [], [])
 
     origins = _tech_origins(raw_dir)
     assets_dir = source_dir / ASSETS_DIR
@@ -394,7 +452,6 @@ def build_source_index(
     )
     base_blobs = review_blobs(workdir, slug, review_base)
     rules: list[TriRule] = compile_rules(meta.rules) if meta.rules else []
-    errors = set(error_origins)
 
     objects: list[ExplorerObject] = []
     for path in sorted(raw_dir.iterdir()):
@@ -419,7 +476,7 @@ def build_source_index(
             if rule is not None:
                 badges.append(BADGE_EXCLUDED)
                 excluded_by = rule_label(rule)
-        if summary.error or (origin and origin in errors):
+        if summary.error:
             badges.append(BADGE_ERROR)
         objects.append(
             ExplorerObject(
@@ -433,14 +490,55 @@ def build_source_index(
                 excluded_by=excluded_by,
             )
         )
+    return SourceEntries(
+        slug, meta.label, meta.type, meta.database, True, objects, _read_docs(raw_dir)
+    )
 
-    documents = _read_docs(raw_dir)
 
+def index_from_entries(
+    entries: SourceEntries, mode: str = DEFAULT_MODE, error_origins: Iterable[str] = ()
+) -> SourceIndex:
+    """Range les objets et documents en dossiers pour un mode d'affichage.
+    `error_origins` : fichiers d'origine signalés en erreur par la dernière
+    collecte (lus à part : ils changent sans que la couche raw change)."""
+    if mode not in MODES:
+        mode = DEFAULT_MODE
+    errors = set(error_origins)
+    objects = [
+        replace(o, badges=(*o.badges, BADGE_ERROR))
+        if o.origin and o.origin in errors and BADGE_ERROR not in o.badges
+        else o
+        for o in entries.objects
+    ]
+    folders: dict[str, _Folder] = {"": _Folder(path="")}
     for obj in objects:
-        _ensure_folder(folders, _object_folder(mode, meta, obj)).objects.append(obj)
-    for doc in documents:
-        _ensure_folder(folders, _document_folder(mode, meta, doc)).documents.append(doc)
-    return SourceIndex(slug, meta.label, meta.type, mode, True, objects, documents, folders)
+        _ensure_folder(folders, _object_folder(mode, entries, obj)).objects.append(obj)
+    for doc in entries.documents:
+        _ensure_folder(folders, _document_folder(mode, entries, doc)).documents.append(doc)
+    return SourceIndex(
+        entries.slug,
+        entries.label,
+        entries.type,
+        mode,
+        entries.collected,
+        objects,
+        entries.documents,
+        folders,
+    )
+
+
+def build_source_index(
+    workdir: Path,
+    slug: str,
+    mode: str = DEFAULT_MODE,
+    *,
+    error_origins: Iterable[str] = (),
+    review_base: str | None = None,
+) -> SourceIndex:
+    """Index d'une source lu directement dans une copie de travail."""
+    return index_from_entries(
+        collect_source_entries(workdir, slug, review_base=review_base), mode, error_origins
+    )
 
 
 def list_source_slugs(workdir: Path) -> list[str]:
@@ -460,13 +558,19 @@ def folder_item_count(folder: _Folder) -> int:
     return len(folder.folders) + len(folder.objects) + len(folder.documents)
 
 
-def subtree_object_count(index: SourceIndex, path: str) -> int:
-    prefix = f"{path}/" if path else ""
-    return sum(
-        len(f.objects)
-        for p, f in index.folders.items()
-        if p == path or (not path) or p.startswith(prefix)
-    )
+def subtree_file_counts(index: SourceIndex) -> dict[str, int]:
+    """Fichiers (objets + documents) de chaque dossier, sous-arbre compris, en
+    une passe : chaque dossier ajoute les siens à tous ses ancêtres."""
+    counts = dict.fromkeys(index.folders, 0)
+    for path, folder in index.folders.items():
+        own = len(folder.objects) + len(folder.documents)
+        if not own:
+            continue
+        current: str | None = path
+        while current is not None:
+            counts[current] = counts.get(current, 0) + own
+            current = _dirname(current) if current else None
+    return counts
 
 
 def search_objects(index: SourceIndex, query: str) -> list[tuple[str, ExplorerObject]]:

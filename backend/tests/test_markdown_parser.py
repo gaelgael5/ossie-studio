@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ossie_studio.parsers.base import (
     STATUT_ERREUR,
+    STATUT_IGNORE,
     STATUT_INCHANGE,
     FileRow,
     PluginContext,
@@ -135,9 +136,29 @@ def test_trop_gros_signale_non_copie() -> None:
     assert result.statuses["gros.md"] == STATUT_ERREUR
 
 
-def test_vide_signale() -> None:
+def test_vide_ignore_sans_erreur() -> None:
     result = MarkdownPlugin().run(_ctx({"vide.md": b"   \n"}))
-    assert any(e.source == "vide.md" and e.cause == "empty" for e in result.errors)
+    assert result.errors == []
+    assert result.statuses["vide.md"] == STATUT_IGNORE
+    assert "docs/vide.md" not in _writes(result)
+
+
+def test_document_vide_apres_coup_retire_sa_copie() -> None:
+    plugin = MarkdownPlugin()
+    index = _writes(plugin.run(_ctx({"notes.md": b"# Notes\n"})))[DOCS_INDEX]
+    result = plugin.run(_ctx({"notes.md": b"\n"}, raw={DOCS_INDEX: index}))
+    assert result.errors == []
+    assert "docs/notes.md" in result.deletes and result.deleted == 1
+    assert "notes.md" not in _writes(result)[DOCS_INDEX]
+
+
+def test_trop_gros_et_illisible_disent_pourquoi() -> None:
+    result = MarkdownPlugin().run(
+        _ctx({"gros.md": b"# T\n" + b"x" * 5000, "bin.md": b"# ok\xff"}, params={PARAM_MAX_KB: "1"})
+    )
+    details = {e.source: e.detail for e in result.errors}
+    assert details["gros.md"] == "5 KB > 1 KB (taille_max_ko)"
+    assert details["bin.md"] == "byte 0xff at offset 4 (not UTF-8)"
 
 
 def test_illisible_signale() -> None:
