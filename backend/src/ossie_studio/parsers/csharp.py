@@ -148,7 +148,8 @@ def _visibility(mods: list[str], *, nested: bool) -> tuple[str, str | None]:
     return value, (source if source and source != value else None)
 
 
-def _doc_comment(src: bytes, node: Node) -> str:
+def _doc_blob(src: bytes, node: Node) -> str:
+    """Le commentaire XML (`///`) qui précède un nœud, lignes recollées."""
     prev = node.prev_sibling
     lines: list[str] = []
     while prev is not None and prev.type == "comment":
@@ -156,10 +157,46 @@ def _doc_comment(src: bytes, node: Node) -> str:
         if text.startswith("///"):
             lines.insert(0, text[3:].strip())
         prev = prev.prev_sibling
-    blob = " ".join(lines)
+    return " ".join(lines)
+
+
+# Balises de référence auto-fermantes : on garde le nom visé (`cref` sans son
+# préfixe de genre « T: », « M: »…, `name`, ou le mot-clé de `langword`).
+_XML_REF = re.compile(
+    r"<(?:see|seealso|paramref|typeparamref)\s+(?:cref|name|langword|href)\s*=\s*\"([^\"]*)\"\s*/>"
+)
+_XML_LINK = re.compile(r"<see\s+href\s*=\s*\"[^\"]*\"\s*>(.*?)</see>", re.DOTALL)
+_XML_TAG = re.compile(r"</?[A-Za-z][^>]*>")
+_XML_ENTITIES = {"&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'", "&amp;": "&"}
+
+
+def _xml_text(fragment: str) -> str:
+    """Texte lisible d'un fragment de doc XML : les références deviennent le nom
+    visé, les balises de mise en forme (`<c>`, `<b>`, `<para>`…) disparaissent
+    en gardant leur texte, les entités sont décodées."""
+    text = _XML_LINK.sub(r"\1", fragment)
+    text = _XML_REF.sub(lambda m: m.group(1).split(":", 1)[-1], text)
+    text = _XML_TAG.sub(" ", text)
+    for entity, char in _XML_ENTITIES.items():
+        text = text.replace(entity, char)
+    text = re.sub(r"\s+([.,;:!?)])", r"\1", re.sub(r"\s+", " ", text))
+    return text.strip()
+
+
+def _doc_comment(src: bytes, node: Node) -> str:
+    blob = _doc_blob(src, node)
     match = re.search(r"<summary>(.*?)</summary>", blob, re.DOTALL)
-    summary = match.group(1) if match else blob
-    return re.sub(r"\s+", " ", summary).strip()
+    return _xml_text(match.group(1) if match else blob)
+
+
+def _doc_params(src: bytes, node: Node) -> dict[str, str]:
+    """`<param name="X">…</param>` du commentaire d'un type : la doc des
+    paramètres d'un record positionnel, qui deviennent ses propriétés."""
+    blob = _doc_blob(src, node)
+    return {
+        m.group(1): _xml_text(m.group(2))
+        for m in re.finditer(r'<param\s+name\s*=\s*"([^"]+)"\s*>(.*?)</param>', blob, re.DOTALL)
+    }
 
 
 def _attributes(src: bytes, node: Node) -> tuple[list[dict[str, Any]], bool, int | None]:
@@ -305,7 +342,9 @@ def _simple_base(src: bytes, node: Node) -> str:
 
 def _members(src: bytes, node: Node) -> list[_Member]:
     members: list[_Member] = []
-    # Record positionnel : paramètres du constructeur primaire → propriétés.
+    # Record positionnel : paramètres du constructeur primaire → propriétés,
+    # documentées par les `<param>` du commentaire du record.
+    param_docs = _doc_params(src, node)
     for params in node.named_children:
         if params.type != "parameter_list":
             continue
@@ -313,11 +352,12 @@ def _members(src: bytes, node: Node) -> list[_Member]:
             if param.type != "parameter":
                 continue
             attrs, req, maxlen = _attributes(src, param)
+            param_name = _text(src, param.child_by_field_name("name"))
             members.append(
                 _Member(
-                    _text(src, param.child_by_field_name("name")),
+                    param_name,
                     _type_ref(src, param.child_by_field_name("type")),
-                    "",
+                    param_docs.get(param_name, ""),
                     attrs,
                     req,
                     maxlen,
@@ -460,7 +500,7 @@ class CSharpParser:
     id = "csharp"
     cible = CIBLE_RAW
     label = "C#"
-    version = f"1.1-ts{grammar_version('csharp')}"
+    version = f"1.2-ts{grammar_version('csharp')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)

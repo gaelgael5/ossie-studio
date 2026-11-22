@@ -859,6 +859,8 @@ export const fr = {
     navNoSpace: 'Aucun espace — créez-en un dans « Espaces ».',
     tabTags: 'Tags',
     tabTagRules: 'Règles de tags',
+    tagRuleBuiltin: 'Ossie',
+    tagRuleBuiltinHint: 'Règle fournie par Ossie : non modifiable, désactivable pour cet espace (l’état est enregistré dans le brouillon).',
     governanceTagRulesIntro: 'Règles qui posent des tags de gouvernance sur les objets raw d’après ce que le code dit d’eux : classe de base, attribut, nom, fichier, champ.',
     newTagRule: '+ Nouvelle règle',
     tagRuleFilterLabel: 'Filtrer les règles',
@@ -912,6 +914,7 @@ export const fr = {
     tagRulePreviewNone: 'Aucun objet ne serait tagué.',
     saveTagRule: 'Enregistrer dans le brouillon',
     tagRuleCond: {
+      kind: 'Nature de l’objet',
       inherits: 'Hérite de / implémente',
       annotation: 'Porte l’attribut',
       name: 'Nom de la classe',
@@ -919,6 +922,7 @@ export const fr = {
       field: 'Contient le champ',
     },
     tagRuleCondText: {
+      kind: 'nature {{values}}',
       inherits: 'hérite de {{values}}',
       annotation: 'porte {{values}}',
       name: 'nom {{values}}',
@@ -926,6 +930,7 @@ export const fr = {
       field: 'contient le champ {{values}}',
     },
     tagRuleCondPlaceholder: {
+      kind: 'model, enum',
       inherits: 'ControllerBase, DbContext',
       annotation: 'ApiController, Table',
       name: '*Dto, *Request',
@@ -1022,6 +1027,7 @@ export const fr = {
     rawMentionedIn: 'Cité dans : {{sections}}',
     mdNotCopied: '[ressource non copiée]',
     rawExclusiveTab: {
+      enrichment: 'Enrichissement',
       overview: 'Vue d’ensemble',
       fields: 'Champs',
       documentation: 'Documentation',
@@ -1069,6 +1075,9 @@ export const fr = {
     rawNotExposedCount: 'non exposé ({{count}})',
     rawObjectNotRetained: 'Objet non retenu : aucun champ exposé.',
     rawCreateAsset: 'Créer un asset',
+    rawEnrichNeedsAsset: 'Créez d’abord un asset (bouton « Créer un asset ») : l’enrichissement s’écrit dans l’asset.',
+    rawEnrichReadonly: 'Enrichissement en lecture seule : le droit d’écrire la curation est requis.',
+    rawEnrichSaved: 'Enrichissement enregistré dans le brouillon.',
     rawRemoveAsset: 'Retirer l’asset',
     rawRemoveAssetConfirm: 'Retirer l’asset ? Les enrichissements seront perdus (récupérables dans l’historique Git).',
     rawRemoveAssetYes: 'Retirer',
@@ -1129,6 +1138,7 @@ export const fr = {
     rawCitedObjects: 'Objets cités',
     rawNoCitedObject: 'Aucun objet de l’espace n’est cité par ce document.',
     rawPreviewTab: {
+      enrichment: 'Enrichissement',
       summary: 'Résumé',
       json: 'JSON',
       documents: 'Documents',

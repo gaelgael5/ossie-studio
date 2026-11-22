@@ -757,13 +757,14 @@ export interface RailMapData {
   has_more: boolean
 }
 
-export type TagRuleCondition = 'inherits' | 'annotation' | 'name' | 'path' | 'field'
+export type TagRuleCondition = 'inherits' | 'annotation' | 'name' | 'path' | 'field' | 'kind'
 export const TAG_RULE_CONDITIONS: TagRuleCondition[] = [
   'inherits',
   'annotation',
   'name',
   'path',
   'field',
+  'kind',
 ]
 
 /** Règle de tags telle qu'écrite dans `governance/tag-rules/<id>.yaml`. */
@@ -784,6 +785,8 @@ export interface TagRuleFile {
   /** Absente quand le fichier est invalide (voir `errors`). */
   rule: (TagRuleInput & { id: string }) | null
   errors: string[]
+  /** Règle fournie par Ossie : non modifiable, seulement activable / désactivable. */
+  builtin: boolean
 }
 
 export interface TagRuleHits {
@@ -1397,6 +1400,11 @@ export const api = {
     apiFetch<TagRuleFile & { created_tags: string[] }>(`/api/governance/tag-rules/${id}`, {
       method: 'PUT',
       body: JSON.stringify(body),
+    }),
+  setBuiltinTagRuleState: (id: string, enabled: boolean) =>
+    apiFetch<TagRuleFile & { created_tags: string[] }>(`/api/governance/tag-rules/${id}/state`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
     }),
   deleteTagRule: (id: string) => apiFetch(`/api/governance/tag-rules/${id}`, { method: 'DELETE' }),
   tagRulesUsage: (spaceId: string, branchId: string) =>

@@ -186,7 +186,7 @@ def test_fichier_sans_type_ne_produit_rien() -> None:
 
 
 def test_version_inclut_la_grammaire() -> None:
-    assert CSharpParser().version.startswith("1.1-ts")
+    assert CSharpParser().version.startswith("1.2-ts")
 
 
 def test_namespace_d_origine() -> None:
@@ -199,3 +199,36 @@ def test_namespace_d_origine() -> None:
     assert schemas["colis-api-models-outer-inner"]["x-namespace"] == "Colis.Api.Models"
     sans = _parse("public class Libre { public int A { get; set; } }")
     assert "x-namespace" not in sans["libre"]
+
+
+def test_commentaire_xml_balises_internes_nettoyees() -> None:
+    schemas = _parse(
+        "namespace App;\n"
+        "/// <summary>\n"
+        '/// Voir <see cref="Parcel"/> et <c>Track</c>, <see cref="T:App.Other"/>.\n'
+        '/// <para>Vaut <see langword="null"/> si &lt;vide&gt;.</para>\n'
+        "/// </summary>\n"
+        "/// <remarks>Ignoré.</remarks>\n"
+        "public class C {\n"
+        "  /// <summary>Poids en <b>grammes</b> (<paramref name=\"x\"/>).</summary>\n"
+        "  public int Weight { get; set; }\n"
+        "}\n"
+    )
+    c = schemas["app-c"]
+    assert c["description"] == "Voir Parcel et Track, App.Other. Vaut null si <vide>."
+    assert c["properties"]["Weight"]["description"] == "Poids en grammes (x)."
+
+
+def test_record_positionnel_doc_des_parametres() -> None:
+    schemas = _parse(
+        "namespace App;\n"
+        "/// <summary>Adresse.</summary>\n"
+        '/// <param name="Street">La <c>rue</c>.</param>\n'
+        '/// <param name="City">La ville.</param>\n'
+        "public record Address(string Street, string City, string Zip);\n"
+    )
+    props = schemas["app-address"]["properties"]
+    assert props["Street"]["description"] == "La rue."
+    assert props["City"]["description"] == "La ville."
+    assert "description" not in props["Zip"]
+    assert schemas["app-address"]["description"] == "Adresse."

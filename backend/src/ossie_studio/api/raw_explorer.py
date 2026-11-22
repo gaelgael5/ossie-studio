@@ -31,6 +31,7 @@ from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.links import forge_file_url
+from ossie_studio.governance.builtin_tag_rules import BUILTIN_RULES_VERSION
 from ossie_studio.governance.tag_rules import active_rules, parse_rule, read_tag_removals
 from ossie_studio.parsers.base import STATUT_ERREUR
 from ossie_studio.sources.curation import is_schema_file, read_review_point
@@ -174,7 +175,9 @@ async def _ensure_index(
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
-    signature = f"v{INDEX_FORMAT}:{signature}"
+    # Les règles fournies par Ossie font partie du produit : leur version entre
+    # dans la signature (une nouvelle livraison de règles reconstruit l'index).
+    signature = f"v{INDEX_FORMAT}.{BUILTIN_RULES_VERSION}:{signature}"
     key = IndexKey(space_id=space_id, branch_id=branch_id, user_id=workdir.user_id, view=view)
     if await db_index_signature(conn, key) == signature:
         return key, branch_ref

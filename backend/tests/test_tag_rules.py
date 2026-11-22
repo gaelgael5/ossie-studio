@@ -261,7 +261,20 @@ async def sp(client: AsyncClient, app: FastAPI, tmp_path: Path) -> ApiSpace:
     return await make_api_space(client, app, tmp_path)
 
 
-async def test_api_regle_cree_les_tags_et_l_explorateur_les_montre(sp: ApiSpace) -> None:
+@pytest.fixture
+def no_builtin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neutralise les règles fournies par Ossie : les tests d'API ci-dessous
+    vérifient le mécanisme des règles de l'espace, isolément."""
+    import ossie_studio.api.tag_rules as api_rules
+    import ossie_studio.governance.builtin_tag_rules as builtin
+
+    monkeypatch.setattr(builtin, "builtin_rules", lambda: ())
+    monkeypatch.setattr(api_rules, "builtin_rules", lambda: ())
+
+
+async def test_api_regle_cree_les_tags_et_l_explorateur_les_montre(
+    sp: ApiSpace, no_builtin: None
+) -> None:
     forge_edit(sp, _files())
     explorer = f"{sp.base}/raw-explorer/app/folder"
     r = await sp.client.get(explorer, params={"path": "src/Api"})
@@ -308,7 +321,7 @@ async def test_api_regle_cree_les_tags_et_l_explorateur_les_montre(sp: ApiSpace)
     assert yaml.safe_dump(rule["rule"])  # sérialisable tel quel
 
 
-async def test_api_regle_invalide_et_suppression(sp: ApiSpace) -> None:
+async def test_api_regle_invalide_et_suppression(sp: ApiSpace, no_builtin: None) -> None:
     url = f"{sp.base}/governance/tag-rules"
     r = await sp.client.put(f"{url}/x", json={"files": [], "tags": ["s"], "when": {"name": ["X"]}})
     assert r.status_code == 400
@@ -325,7 +338,7 @@ async def test_api_regle_invalide_et_suppression(sp: ApiSpace) -> None:
     assert (await sp.client.get(url)).json()["rules"] == []
 
 
-async def test_api_decompte_et_apercu_sur_l_index(sp: ApiSpace) -> None:
+async def test_api_decompte_et_apercu_sur_l_index(sp: ApiSpace, no_builtin: None) -> None:
     forge_edit(sp, _files())
     explorer = f"{sp.base}/raw-explorer/tag-rules"
     body = {
@@ -430,7 +443,7 @@ def test_fichier_des_retraits(tmp_path: Path) -> None:
     assert removal_errors(tmp_path) == ["tag_removals_invalid"]
 
 
-async def test_api_retrait_memorise_transmis_et_annulable(sp: ApiSpace) -> None:
+async def test_api_retrait_memorise_transmis_et_annulable(sp: ApiSpace, no_builtin: None) -> None:
     forge_edit(sp, _files())
     rule = {
         "name": "Contrôleurs",
@@ -483,3 +496,74 @@ async def test_sans_droit_de_gouvernance_refus_explicite(sp: ApiSpace, app: Fast
         rule = {"files": ["*.cs"], "tags": ["s"], "when": {"name": ["X"]}}
         r = await other.put(f"{sp.base}/governance/tag-rules/x", json=rule)
         assert r.status_code == 403
+
+
+# --- Règles fournies par Ossie --------------------------------------------------------
+
+
+def test_regles_fournies_toutes_valides_et_prefixees() -> None:
+    from ossie_studio.governance.builtin_tag_rules import builtin_rules
+
+    rules = builtin_rules()
+    assert len(rules) > 20
+    assert all(r.id.startswith("ossie-") and r.enabled for r in rules)
+    assert len({r.id for r in rules}) == len(rules)
+
+
+def test_regles_fournies_sur_le_jeu_de_test(tmp_path: Path) -> None:
+    from ossie_studio.governance.builtin_tag_rules import builtin_rules
+
+    got = _tags(apply_tag_rules(_sources(tmp_path), builtin_rules()))
+    assert "technique/service" in got["OrdersController"]
+    assert got["AdminController"]["technique/service"][2] == "OrdersController"
+    assert "technique/service" in got["HealthController"]  # [ApiController]
+    assert "technique/dto" in got["OrderDto"]
+    assert got["Order"]["donnees/personnelles/contact"] == ("field", "Email", "")
+
+
+def test_champs_sans_casse_et_condition_de_nature(tmp_path: Path) -> None:
+    rules = [
+        _rule("a", when={"field": ["EMAIL"]}, tags=["contact"]),
+        _rule("b", files=["*"], when={"kind": ["class"]}, tags=["classe"]),
+    ]
+    got = _tags(apply_tag_rules(_sources(tmp_path), rules))
+    assert got["Order"]["contact"] == ("field", "Email", "")
+    assert got["BaseEntity"]["classe"] == ("kind", "class", "")
+
+
+def test_id_reserve_aux_regles_fournies() -> None:
+    rule, errors = parse_rule(
+        "ossie-maison", {"files": ["*.cs"], "tags": ["s"], "when": {"name": ["X"]}}
+    )
+    assert rule is None and "tag_rule_id_reserved" in errors
+
+
+async def test_api_regles_fournies_listees_et_desactivables(sp: ApiSpace) -> None:
+    forge_edit(sp, _files())
+    rules = (await sp.client.get(f"{sp.base}/governance/tag-rules")).json()["rules"]
+    provided = {r["id"]: r for r in rules if r["builtin"]}
+    ctrl = provided["ossie-csharp-aspnet-controllers"]
+    assert ctrl["rule"]["enabled"] is True and ctrl["path"] == ""
+
+    folder_url = f"{sp.base}/raw-explorer/app/folder"
+    folder = await sp.client.get(folder_url, params={"path": "src/Api"})
+    tags = {o["title"]: [t["rule"] for t in o["tags"]] for o in folder.json()["objects"]}
+    assert "ossie-csharp-aspnet-controllers" in tags["OrdersController"]
+
+    state = f"{sp.base}/governance/tag-rules/ossie-csharp-aspnet-controllers/state"
+    r = await sp.client.put(state, json={"enabled": False})
+    assert r.status_code == 200, r.text
+    assert "technique/service" in r.json()["created_tags"]  # tags des règles actives
+    folder = await sp.client.get(folder_url, params={"path": "src/Api"})
+    tags = {o["title"]: [t["rule"] for t in o["tags"]] for o in folder.json()["objects"]}
+    assert "ossie-csharp-aspnet-controllers" not in tags["OrdersController"]
+    rules = (await sp.client.get(f"{sp.base}/governance/tag-rules")).json()["rules"]
+    ctrl = next(r for r in rules if r["id"] == "ossie-csharp-aspnet-controllers")
+    assert ctrl["rule"]["enabled"] is False
+
+    assert (await sp.client.put(state, json={"enabled": True})).status_code == 200
+    absent = f"{sp.base}/governance/tag-rules/ossie-inconnue/state"
+    assert (await sp.client.put(absent, json={"enabled": False})).status_code == 404
+    rule = {"files": ["*.cs"], "tags": ["s"], "when": {"name": ["X"]}}
+    r = await sp.client.put(f"{sp.base}/governance/tag-rules/ossie-perso", json=rule)
+    assert r.status_code == 400
