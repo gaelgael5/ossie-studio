@@ -36,7 +36,7 @@ from starlette.applications import Starlette
 
 from ossie_studio.mcp_surface.authz import allowed_primitives, authorize, caller_user
 from ossie_studio.mcp_surface.caller import McpCaller, current_caller
-from ossie_studio.mcp_surface.catalog import BY_ID, CATALOG
+from ossie_studio.mcp_surface.catalog import BY_ID, CATALOG, Primitive
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
 from ossie_studio.mcp_surface.primitives import IMPLEMENTATIONS
 
@@ -70,6 +70,16 @@ def _refusal(code: str, **detail: object) -> CallToolResult:
     return _result({"error": code, **detail}, error=True)
 
 
+def _annotations(primitive: Primitive) -> ToolAnnotations:
+    if primitive.access == "read":
+        return ToolAnnotations(read_only_hint=True)
+    return ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=primitive.destructive,
+        idempotent_hint=primitive.idempotent,
+    )
+
+
 def build_session_manager(app: Starlette) -> StreamableHTTPSessionManager:
     async def on_list_tools(
         _ctx: ServerRequestContext[Any], _params: PaginatedRequestParams | None
@@ -82,7 +92,7 @@ def build_session_manager(app: Starlette) -> StreamableHTTPSessionManager:
                 name=p.id,
                 description=p.description,
                 input_schema=IMPLEMENTATIONS[p.id].args_model.model_json_schema(),
-                annotations=ToolAnnotations(read_only_hint=p.access == "read"),
+                annotations=_annotations(p),
             )
             for p in CATALOG
             if p.id in allowed
@@ -99,20 +109,28 @@ def build_session_manager(app: Starlette) -> StreamableHTTPSessionManager:
             raise MCPError(INVALID_PARAMS, f"Unknown tool: {name}")
         started = time.perf_counter()
         outcome = "ok"
+        # Écriture : les chemins du brouillon touchés (jamais le contenu).
+        written: list[str] | None = None
         try:
             result = await _run(caller, name, params.arguments or {})
-            if result.is_error and isinstance(result.structured_content, dict):
-                outcome = str(result.structured_content.get("error"))
+            structured = result.structured_content
+            content = structured if isinstance(structured, dict) else {}
+            if result.is_error:
+                outcome = str(content.get("error"))
+            elif isinstance(content.get("changed_paths"), list):
+                written = [str(p) for p in content["changed_paths"]]
             return result
         except Exception:
             outcome = "internal_error"
             raise
         finally:
+            extra = {"changed_paths": written} if written is not None else {}
             log.info(
                 "mcp_call",
                 primitive=name,
                 outcome=outcome,
                 duration_ms=round((time.perf_counter() - started) * 1000, 1),
+                **extra,
                 **caller.log_fields(),
             )
 

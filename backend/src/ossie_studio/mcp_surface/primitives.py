@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ossie_studio.mcp_surface import reads
+from ossie_studio.mcp_surface import reads, writes
 from ossie_studio.mcp_surface.branch import BranchArgs, ObjectArgs, SourceArgs, ViewArgs
 from ossie_studio.mcp_surface.core import (
     Implementation,
@@ -30,4 +30,9 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "get_review": Implementation(SourceArgs, reads.get_review),
     "list_tags": Implementation(ViewArgs, reads.list_tags),
     "list_classifications": Implementation(ViewArgs, reads.list_classifications),
+    # Écriture (brouillon de la personne)
+    "retain_asset": Implementation(writes.RetainArgs, writes.retain_asset),
+    "remove_asset": Implementation(writes.ObjectWriteArgs, writes.remove_asset),
+    "enrich_asset": Implementation(writes.EnrichArgs, writes.enrich_asset),
+    "refresh_assets": Implementation(writes.RefreshArgs, writes.refresh_assets),
 }

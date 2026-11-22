@@ -752,6 +752,10 @@ export const fr = {
       governance: 'Gouvernance',
     },
     mcpPrim: {
+      retain_asset: 'Retenir un objet comme asset',
+      remove_asset: 'Retirer un asset',
+      enrich_asset: 'Enrichir un asset (nom métier, description, concept, tags)',
+      refresh_assets: 'Rafraîchir les assets depuis le brut',
       list_spaces: 'Lister les espaces et leurs branches',
       list_versions: 'Lister les versions d’une branche',
       get_my_draft: 'Voir le brouillon de la personne',

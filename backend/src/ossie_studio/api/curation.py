@@ -19,6 +19,8 @@ from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
+from ossie_studio.models import GitSpace, User
+from ossie_studio.sources import curation_actions
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
     AssetNotRetainedError,
@@ -31,7 +33,6 @@ from ossie_studio.sources.curation import (
     ReviewObject,
     apply_review_fn,
     build_review,
-    enrich_asset_fn,
     get_object_detail,
     is_schema_file,
     list_curation,
@@ -41,12 +42,9 @@ from ossie_studio.sources.curation import (
     read_source_trees,
     read_tri_rules,
     read_tri_rules_raw,
-    refresh_assets_fn,
-    refresh_targets,
-    remove_asset_fn,
-    retain_asset_fn,
     set_tri_rules_fn,
 )
+from ossie_studio.sources.curation_actions import CurationTarget
 from ossie_studio.sources.manifest import ManifestError
 from ossie_studio.sources.paths import is_valid_source_slug, source_rel_dir
 from ossie_studio.sources.tri import TRI_KINDS, TRI_TARGETS, validate_tri_rules
@@ -265,6 +263,13 @@ async def get_source_enrichment(
     return _enrich_payload(view)
 
 
+def _target(
+    workdir: DraftWorkdir, space: GitSpace, branch_slug: str, username: str, token: str | None,
+    user: User,
+) -> CurationTarget:
+    return CurationTarget(workdir, space, branch_slug, username, token, user.email)
+
+
 @router.put("/enrich")
 async def enrich_source_asset(
     conn: ConnDep,
@@ -281,19 +286,17 @@ async def enrich_source_asset(
     space, username, token = await space_credentials(conn, crypto, space_id)
     object_values = body.obj.model_dump() if body.obj is not None else None
     field_values = {name: values.model_dump() for name, values in body.fields.items()}
-    message = f"curation {slug} : enrichir {body.path}"
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, message,
-            enrich_asset_fn(slug, body.path, object_values, field_values),
+        result = await curation_actions.enrich(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug, body.path, object_values, field_values,
         )
     except AssetNotRetainedError as exc:
         raise ApiError("asset_not_retained", status_code=404, path=exc.path) from None
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     log.info("curation_enrich", author=user.email, slug=slug, path=body.path)
-    return {"ok": True, "commit": commit}
+    return {"ok": True, "commit": result.revision}
 
 
 @router.post("/retain")
@@ -310,12 +313,10 @@ async def retain_source_asset(
     _check(slug, body.path)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    message = f"curation {slug} : retenir {body.path}"
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, message,
-            retain_asset_fn(slug, body.path, body.fields),
+        result = await curation_actions.retain(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug, body.path, body.fields,
         )
     except AssetOriginMissingError as exc:
         raise ApiError("asset_origin_missing", status_code=404, path=exc.path) from None
@@ -325,7 +326,7 @@ async def retain_source_asset(
         "curation_retain", author=user.email, slug=slug, path=body.path,
         fields=("all" if body.fields is None else len(body.fields)),
     )
-    return {"ok": True, "commit": commit}
+    return {"ok": True, "commit": result.revision}
 
 
 @router.post("/remove")
@@ -342,17 +343,14 @@ async def remove_source_asset(
     _check(slug, body.path)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    message = f"curation {slug} : retirer {body.path}"
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, message,
-            remove_asset_fn(slug, body.path),
+        result = await curation_actions.remove(
+            _target(workdir, space, branch_slug, username, token, user), slug, body.path
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     log.info("curation_remove", author=user.email, slug=slug, path=body.path)
-    return {"ok": True, "commit": commit}
+    return {"ok": True, "commit": result.revision}
 
 
 @router.post("/refresh")
@@ -373,24 +371,15 @@ async def refresh_source_assets(
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
-        # On calcule d'abord les assets qui changeraient : le message les liste et
-        # on évite un commit à vide (asset déjà à jour).
-        changed = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            lambda wc: refresh_targets(wc, slug, body.paths),
-        )
-        if not changed:
-            return {"ok": True, "commit": None, "refreshed": []}
-        message = f"curation {slug} : rafraîchir {len(changed)} asset(s) : {', '.join(changed)}"
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, message,
-            refresh_assets_fn(slug, changed),
+        result = await curation_actions.refresh(
+            _target(workdir, space, branch_slug, username, token, user), slug, body.paths
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
-    log.info("curation_refresh", author=user.email, slug=slug, count=len(changed))
-    return {"ok": True, "commit": commit, "refreshed": changed}
+    refreshed = [p.rsplit("/", 1)[-1] for p in result.paths]
+    if refreshed:
+        log.info("curation_refresh", author=user.email, slug=slug, count=len(refreshed))
+    return {"ok": True, "commit": result.revision, "refreshed": refreshed}
 
 
 # --- Règles de tri (écarter le bruit), réservées à l'administrateur -----------

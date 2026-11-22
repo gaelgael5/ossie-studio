@@ -750,6 +750,10 @@ export const en = {
       governance: 'Governance',
     },
     mcpPrim: {
+      retain_asset: 'Retain an object as an asset',
+      remove_asset: 'Remove an asset',
+      enrich_asset: 'Enrich an asset (business name, description, concept, tags)',
+      refresh_assets: 'Refresh assets from the raw',
       list_spaces: 'List spaces and their branches',
       list_versions: 'List the versions of a branch',
       get_my_draft: 'See the person’s draft',

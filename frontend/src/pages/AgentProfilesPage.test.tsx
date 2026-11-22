@@ -9,6 +9,7 @@ const CATALOG = [
   { id: 'list_spaces', domain: 'spaces', access: 'read', capability: 'spaces:read', person_only: false },
   { id: 'get_my_draft', domain: 'drafts', access: 'read', capability: 'spaces:read', person_only: true },
   { id: 'list_sources', domain: 'sources', access: 'read', capability: 'sources:read', person_only: false },
+  { id: 'retain_asset', domain: 'curation', access: 'write', capability: 'curation:write', person_only: true },
 ]
 const LECTURE = {
   id: 'p-lecture',
@@ -100,7 +101,7 @@ describe('AgentProfilesPage', () => {
     await user.click(await screen.findByRole('button', { name: '+ Nouveau profil agent' }))
     const form = screen.getByRole('region', { name: 'Nouveau profil agent' })
     expect(within(form).getByText(/suppose : Sources — Consulter/)).toBeInTheDocument()
-    expect(within(form).getByText(/agent connecté pour une personne seulement/)).toBeInTheDocument()
+    expect(within(form).getAllByText(/agent connecté pour une personne seulement/).length).toBeGreaterThan(0)
     await user.type(within(form).getByLabelText('Nom'), 'Sources seules')
     await user.click(within(form).getByRole('checkbox', { name: /Lister les sources/ }))
     await user.click(within(form).getByRole('button', { name: 'Créer le profil' }))
@@ -165,5 +166,19 @@ describe('AgentProfilesPage', () => {
     await user.click(within(row).getByRole('button', { name: 'Confirmer la suppression' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true))
     expect(await screen.findByText(/en service — clés : Clé de Gael/)).toBeInTheDocument()
+  })
+
+  it('une primitive d’écriture est montrée comme telle et ne vient jamais avec « toutes les lectures »', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: '+ Nouveau profil agent' }))
+    const form = screen.getByRole('region', { name: 'Nouveau profil agent' })
+    const retain = within(form).getByRole('checkbox', { name: /Retenir un objet comme asset/ })
+    expect(retain.closest('label')).toHaveTextContent('écriture')
+    expect(retain.closest('label')).toHaveTextContent('suppose : Curation — Modifier')
+    await user.click(within(form).getByRole('checkbox', { name: /Toutes les primitives de lecture/ }))
+    expect(retain).not.toBeChecked()
+    expect(retain).toBeEnabled()
   })
 })

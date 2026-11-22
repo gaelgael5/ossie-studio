@@ -321,10 +321,20 @@ async def test_primitives_du_brouillon_pour_une_personne_seulement(app: FastAPI)
     user_id = await _person(app, "ana@example.org", ["spaces:read"])
     _wire(app, KEY_TOKEN, _key(lecture))
     _wire(app, OAUTH_TOKEN, _oauth(lecture, user_id))
-    assert PERSON_ONLY == {"get_my_draft", "get_publish_readiness"}
+    draft_reads = {p for p in PERSON_ONLY if p in READ_PRIMITIVES}
+    assert draft_reads == {"get_my_draft", "get_publish_readiness"}
     assert not PERSON_ONLY & set(await _tool_names(app, KEY_TOKEN))
-    assert PERSON_ONLY <= set(await _tool_names(app, OAUTH_TOKEN))
+    assert draft_reads <= set(await _tool_names(app, OAUTH_TOKEN))
     assert _refusal(await _call(app, KEY_TOKEN, "get_my_draft", {})) == "primitive_forbidden"
+
+
+def test_toute_ecriture_est_reservee_a_une_personne() -> None:
+    """Une clé d'API n'a pas de brouillon : elle n'écrit jamais."""
+    writes = [p for p in CATALOG if p.access == "write"]
+    assert writes, "le catalogue doit contenir des écritures"
+    for primitive in writes:
+        assert primitive.person_only, primitive.id
+        assert primitive.id not in READ_PRIMITIVES
 
 
 async def test_oauth_personne_disparue_rien(app: FastAPI) -> None:

@@ -31,8 +31,12 @@ class Primitive:
     capability: str
     description: str
     # Propre au brouillon d'une personne : sans objet pour une clé d'API (aucune
-    # personne derrière), donc jamais proposé à une clé.
+    # personne derrière), donc jamais proposé à une clé. Toute écriture l'est.
     person_only: bool = False
+    # Annoncés au client MCP (annotations) : un geste destructif lui fait demander
+    # confirmation à la personne ; idempotent = le rejeu ne change rien.
+    destructive: bool = False
+    idempotent: bool = False
 
 
 # L'ordre fixe l'affichage. Une primitive ajoutée ici n'est donnée à aucun
@@ -153,6 +157,55 @@ CATALOG: tuple[Primitive, ...] = (
             "Show the raw changes of a source not reviewed yet since its last review point: "
             "retained objects touched, objects disappeared, new objects."
         ),
+    ),
+    # --- Écriture : curation (toujours dans le brouillon de la personne)
+    Primitive(
+        id="retain_asset",
+        domain="curation",
+        access="write",
+        capability="curation:write",
+        description=(
+            "Retain a raw object as an asset of the semantic layer, whole or only some fields. "
+            "Written to the user's draft (not published)."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="remove_asset",
+        domain="curation",
+        access="write",
+        capability="curation:write",
+        description=(
+            "Remove an asset (its raw object stays). Written to the user's draft (not published)."
+        ),
+        person_only=True,
+        destructive=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="enrich_asset",
+        domain="curation",
+        access="write",
+        capability="curation:write",
+        description=(
+            "Set the business enrichment of an asset and of its fields: business name, "
+            "description, concept, tags. Only the given keys change; an empty value removes "
+            "the key. Written to the user's draft (not published)."
+        ),
+        person_only=True,
+        idempotent=True,
+    ),
+    Primitive(
+        id="refresh_assets",
+        domain="curation",
+        access="write",
+        capability="curation:write",
+        description=(
+            "Refresh the retained assets of a source from their raw objects (all, or the given "
+            "ones): structure from the raw, enrichment kept. Written to the user's draft."
+        ),
+        person_only=True,
     ),
     # --- Gouvernance
     Primitive(
