@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RawExplorer } from './RawExplorer'
+import { setCurrentWorkspace } from '../apiClient'
 
 const SOURCES = {
   sources: [
@@ -106,6 +107,7 @@ const DETAIL = {
   file: 'order.json',
   title: 'Order',
   qualified_name: 'app.order',
+  namespace: 'App.Domain',
   kind: 'class',
   badges: ['retained'],
   excluded_by: '',
@@ -121,6 +123,8 @@ const DETAIL = {
       via_target: { slug: 'app', file: 'customer.json', title: 'Customer', folder: 'src/Domain/Sub' },
     },
   ],
+  removed_tags: [{ ...SERVICE_TAG, tag: 'donnees/personnelles', reason: 'field', value: 'Email' }],
+  tag_dependents: { 'technique/service': 2, 'technique/entite': 0 },
   description: 'Une commande du client.',
   enum: [],
   fields: [
@@ -152,6 +156,9 @@ const DETAIL = {
   forge_url: 'https://github.com/org/app/blob/main/src/Domain/Order.cs',
 }
 
+const SESSION_CAPS = { value: [] as string[] }
+const DETAIL_OVERRIDE = { value: {} as Record<string, unknown> }
+
 function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
   const calls: string[] = []
   const bodies: { url: string; method: string; body?: string }[] = []
@@ -163,6 +170,9 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
       const u = new URL(url, 'http://test')
       let body: unknown = {}
       if (init?.method === 'PUT') body = { slug: 'app', ok: true }
+      else if (u.pathname === '/api/session') body = { authenticated: true, capabilities: SESSION_CAPS.value }
+      else if (u.pathname.includes('/governance/tag-removals')) body = { ok: true }
+      else if (u.pathname.includes('/curation/')) body = { ok: true, commit: 'abc' }
       else if (u.pathname.endsWith('/sources')) body = declared
       else if (u.pathname.endsWith('/raw-explorer')) body = sources
       else if (u.pathname.endsWith('/tree')) body = { ...TREE, mode: u.searchParams.get('mode') }
@@ -182,7 +192,7 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
             },
           ],
         }
-      else if (u.pathname.endsWith('/object')) body = DETAIL
+      else if (u.pathname.endsWith('/object')) body = { ...DETAIL, ...DETAIL_OVERRIDE.value }
       else if (u.pathname.endsWith('/document'))
         body = { path: 'docs/guide.md', title: 'Guide', sections: 2, mentions: ['Order'], objects: [] }
       else if (u.pathname.endsWith('/search'))
@@ -210,7 +220,12 @@ function renderExplorer(entry = '/sources?tab=raw') {
   )
 }
 
-beforeEach(() => localStorage.clear())
+beforeEach(() => {
+  localStorage.clear()
+  SESSION_CAPS.value = []
+  DETAIL_OVERRIDE.value = {}
+  setCurrentWorkspace('s1', 'b1')
+})
 afterEach(() => vi.unstubAllGlobals())
 
 describe('RawExplorer', () => {
@@ -326,10 +341,8 @@ describe('RawExplorer', () => {
     expect(await screen.findByText('Une commande du client.')).toBeInTheDocument()
     expect(screen.getByText('[Key]')).toBeInTheDocument()
     expect(screen.getAllByText('externe').length).toBeGreaterThan(0)
-    expect(screen.getByRole('link', { name: 'Voir dans la curation' })).toHaveAttribute(
-      'href',
-      '/sources/app?tab=curation&object=order.json',
-    )
+    // Sans curation:write, pas de bouton d'asset (lecture seule).
+    expect(screen.queryByRole('button', { name: 'Créer un asset' })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Ouvrir dans la forge' })).toHaveAttribute(
       'href',
       'https://github.com/org/app/blob/main/src/Domain/Order.cs',
@@ -466,6 +479,75 @@ describe('RawExplorer', () => {
     const link = screen.getByRole('link', { name: 'src/Domain/Order.cs' })
     expect(link).toHaveAttribute('href', 'https://github.com/org/app/blob/main/src/Domain/Order.cs')
     expect(link).toHaveAttribute('target', '_blank')
+    expect(screen.getByText('Espace de noms').nextSibling).toHaveTextContent('App.Domain')
+    expect(screen.getByText('namespace App.Domain')).toBeInTheDocument()
+  })
+
+  it('retirer un tag : confirmation avec les dérivées touchées, puis remettre un tag retiré', async () => {
+    SESSION_CAPS.value = ['governance:write']
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    const section = (await screen.findByText('Tags de gouvernance (posés par règle)')).closest('section')!
+    expect(within(section).getByText('donnees/personnelles')).toHaveClass('removed')
+    const removeButtons = await within(section).findAllByRole('button', { name: 'retirer' })
+    await user.click(removeButtons[0])
+    expect(
+      within(section).getByText(/2 classe\(s\) dérivée\(s\) qui le tiennent de celle-ci le perdront aussi/),
+    ).toBeInTheDocument()
+    await user.click(within(section).getByRole('button', { name: 'Retirer le tag' }))
+    await waitFor(() =>
+      expect(calls.bodies.some((b) => b.url.endsWith('/governance/tag-removals') && b.method === 'POST')).toBe(true),
+    )
+    const sent = calls.bodies.find((b) => b.url.endsWith('/governance/tag-removals'))!
+    expect(sent.url).toBe('/api/spaces/s1/branches/b1/governance/tag-removals')
+    expect(JSON.parse(sent.body!)).toEqual({ object: 'app/order.json', tag: 'technique/service', title: 'Order' })
+    await user.click(within(section).getByRole('button', { name: 'remettre' }))
+    await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/tag-removals/restore'))).toBe(true))
+  })
+
+  it('sans droit de gouvernance : tags en lecture seule', async () => {
+    mockApi()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    const section = (await screen.findByText('Tags de gouvernance (posés par règle)')).closest('section')!
+    expect(within(section).queryByRole('button', { name: 'retirer' })).not.toBeInTheDocument()
+    expect(within(section).queryByRole('button', { name: 'remettre' })).not.toBeInTheDocument()
+  })
+
+  it('asset depuis l’aperçu : créer, puis exposer ou masquer un champ d’un clic sur l’œil', async () => {
+    SESSION_CAPS.value = ['curation:write']
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    await screen.findByText('Une commande du client.')
+    // L'objet de test est déjà retenu (id exposé) : bouton « Retirer » et œil cliquable.
+    await user.click(screen.getByRole('button', { name: 'Exposer le champ customer' }))
+    await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
+    const retain = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
+    expect(JSON.parse(retain.body!)).toEqual({ path: 'order.json', fields: ['id', 'customer'] })
+    await user.click(screen.getByRole('button', { name: 'Masquer le champ id' }))
+    await waitFor(() =>
+      expect(calls.bodies.filter((b) => b.url.endsWith('/curation/retain')).length).toBe(2),
+    )
+    const hide = calls.bodies.filter((b) => b.url.endsWith('/curation/retain'))[1]
+    expect(JSON.parse(hide.body!).fields).toEqual([])
+    await user.click(screen.getByRole('button', { name: 'Retirer l’asset' }))
+    await user.click(screen.getByRole('button', { name: 'Retirer' }))
+    await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/remove'))).toBe(true))
+  })
+
+  it('objet non retenu : « Créer un asset » retient tous les champs', async () => {
+    SESSION_CAPS.value = ['curation:write']
+    DETAIL_OVERRIDE.value = { exposure: { retained: false, exposed: 0, hidden: 3, missing: [] } }
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    await screen.findByText('Une commande du client.')
+    expect(screen.queryByRole('button', { name: /Exposer le champ/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Créer un asset' }))
+    await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
+    const sent = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
+    expect(JSON.parse(sent.body!)).toEqual({ path: 'order.json', fields: null })
   })
 
   it('graphe : ouvrir un dossier de l’arbre revient à la vue précédente', async () => {
@@ -520,7 +602,11 @@ describe('RawExplorer', () => {
     mockApi()
     const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&open=order.json&sel=order.json')
-    await user.click(await screen.findByRole('button', { name: 'Objet suivant ›' }))
+    await screen.findByRole('button', { name: 'Objet suivant ›' })
+    // Les voisins viennent du contenu du dossier, chargé à part (et la barre est
+    // re-rendue une fois l'objet chargé) : on reprend le bouton à jour.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Objet suivant ›' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Objet suivant ›' }))
     expect(screen.getByTestId('loc').textContent).toContain('open=status.json')
   })
 })

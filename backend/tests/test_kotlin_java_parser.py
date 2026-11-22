@@ -264,4 +264,11 @@ def test_fichier_invalide_tolere() -> None:
 
 def test_version_inclut_les_grammaires() -> None:
     version = KotlinJavaParser().version
-    assert version.startswith("1.0-java") and "-kt" in version
+    assert version.startswith("1.1-java") and "-kt" in version
+
+
+def test_paquet_comme_espace_de_noms() -> None:
+    java = _java("package com.acme.orders;\npublic class Order { public int id; }")
+    assert java["com-acme-orders-order"]["x-namespace"] == "com.acme.orders"
+    kt = _parse({"a.kt": "package com.acme.kt\ndata class Line(val id: Int)"})
+    assert next(iter(kt.values()))["x-namespace"] == "com.acme.kt"

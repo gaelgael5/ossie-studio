@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { AssetButton, AssetEditorProvider, EyeCell } from './RawAssetEditor'
 import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import type {
@@ -15,7 +16,6 @@ import { ErrorList } from '../components/ErrorList'
 import { SafeMarkdown, sectionsMentioning } from '../components/SafeMarkdown'
 import {
   ExposureLegend,
-  EyeIcon,
   FieldType,
   TargetLink,
   Technical,
@@ -146,15 +146,17 @@ export function RawExclusive(props: ExclusiveProps) {
     references: d.references.length + incoming.length,
     ...(history.data ? { history: commits.length } : {}),
   }
-  const curation = `/sources/${encodeURIComponent(slug)}?tab=curation&object=${encodeURIComponent(d.file)}`
 
   return (
+    <AssetEditorProvider spaceId={spaceId} branchId={branchId} slug={slug} detail={d}>
     <div className="raw-exclusive">
       {nav}
       <header className="raw-exclusive-head">
         <div>
           <h2>{d.title}</h2>
-          <div className="mono small muted">{d.qualified_name}</div>
+          <div className="mono small muted" title={d.qualified_name}>
+          {d.namespace ? t('rawNamespaceLine', { namespace: d.namespace }) : d.qualified_name}
+        </div>
           <div className="raw-badges">
             <span className="pill">{t(`rawKind.${d.kind}`, { defaultValue: d.kind })}</span>
             <VisibilityBadge visibility={d.visibility} source={d.visibility_source} />
@@ -174,9 +176,7 @@ export function RawExclusive(props: ExclusiveProps) {
               {t('rawOpenInForge')}
             </a>
           ) : null}
-          <Link to={curation} className="btn btn-sm">
-            {t('rawSeeInCuration')}
-          </Link>
+          <AssetButton />
         </div>
       </header>
 
@@ -324,6 +324,7 @@ export function RawExclusive(props: ExclusiveProps) {
         </section>
       ) : null}
     </div>
+    </AssetEditorProvider>
   )
 }
 
@@ -358,7 +359,7 @@ function FieldsTable({
           {detail.fields.map((f) => (
             <tr key={f.name}>
               <td>
-                <EyeIcon exposed={f.exposed} />
+                <EyeCell name={f.name} exposed={f.exposed} />
               </td>
               <td className="mono">{f.name}</td>
               <td>

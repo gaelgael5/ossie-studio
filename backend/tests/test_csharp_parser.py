@@ -186,4 +186,16 @@ def test_fichier_sans_type_ne_produit_rien() -> None:
 
 
 def test_version_inclut_la_grammaire() -> None:
-    assert CSharpParser().version.startswith("1.0-ts")
+    assert CSharpParser().version.startswith("1.1-ts")
+
+
+def test_namespace_d_origine() -> None:
+    schemas = _parse(
+        "namespace Colis.Api.Models {\n public class Outer { public class Inner {} } }\n"
+        "namespace Colis.Core;\n"
+    )
+    assert schemas["colis-api-models-outer"]["x-namespace"] == "Colis.Api.Models"
+    # Une classe imbriquée garde le namespace, pas la classe englobante.
+    assert schemas["colis-api-models-outer-inner"]["x-namespace"] == "Colis.Api.Models"
+    sans = _parse("public class Libre { public int A { get; set; } }")
+    assert "x-namespace" not in sans["libre"]

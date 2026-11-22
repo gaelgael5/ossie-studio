@@ -22,14 +22,18 @@ from ossie_studio.errors import ApiError
 from ossie_studio.governance.repo import Tag, read_tags, write_tag
 from ossie_studio.governance.tag_rules import (
     MATCH_ANY,
+    TagRemoval,
     TagRule,
     delete_tag_rule,
     is_valid_rule_id,
     parse_rule,
+    read_tag_removals,
     read_tag_rules,
     rule_document,
+    write_tag_removals,
     write_tag_rule,
 )
+from ossie_studio.governance.tags import is_valid_tag_id, normalize_tag_id
 
 log = structlog.get_logger(__name__)
 
@@ -133,3 +137,90 @@ async def remove_tag_rule(
 
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
     await ctx.write(user.email, f"supprime la règle de tags {rule_id}", write)
+
+
+# --- Retraits ------------------------------------------------------------------------
+
+removals_router = APIRouter(
+    prefix="/api/spaces/{space_id}/branches/{branch_id}/governance/tag-removals"
+)
+
+
+class TagRemovalBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    object: str  # « source/fichier » de l'objet raw
+    tag: str
+    title: str = ""
+
+
+def _removal_key(body: TagRemovalBody) -> tuple[str, str]:
+    tag = normalize_tag_id(body.tag)
+    slug, _, file = body.object.partition("/")
+    if not slug or not file or "/" in file or not is_valid_tag_id(tag):
+        raise ApiError("invalid_request", status_code=400, fields=["tag_removal_invalid"])
+    return body.object, tag
+
+
+@removals_router.get("")
+async def list_tag_removals(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: GovernanceRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    removals = await ctx.read(read_tag_removals)
+    return {"removals": [{"object": r.object, "tag": r.tag, "title": r.title} for r in removals]}
+
+
+@removals_router.post("")
+async def remove_tag_from_object(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: TagRemovalBody,
+) -> dict[str, object]:
+    """Retire un tag posé par règle d'un objet (idempotent : un second retrait ne
+    duplique rien)."""
+    obj, tag = _removal_key(body)
+
+    def write(root: Path) -> None:
+        current = read_tag_removals(root)
+        if any(r.object == obj and r.tag == tag for r in current):
+            return
+        write_tag_removals(root, [*current, TagRemoval(obj, tag, body.title.strip())])
+
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    await ctx.write(user.email, f"retire le tag {tag} de {obj}", write)
+    log.info("tag_removed", object=obj, tag=tag)
+    return {"object": obj, "tag": tag}
+
+
+@removals_router.post("/restore")
+async def restore_tag_on_object(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: TagRemovalBody,
+) -> dict[str, object]:
+    """Annule un retrait (idempotent : remettre un tag non retiré ne fait rien)."""
+    obj, tag = _removal_key(body)
+
+    def write(root: Path) -> None:
+        current = read_tag_removals(root)
+        kept = [r for r in current if not (r.object == obj and r.tag == tag)]
+        if len(kept) != len(current):
+            write_tag_removals(root, kept)
+
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    await ctx.write(user.email, f"remet le tag {tag} sur {obj}", write)
+    log.info("tag_restored", object=obj, tag=tag)
+    return {"object": obj, "tag": tag}

@@ -230,4 +230,9 @@ def test_fichier_sans_classe_ne_produit_rien() -> None:
 
 
 def test_version_inclut_la_grammaire() -> None:
-    assert PythonParser().version.startswith("1.0-ts")
+    assert PythonParser().version.startswith("1.1-ts")
+
+
+def test_module_comme_espace_de_noms() -> None:
+    schemas = _parse("class Order:\n    id: int\n", path="app/models/order.py")
+    assert next(iter(schemas.values()))["x-namespace"] == "app.models.order"

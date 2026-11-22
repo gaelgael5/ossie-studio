@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 from fastapi import FastAPI
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 
 from ossie_studio.governance.rules import GovernanceRule
 from ossie_studio.governance.tag_rules import (
@@ -21,6 +21,7 @@ from ossie_studio.governance.tag_rules import (
 from ossie_studio.parsers.conventions import dump_schema
 from ossie_studio.sources.explorer import SourceEntries, clear_caches, collect_source_entries
 from ossie_studio.sources.explorer_tags import apply_tag_rules
+from tests.conftest import create_plain_user, login
 from tests.space_fixture import ApiSpace, forge_edit, make_api_space
 from tests.test_raw_explorer import _manifest, _tech
 
@@ -355,3 +356,130 @@ async def test_api_decompte_et_apercu_sur_l_index(sp: ApiSpace) -> None:
     # survivent pas (seuls ceux de la règle modifiée comptent).
     r = await sp.client.post(f"{explorer}/preview", json={**body, "inherit_tags": False})
     assert r.json()["objects"] == 1
+
+
+# --- Retraits ------------------------------------------------------------------------
+
+
+def _removal(title: str, tag: str = "service") -> tuple[str, str]:
+    return (f"app/{title.lower()}.json", tag)
+
+
+def _removed(sources: list[SourceEntries]) -> dict[str, set[str]]:
+    return {
+        o.title: {t.tag for t in o.removed_tags}
+        for s in sources
+        for o in s.objects
+        if o.removed_tags
+    }
+
+
+def test_retrait_sur_la_mere_retire_aux_derivees(tmp_path: Path) -> None:
+    rule = _rule(when=CONTROLLERS, inherit_tags=True)
+    tagged = apply_tag_rules(_sources(tmp_path), [rule], {_removal("OrdersController")})
+    assert not {"OrdersController", "AdminController", "SuperAdminController"} & set(_tags(tagged))
+    # Seule la classe d'où le tag a été retiré le montre comme « retiré ».
+    assert _removed(tagged) == {"OrdersController": {"service"}}
+
+
+def test_retrait_sur_la_mere_une_derivee_qui_correspond_elle_meme_garde_le_tag(
+    tmp_path: Path,
+) -> None:
+    rules = [
+        _rule("a", when=CONTROLLERS, inherit_tags=True),
+        _rule("b", when={"name": ["SuperAdminController"]}),
+    ]
+    got = _tags(apply_tag_rules(_sources(tmp_path), rules, {_removal("OrdersController")}))
+    assert got == {"SuperAdminController": {"service": ("name", "SuperAdminController", "")}}
+
+
+def test_retrait_sur_une_fille_vaut_pour_elle_et_ses_descendantes(tmp_path: Path) -> None:
+    rule = _rule(when=CONTROLLERS, inherit_tags=True)
+    tagged = apply_tag_rules(_sources(tmp_path), [rule], {_removal("AdminController")})
+    assert set(_tags(tagged)) == {"OrdersController"}
+    assert _removed(tagged) == {"AdminController": {"service"}}
+
+
+def test_decompte_des_derivees_qui_perdront_le_tag(tmp_path: Path) -> None:
+    from ossie_studio.sources.explorer_tags import dependents_losing, index_removals
+
+    tagged = apply_tag_rules(_sources(tmp_path), [_rule(when=CONTROLLERS, inherit_tags=True)])
+    assert dependents_losing(tagged, "app/orderscontroller.json", "service") == 2
+    assert dependents_losing(tagged, "app/admincontroller.json", "service") == 1
+    assert dependents_losing(tagged, "app/superadmincontroller.json", "service") == 0
+    removed = apply_tag_rules(tagged, [_rule(when=CONTROLLERS)], {_removal("OrdersController")})
+    assert index_removals(removed) == {_removal("OrdersController")}
+
+
+def test_fichier_des_retraits(tmp_path: Path) -> None:
+    from ossie_studio.governance.tag_rules import (
+        TagRemoval,
+        read_tag_removals,
+        removal_errors,
+        write_tag_removals,
+    )
+
+    write_tag_removals(tmp_path, [TagRemoval("app/a.json", "service", "A")] * 2)
+    assert read_tag_removals(tmp_path) == [TagRemoval("app/a.json", "service", "A")]
+    assert removal_errors(tmp_path) == []
+    write_tag_removals(tmp_path, [])
+    assert not (tmp_path / "governance/tag-removals.yaml").exists()
+    (tmp_path / "governance").mkdir(exist_ok=True)
+    (tmp_path / "governance/tag-removals.yaml").write_text("removals: [{tag: x}]\n")
+    assert read_tag_removals(tmp_path) == []
+    assert removal_errors(tmp_path) == ["tag_removals_invalid"]
+
+
+async def test_api_retrait_memorise_transmis_et_annulable(sp: ApiSpace) -> None:
+    forge_edit(sp, _files())
+    rule = {
+        "name": "Contrôleurs",
+        "files": ["*.cs"],
+        "when": {"inherits": ["ControllerBase"]},
+        "tags": ["service"],
+        "inherit_tags": True,
+    }
+    await sp.client.put(f"{sp.base}/governance/tag-rules/ctrl", json=rule)
+    detail_url = f"{sp.base}/raw-explorer/app/object"
+    detail = (await sp.client.get(detail_url, params={"file": "orderscontroller.json"})).json()
+    assert detail["tag_dependents"] == {"service": 2}
+
+    removal = {"object": "app/orderscontroller.json", "tag": "service", "title": "OrdersController"}
+    url = f"{sp.base}/governance/tag-removals"
+    assert (await sp.client.post(url, json=removal)).status_code == 200
+    assert (await sp.client.post(url, json=removal)).status_code == 200  # idempotent
+    assert len((await sp.client.get(url)).json()["removals"]) == 1
+
+    folder = await sp.client.get(f"{sp.base}/raw-explorer/app/folder", params={"path": "src/Api"})
+    assert all(o["tags"] == [] for o in folder.json()["objects"])
+    detail = (await sp.client.get(detail_url, params={"file": "orderscontroller.json"})).json()
+    assert [t["tag"] for t in detail["removed_tags"]] == ["service"]
+    # Une nouvelle collecte (nouveau commit de la source) ne remet pas le tag.
+    files = _files()
+    files["sources/app/raw/order.json"] = _schema("Order", description="modifié")
+    forge_edit(sp, files)
+    folder = await sp.client.get(f"{sp.base}/raw-explorer/app/folder", params={"path": "src/Api"})
+    assert all(o["tags"] == [] for o in folder.json()["objects"])
+    usage = (await sp.client.get(f"{sp.base}/raw-explorer/tag-rules/usage")).json()["rules"]
+    assert "ctrl" not in usage
+
+    assert (await sp.client.post(f"{url}/restore", json=removal)).status_code == 200
+    assert (await sp.client.post(f"{url}/restore", json=removal)).status_code == 200
+    folder = await sp.client.get(f"{sp.base}/raw-explorer/app/folder", params={"path": "src/Api"})
+    tagged = {o["title"] for o in folder.json()["objects"] if o["tags"]}
+    assert tagged == {"OrdersController", "AdminController", "SuperAdminController"}
+    bad = {"object": "pas-de-source", "tag": "service"}
+    assert (await sp.client.post(url, json=bad)).status_code == 400
+
+
+async def test_sans_droit_de_gouvernance_refus_explicite(sp: ApiSpace, app: FastAPI) -> None:
+    await create_plain_user(app, "simple@example.org", "mot-de-passe-simple")
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as other:
+        await login(other, "simple@example.org", "mot-de-passe-simple")
+        removal = {"object": "app/a.json", "tag": "service"}
+        r = await other.post(f"{sp.base}/governance/tag-removals", json=removal)
+        assert r.status_code == 403
+        rule = {"files": ["*.cs"], "tags": ["s"], "when": {"name": ["X"]}}
+        r = await other.put(f"{sp.base}/governance/tag-rules/x", json=rule)
+        assert r.status_code == 403

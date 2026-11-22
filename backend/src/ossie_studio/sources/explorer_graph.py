@@ -36,6 +36,7 @@ class ReferenceGraph:
 
     def __init__(self, sources: Iterable[SourceEntries], mode: str) -> None:
         source_list = list(sources)
+        self.sources = source_list
         self.space = SpaceObjects(source_list, mode)
         self._objects: dict[NodeKey, _Located] = {}
         for entries in source_list:
