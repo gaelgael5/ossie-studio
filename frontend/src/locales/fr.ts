@@ -721,7 +721,10 @@ export const fr = {
     agentProfilesColUsedBy: 'Utilisé par',
     agentProfilesUsedBy: '{{keys}} clé(s), {{connections}} connexion(s)',
     agentProfilesAllReadShort: 'toutes les lectures',
-    agentProfilesEdit: 'Modifier',
+    agentProfilesOpenNamed: 'Ouvrir le profil agent {{name}}',
+    agentProfilesBuiltinTitle: 'Profil livré « {{name}} »',
+    agentProfilesBuiltinReadOnly:
+      'Profil livré : il ne se modifie pas, pour garder sa promesse (toutes les primitives de lecture). Dupliquez-le pour l’adapter.',
     agentProfilesDuplicate: 'Dupliquer',
     agentProfilesDelete: 'Supprimer',
     agentProfilesDeleteConfirm:

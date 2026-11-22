@@ -81,13 +81,15 @@ function PrimitiveGrid({
 
 function ProfileRow({
   profile,
-  onEdit,
+  open,
+  onOpen,
   onDuplicate,
   onDelete,
   deleting,
 }: {
   profile: AgentProfileItem
-  onEdit: () => void
+  open: boolean
+  onOpen: () => void
   onDuplicate: () => void
   onDelete: () => void
   deleting: boolean
@@ -96,9 +98,19 @@ function ProfileRow({
   // Suppression confirmée en ligne.
   const [confirming, setConfirming] = useState(false)
   return (
-    <tr>
+    // Toute la ligne ouvre le profil (modification, ou lecture seule pour le
+    // profil livré) ; les boutons d'action arrêtent la propagation.
+    <tr
+      className={open ? 'row-clickable selected' : 'row-clickable'}
+      tabIndex={0}
+      aria-label={t('agentProfilesOpenNamed', { name: profile.name })}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && e.target === e.currentTarget) onOpen()
+      }}
+    >
       <td>
-        {profile.name}{' '}
+        <span className="link-like">{profile.name}</span>{' '}
         {profile.is_builtin ? <span className="pill">{t('agentProfilesBuiltin')}</span> : null}
         <div className="mono muted small">{profile.slug}</div>
       </td>
@@ -112,13 +124,8 @@ function ProfileRow({
           connections: profile.used_by.connections.length,
         })}
       </td>
-      <td>
+      <td onClick={(e) => e.stopPropagation()}>
         <div className="actions">
-          {!profile.is_builtin ? (
-            <button type="button" className="btn btn-sm" onClick={onEdit}>
-              {t('agentProfilesEdit')}
-            </button>
-          ) : null}
           <button type="button" className="btn btn-sm" onClick={onDuplicate}>
             {t('agentProfilesDuplicate')}
           </button>
@@ -154,12 +161,44 @@ function ProfileRow({
   )
 }
 
+/** Le profil livré : sa configuration en lecture seule (il se duplique pour s'adapter). */
+function BuiltinPanel({
+  profile,
+  onClose,
+  onDuplicate,
+}: {
+  profile: AgentProfileItem
+  onClose: () => void
+  onDuplicate: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <CreatePanel title={t('agentProfilesBuiltinTitle', { name: profile.name })} onCancel={onClose}>
+      <p className="info-note">{t('agentProfilesBuiltinReadOnly')}</p>
+      {profile.description ? <p>{profile.description}</p> : null}
+      {profile.all_read ? <p className="small muted">{t('agentProfilesAllRead')}</p> : null}
+      <span className="field-label">{t('agentProfilesPrimitives')}</span>
+      <ul className="list-plain">
+        {profile.effective.map((id) => (
+          <li key={id}>{t(`mcpPrim.${id}`)}</li>
+        ))}
+      </ul>
+      <div className="actions">
+        <button type="button" className="btn btn-primary" onClick={onDuplicate}>
+          {t('agentProfilesDuplicate')}
+        </button>
+      </div>
+    </CreatePanel>
+  )
+}
+
 export function AgentProfilesPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [viewingId, setViewingId] = useState<string | null>(null)
   const pair = useLabelSlug()
   const [description, setDescription] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -171,6 +210,7 @@ export function AgentProfilesPage() {
   const reset = () => {
     setCreating(false)
     setEditingId(null)
+    setViewingId(null)
     pair.reset()
     setDescription('')
     setSelected(new Set())
@@ -183,7 +223,11 @@ export function AgentProfilesPage() {
   }
   const startEdit = (profile: AgentProfileItem) => {
     setMessages([])
-    setCreating(false)
+    reset()
+    if (profile.is_builtin) {
+      setViewingId(profile.id)
+      return
+    }
     setEditingId(profile.id)
     pair.load(profile.name, profile.slug)
     setDescription(profile.description)
@@ -217,10 +261,18 @@ export function AgentProfilesPage() {
     onSuccess: afterSave,
     onError,
   })
-  const duplicate = useMutation({ mutationFn: (id: string) => api.duplicateAgentProfile(id), onSuccess: invalidate, onError })
+  const duplicate = useMutation({
+    mutationFn: (id: string) => api.duplicateAgentProfile(id),
+    onSuccess: async () => {
+      setViewingId(null)
+      await invalidate()
+    },
+    onError,
+  })
   const remove = useMutation({ mutationFn: (id: string) => api.deleteAgentProfile(id), onSuccess: invalidate, onError })
 
   const list = profiles.data?.profiles ?? []
+  const viewing = list.find((p) => p.id === viewingId)
   const granted = allRead
     ? new Set([...selected, ...catalog.filter((p) => p.access === 'read').map((p) => p.id)])
     : selected
@@ -232,12 +284,24 @@ export function AgentProfilesPage() {
         title={t('agentProfilesTitle')}
         subtitle={t('agentProfilesIntro')}
         actions={
-          <CreateButton open={creating || editingId !== null} onOpen={openCreate}>
+          <CreateButton open={creating || editingId !== null || viewingId !== null} onOpen={openCreate}>
             {t('agentProfilesNew')}
           </CreateButton>
         }
       />
       <ErrorList messages={messages} />
+      {viewing ? (
+        <div className="page-section">
+          <BuiltinPanel
+            profile={viewing}
+            onClose={reset}
+            onDuplicate={() => {
+              setMessages([])
+              duplicate.mutate(viewing.id)
+            }}
+          />
+        </div>
+      ) : null}
       {creating || editingId ? (
         <div className="page-section">
           <CreatePanel
@@ -305,7 +369,8 @@ export function AgentProfilesPage() {
                   <ProfileRow
                     key={profile.id}
                     profile={profile}
-                    onEdit={() => startEdit(profile)}
+                    open={profile.id === editingId || profile.id === viewingId}
+                    onOpen={() => startEdit(profile)}
                     onDuplicate={() => {
                       setMessages([])
                       duplicate.mutate(profile.id)

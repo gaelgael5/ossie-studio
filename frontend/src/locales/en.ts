@@ -719,7 +719,10 @@ export const en = {
     agentProfilesColUsedBy: 'Used by',
     agentProfilesUsedBy: '{{keys}} key(s), {{connections}} connection(s)',
     agentProfilesAllReadShort: 'all reads',
-    agentProfilesEdit: 'Edit',
+    agentProfilesOpenNamed: 'Open the agent profile {{name}}',
+    agentProfilesBuiltinTitle: 'Built-in profile “{{name}}”',
+    agentProfilesBuiltinReadOnly:
+      'Built-in profile: it cannot be edited, so it keeps its promise (all read primitives). Duplicate it to adapt it.',
     agentProfilesDuplicate: 'Duplicate',
     agentProfilesDelete: 'Delete',
     agentProfilesDeleteConfirm:

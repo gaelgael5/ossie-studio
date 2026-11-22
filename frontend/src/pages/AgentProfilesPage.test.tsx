@@ -64,15 +64,33 @@ function renderPage() {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('AgentProfilesPage', () => {
-  it('le profil livré se duplique mais ne se modifie ni ne se supprime', async () => {
-    mockApi()
+  it('le profil livré s’ouvre en lecture seule ; il se duplique, ne se supprime pas', async () => {
+    const calls = mockApi()
+    const user = userEvent.setup()
     renderPage()
     const row = (await screen.findByText('Lecture')).closest('tr') as HTMLElement
     expect(within(row).getByText('livré')).toBeInTheDocument()
     expect(within(row).getByText('1 clé(s), 0 connexion(s)')).toBeInTheDocument()
-    expect(within(row).getByRole('button', { name: 'Dupliquer' })).toBeInTheDocument()
-    expect(within(row).queryByRole('button', { name: 'Modifier' })).not.toBeInTheDocument()
     expect(within(row).queryByRole('button', { name: 'Supprimer' })).not.toBeInTheDocument()
+
+    await user.click(row)
+    const panel = screen.getByRole('region', { name: 'Profil livré « Lecture »' })
+    expect(within(panel).getByText(/il ne se modifie pas/)).toBeInTheDocument()
+    expect(within(panel).getByText('Lister les espaces et leurs branches')).toBeInTheDocument()
+    expect(within(panel).queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
+    await user.click(within(panel).getByRole('button', { name: 'Dupliquer' }))
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === 'POST' && c.path === '/api/agent-profiles/p-lecture/duplicate')).toBe(true),
+    )
+  })
+
+  it('les boutons d’action n’ouvrent pas la ligne', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderPage()
+    const row = (await screen.findByText('Repérage')).closest('tr') as HTMLElement
+    await user.click(within(row).getByRole('button', { name: 'Supprimer' }))
+    expect(screen.queryByRole('region', { name: 'Modifier le profil agent' })).not.toBeInTheDocument()
   })
 
   it('crée un profil avec les primitives cochées, en montrant ce que chacune suppose', async () => {
@@ -116,13 +134,15 @@ describe('AgentProfilesPage', () => {
     expect(post.primitives).toEqual([])
   })
 
-  it('modifie un profil : formulaire prérempli, slug figé', async () => {
+  it('cliquer n’importe où sur la ligne rouvre la configuration du profil', async () => {
     const calls = mockApi()
     const user = userEvent.setup()
     renderPage()
     const row = (await screen.findByText('Repérage')).closest('tr') as HTMLElement
-    await user.click(within(row).getByRole('button', { name: 'Modifier' }))
+    await user.click(within(row).getByText('0 clé(s), 0 connexion(s)'))
     const form = screen.getByRole('region', { name: 'Modifier le profil agent' })
+    expect(row).toHaveClass('selected')
+    expect(within(form).getByLabelText('Nom')).toHaveValue('Repérage')
     expect(within(form).getByRole('checkbox', { name: /Lister les espaces/ })).toBeChecked()
     await user.click(within(form).getByRole('checkbox', { name: /Lister les sources/ }))
     await user.click(within(form).getByRole('button', { name: 'Enregistrer' }))
