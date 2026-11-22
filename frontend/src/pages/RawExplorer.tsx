@@ -1,4 +1,12 @@
-import { type CSSProperties, type PointerEvent, useEffect, useMemo, useState } from 'react'
+import {
+  type CSSProperties,
+  type PointerEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -116,6 +124,22 @@ export function RawExplorer({
     asc: true,
   })
   const [treeWidth, setTreeWidth] = useState(storedWidth)
+  // L'explorateur occupe exactement la hauteur restante de la fenêtre : l'arbre
+  // et le contenu défilent chacun de leur côté, sans faire défiler la page (un
+  // arbre de centaines de dossiers repoussait sinon les vignettes hors de vue).
+  const frame = useRef<HTMLDivElement>(null)
+  const [frameHeight, setFrameHeight] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = frame.current
+      if (!el) return
+      const top = el.getBoundingClientRect().top + window.scrollY
+      setFrameHeight(Math.max(320, window.innerHeight - top - 16))
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  })
 
   // Largeur de l'arbre réglable à la souris (ou aux flèches), retenue d'une
   // visite à l'autre : les noms de dossiers d'un dépôt .NET sont longs.
@@ -294,236 +318,250 @@ export function RawExplorer({
   const crumbs = path ? path.split('/') : []
 
   return (
-    <div className="raw-explorer" style={{ '--raw-tree-width': `${treeWidth}px` } as CSSProperties}>
+    <>
       <ErrorList messages={messages} />
-      <aside className="panel raw-tree" aria-label={t('rawTreeLabel')}>
-        <label className="field-label" htmlFor="raw-mode">
-          {t('rawModeLabel')}
-        </label>
-        <select
-          id="raw-mode"
-          className="select"
-          value={mode}
-          onChange={(e) => changeMode(e.target.value as RawExplorerMode)}
-        >
-          {MODES.map((m) => (
-            <option key={m} value={m}>
-              {t(`rawMode.${m}`)}
-            </option>
-          ))}
-        </select>
-        <ul className="raw-tree-list" role="tree">
-          {sourceList.map((s) => (
-            <li key={s.slug} role="treeitem" aria-expanded={s.slug === sourceSlug}>
+      <div
+        ref={frame}
+        className="raw-explorer"
+        style={
+          {
+            '--raw-tree-width': `${treeWidth}px`,
+            ...(frameHeight ? { height: `${frameHeight}px` } : {}),
+          } as CSSProperties
+        }
+      >
+        <aside className="panel raw-tree" aria-label={t('rawTreeLabel')}>
+          <label className="field-label" htmlFor="raw-mode">
+            {t('rawModeLabel')}
+          </label>
+          <select
+            id="raw-mode"
+            className="select"
+            value={mode}
+            onChange={(e) => changeMode(e.target.value as RawExplorerMode)}
+          >
+            {MODES.map((m) => (
+              <option key={m} value={m}>
+                {t(`rawMode.${m}`)}
+              </option>
+            ))}
+          </select>
+          <ul className="raw-tree-list" role="tree">
+            {sourceList.map((s) => (
+              <li key={s.slug} role="treeitem" aria-expanded={s.slug === sourceSlug}>
+                <button
+                  type="button"
+                  className={`raw-tree-node${s.slug === sourceSlug && !path ? ' active' : ''}`}
+                  onClick={() => go({ source: s.slug, path: null, sel: null })}
+                >
+                  <span className="raw-tree-glyph">SRC</span>
+                  {s.label}
+                  <span className="raw-count">{s.objects + s.documents}</span>
+                </button>
+                {s.slug === sourceSlug && tree.data ? (
+                  <FolderBranch
+                    folders={tree.data.folders}
+                    parent=""
+                    current={path}
+                    label={folderLabel}
+                    onOpen={(p) => go({ path: p, sel: null })}
+                  />
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </aside>
+        <div
+          className="raw-splitter"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('rawResizeTree')}
+          aria-valuenow={treeWidth}
+          aria-valuemin={TREE_MIN}
+          aria-valuemax={TREE_MAX}
+          tabIndex={0}
+          onPointerDown={startResize}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowLeft') resizeTree(treeWidth - 20)
+            if (e.key === 'ArrowRight') resizeTree(treeWidth + 20)
+          }}
+        />
+
+        <section className="raw-main">
+          <div className="raw-toolbar">
+            <nav className="breadcrumb raw-crumbs" aria-label={t('rawBreadcrumb')}>
+              <span>{spaceName}</span>
+              {' › '}
               <button
                 type="button"
-                className={`raw-tree-node${s.slug === sourceSlug && !path ? ' active' : ''}`}
-                onClick={() => go({ source: s.slug, path: null, sel: null })}
+                className="btn-link"
+                onClick={() => go({ path: null, sel: null })}
               >
-                <span className="raw-tree-glyph">SRC</span>
-                {s.label}
-                <span className="raw-count">{s.objects + s.documents}</span>
+                {current?.label ?? sourceSlug}
               </button>
-              {s.slug === sourceSlug && tree.data ? (
-                <FolderBranch
-                  folders={tree.data.folders}
-                  parent=""
-                  current={path}
-                  label={folderLabel}
-                  onOpen={(p) => go({ path: p, sel: null })}
-                />
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      </aside>
-      <div
-        className="raw-splitter"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t('rawResizeTree')}
-        aria-valuenow={treeWidth}
-        aria-valuemin={TREE_MIN}
-        aria-valuemax={TREE_MAX}
-        tabIndex={0}
-        onPointerDown={startResize}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowLeft') resizeTree(treeWidth - 20)
-          if (e.key === 'ArrowRight') resizeTree(treeWidth + 20)
-        }}
-      />
-
-      <section className="raw-main">
-        <div className="raw-toolbar">
-          <nav className="breadcrumb raw-crumbs" aria-label={t('rawBreadcrumb')}>
-            <span>{spaceName}</span>
-            {' › '}
-            <button
-              type="button"
-              className="btn-link"
-              onClick={() => go({ path: null, sel: null })}
-            >
-              {current?.label ?? sourceSlug}
-            </button>
-            {crumbs.map((_part, i) => {
-              const target = crumbs.slice(0, i + 1).join('/')
-              return (
-                <span key={target}>
-                  {' › '}
-                  <button
-                    type="button"
-                    className="btn-link"
-                    onClick={() => go({ path: target, sel: null })}
-                  >
-                    {folderLabel(target)}
-                  </button>
-                </span>
-              )
-            })}
-          </nav>
-          <div className="raw-view-toggle" role="group" aria-label={t('rawViewLabel')}>
-            <button
-              type="button"
-              className={`btn btn-sm${view === 'tiles' ? ' btn-primary' : ''}`}
-              aria-pressed={view === 'tiles'}
-              onClick={() => go({ view: null }, true)}
-            >
-              {t('rawViewTiles')}
-            </button>
-            <button
-              type="button"
-              className={`btn btn-sm${view === 'list' ? ' btn-primary' : ''}`}
-              aria-pressed={view === 'list'}
-              onClick={() => go({ view: 'list' }, true)}
-            >
-              {t('rawViewList')}
-            </button>
-            <button type="button" className="btn btn-sm" disabled title={t('rawGraphSoon')}>
-              {t('rawViewGraph')}
-            </button>
+              {crumbs.map((_part, i) => {
+                const target = crumbs.slice(0, i + 1).join('/')
+                return (
+                  <span key={target}>
+                    {' › '}
+                    <button
+                      type="button"
+                      className="btn-link"
+                      onClick={() => go({ path: target, sel: null })}
+                    >
+                      {folderLabel(target)}
+                    </button>
+                  </span>
+                )
+              })}
+            </nav>
+            <div className="raw-view-toggle" role="group" aria-label={t('rawViewLabel')}>
+              <button
+                type="button"
+                className={`btn btn-sm${view === 'tiles' ? ' btn-primary' : ''}`}
+                aria-pressed={view === 'tiles'}
+                onClick={() => go({ view: null }, true)}
+              >
+                {t('rawViewTiles')}
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm${view === 'list' ? ' btn-primary' : ''}`}
+                aria-pressed={view === 'list'}
+                onClick={() => go({ view: 'list' }, true)}
+              >
+                {t('rawViewList')}
+              </button>
+              <button type="button" className="btn btn-sm" disabled title={t('rawGraphSoon')}>
+                {t('rawViewGraph')}
+              </button>
+            </div>
           </div>
-        </div>
 
-        {current && current.collected ? (
-          <>
-            <div className="raw-filters">
-              <div className="raw-search">
-                <input
-                  className="input"
-                  type="search"
-                  placeholder={t('rawSearchPlaceholder')}
-                  aria-label={t('rawSearchPlaceholder')}
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-                {debounced && results.data ? (
-                  <ul className="raw-search-results" role="listbox">
-                    {results.data.results.length === 0 ? (
-                      <li className="muted">{t('rawSearchNone')}</li>
-                    ) : (
-                      results.data.results.map((r) => (
-                        <li key={r.file}>
-                          <button
-                            type="button"
-                            className="raw-search-hit"
-                            onClick={() => {
-                              setSearch('')
-                              setDebounced('')
-                              go({ path: r.folder, sel: r.file })
-                            }}
-                          >
-                            <span className="raw-glyph-sm">{kindGlyph(r.kind)}</span>
-                            {r.title}
-                            <span className="muted mono">
-                              {r.folder ? folderLabel(r.folder) : '/'}
-                            </span>
-                          </button>
-                        </li>
-                      ))
-                    )}
-                  </ul>
+          {current && current.collected ? (
+            <>
+              <div className="raw-filters">
+                <div className="raw-search">
+                  <input
+                    className="input"
+                    type="search"
+                    placeholder={t('rawSearchPlaceholder')}
+                    aria-label={t('rawSearchPlaceholder')}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                  {debounced && results.data ? (
+                    <ul className="raw-search-results" role="listbox">
+                      {results.data.results.length === 0 ? (
+                        <li className="muted">{t('rawSearchNone')}</li>
+                      ) : (
+                        results.data.results.map((r) => (
+                          <li key={r.file}>
+                            <button
+                              type="button"
+                              className="raw-search-hit"
+                              onClick={() => {
+                                setSearch('')
+                                setDebounced('')
+                                go({ path: r.folder, sel: r.file })
+                              }}
+                            >
+                              <span className="raw-glyph-sm">{kindGlyph(r.kind)}</span>
+                              {r.title}
+                              <span className="muted mono">
+                                {r.folder ? folderLabel(r.folder) : '/'}
+                              </span>
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  ) : null}
+                </div>
+                {kinds.length > 1 ? (
+                  <select
+                    className="select"
+                    aria-label={t('rawFilterKind')}
+                    value={kindFilter}
+                    onChange={(e) => setKindFilter(e.target.value)}
+                  >
+                    <option value="">{t('rawFilterKindAll')}</option>
+                    {kinds.map((k) => (
+                      <option key={k} value={k}>
+                        {t(`rawKind.${k}`, { defaultValue: k })}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                {presentBadges.length > 0 ? (
+                  <select
+                    className="select"
+                    aria-label={t('rawFilterState')}
+                    value={badgeFilter}
+                    onChange={(e) => setBadgeFilter(e.target.value)}
+                  >
+                    <option value="">{t('rawFilterStateAll')}</option>
+                    {presentBadges.map((b) => (
+                      <option key={b} value={b}>
+                        {t(`rawBadge.${b}`)}
+                      </option>
+                    ))}
+                  </select>
                 ) : null}
               </div>
-              {kinds.length > 1 ? (
-                <select
-                  className="select"
-                  aria-label={t('rawFilterKind')}
-                  value={kindFilter}
-                  onChange={(e) => setKindFilter(e.target.value)}
-                >
-                  <option value="">{t('rawFilterKindAll')}</option>
-                  {kinds.map((k) => (
-                    <option key={k} value={k}>
-                      {t(`rawKind.${k}`, { defaultValue: k })}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-              {presentBadges.length > 0 ? (
-                <select
-                  className="select"
-                  aria-label={t('rawFilterState')}
-                  value={badgeFilter}
-                  onChange={(e) => setBadgeFilter(e.target.value)}
-                >
-                  <option value="">{t('rawFilterStateAll')}</option>
-                  {presentBadges.map((b) => (
-                    <option key={b} value={b}>
-                      {t(`rawBadge.${b}`)}
-                    </option>
-                  ))}
-                </select>
-              ) : null}
-            </div>
-            <CollectLine source={tree.data ?? current} />
-          </>
-        ) : null}
+              <CollectLine source={tree.data ?? current} />
+            </>
+          ) : null}
 
-        {!current ? null : !current.collected ? (
-          <div className="empty-note">
-            {t('rawNotCollected')} <Link to={`/sources/${current.slug}`}>{t('rawGoCollect')}</Link>
-          </div>
-        ) : folder.isLoading ? (
-          <div className="panel" aria-busy="true">
-            <span className="spinner" aria-hidden="true" /> {t('rawLoading')}
-          </div>
-        ) : folder.data &&
-          shownFolders.length + shownObjects.length + shownDocuments.length === 0 ? (
-          <div className="empty-note">{filtering ? t('rawFilterEmpty') : t('rawFolderEmpty')}</div>
-        ) : folder.data && view === 'tiles' ? (
-          <Tiles
-            folders={shownFolders}
-            objects={shownObjects}
-            documents={shownDocuments}
-            selected={selected}
-            folderLabel={folderLabel}
-            onOpenFolder={(p) => go({ path: p, sel: null })}
-            onSelect={(file) => go({ sel: file }, true)}
-          />
-        ) : folder.data ? (
-          <ListView
-            folders={shownFolders}
-            objects={shownObjects}
-            documents={shownDocuments}
-            selected={selected}
-            sort={sort}
-            onSort={(key) => setSort((s) => ({ key, asc: s.key === key ? !s.asc : true }))}
-            folderLabel={folderLabel}
-            onOpenFolder={(p) => go({ path: p, sel: null })}
-            onSelect={(file) => go({ sel: file }, true)}
-          />
-        ) : null}
-        {path && folder.data ? (
-          <button
-            type="button"
-            className="btn btn-sm raw-up"
-            onClick={() => go({ path: parentOf(path) || null, sel: null })}
-          >
-            {t('rawUp')}
-          </button>
-        ) : null}
-      </section>
-    </div>
+          {!current ? null : !current.collected ? (
+            <div className="empty-note">
+              {t('rawNotCollected')}{' '}
+              <Link to={`/sources/${current.slug}`}>{t('rawGoCollect')}</Link>
+            </div>
+          ) : folder.isLoading ? (
+            <div className="panel" aria-busy="true">
+              <span className="spinner" aria-hidden="true" /> {t('rawLoading')}
+            </div>
+          ) : folder.data &&
+            shownFolders.length + shownObjects.length + shownDocuments.length === 0 ? (
+            <div className="empty-note">
+              {filtering ? t('rawFilterEmpty') : t('rawFolderEmpty')}
+            </div>
+          ) : folder.data && view === 'tiles' ? (
+            <Tiles
+              folders={shownFolders}
+              objects={shownObjects}
+              documents={shownDocuments}
+              selected={selected}
+              folderLabel={folderLabel}
+              onOpenFolder={(p) => go({ path: p, sel: null })}
+              onSelect={(file) => go({ sel: file }, true)}
+            />
+          ) : folder.data ? (
+            <ListView
+              folders={shownFolders}
+              objects={shownObjects}
+              documents={shownDocuments}
+              selected={selected}
+              sort={sort}
+              onSort={(key) => setSort((s) => ({ key, asc: s.key === key ? !s.asc : true }))}
+              folderLabel={folderLabel}
+              onOpenFolder={(p) => go({ path: p, sel: null })}
+              onSelect={(file) => go({ sel: file }, true)}
+            />
+          ) : null}
+          {path && folder.data ? (
+            <button
+              type="button"
+              className="btn btn-sm raw-up"
+              onClick={() => go({ path: parentOf(path) || null, sel: null })}
+            >
+              {t('rawUp')}
+            </button>
+          ) : null}
+        </section>
+      </div>
+    </>
   )
 }
 
