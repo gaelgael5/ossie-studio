@@ -67,6 +67,7 @@ function folderBody(path: string) {
         visibility_source: '',
         tags: [SERVICE_TAG, { ...SERVICE_TAG, tag: 'technique/dto' }, { ...SERVICE_TAG, tag: 'donnees/contact' }],
         referenced_by: 3,
+        namespace: 'App.Domain.Orders',
       },
       {
         ...OBJ,
@@ -703,6 +704,8 @@ describe('RawExplorer', () => {
     const counter = await screen.findByRole('button', { name: 'Référencé par 3 objet(s)' })
     // Au repos, deux tags et « +1 » ; le troisième est dans les détails du survol.
     expect(screen.getByText('+1')).toBeInTheDocument()
+    // Détails du survol : le namespace, pas le chemin du fichier.
+    expect(screen.getByText('App.Domain.Orders', { selector: '.raw-tile-path' })).toBeInTheDocument()
     expect(calls.some((c) => c.includes('/incoming'))).toBe(false) // chargé à l'ouverture seulement
     await user.click(counter)
     const menu = within(await screen.findByRole('menu'))

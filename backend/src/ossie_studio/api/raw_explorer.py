@@ -98,6 +98,7 @@ def _object_payload(obj: ExplorerObject) -> dict[str, object]:
         "visibility": obj.visibility,
         "visibility_source": obj.visibility_source,
         "tags": [_tag_payload(t) for t in obj.tags],
+        "namespace": obj.namespace,
     }
 
 

@@ -368,3 +368,14 @@ async def test_api_index_reutilise_puis_reconstruit(sp: ApiSpace, app: FastAPI) 
     app.state.workdir_manager._head_cache.clear()  # pas d'attente du délai de fetch
     r = await sp.client.get(f"{base}/app/search", params={"q": "invoice"})
     assert [x["file"] for x in r.json()["results"]] == ["invoice.json"]
+
+
+def test_namespace_garde_dans_l_index(tmp_path: Path) -> None:
+    files = _git_files()
+    files["sources/app/raw/order.json"] = _schema("Order", **{"x-namespace": "App.Domain"})
+    _write(tmp_path, files)
+    entries = collect_source_entries(tmp_path, "app")
+    reread = SourceEntries.from_json("app", "APP", "git", True, entries.to_json())
+    order = next(o for o in reread.objects if o.title == "Order")
+    assert order.namespace == "App.Domain"
+    assert next(o for o in reread.objects if o.title == "Status").namespace == ""

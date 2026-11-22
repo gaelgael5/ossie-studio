@@ -1187,7 +1187,7 @@ function Tiles({
                   <Badges obj={o} withTags={false} />
                   {o.tags.length > 0 ? (
                     // Au repos : les deux premiers tags et « +N » ; au survol
-                    // (effet loupe), tous les tags et le chemin complet.
+                    // (effet loupe), tous les tags et le namespace.
                     <span className="raw-badges raw-tile-tags">
                       <TagBadges tags={o.tags.slice(0, TILE_TAGS)} />
                       {o.tags.length > TILE_TAGS ? (
@@ -1201,7 +1201,9 @@ function Tiles({
                         <TagBadges tags={o.tags.slice(TILE_TAGS)} />
                       </span>
                     ) : null}
-                    {o.origin ? <span className="mono small raw-tile-path">{o.origin}</span> : null}
+                    {o.namespace ? (
+                      <span className="mono small raw-tile-path">{o.namespace}</span>
+                    ) : null}
                     {o.parser ? (
                       <span className="small muted">{t('rawTileParser', { parser: o.parser })}</span>
                     ) : null}

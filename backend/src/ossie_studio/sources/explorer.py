@@ -47,7 +47,7 @@ MODES: tuple[str, ...] = ("origin", "kind", "parser")
 GIT_SOURCE_TYPE = "git"
 # Version du format des entrées mises en index : la changer (champ ajouté…)
 # force la reconstruction des index existants à la livraison suivante.
-INDEX_FORMAT = "7"
+INDEX_FORMAT = "8"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -95,6 +95,7 @@ class SchemaSummary:
     top_fields: tuple[str, ...] = ()  # premiers champs (info-bulle du graphe)
     annotations: tuple[str, ...] = ()  # attributs / annotations / décorateurs (règles de tags)
     field_names: tuple[str, ...] = ()  # tous les champs (règles de tags)
+    namespace: str = ""  # x-namespace (détails d'une vignette au survol)
 
 
 @dataclass(frozen=True)
@@ -145,6 +146,7 @@ class ExplorerObject:
     # (montrés à part, avec « remettre ») ; les descendants qui ne les tenaient
     # que de lui ne les portent pas et n'apparaissent pas ici.
     removed_tags: tuple[ObjectTag, ...] = ()
+    namespace: str = ""  # espace de noms d'origine (x-namespace) ; vide pour SQL, contrats
     facts: ObjectFacts = field(default=ObjectFacts(), compare=False, repr=False)
 
 
@@ -309,6 +311,7 @@ def _summarize(data: bytes) -> SchemaSummary:
         top_fields=tuple(list(props)[:TOP_FIELDS]) if isinstance(props, dict) else (),
         annotations=_annotation_names(schema),
         field_names=tuple(props) if isinstance(props, dict) else (),
+        namespace=str(schema.get("x-namespace") or ""),
     )
 
 
@@ -568,6 +571,7 @@ class SourceEntries:
                         [t.tag, t.rule, t.rule_name, t.reason, t.value, t.via, t.via_title]
                         for t in o.removed_tags
                     ],
+                    o.namespace,
                 ]
                 for o in self.objects
             ],
@@ -610,6 +614,7 @@ class SourceEntries:
                     if len(o) > 17
                     else ObjectFacts(),
                     removed_tags=tuple(ObjectTag(*t) for t in o[18]) if len(o) > 18 else (),
+                    namespace=o[19] if len(o) > 19 else "",
                 )
                 for o in data.get("objects") or []
             ],
@@ -687,6 +692,7 @@ def collect_source_entries(
                 refs=summary.refs,
                 description=summary.description,
                 top_fields=summary.top_fields,
+                namespace=summary.namespace,
                 facts=ObjectFacts(summary.annotations, summary.field_names),
             )
         )

@@ -462,6 +462,8 @@ export interface RawObjectItem {
   tags: RawObjectTag[]
   /** Nombre d'objets de l'espace qui référencent celui-ci (compteur des vignettes). */
   referenced_by?: number
+  /** Espace de noms d'origine (x-namespace) ; vide pour une table, un contrat. */
+  namespace?: string
 }
 
 export interface RawDocumentItem {
