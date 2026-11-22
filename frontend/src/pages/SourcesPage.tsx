@@ -16,17 +16,17 @@ function asList(value: unknown): string[] {
 }
 
 function whatIsRead(source: SourceItem, t: (k: string) => string): string {
-  const p = source.parametres ?? {}
+  const p = source.parameters ?? {}
   if (source.type === 'openapi') {
     return t('openapiContractsRead')
   }
   if (source.type === 'git') {
-    const dirs = asList(p.repertoires)
+    const dirs = asList(p.directories)
     const where = dirs.length > 0 ? dirs.join(', ') : t('wholeRepo')
-    return `${String(p.depot ?? '')} @ ${String(p.branche ?? '')} · ${where}`
+    return `${String(p.repository ?? '')} @ ${String(p.branch ?? '')} · ${where}`
   }
   const schemas = asList(p.schemas)
-  return schemas.length > 0 ? `${String(p.base ?? '')} · ${schemas.join(', ')}` : String(p.base ?? '')
+  return schemas.length > 0 ? `${String(p.database ?? '')} · ${schemas.join(', ')}` : String(p.database ?? '')
 }
 
 type Editing =
@@ -184,11 +184,11 @@ export function SourcesPage() {
                       <>
                         {source.type}
                         <div className="muted small">
-                          {source.connexion?.kind === 'missing'
+                          {source.connection?.kind === 'missing'
                             ? t('connectionMissing')
-                            : source.connexion?.kind === 'none'
+                            : source.connection?.kind === 'none'
                               ? t('sourceNoConnection')
-                              : source.connexion?.label}
+                              : source.connection?.label}
                         </div>
                       </>
                     ) : (
@@ -340,14 +340,14 @@ function OpenApiSourceModal({
         slug,
         label,
         type: 'openapi',
-        connexion: '',
-        parametres: {},
+        connection: '',
+        parameters: {},
       }
       return editMode
         ? api.updateSource(spaceId, branchId, source!.slug, {
             label,
-            connexion: '',
-            parametres: {},
+            connection: '',
+            parameters: {},
           })
         : api.declareSource(spaceId, branchId, body)
     },
@@ -473,7 +473,7 @@ function ManifestPreview({ manifest }: { manifest: Record<string, unknown> }) {
           fontSize: '0.82rem',
         }}
       >
-        {`version: 1\n${lines.join('\n')}`}
+        {`version: 2\n${lines.join('\n')}`}
       </pre>
     </div>
   )
@@ -496,78 +496,78 @@ function GitSourceModal({
 }) {
   const { t } = useTranslation()
   const editMode = source !== undefined
-  const p = source?.parametres ?? {}
+  const p = source?.parameters ?? {}
   // Paire libellé/slug : règle commune (components/LabelSlugFields).
   const pair = useLabelSlug({ label: source?.label, slug: source?.slug })
   const { label } = pair
   const slug = pair.finalSlug
   // On garde l'id de la connexion dans l'état (pour lister dépôts et branches) ;
   // le manifeste, lui, reçoit le slug.
-  const [connexion, setConnexion] = useState('')
-  const [depot, setDepot] = useState(String(p.depot ?? ''))
-  const [brancheChoice, setBranche] = useState(String(p.branche ?? ''))
-  const [dirs, setDirs] = useState(asList(p.repertoires).join(', '))
+  const [connectionId, setConnectionId] = useState('')
+  const [repository, setRepository] = useState(String(p.repository ?? ''))
+  const [branchChoice, setBranch] = useState(String(p.branch ?? ''))
+  const [dirs, setDirs] = useState(asList(p.directories).join(', '))
   const [messages, setMessages] = useState<string[]>([])
 
   const connections = useQuery({ queryKey: ['connections'], queryFn: api.listConnections })
   const repos = useQuery({
-    queryKey: ['repos', connexion],
-    queryFn: () => api.listConnectionRepositories(connexion),
-    enabled: !!connexion,
+    queryKey: ['repos', connectionId],
+    queryFn: () => api.listConnectionRepositories(connectionId),
+    enabled: !!connectionId,
     retry: false,
   })
   const branches = useQuery({
-    queryKey: ['forge-branches', connexion, depot],
-    queryFn: () => api.listConnectionBranches(connexion, depot),
-    enabled: !!connexion && !!depot,
+    queryKey: ['forge-branches', connectionId, repository],
+    queryFn: () => api.listConnectionBranches(connectionId, repository),
+    enabled: !!connectionId && !!repository,
     retry: false,
   })
   // Sans choix explicite, la branche par défaut du dépôt (déclarée par la forge,
   // sinon main / master / root) : dérivée au rendu, jamais recopiée en état.
-  const branche = brancheChoice || (branches.data?.default ?? '')
+  const branch = branchChoice || (branches.data?.default ?? '')
 
   const forges = useMemo(() => connections.data?.connections ?? [], [connections.data])
 
   const codePlugins = useQuery({ queryKey: ['code-plugins'], queryFn: api.listCodePlugins })
   const plugins = useMemo(() => codePlugins.data?.plugins ?? [], [codePlugins.data])
-  const [parseurs, setParseurs] = useState<string[]>(asList(p.parseurs))
-  const parseursTouched = useRef(editMode)
+  const [parsers, setParsers] = useState<string[]>(asList(p.parsers))
+  const parsersTouched = useRef(editMode)
   // Nouvelle source : on pré-coche tous les parseurs de code dès qu'ils sont connus.
   useEffect(() => {
-    if (!parseursTouched.current && plugins.length > 0) {
-      setParseurs(plugins.map((pl) => pl.id))
+    if (!parsersTouched.current && plugins.length > 0) {
+      setParsers(plugins.map((pl) => pl.id))
     }
   }, [plugins])
 
 
   // Édition : retrouver l'id de la connexion à partir du slug mémorisé.
   useEffect(() => {
-    if (editMode && !connexion && source?.connexion?.slug) {
-      const match = forges.find((c) => c.slug === source.connexion?.slug)
-      if (match) setConnexion(match.id)
+    if (editMode && !connectionId && source?.connection?.slug) {
+      const match = forges.find((c) => c.slug === source.connection?.slug)
+      if (match) setConnectionId(match.id)
     }
-  }, [editMode, connexion, forges, source])
+  }, [editMode, connectionId, forges, source])
 
-  const parametres: Record<string, unknown> = {
-    depot,
-    branche,
-    parseurs,
+  const parameters: Record<string, unknown> = {
+    repository,
+    branch,
+    parsers,
     ...(dirs.trim()
-      ? { repertoires: dirs.split(',').map((d) => d.trim()).filter(Boolean) }
+      ? { directories: dirs.split(',').map((d) => d.trim()).filter(Boolean) }
       : {}),
   }
-  const connSlug = forges.find((c) => c.id === connexion)?.slug ?? ''
-  const preview = { slug, label, type: 'git', connexion: connSlug, parametres }
+  const connSlug = forges.find((c) => c.id === connectionId)?.slug ?? ''
+  const preview = { slug, label, type: 'git', connection: connSlug, parameters }
 
   const collectAfter = useRef(false)
   const save = useMutation({
     mutationFn: () => {
-      const body: SourceInput = { slug, label, type: 'git', connexion: connSlug, parametres }
+      const body: SourceInput = { slug, label, type: 'git', connection: connSlug, parameters }
       return editMode
         ? api.updateSource(spaceId, branchId, source!.slug, {
             label,
-            connexion: connSlug,
-            parametres,
+            connection: connSlug,
+            parameters,
           })
         : api.declareSource(spaceId, branchId, body)
     },
@@ -575,10 +575,10 @@ function GitSourceModal({
     onError: (err) => setMessages(errorMessages(t, err)),
   })
   const disabled =
-    save.isPending || !label || !slug || !connexion || !depot || !branche || parseurs.length === 0
-  const toggleParseur = (id: string) => {
-    parseursTouched.current = true
-    setParseurs((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))
+    save.isPending || !label || !slug || !connectionId || !repository || !branch || parsers.length === 0
+  const toggleParser = (id: string) => {
+    parsersTouched.current = true
+    setParsers((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]))
   }
 
   return (
@@ -639,11 +639,11 @@ function GitSourceModal({
               <select
                 id="g-conn"
                 className="select"
-                value={connexion}
+                value={connectionId}
                 onChange={(e) => {
-                  setConnexion(e.target.value)
-                  setDepot('')
-                  setBranche('')
+                  setConnectionId(e.target.value)
+                  setRepository('')
+                  setBranch('')
                 }}
               >
                 <option value="">{t('chooseConnection')}</option>
@@ -664,12 +664,12 @@ function GitSourceModal({
             </label>
             <Combobox
               id="g-repo"
-              disabled={!connexion}
+              disabled={!connectionId}
               options={(repos.data?.repositories ?? []).map((r) => ({ value: r.full_name, label: r.full_name }))}
-              value={depot}
+              value={repository}
               onChange={(value) => {
-                setDepot(value)
-                setBranche('')
+                setRepository(value)
+                setBranch('')
               }}
               placeholder={t('chooseRepo')}
               filterPlaceholder={t('filterRepos')}
@@ -686,10 +686,10 @@ function GitSourceModal({
             </label>
             <Combobox
               id="g-branch"
-              disabled={!depot}
+              disabled={!repository}
               options={(branches.data?.branches ?? []).map((b) => ({ value: b, label: b }))}
-              value={branche}
-              onChange={setBranche}
+              value={branch}
+              onChange={setBranch}
               placeholder={t('chooseBranch')}
               filterPlaceholder={t('filterBranches')}
               emptyText={t('noOtherBranch')}
@@ -716,8 +716,8 @@ function GitSourceModal({
                   <label key={plugin.id} className="row" style={{ gap: 6 }}>
                     <input
                       type="checkbox"
-                      checked={parseurs.includes(plugin.id)}
-                      onChange={() => toggleParseur(plugin.id)}
+                      checked={parsers.includes(plugin.id)}
+                      onChange={() => toggleParser(plugin.id)}
                     />
                     {plugin.label}
                     <span className="muted mono small">
@@ -756,13 +756,13 @@ function SqlSourceModal({
 }) {
   const { t } = useTranslation()
   const editMode = source !== undefined
-  const p = source?.parametres ?? {}
+  const p = source?.parameters ?? {}
   // Paire libellé/slug : règle commune (components/LabelSlugFields).
   const pair = useLabelSlug({ label: source?.label, slug: source?.slug })
   const { label } = pair
   const slug = pair.finalSlug
-  const [connexion, setConnexion] = useState('')
-  const [base, setBase] = useState(String(p.base ?? ''))
+  const [connectionId, setConnectionId] = useState('')
+  const [database, setDatabase] = useState(String(p.database ?? ''))
   const [schemas, setSchemas] = useState(asList(p.schemas).join(', '))
   const [exclusions, setExclusions] = useState(asList(p.exclusions).join(', '))
   const [messages, setMessages] = useState<string[]>([])
@@ -772,29 +772,29 @@ function SqlSourceModal({
 
 
   useEffect(() => {
-    if (editMode && !connexion && source?.connexion?.slug) {
-      const match = dbs.find((c) => c.slug === source.connexion?.slug)
-      if (match) setConnexion(match.id)
+    if (editMode && !connectionId && source?.connection?.slug) {
+      const match = dbs.find((c) => c.slug === source.connection?.slug)
+      if (match) setConnectionId(match.id)
     }
-  }, [editMode, connexion, dbs, source])
+  }, [editMode, connectionId, dbs, source])
 
-  const chosen = dbs.find((c) => c.id === connexion)
+  const chosen = dbs.find((c) => c.id === connectionId)
   const engine = source?.type ?? chosen?.engine ?? ''
   const connSlug = chosen?.slug ?? ''
-  const parametres: Record<string, unknown> = {
-    base,
+  const parameters: Record<string, unknown> = {
+    database,
     ...(schemas.trim() ? { schemas: schemas.split(',').map((s) => s.trim()).filter(Boolean) } : {}),
     ...(exclusions.trim()
       ? { exclusions: exclusions.split(',').map((s) => s.trim()).filter(Boolean) }
       : {}),
   }
-  const preview = { slug, label, type: engine || 'postgres', connexion: connSlug, parametres }
+  const preview = { slug, label, type: engine || 'postgres', connection: connSlug, parameters }
 
   const save = useMutation({
     mutationFn: () => {
-      const body: SourceInput = { slug, label, type: engine, connexion: connSlug, parametres }
+      const body: SourceInput = { slug, label, type: engine, connection: connSlug, parameters }
       return editMode
-        ? api.updateSource(spaceId, branchId, source!.slug, { label, connexion: connSlug, parametres })
+        ? api.updateSource(spaceId, branchId, source!.slug, { label, connection: connSlug, parameters })
         : api.declareSource(spaceId, branchId, body)
     },
     onSuccess: onSaved,
@@ -813,7 +813,7 @@ function SqlSourceModal({
           <button
             type="button"
             className="btn btn-primary"
-            disabled={save.isPending || !label || !slug || !connexion || !base}
+            disabled={save.isPending || !label || !slug || !connectionId || !database}
             onClick={() => {
               setMessages([])
               save.mutate()
@@ -844,8 +844,8 @@ function SqlSourceModal({
               <select
                 id="s-conn"
                 className="select"
-                value={connexion}
-                onChange={(e) => setConnexion(e.target.value)}
+                value={connectionId}
+                onChange={(e) => setConnectionId(e.target.value)}
                 disabled={editMode}
               >
                 <option value="">{t('chooseConnection')}</option>
@@ -860,10 +860,10 @@ function SqlSourceModal({
             )}
           </div>
           <div className="field">
-            <label className="field-label" htmlFor="s-base">
+            <label className="field-label" htmlFor="s-database">
               {t('fieldBase')}
             </label>
-            <input id="s-base" className="input" value={base} onChange={(e) => setBase(e.target.value)} />
+            <input id="s-database" className="input" value={database} onChange={(e) => setDatabase(e.target.value)} />
           </div>
           <div className="form-grid">
             <div className="field">

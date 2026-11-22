@@ -184,7 +184,7 @@ def _handle_table(
     key = _obj_key(schema, name)
     obj = objs.setdefault(key, _Obj(schema=schema, name=name, kind="table"))
     obj.kind = "table"
-    obj.sources.append({"fichier": file, "ligne": line})
+    obj.sources.append({"file": file, "line": line})
     definitions = schema_node.expressions if isinstance(schema_node, exp.Schema) else []
     for item in definitions:
         if isinstance(item, exp.ColumnDef):
@@ -279,7 +279,7 @@ def _handle_view(
     key = _obj_key(schema, name)
     obj = objs.setdefault(key, _Obj(schema=schema, name=name, kind="view"))
     obj.kind = "view"
-    obj.sources.append({"fichier": file, "ligne": line})
+    obj.sources.append({"file": file, "line": line})
     select = create.expression
     if not isinstance(select, exp.Select):
         return
@@ -325,7 +325,7 @@ def _handle_alter(
     schema = (table.db or "dbo") or "dbo"
     key = _obj_key(schema, table.name)
     obj = objs.setdefault(key, _Obj(schema=schema, name=table.name, kind="table"))
-    obj.sources.append({"fichier": file, "ligne": line})
+    obj.sources.append({"file": file, "line": line})
     for action in alter.args.get("actions") or []:
         constraints = action.args.get("expressions") if hasattr(action, "args") else None
         for cons in constraints or []:
@@ -359,7 +359,7 @@ def _handle_extended_property(
     obj = objs.get(key)
     if obj is None:
         return
-    obj.sources.append({"fichier": file, "ligne": line})
+    obj.sources.append({"file": file, "line": line})
     if args.get("level2type", "").lower() == "column" and args.get("level2name"):
         obj.col_desc[args["level2name"]] = value
     else:
@@ -468,7 +468,9 @@ class SqlServerProjectParser:
     id = _PARSER_ID
     cible = CIBLE_RAW
     label = "Projet SQL Server"
-    version = f"1.0-sqlglot{_pkg_version('sqlglot')}"
+    # 1.1 : `x-source` porte `file` / `line` (au lieu de `fichier` / `ligne`) ; le
+    # changement de version force la régénération des schémas déjà collectés.
+    version = f"1.1-sqlglot{_pkg_version('sqlglot')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)
@@ -496,8 +498,8 @@ class SqlServerProjectParser:
         previous = self._read_index(context)
         unchanged = (
             not context.force
-            and previous.get("parseur") == self.version
-            and previous.get("fichiers") == checks
+            and previous.get("parser", previous.get("parseur")) == self.version
+            and previous.get("files", previous.get("fichiers")) == checks
         )
         if unchanged:
             return PluginResult(
@@ -508,7 +510,9 @@ class SqlServerProjectParser:
 
         plan = self._rebuild(sql_files, proj_files, schema_jsons, checks)
         existing = {p: c for p, c in context.raw.list_outputs().items() if _is_schema(p)}
-        old_outputs = set(previous.get("sorties") or [])
+        # Repli sur `sorties` (index version 1, clés françaises) : les anciennes
+        # sorties sont bien retirées à la première collecte après la mise à jour.
+        old_outputs = set(previous.get("outputs", previous.get("sorties")) or [])
         writes = [
             OutputAction(path=dest, content=content)
             for dest, content in plan.writes.items()
@@ -516,10 +520,10 @@ class SqlServerProjectParser:
         ]
         deletes = [d for d in old_outputs if d not in plan.writes]
         index = {
-            "version": 1,
-            "parseur": self.version,
-            "fichiers": checks,
-            "sorties": sorted(plan.writes),
+            "version": 2,  # 2 : clés en anglais (la version 1 était en français)
+            "parser": self.version,
+            "files": checks,
+            "outputs": sorted(plan.writes),
         }
         writes.append(OutputAction(path=_INDEX_NAME, content=yaml.safe_dump(index, sort_keys=True)))
         added = sum(1 for w in writes if w.path != _INDEX_NAME and w.path not in existing)
@@ -601,7 +605,7 @@ class SqlServerProjectParser:
         converted["$id"] = content_id
         converted["x-kind"] = "json-content"
         converted["x-json-column"] = f"{obj.schema}.{obj.name}.{real_col}"
-        converted["x-source"] = [{"fichier": src_path}]
+        converted["x-source"] = [{"file": src_path}]
         plan.statuses[src_path] = STATUT_TRAITE
         plan.writes[content_id] = dump_schema(converted)
 
@@ -738,8 +742,8 @@ def _normalized(obj: _Obj, json_cols: dict[str, str]) -> dict[str, Any]:
         )
     seen: set[tuple[str, int]] = set()
     sources: list[dict[str, Any]] = []
-    for s in sorted(obj.sources, key=lambda s: (s["fichier"], s.get("ligne", 0))):
-        marker = (s["fichier"], s.get("ligne", 0))
+    for s in sorted(obj.sources, key=lambda s: (s["file"], s.get("line", 0))):
+        marker = (s["file"], s.get("line", 0))
         if marker not in seen:
             seen.add(marker)
             sources.append(s)

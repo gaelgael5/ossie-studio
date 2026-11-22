@@ -40,12 +40,12 @@ def test_safe_source_path_refuse_la_traversee(tmp_path: Path) -> None:
 def test_manifest_valide_et_rejets() -> None:
     manifest = manifest_from_mapping(
         {
-            "version": 1,
+            "version": 2,
             "slug": "cmd",
             "label": "Commandes",
             "type": "git",
-            "connexion": "c1",
-            "parametres": {"depot": "org/api", "branche": "main", "parseurs": ["markdown"]},
+            "connection": "c1",
+            "parameters": {"repository": "org/api", "branch": "main", "parsers": ["markdown"]},
         }
     )
     assert manifest.type == "git"
@@ -53,12 +53,12 @@ def test_manifest_valide_et_rejets() -> None:
     with pytest.raises(ManifestError) as exc:
         manifest_from_mapping(
             {
-                "version": 1,
+                "version": 2,
                 "slug": "cmd",
                 "label": "Commandes",
                 "type": "git",
-                "connexion": "c1",
-                "parametres": {"depot": "org/api", "branche": "main", "parseurs": ["markdown"]},
+                "connection": "c1",
+                "parameters": {"repository": "org/api", "branch": "main", "parsers": ["markdown"]},
                 "schema": "x",
             }
         )
@@ -67,16 +67,16 @@ def test_manifest_valide_et_rejets() -> None:
     with pytest.raises(ManifestError) as exc2:
         manifest_from_mapping(
             {
-                "version": 1,
+                "version": 2,
                 "slug": "c",
                 "label": "l",
                 "type": "git",
-                "connexion": "c1",
-                "parametres": {},
+                "connection": "c1",
+                "parameters": {},
             }
         )
-    assert "depot_required" in exc2.value.fields
-    assert "branche_required" in exc2.value.fields
+    assert "repository_required" in exc2.value.fields
+    assert "branch_required" in exc2.value.fields
 
 
 def test_manifest_roundtrip_yaml() -> None:
@@ -84,16 +84,61 @@ def test_manifest_roundtrip_yaml() -> None:
 
     manifest = manifest_from_mapping(
         {
-            "version": 1,
+            "version": 2,
             "slug": "cmd",
             "label": "Commandes",
             "type": "postgres",
-            "connexion": "db1",
-            "parametres": {"base": "ventes", "schemas": ["public"]},
+            "connection": "db1",
+            "parameters": {"database": "ventes", "schemas": ["public"]},
         }
     )
     text = dump_manifest(manifest)
-    assert parse_manifest(text).parametres["base"] == "ventes"
+    assert parse_manifest(text).parameters["database"] == "ventes"
+
+
+def test_manifest_version_1_cles_francaises_converti() -> None:
+    from ossie_studio.sources.manifest import dump_manifest
+
+    # Un dépôt existant garde des manifestes version 1 (clés françaises) : ils
+    # restent lisibles et sont convertis vers les clés anglaises.
+    legacy = (
+        "version: 1\nslug: cmd\nlabel: Commandes\ntype: git\nconnexion: c1\n"
+        "parametres:\n  depot: org/api\n  branche: main\n  repertoires: [src]\n"
+        "  parseurs: [markdown]\n  exclusions: ['**/test/**']\n"
+        "tri:\n  - {target: object-name, pattern: 'Tmp*', kind: glob}\n"
+    )
+    manifest = parse_manifest(legacy)
+    assert manifest.connection == "c1"
+    assert manifest.parameters == {
+        "repository": "org/api",
+        "branch": "main",
+        "directories": ["src"],
+        "parsers": ["markdown"],
+        "exclusions": ["**/test/**"],
+    }
+    assert manifest.triage == [{"target": "object-name", "pattern": "Tmp*", "kind": "glob"}]
+    # Réécrit, il passe en version 2, clés anglaises uniquement.
+    text = dump_manifest(manifest)
+    assert text.startswith("version: 2\n")
+    for french in ("connexion", "parametres", "depot", "branche", "repertoires", "parseurs"):
+        assert f"{french}:" not in text
+    assert "triage:" in text and "\ntri:" not in text
+    # Base de données : `base` devient `database`.
+    db = parse_manifest(
+        "version: 1\nslug: v\nlabel: V\ntype: postgres\nconnexion: db1\n"
+        "parametres:\n  base: ventes\n"
+    )
+    assert db.parameters == {"database": "ventes"}
+
+
+def test_manifest_version_2_refuse_les_cles_francaises() -> None:
+    with pytest.raises(ManifestError) as exc:
+        parse_manifest(
+            "version: 2\nslug: cmd\nlabel: C\ntype: git\nconnexion: c1\n"
+            "parametres:\n  depot: org/api\n  branche: main\n  parseurs: [markdown]\n"
+        )
+    assert "unknown_key:connexion" in exc.value.fields
+    assert "unknown_key:parametres" in exc.value.fields
 
 
 def test_read_sources_tree_signale_les_erreurs(tmp_path: Path) -> None:
@@ -178,14 +223,14 @@ def _git_body(connection_id: str, **over: object) -> dict[str, object]:
         "slug": "api-boutique",
         "label": "API boutique",
         "type": "git",
-        "connexion": connection_id,
-        "parametres": {"depot": "octocat/r0", "branche": "main", "repertoires": ["src"]},
+        "connection": connection_id,
+        "parameters": {"repository": "octocat/r0", "branch": "main", "directories": ["src"]},
     }
     body.update(over)
     # Une source Git doit choisir au moins un parseur ; on en met un par défaut.
-    params = body.get("parametres")
-    if isinstance(params, dict) and "parseurs" not in params:
-        body["parametres"] = {**params, "parseurs": ["jsonschema-demo"]}
+    params = body.get("parameters")
+    if isinstance(params, dict) and "parsers" not in params:
+        body["parameters"] = {**params, "parsers": ["jsonschema-demo"]}
     return body
 
 
@@ -220,10 +265,10 @@ async def test_branche_inexistante_refuse(branch: tuple[AsyncClient, str, str, s
     base = f"/api/spaces/{space_id}/branches/{branch_id}/sources"
     r = await client.post(
         base,
-        json=_git_body(connection_id, parametres={"depot": "octocat/r0", "branche": "absente"}),
+        json=_git_body(connection_id, parameters={"repository": "octocat/r0", "branch": "absente"}),
     )
     assert r.status_code == 400
-    assert "branche_not_found" in r.json()["error_args"]["fields"]
+    assert "branch_not_found" in r.json()["error_args"]["fields"]
 
 
 async def test_connexion_mauvais_genre_refuse(branch: tuple[AsyncClient, str, str, str]) -> None:
@@ -231,7 +276,7 @@ async def test_connexion_mauvais_genre_refuse(branch: tuple[AsyncClient, str, st
     base = f"/api/spaces/{space_id}/branches/{branch_id}/sources"
     r = await client.post(base, json=_git_body(str(uuid.uuid4())))
     assert r.status_code == 400
-    assert "connexion_invalid" in r.json()["error_args"]["fields"]
+    assert "connection_invalid" in r.json()["error_args"]["fields"]
 
 
 async def test_cle_inconnue_refuse(branch: tuple[AsyncClient, str, str, str]) -> None:
@@ -240,11 +285,11 @@ async def test_cle_inconnue_refuse(branch: tuple[AsyncClient, str, str, str]) ->
     r = await client.post(
         base,
         json=_git_body(
-            connection_id, parametres={"depot": "octocat/r0", "branche": "main", "zzz": "x"}
+            connection_id, parameters={"repository": "octocat/r0", "branch": "main", "zzz": "x"}
         ),
     )
     assert r.status_code == 400
-    assert "unknown_key:parametres.zzz" in r.json()["error_args"]["fields"]
+    assert "unknown_key:parameters.zzz" in r.json()["error_args"]["fields"]
 
 
 async def test_git_sans_parseur_refuse(branch: tuple[AsyncClient, str, str, str]) -> None:
@@ -257,12 +302,12 @@ async def test_git_sans_parseur_refuse(branch: tuple[AsyncClient, str, str, str]
             "slug": "api-boutique",
             "label": "API boutique",
             "type": "git",
-            "connexion": connection_id,
-            "parametres": {"depot": "octocat/r0", "branche": "main"},
+            "connection": connection_id,
+            "parameters": {"repository": "octocat/r0", "branch": "main"},
         },
     )
     assert r.status_code == 400
-    assert "parseurs_required" in r.json()["error_args"]["fields"]
+    assert "parsers_required" in r.json()["error_args"]["fields"]
 
 
 async def test_git_parseur_inconnu_refuse(branch: tuple[AsyncClient, str, str, str]) -> None:
@@ -272,7 +317,7 @@ async def test_git_parseur_inconnu_refuse(branch: tuple[AsyncClient, str, str, s
         base,
         json=_git_body(
             connection_id,
-            parametres={"depot": "octocat/r0", "branche": "main", "parseurs": ["cobol"]},
+            parameters={"repository": "octocat/r0", "branch": "main", "parsers": ["cobol"]},
         ),
     )
     assert r.status_code == 400
@@ -375,8 +420,8 @@ async def _declare_openapi(client: AsyncClient, base: str, slug: str = "api-paie
             "slug": slug,
             "label": "API paiement",
             "type": "openapi",
-            "connexion": "",
-            "parametres": {},
+            "connection": "",
+            "parameters": {},
         },
     )
     assert r.status_code == 201, r.text
@@ -391,7 +436,7 @@ async def test_declarer_openapi_sans_connexion(
     listed = (await client.get(base)).json()["sources"]
     source = next(s for s in listed if s["slug"] == "api-paiement")
     assert source["type"] == "openapi"
-    assert source["connexion"] == {"kind": "none"}
+    assert source["connection"] == {"kind": "none"}
     manifest = _view(tmp_path, space_id) / "sources" / "api-paiement" / "manifest.yaml"
     assert "type: openapi" in manifest.read_text(encoding="utf-8")
 
@@ -409,9 +454,9 @@ async def test_analyse_avant_depot_ne_rien_ecrire(
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["openapi"] == "3.1.0"
-    assert data["nb_schemas"] == 2
-    assert data["nb_operations"] == 1
-    assert data["version_proposee"] == "v2"
+    assert data["schema_count"] == 2
+    assert data["operation_count"] == 1
+    assert data["proposed_version"] == "v2"
     # Rien n'a été rangé.
     contrats = _view(tmp_path, space_id) / "sources" / "api-paiement" / "contrats"
     assert not contrats.exists()
@@ -435,19 +480,19 @@ async def test_depot_collecte_telechargement_retrait(
     )
     assert r.status_code == 201, r.text
     # Liste : un contrat, pas encore collecté.
-    contracts = (await client.get(f"{base}/api-paiement/contracts")).json()["contrats"]
+    contracts = (await client.get(f"{base}/api-paiement/contracts")).json()["contracts"]
     assert len(contracts) == 1
     assert contracts[0]["version"] == "v2"
-    assert contracts[0]["fichier_origine"] == "paiement.yaml"
-    assert contracts[0]["collecte"] is False
+    assert contracts[0]["original_file"] == "paiement.yaml"
+    assert contracts[0]["collected"] is False
     # Collecte : les schémas apparaissent, l'état passe à collecté.
     collect = await client.post(f"{base}/api-paiement/collect")
     assert collect.status_code == 200, collect.text
     assert collect.json()["added"] == 2
     raw = _view(tmp_path, space_id) / "sources" / "api-paiement" / "raw"
     assert (raw / "v2-commande.json").is_file()
-    after = (await client.get(f"{base}/api-paiement/contracts")).json()["contrats"]
-    assert after[0]["collecte"] is True
+    after = (await client.get(f"{base}/api-paiement/contracts")).json()["contracts"]
+    assert after[0]["collected"] is True
     # Téléchargement : octets déposés.
     dl = await client.get(f"{base}/api-paiement/contracts/v2/download")
     assert dl.status_code == 200
@@ -456,7 +501,7 @@ async def test_depot_collecte_telechargement_retrait(
     rm = await client.delete(f"{base}/api-paiement/contracts/v2")
     assert rm.status_code == 204
     assert not (raw / "v2-commande.json").exists()
-    assert (await client.get(f"{base}/api-paiement/contracts")).json()["contrats"] == []
+    assert (await client.get(f"{base}/api-paiement/contracts")).json()["contracts"] == []
 
 
 async def test_depot_version_existante_demande_confirmation(

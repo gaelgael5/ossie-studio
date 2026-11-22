@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import yaml
+
 from ossie_studio.parsers.base import FileRow, PluginContext, PluginResult
 from ossie_studio.parsers.conventions import validate_schema
 from ossie_studio.parsers.sqlserver_project import SqlServerProjectParser, split_batches
@@ -34,7 +36,7 @@ def _run(
         raw=raw or FakeRaw(),
         params={},
         force=force,
-        branche="main",
+        branch="main",
     )
     return SqlServerProjectParser().run(ctx)
 
@@ -288,4 +290,27 @@ def test_split_batches() -> None:
 
 
 def test_version_inclut_sqlglot() -> None:
-    assert SqlServerProjectParser().version.startswith("1.0-sqlglot")
+    assert SqlServerProjectParser().version.startswith("1.1-sqlglot")
+
+
+def test_index_ecrit_en_anglais_et_version_1_relue() -> None:
+    files = {"db/db.sqlproj": _PROJ, "db/T.sql": "CREATE TABLE dbo.T ([x] INT NOT NULL);"}
+    first = _run(files)
+    index_name, index_text = next(
+        (w.path, w.content) for w in first.writes if w.path.endswith(".yaml")
+    )
+    index = yaml.safe_load(index_text)
+    assert index["version"] == 2
+    assert set(index) == {"version", "parser", "files", "outputs"}
+    assert index["outputs"] == ["dbo-t.json"]
+    # `x-source` de chaque schéma : clés anglaises.
+    schema = _schemas(first)["dbo-t.json"]
+    assert all("file" in s and "fichier" not in s for s in schema["x-source"])
+    # Un index version 1 (clés françaises) reste lisible : ses anciennes sorties
+    # sont retirées quand elles ne sont plus produites.
+    legacy = yaml.safe_dump(
+        {"version": 1, "parseur": "0.9", "fichiers": {}, "sorties": ["dbo-ancienne.json"]}
+    )
+    raw = FakeRaw({index_name: legacy, "dbo-ancienne.json": "{}"})
+    second = _run(files, raw=raw)
+    assert "dbo-ancienne.json" in second.deletes

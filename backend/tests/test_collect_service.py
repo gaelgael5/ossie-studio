@@ -71,7 +71,7 @@ async def _collect(collector, space, source_url, *, force=False):
     return await collector.collect(
         space=space,
         branch_slug="work/principale",
-        branche_label="principale",
+        branch_label="principale",
         space_username="x",
         space_token=None,
         source_slug="api",
@@ -242,7 +242,7 @@ async def _collect_sql(collector, space, engine, *, force=False):
     return await collector.collect_sql(
         space=space,
         branch_slug="work/principale",
-        branche_label="principale",
+        branch_label="principale",
         space_username="x",
         space_token=None,
         source_slug="db",

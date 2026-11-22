@@ -42,7 +42,7 @@ def test_resolout_reference_dans_les_ecritures() -> None:
     writes = [
         OutputAction(path="a-commande.json", content=commande),
         OutputAction(path="a-ligne.json", content=ligne),
-        OutputAction(path="manifest-csharp.yaml", content="parseurs: {}\n"),
+        OutputAction(path="manifest-csharp.yaml", content="parsers: {}\n"),
     ]
     new_writes, resolved = resolve_source_schemas({}, writes, [])
     assert resolved == 1

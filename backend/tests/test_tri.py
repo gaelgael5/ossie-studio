@@ -23,15 +23,15 @@ def test_validate_ok_et_erreurs_nomment_la_regle() -> None:
         {"target": "object-name", "pattern": "x", "kind": "fuzzy"},  # genre invalide
     ]
     errors = validate_tri_rules(bad)
-    assert "tri[0]:target_invalid" in errors
-    assert "tri[1]:pattern_invalid" in errors
-    assert "tri[2]:pattern_required" in errors
-    assert "tri[3]:kind_invalid" in errors
+    assert "triage[0]:target_invalid" in errors
+    assert "triage[1]:pattern_invalid" in errors
+    assert "triage[2]:pattern_required" in errors
+    assert "triage[3]:kind_invalid" in errors
 
 
 def test_validate_rejette_non_liste_et_cle_inconnue() -> None:
-    assert validate_tri_rules({"target": "x"}) == ["tri_invalid"]
-    assert "tri[0]:unknown_key" in validate_tri_rules(
+    assert validate_tri_rules({"target": "x"}) == ["triage_invalid"]
+    assert "triage[0]:unknown_key" in validate_tri_rules(
         [{"target": "object-name", "pattern": "x", "kind": "glob", "oops": 1}]
     )
 
@@ -56,9 +56,9 @@ def test_object_excluded_par_schema_sql_depuis_id() -> None:
 
 def test_object_excluded_par_chemin_fichier() -> None:
     rules = compile_rules([{"target": "file-path", "pattern": "*/generated/*", "kind": "glob"}])
-    schema = {"title": "X", "x-source": [{"fichier": "src/generated/x.cs", "ligne": 3}]}
+    schema = {"title": "X", "x-source": [{"file": "src/generated/x.cs", "line": 3}]}
     assert object_excluded(schema, rules) is not None
-    assert object_excluded({"title": "X", "x-source": [{"fichier": "src/x.cs"}]}, rules) is None
+    assert object_excluded({"title": "X", "x-source": [{"file": "src/x.cs"}]}, rules) is None
 
 
 def test_field_excluded() -> None:

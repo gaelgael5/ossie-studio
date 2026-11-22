@@ -147,7 +147,7 @@ class PluginContext:
     raw: RawAccess
     params: dict[str, str]
     force: bool
-    branche: str
+    branch: str
 
 
 class Parser(Protocol):

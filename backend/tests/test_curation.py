@@ -150,14 +150,14 @@ def test_remove_writer_supprime(tmp_path: Path) -> None:
 
 
 def test_apply_enrichment_pose_et_retire() -> None:
-    node = {"type": "string", "x-visibility": "public", "x-source": [{"fichier": "a"}]}
+    node = {"type": "string", "x-visibility": "public", "x-source": [{"file": "a"}]}
     apply_enrichment(
         node, {"business_name": "Nom", "description": "d", "concept": "", "tags": ["t"]}
     )
     assert node["x-businessName"] == "Nom" and node["x-description"] == "d"
     assert node["x-tags"] == ["t"] and "x-concept" not in node  # vide → non stocké
     # Clés standard et clés parseur intactes.
-    assert node["type"] == "string" and node["x-source"] == [{"fichier": "a"}]
+    assert node["type"] == "string" and node["x-source"] == [{"file": "a"}]
     # Vider une clé la retire.
     apply_enrichment(node, {"business_name": "", "description": "", "concept": "", "tags": []})
     assert "x-businessName" not in node and "x-tags" not in node
@@ -188,7 +188,7 @@ def test_enrich_writer_refuse_non_retenu(tmp_path: Path) -> None:
 def test_read_enrichment(tmp_path: Path) -> None:
     _seed_asset(tmp_path, "app-user.json", {
         "$id": "app-user.json", "title": "User", "x-businessName": "Utilisateur",
-        "x-source": [{"fichier": "a.cs"}], "description": "doc du code",
+        "x-source": [{"file": "a.cs"}], "description": "doc du code",
         "properties": {"a": {"type": "string", "x-description": "le nom"}},
     })
     view = read_enrichment(tmp_path, "api", "app-user.json")
@@ -206,10 +206,10 @@ def test_read_enrichment(tmp_path: Path) -> None:
 
 
 def test_refresh_type_modifie_garde_enrichissement() -> None:
-    raw = {"$id": "u.json", "title": "U", "type": "object", "x-source": [{"ligne": 9}],
+    raw = {"$id": "u.json", "title": "U", "type": "object", "x-source": [{"line": 9}],
            "properties": {"a": {"type": "integer", "x-visibility": "public"}}}
     asset = {"$id": "u.json", "title": "U", "type": "object", "x-origin": "raw/u.json",
-             "x-businessName": "Utilisateur", "x-source": [{"ligne": 3}],
+             "x-businessName": "Utilisateur", "x-source": [{"line": 3}],
              "properties": {"a": {"type": "string", "x-visibility": "public",
                                   "x-businessName": "identifiant"}}}
     out = refresh_asset(raw, asset)
@@ -219,7 +219,7 @@ def test_refresh_type_modifie_garde_enrichissement() -> None:
     assert out["x-businessName"] == "Utilisateur"
     assert out["x-origin"] == "raw/u.json"
     # x- jamais touché : la métadonnée parseur de l'asset reste (pas celle du brut).
-    assert out["x-source"] == [{"ligne": 3}]
+    assert out["x-source"] == [{"line": 3}]
 
 
 def test_refresh_champ_disparu_garde() -> None:
@@ -455,8 +455,8 @@ def test_build_review_regle_ecarte_champ_apparu() -> None:
 
 def _seed_manifest(tmp_path: Path) -> None:
     manifest = SourceManifest(
-        slug="api", label="API", type="git", connexion="forge",
-        parametres={"depot": "o/r", "branche": "main", "parseurs": ["csharp"]},
+        slug="api", label="API", type="git", connection="forge",
+        parameters={"repository": "o/r", "branch": "main", "parsers": ["csharp"]},
     )
     (tmp_path / "sources" / "api").mkdir(parents=True, exist_ok=True)
     (tmp_path / "sources" / "api" / "manifest.yaml").write_text(
@@ -472,4 +472,4 @@ def test_tri_rules_roundtrip(tmp_path: Path) -> None:
     assert read_tri_rules_raw(tmp_path, "api") == rules
     # Le reste du manifeste est préservé.
     text = (tmp_path / "sources" / "api" / "manifest.yaml").read_text()
-    assert "depot: o/r" in text and "parseurs:" in text
+    assert "repository: o/r" in text and "parsers:" in text and "triage:" in text

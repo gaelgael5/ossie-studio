@@ -62,6 +62,7 @@ from ossie_studio.sources.jobs import DONE, FAILED, CollectJobs, JobKey
 from ossie_studio.sources.manifest import (
     DB_TYPES,
     GIT_TYPE,
+    MANIFEST_VERSION,
     OPENAPI_TYPE,
     ManifestError,
     SourceManifest,
@@ -104,15 +105,15 @@ class SourceBody(BaseModel):
     slug: str = ""
     label: str = ""
     type: str = ""
-    connexion: str = ""  # identifiant de la connexion (forge ou base)
-    parametres: dict[str, Any] = {}
+    connection: str = ""  # identifiant de la connexion (forge ou base)
+    parameters: dict[str, Any] = {}
 
 
 class SourceUpdateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
-    connexion: str = ""
-    parametres: dict[str, Any] = {}
+    connection: str = ""
+    parameters: dict[str, Any] = {}
 
 
 class AnalyzeBody(BaseModel):
@@ -146,21 +147,23 @@ async def _branch_slug(conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID)
     return branch.git_ref
 
 
-async def _resolve_connection(conn: ConnDep, source_type: str, connexion: str) -> dict[str, object]:
+async def _resolve_connection(
+    conn: ConnDep, source_type: str, connection: str
+) -> dict[str, object]:
     """Vérifie que la connexion (désignée par son slug) existe et est du bon genre
     pour le type de source, et rend de quoi l'afficher. Jamais de valeur secrète."""
-    slug = connexion.strip()
+    slug = connection.strip()
     if not slug:
-        raise ApiError("invalid_request", status_code=400, fields=["connexion_required"])
+        raise ApiError("invalid_request", status_code=400, fields=["connection_required"])
     if source_type == GIT_TYPE:
         forge = await db_get_connection_by_slug(conn, slug)
         if forge is None:
-            raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
+            raise ApiError("invalid_request", status_code=400, fields=["connection_invalid"])
         return {"slug": forge.slug, "label": forge.label, "kind": "forge", "forge": forge.forge}
     # Type base : connexion de base du même moteur.
     db = await db_get_db_connection_by_slug(conn, slug)
     if db is None or db.engine != source_type:
-        raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
+        raise ApiError("invalid_request", status_code=400, fields=["connection_invalid"])
     return {"slug": db.slug, "label": db.label, "kind": "db", "engine": db.engine}
 
 
@@ -169,26 +172,26 @@ async def _build_manifest(
     slug: str,
     label: str,
     source_type: str,
-    connexion: str,
-    parametres: dict[str, Any],
-    tri: list[dict[str, Any]] | None = None,
+    connection: str,
+    parameters: dict[str, Any],
+    triage: list[dict[str, Any]] | None = None,
 ) -> tuple[SourceManifest, dict[str, object] | None]:
     if not is_valid_source_slug(slug):
         raise ApiError("invalid_request", status_code=400, fields=["slug_invalid"])
     # Source par dépôt : pas de connexion à résoudre.
     connection_info: dict[str, object] | None = None
     if source_type != OPENAPI_TYPE:
-        connection_info = await _resolve_connection(conn, source_type, connexion)
+        connection_info = await _resolve_connection(conn, source_type, connection)
     try:
         manifest = manifest_from_mapping(
             {
-                "version": 1,
+                "version": MANIFEST_VERSION,
                 "slug": slug,
                 "label": label,
                 "type": source_type,
-                "connexion": connection_info["slug"] if connection_info is not None else "",
-                "parametres": parametres,
-                "tri": tri or [],
+                "connection": connection_info["slug"] if connection_info is not None else "",
+                "parameters": parameters,
+                "triage": triage or [],
             }
         )
     except ManifestError as exc:
@@ -196,14 +199,14 @@ async def _build_manifest(
     return manifest, connection_info
 
 
-def _check_git_parseurs(manifest: SourceManifest) -> None:
+def _check_git_parsers(manifest: SourceManifest) -> None:
     """Refuse un parseur inconnu (en le nommant) ou deux parseurs qui se disputent
     le même motif (en nommant le motif)."""
-    parseurs = _str_list(manifest.parametres.get("parseurs")) or []
-    unknown = unknown_code_parseur(parseurs)
+    parsers = _str_list(manifest.parameters.get("parsers")) or []
+    unknown = unknown_code_parseur(parsers)
     if unknown is not None:
         raise ApiError("parseur_unknown", status_code=400, id=unknown)
-    conflict = conflicting_glob(parseurs)
+    conflict = conflicting_glob(parsers)
     if conflict is not None:
         raise ApiError("parseur_conflict", status_code=400, pattern=conflict)
 
@@ -212,23 +215,23 @@ async def _validate_git_branch(
     conn: ConnDep,
     crypto: CryptoService,
     http_client_factory: Callable[[], httpx.AsyncClient],
-    connexion: str,
-    depot: str,
-    branche: str,
+    connection_slug: str,
+    repository: str,
+    branch: str,
 ) -> None:
     """Une source Git suit une **branche** du dépôt source : on refuse une branche
     inexistante (et donc un nom de tag ou de commit)."""
-    connection = await db_get_connection_by_slug(conn, connexion.strip())
+    connection = await db_get_connection_by_slug(conn, connection_slug.strip())
     assert connection is not None  # déjà validée par _resolve_connection
     token = (await resolve_connection_token(conn, crypto, connection)).reveal()
     strategy = get_strategy(connection.forge)
     async with http_client_factory() as client:
         try:
-            branches = await strategy.list_branches(client, connection.url, token, depot)
+            branches = await strategy.list_branches(client, connection.url, token, repository)
         except ForgeError as exc:
             raise ApiError(exc.code, status_code=400) from None
-    if branche not in branches:
-        raise ApiError("invalid_request", status_code=400, fields=["branche_not_found"])
+    if branch not in branches:
+        raise ApiError("invalid_request", status_code=400, fields=["branch_not_found"])
 
 
 def _entry_payload(entry: SourceEntry, connection: dict[str, object] | None) -> dict[str, object]:
@@ -237,24 +240,24 @@ def _entry_payload(entry: SourceEntry, connection: dict[str, object] | None) -> 
     manifest = entry.manifest
     if manifest.type == OPENAPI_TYPE:
         # Source par dépôt : pas de connexion (ni manquante, ni à afficher).
-        connexion: dict[str, object] = {"kind": "none"}
+        shown: dict[str, object] = {"kind": "none"}
     else:
-        connexion = connection or {"slug": manifest.connexion, "kind": "missing"}
+        shown = connection or {"slug": manifest.connection, "kind": "missing"}
     return {
         "slug": manifest.slug,
         "ok": True,
         "label": manifest.label,
         "type": manifest.type,
-        "connexion": connexion,
-        "parametres": manifest.parametres,
+        "connection": shown,
+        "parameters": manifest.parameters,
     }
 
 
 async def _connection_display(
-    conn: ConnDep, source_type: str, connexion: str
+    conn: ConnDep, source_type: str, connection: str
 ) -> dict[str, object] | None:
     try:
-        return await _resolve_connection(conn, source_type, connexion)
+        return await _resolve_connection(conn, source_type, connection)
     except ApiError:
         return None
 
@@ -277,7 +280,7 @@ async def list_branch_sources(
     sources: list[dict[str, object]] = []
     for entry in entries:
         connection = (
-            await _connection_display(conn, entry.manifest.type, entry.manifest.connexion)
+            await _connection_display(conn, entry.manifest.type, entry.manifest.connection)
             if entry.manifest is not None
             else None
         )
@@ -300,17 +303,17 @@ async def declare_branch_source(
     if body.type not in (GIT_TYPE, *DB_TYPES, OPENAPI_TYPE):
         raise ApiError("invalid_request", status_code=400, fields=["type_unknown"])
     manifest, connection = await _build_manifest(
-        conn, body.slug.strip(), body.label, body.type, body.connexion, body.parametres
+        conn, body.slug.strip(), body.label, body.type, body.connection, body.parameters
     )
     if manifest.type == GIT_TYPE:
-        _check_git_parseurs(manifest)
+        _check_git_parsers(manifest)
         await _validate_git_branch(
             conn,
             crypto,
             http_client_factory,
-            body.connexion,
-            str(manifest.parametres["depot"]),
-            str(manifest.parametres["branche"]),
+            body.connection,
+            str(manifest.parameters["repository"]),
+            str(manifest.parameters["branch"]),
         )
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
@@ -359,19 +362,20 @@ async def update_branch_source(
         slug,
         body.label,
         existing.type,
-        body.connexion,
-        body.parametres,
-        tri=existing.tri,  # les règles de tri se gèrent à part : une édition de source les préserve
+        body.connection,
+        body.parameters,
+        # Les règles de tri se gèrent à part : une édition de source les préserve.
+        triage=existing.triage,
     )
     if manifest.type == GIT_TYPE:
-        _check_git_parseurs(manifest)
+        _check_git_parsers(manifest)
         await _validate_git_branch(
             conn,
             crypto,
             http_client_factory,
-            body.connexion,
-            str(manifest.parametres["depot"]),
-            str(manifest.parametres["branche"]),
+            body.connection,
+            str(manifest.parameters["repository"]),
+            str(manifest.parameters["branch"]),
         )
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
@@ -546,7 +550,7 @@ async def _collect(
                 workdir=workdir,
                 space=space,
                 branch_slug=branch_slug,
-                branche_label=branch_slug,
+                branch_label=branch_slug,
                 space_username=space_username,
                 space_token=space_token,
                 source_slug=slug,
@@ -559,9 +563,9 @@ async def _collect(
         except CollectionError as exc:
             raise _collect_error(exc.code) from None
     elif manifest.type == GIT_TYPE:
-        connection = await db_get_connection_by_slug(conn, manifest.connexion)
+        connection = await db_get_connection_by_slug(conn, manifest.connection)
         if connection is None:
-            raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
+            raise ApiError("invalid_request", status_code=400, fields=["connection_invalid"])
         strategy = get_strategy(connection.forge)
         source_token = (await resolve_connection_token(conn, crypto, connection)).reveal()
         try:
@@ -569,41 +573,41 @@ async def _collect(
                 workdir=workdir,
                 space=space,
                 branch_slug=branch_slug,
-                branche_label=branch_slug,
+                branch_label=branch_slug,
                 space_username=space_username,
                 space_token=space_token,
                 source_slug=slug,
                 source_clone_url=strategy.git_clone_url(
-                    connection.url, str(manifest.parametres.get("depot", ""))
+                    connection.url, str(manifest.parameters.get("repository", ""))
                 ),
-                source_branch=str(manifest.parametres.get("branche", "")),
+                source_branch=str(manifest.parameters.get("branch", "")),
                 source_username=strategy.git_username(),
                 source_token=source_token,
                 author_name=user.email,
                 author_email=user.email,
                 force=force,
                 progress=progress,
-                parseurs=_str_list(manifest.parametres.get("parseurs")),
-                repertoires=_str_list(manifest.parametres.get("repertoires")),
-                exclusions=_str_list(manifest.parametres.get("exclusions")),
+                parsers=_str_list(manifest.parameters.get("parsers")),
+                directories=_str_list(manifest.parameters.get("directories")),
+                exclusions=_str_list(manifest.parameters.get("exclusions")),
                 plugin_params=plugin_params,
             )
         except CollectionError as exc:
             raise _collect_error(exc.code) from None
     elif manifest.type in DB_TYPES:
-        db = await db_get_db_connection_by_slug(conn, manifest.connexion)
+        db = await db_get_db_connection_by_slug(conn, manifest.connection)
         if db is None or db.engine != manifest.type:
-            raise ApiError("invalid_request", status_code=400, fields=["connexion_invalid"])
+            raise ApiError("invalid_request", status_code=400, fields=["connection_invalid"])
         secret_value = (await resolve_secret_value(conn, crypto, db.secret_slug)).reveal()
         db_params = {k: str(v) for k, v in db.params.items()}
-        base = str(manifest.parametres.get("base", "") or db_params.get("database", ""))
-        db_params["database"] = base
+        database = str(manifest.parameters.get("database", "") or db_params.get("database", ""))
+        db_params["database"] = database
         try:
             report = await collector.collect_sql(
                 workdir=workdir,
                 space=space,
                 branch_slug=branch_slug,
-                branche_label=branch_slug,
+                branch_label=branch_slug,
                 space_username=space_username,
                 space_token=space_token,
                 source_slug=slug,
@@ -611,8 +615,8 @@ async def _collect(
                 dialect=db.engine,
                 db_params=db_params,
                 secret_value=secret_value,
-                schemas=_str_list(manifest.parametres.get("schemas")),
-                exclusions=_str_list(manifest.parametres.get("exclusions")),
+                schemas=_str_list(manifest.parameters.get("schemas")),
+                exclusions=_str_list(manifest.parameters.get("exclusions")),
                 author_name=user.email,
                 author_email=user.email,
                 force=force,
@@ -716,12 +720,12 @@ def _contract_error(exc: OpenApiError) -> ApiError:
 def _analysis_payload(analysis: Analysis) -> dict[str, object]:
     return {
         "openapi": analysis.openapi,
-        "titre": analysis.title,
-        "version_declaree": analysis.declared_version,
-        "nb_schemas": analysis.schema_count,
-        "nb_operations": analysis.operation_count,
-        "refs_externes": analysis.external_refs,
-        "version_proposee": analysis.proposed_version,
+        "title": analysis.title,
+        "declared_version": analysis.declared_version,
+        "schema_count": analysis.schema_count,
+        "operation_count": analysis.operation_count,
+        "external_refs": analysis.external_refs,
+        "proposed_version": analysis.proposed_version,
     }
 
 
@@ -729,15 +733,15 @@ def _contract_payload(view: ContractView) -> dict[str, object]:
     e = view.entry
     return {
         "version": e.version,
-        "fichier": e.fichier,
-        "fichier_origine": e.fichier_origine,
+        "file": e.file,
+        "original_file": e.original_file,
         "openapi": e.openapi,
-        "version_declaree": e.version_declaree,
-        "nb_schemas": e.nb_schemas,
-        "nb_operations": e.nb_operations,
-        "depose_le": e.depose_le,
-        "auteur": e.auteur,
-        "collecte": view.collecte,
+        "declared_version": e.declared_version,
+        "schema_count": e.schema_count,
+        "operation_count": e.operation_count,
+        "uploaded_at": e.uploaded_at,
+        "author": e.author,
+        "collected": view.collected,
     }
 
 
@@ -801,7 +805,7 @@ async def list_branch_contracts(
         )
     except WorkdirError as exc:
         raise _workdir_http_error(exc) from None
-    return {"contrats": [_contract_payload(v) for v in views]}
+    return {"contracts": [_contract_payload(v) for v in views]}
 
 
 @router.post("/{slug}/contracts", status_code=201)
@@ -829,14 +833,14 @@ async def deposit_branch_contract(
         raise _contract_error(exc) from None
     entry = ContractEntry(
         version=version,
-        fichier=f"{version}.yaml",
-        fichier_origine=body.filename.strip() or f"{version}.yaml",
+        file=f"{version}.yaml",
+        original_file=body.filename.strip() or f"{version}.yaml",
         openapi=analysis.openapi,
-        version_declaree=analysis.declared_version,
-        nb_schemas=analysis.schema_count,
-        nb_operations=analysis.operation_count,
-        depose_le=datetime.now(UTC).isoformat(),
-        auteur=user.email,
+        declared_version=analysis.declared_version,
+        schema_count=analysis.schema_count,
+        operation_count=analysis.operation_count,
+        uploaded_at=datetime.now(UTC).isoformat(),
+        author=user.email,
     )
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
@@ -909,7 +913,7 @@ async def download_branch_contract(
         if content is None:
             return None
         view = next((v for v in read_contracts_view(wc, slug) if v.entry.version == version), None)
-        name = view.entry.fichier_origine if view is not None else f"{version}.yaml"
+        name = view.entry.original_file if view is not None else f"{version}.yaml"
         return content, name
 
     try:

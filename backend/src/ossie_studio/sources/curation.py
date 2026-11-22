@@ -738,7 +738,7 @@ def apply_review_fn(slug: str, head_sha: str, decisions: ReviewDecisions) -> Cal
 
 
 def read_tri_rules_raw(workdir: Path, slug: str) -> list[dict[str, Any]]:
-    """Section `tri` brute du manifeste d'une source (pour l'éditeur). [] si le
+    """Section `triage` brute du manifeste d'une source (pour l'éditeur). [] si le
     manifeste est absent ou illisible. Lecture seule."""
     try:
         manifest_file = safe_source_path(workdir, slug) / MANIFEST_FILENAME
@@ -747,7 +747,7 @@ def read_tri_rules_raw(workdir: Path, slug: str) -> list[dict[str, Any]]:
         manifest = parse_manifest(manifest_file.read_text(encoding="utf-8"))
     except (ManifestError, OSError, ValueError):  # défense en profondeur côté lecture
         return []
-    return list(manifest.tri)
+    return list(manifest.triage)
 
 
 def read_tri_rules(workdir: Path, slug: str) -> list[TriRule]:
@@ -756,7 +756,7 @@ def read_tri_rules(workdir: Path, slug: str) -> list[TriRule]:
 
 
 def set_tri_rules_fn(slug: str, rules: list[dict[str, Any]]) -> Callable[[Path], None]:
-    """Écrit la section `tri` du manifeste (remplace la liste), en un commit. Le
+    """Écrit la section `triage` du manifeste (remplace la liste), en un commit. Le
     reste du manifeste est préservé. Lève SourceManifestError si le manifeste est
     absent ou invalide."""
 
@@ -765,7 +765,7 @@ def set_tri_rules_fn(slug: str, rules: list[dict[str, Any]]) -> Callable[[Path],
         if not manifest_file.is_file():
             raise FileNotFoundError(slug)
         manifest = parse_manifest(manifest_file.read_text(encoding="utf-8"))
-        updated = replace(manifest, tri=rules)
+        updated = replace(manifest, triage=rules)
         manifest_file.write_text(dump_manifest(updated), encoding="utf-8")
 
     return write
