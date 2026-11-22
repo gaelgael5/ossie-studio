@@ -32,7 +32,8 @@ from tests.mcp_helpers import tool_names
 
 BASE = "https://ossie.example.org"
 # Primitives qui ne supposent que la lecture des espaces.
-SPACES_READ = {p.id for p in CATALOG if p.capability == "spaces:read"}
+# Les lectures qui supposent `spaces:read` (le profil « Lecture » ne donne que des lectures).
+SPACES_READ = {p.id for p in CATALOG if p.capability == "spaces:read" and p.access == "read"}
 RESOURCE = f"{BASE}/mcp"
 REDIRECT = "http://localhost:3118/callback"
 PASSWORD = "motdepasse-solide"

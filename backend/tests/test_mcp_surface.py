@@ -21,7 +21,8 @@ from tests.conftest import ADMIN_EMAIL, ADMIN_PASSWORD, bootstrap_admin, create_
 from tests.mcp_helpers import call_tool, tool_names
 
 # Primitives qui ne supposent que la lecture des espaces.
-SPACES_READ = {p.id for p in CATALOG if p.capability == "spaces:read"}
+# Les lectures qui supposent `spaces:read` (le profil « Lecture » ne donne que des lectures).
+SPACES_READ = {p.id for p in CATALOG if p.capability == "spaces:read" and p.access == "read"}
 
 KEY_TOKEN = "test-key-token-0123456789"
 OAUTH_TOKEN = "test-oauth-token-0123456789"
@@ -321,13 +322,16 @@ async def test_primitives_du_brouillon_pour_une_personne_seulement(app: FastAPI)
     user_id = await _person(app, "ana@example.org", ["spaces:read"])
     _wire(app, KEY_TOKEN, _key(lecture))
     _wire(app, OAUTH_TOKEN, _oauth(lecture, user_id))
-    # Lectures propres à une personne : son brouillon, et la collecte qu'elle a lancée.
-    assert {p for p in PERSON_ONLY if p in READ_PRIMITIVES} == {
+    # Lectures propres à une personne : son brouillon (et sa préparation à la
+    # publication), et la collecte qu'elle a lancée.
+    draft_reads = {
         "get_my_draft",
         "get_publish_readiness",
-        "get_collect_status",
+        "get_merge_conflicts",
+        "list_impacts",
+        "get_validation_log",
     }
-    draft_reads = {"get_my_draft", "get_publish_readiness"}
+    assert {p for p in PERSON_ONLY if p in READ_PRIMITIVES} == draft_reads | {"get_collect_status"}
     assert not PERSON_ONLY & set(await _tool_names(app, KEY_TOKEN))
     assert draft_reads <= set(await _tool_names(app, OAUTH_TOKEN))
     assert _refusal(await _call(app, KEY_TOKEN, "get_my_draft", {})) == "primitive_forbidden"
