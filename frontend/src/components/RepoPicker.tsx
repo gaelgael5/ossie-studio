@@ -34,8 +34,6 @@ export function RepoPicker(props: { connectionId: string; value: string; onChang
   }
   const status = repos.isError ? (
     <span className="text-danger">{errorMessages(t, repos.error).join(' ')}</span>
-  ) : repos.isLoading ? (
-    <span className="muted">{t('loading')}</span>
   ) : null
   return (
     <div className="field">
@@ -52,6 +50,8 @@ export function RepoPicker(props: { connectionId: string; value: string; onChang
         emptyText={t('repoNoMatch')}
         moreText={(count) => t('repoMoreRefine', { count })}
         status={status}
+        busy={repos.isFetching}
+        busyText={t('repoLoading')}
       />
       {value ? <span className="field-hint mono">{value}</span> : null}
       <button type="button" className="btn-link" onClick={() => setManual(true)}>

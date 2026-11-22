@@ -192,6 +192,7 @@ export const fr = {
     connectionSelectLabel: 'Connexion',
     repoUrlLabel: 'URL du dépôt',
     repoPickLabel: 'Dépôt',
+    repoLoading: 'Chargement des dépôts de la connexion…',
     repoPickPlaceholder: 'Choisir un dépôt…',
     repoPickFromList: 'Choisir dans la liste des dépôts',
     repoEnterManually: 'Saisir l’URL à la main',

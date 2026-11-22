@@ -1100,3 +1100,52 @@ input[type='radio'] {
   padding: 6px 8px;
   color: var(--muted);
 }
+
+/*
+ * Indicateur d'attente : anneau dont la couleur s'estompe en tournant (même
+ * esprit que le curseur « occupé » classique), en CSS pur — aucune ressource
+ * externe. Accompagne un curseur `progress` sur la zone concernée.
+ */
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent 0 10%, var(--primary) 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px));
+  animation: spinner-turn 0.8s linear infinite;
+}
+@keyframes spinner-turn {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+.combo-trigger.is-busy,
+.combo:has(.combo-busy) {
+  cursor: progress;
+}
+.combo-trigger.is-busy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-image: none;
+}
+.combo-trigger.is-busy > :first-child {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.combo-busy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  color: var(--muted);
+}

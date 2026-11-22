@@ -200,6 +200,8 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
   expect(picker).toHaveTextContent('Choisir un dépôt…')
   await userEvent.click(picker)
   await screen.findByRole('option', { name: 'acme/autre' })
+  // Liste chargée : plus d'indicateur d'attente.
+  expect(picker).toHaveAttribute('aria-busy', 'false')
   await userEvent.type(screen.getByPlaceholderText('Filtrer les dépôts…'), 'app')
   expect(screen.queryByRole('option', { name: 'acme/autre' })).not.toBeInTheDocument()
   await userEvent.keyboard('{Enter}')

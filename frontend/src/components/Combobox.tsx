@@ -23,8 +23,12 @@ export function Combobox(props: {
   emptyText: string
   moreText: (count: number) => string
   status?: React.ReactNode
+  /** Options en cours de chargement : anneau animé et curseur d'attente. */
+  busy?: boolean
+  busyText?: string
 }) {
   const { id, options, value, onChange, placeholder, filterPlaceholder, emptyText, moreText, status } = props
+  const { busy = false, busyText = '' } = props
   const listId = useId()
   const root = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -76,12 +80,14 @@ export function Combobox(props: {
       <button
         id={id}
         type="button"
-        className="select combo-trigger"
+        className={busy ? 'select combo-trigger is-busy' : 'select combo-trigger'}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-busy={busy}
         onClick={toggle}
       >
         <span className={chosen ? '' : 'muted'}>{chosen ? chosen.label : placeholder}</span>
+        {busy ? <span className="spinner combo-spinner" aria-hidden="true" /> : null}
       </button>
       {open ? (
         <div className="combo-panel">
@@ -101,6 +107,12 @@ export function Combobox(props: {
             onKeyDown={onKey}
           />
           {status}
+          {busy ? (
+            <div className="combo-busy" role="status">
+              <span className="spinner" aria-hidden="true" />
+              {busyText}
+            </div>
+          ) : null}
           <ul className="combo-list" role="listbox" id={listId}>
             {shown.map((option, i) => (
               <li
@@ -116,7 +128,7 @@ export function Combobox(props: {
                 {option.label}
               </li>
             ))}
-            {status ? null : matching.length === 0 ? <li className="combo-note">{emptyText}</li> : null}
+            {status || busy ? null : matching.length === 0 ? <li className="combo-note">{emptyText}</li> : null}
             {matching.length > SHOWN ? <li className="combo-note">{moreText(matching.length - SHOWN)}</li> : null}
           </ul>
         </div>
