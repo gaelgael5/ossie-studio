@@ -366,9 +366,17 @@ test('détail espace : liste les commits non publiés et les publie', async () =
   })
   renderAt('/spaces/s1')
   await screen.findByText('Mon brouillon')
-  // L'objet modifié du brouillon apparaît avec son état.
-  await waitFor(() => expect(screen.getByText('sources/data.txt')).toBeInTheDocument())
-  expect(screen.getByText('modifié')).toBeInTheDocument()
+  // Le brouillon se résume par son nombre d'objets ; le détail est dans la vue
+  // « Modifications » (ticket aad1d3c6).
+  // (La barre du brouillon affiche aussi le compteur et le lien.)
+  const section = (await screen.findByText('Mon brouillon')).closest('section')!
+  await waitFor(() =>
+    expect(within(section).getByText('1 objet(s) modifié(s).')).toBeInTheDocument(),
+  )
+  expect(within(section).getByRole('link', { name: 'Voir les modifications' })).toHaveAttribute(
+    'href',
+    '/spaces/s1/branches/b1/changes',
+  )
 })
 
 test('détail espace : enregistre une version et liste les versions', async () => {

@@ -49,9 +49,8 @@ from ossie_studio.sources.curation import (
     get_object_detail,
     is_schema_file,
     list_curation,
-    parse_schema_texts,
+    published_raw,
     read_enrichment,
-    read_review_point,
     read_source_trees,
     read_tri_rules,
     read_tri_rules_raw,
@@ -364,38 +363,43 @@ async def get_tri_rules(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, An
     return {"view": bv.view, "source": args.source, "rules": rules}
 
 
-async def compute_review(bv: BranchView, slug: str) -> tuple[str, str | None, ReviewResult]:
-    """(tête publiée, point de reprise, revue) d'une source, dans la vue lue.
-    Calcul partagé par la lecture `get_review` et l'écriture `apply_review` :
-    l'agent applique ses décisions à exactement ce qu'il a lu."""
+async def compute_review(bv: BranchView, slug: str) -> tuple[str, ReviewResult]:
+    """(tête publiée, revue) d'une source, dans la vue lue. La base est la branche
+    publiée : ce que mon brouillon ajoute, change ou laisse en écart avec mes
+    assets (ticket docflow aad1d3c6, plus de point de reprise). Calcul partagé
+    par la lecture `get_review` et l'écriture `apply_review` : l'agent applique
+    ses décisions à exactement ce qu'il a lu."""
     directory = source_dir(slug)
     try:
-        head_sha, base_sha, raw_base_text, bundle = await bv.workdir.review_inputs(
-            bv.space.id, bv.branch.git_ref, bv.space.repo_url, bv.username, bv.token,
+        head_sha, published_texts, bundle = await bv.workdir.review_inputs(
+            bv.space.id,
+            bv.branch.git_ref,
+            bv.space.repo_url,
+            bv.username,
+            bv.token,
             f"{directory}/{RAW_DIR}",
-            lambda root: read_review_point(root, slug),
             lambda root: (read_source_trees(root, slug), read_tri_rules(root, slug)),
         )
     except WorkdirError as exc:
         raise PrimitiveError(exc.code) from None
-    (raw_head, assets), rules = bundle
-    review = build_review(parse_schema_texts(raw_base_text), raw_head, assets, rules)
-    return head_sha, base_sha, review
+    (raw_view, assets), rules = bundle
+    review = build_review(published_raw(raw_view, published_texts), raw_view, assets, rules)
+    return head_sha, review
 
 
-def review_payload(head_sha: str, base_sha: str | None, review: ReviewResult) -> dict[str, Any]:
+def review_payload(head_sha: str, review: ReviewResult) -> dict[str, Any]:
+    # `base_sha` et `up_to_date` (point de reprise) ont disparu du contrat : la
+    # base est toujours la tête publiée, `head_sha`.
     return {
-        "base_sha": base_sha,
         "head_sha": head_sha,
-        "up_to_date": base_sha == head_sha,
         "objects": [asdict(o) for o in review.objects],
     }
 
 
 async def get_review(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
     bv = await open_branch(ctx, args, args.view)
-    head_sha, base_sha, review = await compute_review(bv, args.source)
-    return {"view": bv.view, "source": args.source, **review_payload(head_sha, base_sha, review)}
+    head_sha, review = await compute_review(bv, args.source)
+    return {"view": bv.view, "source": args.source, **review_payload(head_sha, review)}
 
 
 # --- Gouvernance ----------------------------------------------------------------------

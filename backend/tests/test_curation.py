@@ -17,8 +17,8 @@ from ossie_studio.sources.curation import (
     enrich_asset_fn,
     get_object_detail,
     list_curation,
+    published_raw,
     read_enrichment,
-    read_review_point,
     read_tri_rules_raw,
     refresh_asset,
     refresh_assets_fn,
@@ -299,8 +299,8 @@ def test_object_detail_champ_disparu(tmp_path: Path) -> None:
 # --- Revue des changements ----------------------------------------------------
 
 
-def test_review_premiere_fois_tout_nouveau() -> None:
-    # Critère 1 : aucun point de reprise (base vide) → tout le brut est nouveau.
+def test_review_tout_nouveau_par_rapport_au_publie() -> None:
+    # Base = brut publié (ticket aad1d3c6) : vide → tout le brut de ma vue est nouveau.
     head = {
         "a.json": {"title": "A", "type": "object", "properties": {"x": {"type": "string"}}},
         "b.json": {"title": "B", "type": "object", "properties": {}},
@@ -344,6 +344,28 @@ def test_review_champ_disparu_enrichissement_perdu() -> None:
     assert field.lost_enrichment == ["x-businessName", "x-description"]
 
 
+def test_review_ecart_publie_reste_signale() -> None:
+    """Disparition déjà publiée (absente de la base comme de ma vue) : l'asset ne
+    correspond plus au brut, le champ et l'objet restent signalés."""
+    head = {"u.json": {"type": "object", "properties": {"a": {"type": "string"}}}}
+    assets = {
+        "u.json": {"type": "object", "x-origin": "raw/u.json", "properties": {
+            "a": {"type": "string"}, "b": {"type": "string", "x-description": "doc"}}},
+        "gone.json": {"title": "G", "type": "object", "properties": {}},
+    }
+    result = build_review(head, head, assets)
+    by_path = {o.path: o for o in result.objects}
+    assert by_path["gone.json"].status == "object-disappeared"
+    assert [(f.name, f.change) for f in by_path["u.json"].fields] == [("b", "disappeared")]
+
+
+def test_published_raw_reconstruit_la_base() -> None:
+    view = {"a.json": {"title": "A2"}, "new.json": {"title": "N"}}
+    # a.json modifié par le brouillon, new.json créé, del.json supprimé.
+    texts = {"a.json": '{"title": "A1"}', "new.json": None, "del.json": '{"title": "D"}'}
+    assert published_raw(view, texts) == {"a.json": {"title": "A1"}, "del.json": {"title": "D"}}
+
+
 def test_review_objet_disparu() -> None:
     base = {"u.json": {"type": "object", "properties": {"a": {"type": "string"}}}}
     assets = {"u.json": {"title": "U", "type": "object", "x-origin": "raw/u.json",
@@ -359,7 +381,7 @@ def test_review_deja_revu_rien() -> None:
     assert build_review(same, same, assets).objects == []
 
 
-def test_apply_review_applique_et_avance_le_point(tmp_path: Path) -> None:
+def test_apply_review_applique_les_decisions(tmp_path: Path) -> None:
     _seed_raw(tmp_path, "u.json", {"$id": "u.json", "type": "object", "required": ["a"],
                                    "properties": {"a": {"type": "integer"},
                                                   "b": {"type": "string"}}})
@@ -370,32 +392,13 @@ def test_apply_review_applique_et_avance_le_point(tmp_path: Path) -> None:
         apply_fields={"u.json": ["a"]}, take_fields={"u.json": ["b"]},
         remove_fields={}, remove_objects=[], retain_objects=[],
     )
-    apply_review_fn("api", "deadbeef1234", decisions)(tmp_path)
+    apply_review_fn("api", decisions)(tmp_path)
     asset = json.loads((tmp_path / "sources" / "api" / "assets" / "u.json").read_text())
     assert asset["properties"]["a"]["type"] == "integer"          # champ changé appliqué
     assert asset["properties"]["a"]["x-businessName"] == "id"     # enrichissement conservé
     assert asset["properties"]["b"]["type"] == "string"          # champ apparu repris
     assert asset["required"] == ["a"]
-    assert read_review_point(tmp_path, "api") == "deadbeef1234"   # point de reprise avancé
-
-
-def test_apply_review_sans_avancer_le_point(tmp_path: Path) -> None:
-    """Décisions d'un seul objet (aperçu de l'explorateur) : appliquées, point de
-    reprise inchangé, et le changement appliqué ne figure plus dans la revue."""
-    raw = {"$id": "u.json", "type": "object", "properties": {"a": {"type": "integer"}}}
-    _seed_raw(tmp_path, "u.json", raw)
-    _seed_asset(tmp_path, "u.json", {"$id": "u.json", "type": "object", "x-origin": "raw/u.json",
-                                     "properties": {"a": {"type": "string"}}})
-    decisions = ReviewDecisions(
-        apply_fields={"u.json": ["a"]}, take_fields={}, remove_fields={},
-        remove_objects=[], retain_objects=[],
-    )
-    apply_review_fn("api", "deadbeef1234", decisions, advance=False)(tmp_path)
-    asset = json.loads((tmp_path / "sources" / "api" / "assets" / "u.json").read_text())
-    assert asset["properties"]["a"]["type"] == "integer"
-    assert read_review_point(tmp_path, "api") is None
-    review = build_review({"u.json": raw}, {"u.json": raw}, {"u.json": asset})
-    assert review.objects == []
+    assert not (tmp_path / "sources" / "api" / "review.yaml").exists()  # plus de point de reprise
 
 
 def test_apply_review_supprime_champ_objet_et_retient_nouveau(tmp_path: Path) -> None:
@@ -413,17 +416,12 @@ def test_apply_review_supprime_champ_objet_et_retient_nouveau(tmp_path: Path) ->
         apply_fields={}, take_fields={}, remove_fields={"u.json": ["b"]},
         remove_objects=["gone.json"], retain_objects=["new.json"],
     )
-    apply_review_fn("api", "cafe1234", decisions)(tmp_path)
+    apply_review_fn("api", decisions)(tmp_path)
     u = json.loads((tmp_path / "sources" / "api" / "assets" / "u.json").read_text())
     assert "b" not in u["properties"]                                      # champ disparu retiré
     assert not (tmp_path / "sources" / "api" / "assets" / "gone.json").exists()  # objet retiré
     new_asset = json.loads((tmp_path / "sources" / "api" / "assets" / "new.json").read_text())
     assert new_asset["x-origin"] == "raw/new.json" and "k" in new_asset["properties"]
-
-
-def test_read_review_point_absent(tmp_path: Path) -> None:
-    (tmp_path / "sources" / "api").mkdir(parents=True)
-    assert read_review_point(tmp_path, "api") is None
 
 
 # --- Règles de tri -----------------------------------------------------------

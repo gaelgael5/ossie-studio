@@ -47,7 +47,8 @@ MODES: tuple[str, ...] = ("origin", "kind", "parser")
 GIT_SOURCE_TYPE = "git"
 # Version du format des entrées mises en index : la changer (champ ajouté…)
 # force la reconstruction des index existants à la livraison suivante.
-INDEX_FORMAT = "8"
+# 9 : badges « nouveau » / « modifié » par rapport à la tête publiée (aad1d3c6).
+INDEX_FORMAT = "9"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -357,10 +358,29 @@ def _full_schema(path: Path) -> dict[str, Any]:
 # --- Point de reprise de la revue ---------------------------------------------
 
 
-def review_blobs(workdir: Path, slug: str, base_sha: str | None) -> dict[str, str] | None:
-    """Blobs des schémas de `raw/` au point de reprise (nom → id de blob), ou None
-    si la source n'a jamais été revue ou que le commit est illisible. Lit l'arbre
-    git (`ls-tree`) sans relire aucun contenu, une fois par commit."""
+def head_commit(workdir: Path) -> str | None:
+    """Sha de HEAD d'une copie : la tête publiée (la vue de brouillon est un
+    worktree détaché posé sur elle). None hors dépôt git (tests sur dossier nu)."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--verify", "-q", "HEAD"],  # noqa: S607
+            cwd=workdir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (out.stdout.strip() or None) if out.returncode == 0 else None
+
+
+def published_raw_blobs(workdir: Path, slug: str, base_sha: str | None) -> dict[str, str] | None:
+    """Blobs des schémas de `raw/` à la tête publiée (nom → id de blob), ou None
+    si le commit est illisible. Base des badges « nouveau » / « modifié » (ticket
+    docflow aad1d3c6 : écart entre ma vue et la branche publiée, plus de point de
+    reprise). Lit l'arbre git (`ls-tree`) sans relire aucun contenu, une fois par
+    commit."""
     if not base_sha:
         return None
     key = (base_sha, slug)
@@ -371,7 +391,7 @@ def review_blobs(workdir: Path, slug: str, base_sha: str | None) -> dict[str, st
     try:
         # Appel local (aucun accès réseau) ; la vue de brouillon est un worktree
         # qui partage les objets de la copie, le commit y est donc lisible.
-        out = subprocess.run(  # noqa: S603 — arguments fixes, sha issu de review.yaml
+        out = subprocess.run(  # noqa: S603 — arguments fixes, sha issu de git rev-parse
             ["git", "ls-tree", base_sha, "--", rel],  # noqa: S607
             cwd=workdir,
             capture_output=True,
@@ -632,10 +652,11 @@ class SourceEntries:
 
 
 def collect_source_entries(
-    workdir: Path, slug: str, *, review_base: str | None = None
+    workdir: Path, slug: str, *, published_base: str | None = None
 ) -> SourceEntries:
-    """Lit la couche raw d'une source dans une copie de travail. `review_base` :
-    commit du point de reprise (`review.yaml`), None si jamais revue."""
+    """Lit la couche raw d'une source dans une copie de travail. `published_base` :
+    tête publiée de la branche ; un objet absent d'elle est « nouveau », un objet
+    au contenu différent « modifié ». None : pas de badge (copie hors git)."""
     source_dir = safe_source_path(workdir, slug)
     meta = _read_source_meta(source_dir, slug)
     raw_dir = source_dir / RAW_DIR
@@ -647,7 +668,7 @@ def collect_source_entries(
     retained = (
         {p.name for p in assets_dir.iterdir() if p.is_file()} if assets_dir.is_dir() else set()
     )
-    base_blobs = review_blobs(workdir, slug, review_base)
+    base_blobs = published_raw_blobs(workdir, slug, published_base)
     rules: list[TriRule] = compile_rules(meta.rules) if meta.rules else []
 
     objects: list[ExplorerObject] = []
@@ -740,11 +761,13 @@ def build_source_index(
     mode: str = DEFAULT_MODE,
     *,
     error_origins: Iterable[str] = (),
-    review_base: str | None = None,
+    published_base: str | None = None,
 ) -> SourceIndex:
     """Index d'une source lu directement dans une copie de travail."""
     return index_from_entries(
-        collect_source_entries(workdir, slug, review_base=review_base), mode, error_origins
+        collect_source_entries(workdir, slug, published_base=published_base),
+        mode,
+        error_origins,
     )
 
 

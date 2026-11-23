@@ -402,15 +402,8 @@ class WorkdirManager:
             await run_git(["worktree", "remove", "--force", str(tmp)], copy, env)
             await run_git(["worktree", "prune"], copy, env)
 
-    async def tree_text(
-        self, workdir: Path, sha: str, rel: str, env: dict[str, str]
-    ) -> dict[str, str]:
-        return await self._tree_text(workdir, sha, rel, env)
-
     async def _count_ahead(self, workdir: Path, ref: str, env: dict[str, str]) -> int:
-        code, out, _ = await run_git(
-            ["rev-list", "--count", f"origin/{ref}..{ref}"], workdir, env
-        )
+        code, out, _ = await run_git(["rev-list", "--count", f"origin/{ref}..{ref}"], workdir, env)
         if code != 0:
             return 0
         return int(out.strip() or "0")
@@ -438,30 +431,6 @@ class WorkdirManager:
             await self._checkout_branch(workdir, ref, env)
             return read_fn(workdir)
 
-    async def _tree_text(
-        self, workdir: Path, sha: str, rel: str, env: dict[str, str]
-    ) -> dict[str, str]:
-        """Texte des fichiers `.json` **directement** sous `rel` à un commit donné
-        (nom de fichier → contenu). Sert à relire `raw/` au point de reprise."""
-        code, out, _ = await run_git(
-            ["ls-tree", "-r", "--name-only", sha, "--", rel], workdir, env
-        )
-        if code != 0:
-            return {}
-        prefix = f"{rel}/"
-        files: dict[str, str] = {}
-        for path in out.splitlines():
-            path = path.strip()
-            if not path.startswith(prefix):
-                continue
-            name = path[len(prefix):]
-            if "/" in name or not name.endswith(".json"):
-                continue
-            code2, text, _ = await run_git(["show", f"{sha}:{path}"], workdir, env)
-            if code2 == 0:
-                files[name] = text
-        return files
-
     async def review_inputs(
         self,
         space_id: uuid.UUID,
@@ -469,14 +438,12 @@ class WorkdirManager:
         repo_url: str,
         username: str,
         token: str | None,
-        raw_rel: str,
-        base_sha_fn: Callable[[Path], str | None],
         tree_fn: Callable[[Path], _T],
-    ) -> tuple[str, str | None, dict[str, str], _T]:
-        """Entrées d'une revue, prises sur **une seule copie cohérente** : le sha
-        de HEAD, le point de reprise (`base_sha_fn` lit `review.yaml` dans l'arbre),
-        le texte de `raw/` au point de reprise (via git), et ce que `tree_fn` lit
-        dans l'arbre de travail (brut et assets à HEAD). Lecture seule."""
+    ) -> tuple[str, _T]:
+        """Entrées d'une revue sur la vue publiée, prises sur **une seule copie
+        cohérente** : le sha de HEAD et ce que `tree_fn` lit dans l'arbre (brut et
+        assets). Sans brouillon, le brut publié EST le brut lu : rien d'autre à
+        relire (ticket docflow aad1d3c6, plus de point de reprise). Lecture seule."""
         ref = slug  # la clé de branche EST sa référence git (space_branches.git_ref)
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
@@ -486,10 +453,7 @@ class WorkdirManager:
                 raise WorkdirError("branch_not_found")
             await self._checkout_branch(workdir, ref, env)
             head_sha = await self._sha(workdir, "HEAD", env) or ""
-            base_sha = base_sha_fn(workdir)
-            raw_base = await self._tree_text(workdir, base_sha, raw_rel, env) if base_sha else {}
-            tree = tree_fn(workdir)
-            return head_sha, base_sha, raw_base, tree
+            return head_sha, tree_fn(workdir)
 
     async def file_history(
         self,
@@ -514,7 +478,8 @@ class WorkdirManager:
             fmt = _UNIT_SEP.join(["%H", "%an", "%aI", "%s"])
             code, out, err = await run_git(
                 ["log", f"--pretty=format:{fmt}", f"--max-count={int(limit)}", "--", rel_path],
-                workdir, env,
+                workdir,
+                env,
             )
             if code != 0:
                 raise WorkdirError(_access_code(classify(err)))
@@ -641,9 +606,7 @@ class WorkdirManager:
             # Un tag léger (non annoté) n'a pas de commit déréférencé : ignoré.
             if not match or not commit:
                 continue
-            reach, _, _ = await run_git(
-                ["merge-base", "--is-ancestor", commit, head], workdir, env
-            )
+            reach, _, _ = await run_git(["merge-base", "--is-ancestor", commit, head], workdir, env)
             if reach != 0:
                 continue
             versions.append(Version(int(match.group(1)), subject, commit, tagger, date))

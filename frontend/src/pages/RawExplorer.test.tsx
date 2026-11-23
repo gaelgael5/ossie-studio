@@ -256,9 +256,7 @@ const DESCENDANTS = { value: [] as { slug: string; file: string; title: string; 
 const STATUS_EXCLUDED = { value: false }
 const STATUS_NEW = { value: false }
 const REVIEW = {
-  base_sha: 'aaa',
   head_sha: 'bbbbbbb',
-  up_to_date: false,
   objects: [
     {
       path: 'order.json',
@@ -828,15 +826,15 @@ describe('RawExplorer', () => {
     expect(calls.bodies.some((b) => b.url.endsWith('/curation/enrich') && b.method === 'PUT')).toBe(true)
   })
 
-  it('onglet Changements : diff de l’objet, décisions appliquées sans avancer le point de reprise', async () => {
+  it('onglet Changements : diff de l’objet par rapport au publié, décisions appliquées dans le brouillon', async () => {
     SESSION_CAPS.value = ['curation:review']
     const calls = mockApi()
     const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
     await screen.findByText('Une commande du client.')
     expect(await screen.findByRole('tab', { name: 'Changements (2)' })).toBeInTheDocument()
-    // « Voir le diff depuis la revue » ouvre cet onglet.
-    await user.click(screen.getByRole('button', { name: 'Voir le diff depuis la revue' }))
+    // « Voir les changements » ouvre cet onglet.
+    await user.click(screen.getByRole('button', { name: 'Voir les changements' }))
     expect(screen.getByText('Enrichissements perdus : x-businessName')).toBeInTheDocument()
     await user.click(screen.getByRole('checkbox', { name: /changé\s*id/ }))
     await user.click(screen.getByRole('button', { name: 'Appliquer les décisions de cet objet' }))
@@ -849,34 +847,7 @@ describe('RawExplorer', () => {
       remove_fields: [],
       remove_objects: [],
       retain_objects: [],
-      advance: false,
     })
-  })
-
-  it('revue de la source : bandeau, vue « Revue », validation confirmée qui avance le point', async () => {
-    SESSION_CAPS.value = ['curation:review', 'curation:write']
-    const calls = mockApi()
-    const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&view=list')
-    expect(await screen.findByText('1 objet(s) changé(s) depuis la dernière revue.')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Ouvrir la revue' }))
-    expect(screen.getByTestId('loc').textContent).toContain('view=review')
-    expect(await screen.findByText('Revue de la source')).toBeInTheDocument()
-    expect(screen.queryByText('1 objet(s) changé(s) depuis la dernière revue.')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('checkbox', { name: /disparu\s*ancien/ }))
-    await user.click(screen.getByRole('button', { name: 'Valider la revue' }))
-    expect(screen.getByText('Valider la revue ? 1 décision(s) seront appliquées en un commit.')).toBeInTheDocument()
-    await user.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Valider la revue' }))
-    expect(await screen.findByText('Revue validée : le point de reprise a avancé.')).toBeInTheDocument()
-    const sent = JSON.parse(calls.bodies.find((b) => b.url.endsWith('/curation/review/apply'))!.body!)
-    expect(sent.remove_fields).toEqual([{ path: 'order.json', name: 'ancien' }])
-    expect(sent.advance).toBeUndefined()
-    await user.click(screen.getByRole('button', { name: 'Rafraîchir depuis le brut' }))
-    await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/refresh'))).toBe(true))
-    // Ouvrir un dossier de l'arbre revient à la vue d'avant (liste).
-    const tree = within(screen.getByRole('tree'))
-    await user.click(await tree.findByRole('button', { name: /src/ }))
-    expect(screen.getByTestId('loc').textContent).toContain('view=list')
   })
 
   it('« masquer les écartés » cache les objets écartés et se retient dans le navigateur', async () => {

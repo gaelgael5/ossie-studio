@@ -27,7 +27,6 @@ import { ApiRequestError } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { BusyButton } from '../components/BusyButton'
 import { RawPreview, TagBadges, VisibilityBadge, isObjectSelection } from './RawPreview'
-import { ReviewBanner, SourceReview, useSourceReview } from './RawSourceReview'
 import { RefMenu } from './RawRefMenu'
 import { RawGraph } from './RawGraph'
 import { RawDocumentPage, RawExclusive } from './RawExclusive'
@@ -96,7 +95,9 @@ function storedWidth(): number {
 // un dossier déjà vu à chaque clic.
 const STALE_MS = 30_000
 
-type View = 'tiles' | 'list' | 'graph' | 'review'
+// La vue « Revue de la source » a disparu (ticket docflow aad1d3c6) : un ancien
+// lien `view=review` ouvre les vignettes.
+type View = 'tiles' | 'list' | 'graph'
 type SortKey = 'name' | 'kind' | 'fields' | 'origin' | 'state'
 
 function storedMode(): RawExplorerMode {
@@ -257,7 +258,7 @@ export function RawExplorer({
   const opened = params.get('open') ?? ''
   const viewParam = params.get('view')
   const view: View =
-    viewParam === 'list' || viewParam === 'graph' || viewParam === 'review' ? viewParam : 'tiles'
+    viewParam === 'list' || viewParam === 'graph' ? viewParam : 'tiles'
   // Centre du graphe : `center` (« source/fichier ») s'il est posé — un clic sur
   // un nœud sélectionne sans recentrer — sinon l'objet sélectionné.
   const centerParam = params.get('center')
@@ -285,7 +286,7 @@ export function RawExplorer({
   // source, mode) le laisserait vide. On revient donc à la vue d'où l'on était
   // entré dans le graphe (`back`), vignettes par défaut.
   const leaveGraph = (): Record<string, string | null> =>
-    view === 'graph' || view === 'review'
+    view === 'graph'
       ? { view: params.get('back') === 'list' ? 'list' : null, back: null, center: null }
       : {}
   /** Navigation vers un dossier : quitte le graphe s'il est affiché. */
@@ -311,12 +312,6 @@ export function RawExplorer({
       true,
     )
   }
-  /** Entrée dans la revue de la source (même retour que le graphe). */
-  const reviewEntry = (): Record<string, string | null> => ({
-    view: 'review',
-    center: null,
-    back: view === 'list' ? 'list' : null,
-  })
   /** Entrée dans le graphe en retenant la vue à retrouver ensuite. */
   const graphEntry = (): Record<string, string | null> => ({
     view: 'graph',
@@ -332,8 +327,6 @@ export function RawExplorer({
   })
   const sourceList = useMemo(() => sources.data?.sources ?? [], [sources.data])
   const current: RawExplorerSource | undefined = sourceList.find((s) => s.slug === sourceSlug)
-  // Changements depuis la dernière revue : bandeau et vue « Revue » de la source.
-  const review = useSourceReview(spaceId, branchId, sourceSlug, !!current?.collected)
 
   // Configuration de la source (manifeste) : ses répertoires exclus se voient
   // dans l'arbre et se règlent d'ici. Les exclusions ne valent que pour une
@@ -912,9 +905,6 @@ export function RawExplorer({
                 </p>
               ) : null}
               <CollectLine source={tree.data ?? current} />
-              {view !== 'review' ? (
-                <ReviewBanner review={review.data} onOpen={() => go(reviewEntry())} />
-              ) : null}
               {exclusionsApply && path && declaredSource ? (
                 <ExclusionBar
                   key={`${sourceSlug}/${path}`}
@@ -934,15 +924,6 @@ export function RawExplorer({
               {t('rawNotCollected')}{' '}
               <Link to={`/sources/${current.slug}`}>{t('rawGoCollect')}</Link>
             </div>
-          ) : view === 'review' ? (
-            <SourceReview
-              spaceId={spaceId}
-              branchId={branchId}
-              slug={sourceSlug}
-              selected={selected}
-              onSelect={(file) => go({ sel: file }, true)}
-              onBack={() => go(leaveGraph())}
-            />
           ) : view === 'graph' ? (
             graphCenter ? (
               <RawGraph

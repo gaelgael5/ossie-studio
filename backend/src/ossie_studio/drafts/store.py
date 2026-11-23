@@ -114,6 +114,22 @@ async def db_list_objects(conn: asyncpg.Connection, draft_id: uuid.UUID) -> list
     ]
 
 
+async def db_list_object_states(
+    conn: asyncpg.Connection, draft_id: uuid.UUID
+) -> list[tuple[str, str]]:
+    """(chemin, état) des objets d'un brouillon, sans charger leur contenu : la
+    vue « Modifications » liste des milliers de fichiers après une collecte."""
+    rows = await conn.fetch(
+        "SELECT path, base_blob IS NULL AS created, content IS NULL AS deleted "
+        "FROM draft_objects WHERE draft_id = $1 ORDER BY path",
+        draft_id,
+    )
+    return [
+        (r["path"], "deleted" if r["deleted"] else "created" if r["created"] else "modified")
+        for r in rows
+    ]
+
+
 async def db_replace_draft(
     conn: asyncpg.Connection,
     *,

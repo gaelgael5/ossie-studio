@@ -757,10 +757,39 @@ export interface ReviewObjectItem {
 }
 
 export interface ReviewResult {
-  base_sha: string | null
+  /** Tête publiée : base de la comparaison, et garde des décisions (review_stale). */
   head_sha: string
-  up_to_date: boolean
   objects: ReviewObjectItem[]
+}
+
+/** Vue « Modifications » : mon brouillon rangé par source (ticket aad1d3c6). */
+export interface DraftChangedObject {
+  file: string
+  title: string
+  state: 'created' | 'modified' | 'deleted' | 'orphan'
+  /** Dossier dans l'explorateur (mode `mode` de la réponse) ; null : plus d'objet à ouvrir. */
+  folder: string | null
+}
+
+export interface DraftChangedFile {
+  path: string
+  state: 'created' | 'modified' | 'deleted'
+}
+
+export interface DraftSourceChanges {
+  slug: string
+  label: string
+  raw: DraftChangedObject[]
+  assets: DraftChangedObject[]
+  orphans: DraftChangedObject[]
+  other: DraftChangedFile[]
+}
+
+export interface DraftChanges {
+  count: number
+  mode: RawExplorerMode
+  sources: DraftSourceChanges[]
+  other: DraftChangedFile[]
 }
 
 export interface ReviewFieldRef {
@@ -775,8 +804,6 @@ export interface ReviewApplyBody {
   remove_fields: ReviewFieldRef[]
   remove_objects: string[]
   retain_objects: string[]
-  /** false : décisions d'un seul objet, sans avancer le point de reprise (défaut : true). */
-  advance?: boolean
 }
 
 export interface ReviewHistoryCommit {
@@ -1478,6 +1505,8 @@ export const api = {
     }),
   branchHead: (spaceId: string, branchId: string) =>
     apiFetch<{ sha: string }>(`/api/spaces/${spaceId}/branches/${branchId}/head`),
+  listDraftChanges: (spaceId: string, branchId: string) =>
+    apiFetch<DraftChanges>(`/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/changes`),
   myDraft: (spaceId: string, branchId: string) =>
     apiFetch<DraftSummary>(`/api/spaces/${spaceId}/branches/${branchId}/draft`),
   listVersions: (spaceId: string, branchId: string) =>

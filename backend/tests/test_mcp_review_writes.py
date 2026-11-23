@@ -16,7 +16,7 @@ from httpx import AsyncClient
 from ossie_studio.mcp_surface.caller import McpCaller
 from ossie_studio.sources.manifest import SourceManifest, dump_manifest
 from tests.mcp_helpers import call_tool, mcp_client, tool_names
-from tests.space_fixture import ApiSpace, forge_edit, make_api_space
+from tests.space_fixture import ApiSpace, draft_write, forge_edit, make_api_space
 
 AGENT = "agent-revue"
 KEY = "cle-revue"
@@ -36,8 +36,8 @@ def _asset(raw: dict[str, Any], name: str) -> dict[str, Any]:
 
 @pytest.fixture
 async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
-    """Source « ventes » publiée : deux objets bruts retenus comme assets, jamais
-    revue. Un agent connecté pour l'administrateur et une clé, avec un profil
+    """Source « ventes » publiée : deux objets bruts retenus comme assets. Un
+    agent connecté pour l'administrateur et une clé, avec un profil
     « Revue » (toutes les lectures + set_tri_rules + apply_review)."""
     api_space = await make_api_space(client, app, tmp_path)
     manifest = SourceManifest(
@@ -103,29 +103,22 @@ async def _draft_paths(app: FastAPI, space: ApiSpace) -> set[str]:
     return {o["path"] for o in draft["objects"]}
 
 
-async def _reviewed_then_changed(app: FastAPI, space: ApiSpace) -> dict[str, Any]:
-    """Première revue validée sans décision (point de reprise posé), puis le brut
-    change côté publié : rend la nouvelle revue."""
-    first = await _ok(app, AGENT, "get_review", _ids(space))
-    await _ok(app, AGENT, "apply_review", _ids(space, head_sha=first["head_sha"]))
-    forge_edit(
-        space,
-        {
-            # name change de type (changed), email apparaît (appeared)
-            "sources/ventes/raw/customer.json": json.dumps(
-                {
-                    **CUSTOMER,
-                    "properties": {
-                        "id": {"type": "integer"},
-                        "name": {"type": "integer"},
-                        "email": {"type": "string"},
-                    },
-                }
-            ),
-            "sources/ventes/raw/legacy.json": None,  # objet retenu disparu
-            "sources/ventes/raw/order.json": json.dumps({"title": "Order", "properties": {}}),
+async def _collected_in_draft(app: FastAPI, space: ApiSpace) -> dict[str, Any]:
+    """Une collecte change le brut dans le brouillon de la personne (la branche
+    publiée ne bouge pas) : rend la revue, comparée à la branche publiée
+    (ticket docflow aad1d3c6, plus de point de reprise)."""
+    # name change de type (changed), email apparaît (appeared)
+    customer = {
+        **CUSTOMER,
+        "properties": {
+            "id": {"type": "integer"},
+            "name": {"type": "integer"},
+            "email": {"type": "string"},
         },
-    )
+    }
+    await draft_write(app, space, "sources/ventes/raw/customer.json", customer)
+    await draft_write(app, space, "sources/ventes/raw/legacy.json", None)  # retenu disparu
+    await draft_write(app, space, "sources/ventes/raw/order.json", {"title": "Order"})
     return await _ok(app, AGENT, "get_review", _ids(space))
 
 
@@ -173,11 +166,11 @@ async def test_regle_invalide_refusee_en_la_nommant(app: FastAPI, space: ApiSpac
     assert unknown["error"] == "source_not_found"
 
 
-# --- Critère 3 : la revue appliquée en une écriture, le point de reprise avance -----------
+# --- Critère 3 : la revue appliquée en une écriture, dans le brouillon ---------------------
 
 
 async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) -> None:
-    review = await _reviewed_then_changed(app, space)
+    review = await _collected_in_draft(app, space)
     by_path = {o["path"]: o for o in review["objects"]}
     assert by_path["customer.json"]["status"] == "retained-touched"
     changes = {f["name"]: f["change"] for f in by_path["customer.json"]["fields"]}
@@ -203,9 +196,9 @@ async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) 
         "sources/ventes/assets/customer.json",
         "sources/ventes/assets/legacy.json",
         "sources/ventes/assets/order.json",
-        "sources/ventes/review.yaml",
     }
-    assert applied["review"]["up_to_date"] is True and applied["review"]["objects"] == []
+    assert applied["review"]["objects"] == []
+    assert "up_to_date" not in applied["review"]  # plus de point de reprise
 
     customer = await _ok(app, AGENT, "read_asset", _ids(space, path="customer.json"))
     fields = {f["name"]: f for f in customer["fields"]}
@@ -235,7 +228,7 @@ async def test_revue_perimee_refusee_sans_ecriture(app: FastAPI, space: ApiSpace
 async def test_decision_qui_ne_correspond_pas_a_la_revue_refusee(
     app: FastAPI, space: ApiSpace
 ) -> None:
-    review = await _reviewed_then_changed(app, space)
+    review = await _collected_in_draft(app, space)
     before = await _draft_paths(app, space)
     refused = await _refusal(
         app,
@@ -340,7 +333,12 @@ async def test_routes_de_l_ecran_inchangees(
 
     review = (await client.get(f"{base}/review")).json()
     applied = await client.post(f"{base}/review/apply", json={"head_sha": review["head_sha"]})
-    assert applied.status_code == 200 and applied.json()["commit"].startswith("draft:")
+    # Sans décision, rien à écrire (plus de point de reprise à avancer).
+    assert applied.status_code == 200 and applied.json()["commit"] is None
+    legacy = await client.post(
+        f"{base}/review/apply", json={"head_sha": review["head_sha"], "advance": False}
+    )
+    assert legacy.status_code == 422  # l’option `advance` n’existe plus
     forge_edit(space, {"sources/ventes/raw/order.json": json.dumps({"title": "Order"})})
     stale = await client.post(f"{base}/review/apply", json={"head_sha": review["head_sha"]})
     assert stale.status_code == 409 and stale.json()["error"] == "review_stale"

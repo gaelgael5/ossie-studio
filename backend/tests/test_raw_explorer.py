@@ -28,6 +28,7 @@ from ossie_studio.sources.explorer import (
     clear_caches,
     collect_source_entries,
     git_blob_id,
+    head_commit,
     match_counts,
     search_objects,
     subtree_file_counts,
@@ -190,7 +191,7 @@ def test_badges_retenu_ecarte_erreur_et_absents_sans_information(tmp_path: Path)
     plain = build_source_index(tmp_path, "app", "kind")
     badges = {o.file: o.badges for f in plain.folders.values() for o in f.objects}
     assert badges["order.json"] == (BADGE_RETAINED,)
-    assert badges["status.json"] == ()  # ni review.yaml ni règle : aucun badge
+    assert badges["status.json"] == ()  # hors git ni règle : aucun badge
     assert badges["broken.json"] == (BADGE_ERROR,)  # illisible, mais les autres s'affichent
 
     # Règle de tri + fichier d'origine en erreur à la dernière collecte.
@@ -206,22 +207,27 @@ def test_badges_retenu_ecarte_erreur_et_absents_sans_information(tmp_path: Path)
     assert badges["customer.json"].badges == (BADGE_ERROR,)
 
 
-def test_badges_nouveau_et_modifie_depuis_le_point_de_reprise(tmp_path: Path) -> None:
+def test_badges_nouveau_et_modifie_par_rapport_a_la_tete_publiee(tmp_path: Path) -> None:
     files = _git_files()
     _write(tmp_path, files)
     git(tmp_path, "init", "-q", "-b", "main")
     git(tmp_path, "add", "-A")
     git(tmp_path, "commit", "-q", "-m", "collecte")
     base = git(tmp_path, "rev-parse", "HEAD")
+    # Copie publiée telle quelle : aucun badge.
+    assert head_commit(tmp_path) == base
+    published = build_source_index(tmp_path, "app", "kind", published_base=base)
+    assert all(not o.badges for f in published.folders.values() for o in f.objects)
+    # Ma vue = publié + brouillon (fichiers modifiés par-dessus, sans commit).
     (tmp_path / "sources/app/raw/order.json").write_text(_schema("Order", fields=4))
     (tmp_path / "sources/app/raw/invoice.json").write_text(_schema("Invoice"))
-    index = build_source_index(tmp_path, "app", "kind", review_base=base)
+    index = build_source_index(tmp_path, "app", "kind", published_base=base)
     badges = {o.file: o.badges for f in index.folders.values() for o in f.objects}
     assert badges["order.json"] == (BADGE_MODIFIED,)
     assert badges["invoice.json"] == (BADGE_NEW,)
     assert badges["status.json"] == ()
     # Commit inconnu : pas de badge, pas d'erreur.
-    index = build_source_index(tmp_path, "app", "kind", review_base="0" * 40)
+    index = build_source_index(tmp_path, "app", "kind", published_base="0" * 40)
     assert all(not o.badges for f in index.folders.values() for o in f.objects)
 
 

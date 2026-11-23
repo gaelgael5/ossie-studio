@@ -43,10 +43,9 @@ describe('SourceDetailPage — anciens onglets Curation et Revue', () => {
     )
   })
 
-  it('?tab=revue mène à la vue « Revue » de la source', async () => {
+  it('?tab=revue mène à l’explorateur de la source (la vue « Revue » n’existe plus)', async () => {
     renderAt('/sources/app?tab=revue')
-    expect(await screen.findByTestId('where')).toHaveTextContent(
-      '/sources?tab=raw&source=app&view=review',
-    )
+    expect(await screen.findByTestId('where')).toHaveTextContent('/sources?tab=raw&source=app')
+    expect(screen.getByTestId('where')).not.toHaveTextContent('view=review')
   })
 })

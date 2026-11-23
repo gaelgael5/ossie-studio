@@ -14,6 +14,7 @@ import { ForgesPage } from './pages/ForgesPage'
 import { SpacesPage } from './pages/SpacesPage'
 import { SpaceDetailPage } from './pages/SpaceDetailPage'
 import { PublishPage } from './pages/PublishPage'
+import { DraftChangesPage } from './pages/DraftChangesPage'
 import { GovernanceTagsPage } from './pages/GovernanceTagsPage'
 import { GovernanceTagRulesPage } from './pages/GovernanceTagRulesPage'
 import { GovernanceCertificationsPage } from './pages/GovernanceCertificationsPage'
@@ -132,6 +133,10 @@ function AppRoutes() {
         <Route
           path="/spaces/:spaceId/branches/:branchId/publish"
           element={gate('spaces:read', <PublishPage />)}
+        />
+        <Route
+          path="/spaces/:spaceId/branches/:branchId/changes"
+          element={gate('sources:read', <DraftChangesPage />)}
         />
         <Route path="/governance/tags" element={gate('governance:read', <GovernanceTagsPage />)} />
         <Route

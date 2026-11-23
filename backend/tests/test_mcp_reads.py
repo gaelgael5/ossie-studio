@@ -218,7 +218,8 @@ async def test_regles_de_tri_et_revue(app: FastAPI, space: ApiSpace) -> None:
     assert rules["rules"][0]["pattern"] == "*Dto"
 
     review = await _ok(app, KEY, "get_review", _ids(space, source="ventes"))
-    assert {"base_sha", "head_sha", "up_to_date", "objects"} <= set(review)
+    assert {"head_sha", "objects"} <= set(review)
+    assert "base_sha" not in review  # plus de point de reprise (aad1d3c6)
     assert isinstance(review["objects"], list)
 
 

@@ -276,16 +276,13 @@ export function SpaceDetailPage() {
               </div>
               <p className="muted">{t('draftIntro')}</p>
               {draft.data && draft.data.count > 0 ? (
-                <div className="stack">
-                  <div>{t('draftCount', { count: draft.data.count })}</div>
-                  <ul className="list-plain stack stack-tight">
-                    {draft.data.objects.map((o) => (
-                      <li key={o.path} className="row">
-                        <code>{o.path}</code>
-                        <span className="pill">{t(`draftState_${o.state}`)}</span>
-                      </li>
-                    ))}
-                  </ul>
+                // La liste brute des chemins est remplacée par la vue « Modifications »
+                // (ticket docflow aad1d3c6), rangée par source et par nature.
+                <div className="row">
+                  <span>{t('draftCount', { count: draft.data.count })}</span>
+                  <Link to={`/spaces/${spaceId}/branches/${viewedId}/changes`} className="btn btn-sm">
+                    {t('changesLink')}
+                  </Link>
                 </div>
               ) : (
                 <div className="empty-note">{t('draftEmpty')}</div>

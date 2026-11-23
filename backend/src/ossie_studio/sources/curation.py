@@ -17,15 +17,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from ossie_studio.parsers.conventions import dump_schema
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.manifest import ManifestError, dump_manifest, parse_manifest
 from ossie_studio.sources.paths import (
     MANIFEST_FILENAME,
     safe_assets_path,
-    safe_review_path,
     safe_source_path,
 )
 from ossie_studio.sources.tri import (
@@ -494,11 +491,12 @@ def refresh_assets_fn(slug: str, paths: list[str] | None) -> Callable[[Path], No
 
 # --- Revue des changements du brut, limitée aux assets retenus ----------------
 #
-# La revue compare trois états par objet : le brut au **point de reprise**
-# (`raw@reprise`), le brut en tête de branche (`raw@HEAD`) et l'asset retenu.
-# Elle ne montre que ce qui mérite une décision humaine ; valider avance le point
-# de reprise (`review.yaml`). Le calcul est pur et testable ; l'écriture des
-# décisions se fait en un commit.
+# La revue compare trois états par objet : le brut **publié** (tête de la branche
+# de lecture), le brut de ma vue (publié + mon brouillon) et l'asset retenu.
+# Ticket docflow aad1d3c6 : plus de point de reprise (`review.yaml`) ; Gael,
+# 23/11/2026 : « ce qui fait disparaître le badge nouveau, c'est de publier et de
+# ne plus avoir de modifications à pousser ». Le calcul est pur et testable ;
+# les décisions s'écrivent dans le brouillon.
 
 
 @dataclass(frozen=True)
@@ -531,30 +529,20 @@ class ReviewDecisions:
     retain_objects: list[str]  # objets bruts nouveaux à retenir en entier
 
 
-def read_review_point(workdir: Path, slug: str) -> str | None:
-    """Commit de `raw/` jusqu'où la source a été revue (point de reprise), ou None
-    si la source n'a jamais été revue. Lecture seule."""
-    try:
-        review_file = safe_review_path(workdir, slug)
-    except ValueError:
-        return None
-    if not review_file.is_file():
-        return None
-    try:
-        data = yaml.safe_load(review_file.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
-        return None
-    sha = data.get("reviewed_commit") if isinstance(data, dict) else None
-    return str(sha) if sha else None
-
-
-def _write_review_point(workdir: Path, slug: str, sha: str) -> None:
-    review_file = safe_review_path(workdir, slug)
-    review_file.parent.mkdir(parents=True, exist_ok=True)
-    review_file.write_text(
-        yaml.safe_dump({"reviewed_commit": sha}, sort_keys=True, allow_unicode=True),
-        encoding="utf-8",
-    )
+def published_raw(
+    raw_view: dict[str, dict[str, Any]], published_texts: dict[str, str | None]
+) -> dict[str, dict[str, Any]]:
+    """Brut publié d'une source, reconstruit à partir du brut de ma vue et du
+    texte publié des seuls fichiers que mon brouillon touche (None : absent côté
+    publié, donc créé par mon brouillon)."""
+    base = dict(raw_view)
+    for name, text in published_texts.items():
+        parsed = parse_schema_texts({name: text}) if text is not None else {}
+        if name in parsed:
+            base[name] = parsed[name]
+        else:
+            base.pop(name, None)
+    return base
 
 
 def read_source_trees(
@@ -571,7 +559,7 @@ def read_source_trees(
 
 
 def parse_schema_texts(text_map: dict[str, str]) -> dict[str, dict[str, Any]]:
-    """Parse une table {fichier: texte JSON} (le brut au point de reprise) en
+    """Parse une table {fichier: texte JSON} (le brut publié) en
     {fichier: schéma}, en ignorant un fichier illisible."""
     out: dict[str, dict[str, Any]] = {}
     for name, text in text_map.items():
@@ -610,8 +598,11 @@ def _review_fields(
             if _structural(ap) != _structural(hp):
                 label, _ = _field_type(hp)
                 out.append(ReviewField(name=name, change="changed", type=label, lost_enrichment=[]))
-        elif in_a and not in_h and in_b:
-            # Champ retenu disparu du brut dans la fenêtre : on montre ce qui serait perdu.
+        elif in_a and not in_h:
+            # Champ retenu absent du brut : on montre ce qui serait perdu. Signalé
+            # tant que l'asset n'est pas corrigé, même une fois la disparition
+            # publiée (sinon l'asset garderait un champ fantôme sans que personne
+            # ne le voie).
             label, _ = _field_type(ap)
             out.append(
                 ReviewField(
@@ -622,7 +613,7 @@ def _review_fields(
                 )
             )
         elif in_h and not in_a and not in_b and field_excluded(name, rules) is None:
-            # Champ apparu dans la fenêtre sur un objet retenu, pas encore repris
+            # Champ apparu par rapport au publié sur un objet retenu, pas encore repris
             # (sauf champ technique écarté par une règle de tri).
             label, _ = _field_type(hp)
             out.append(ReviewField(name=name, change="appeared", type=label, lost_enrichment=[]))
@@ -639,10 +630,10 @@ def build_review(
     assets: dict[str, dict[str, Any]],
     rules: Sequence[TriRule] = (),
 ) -> ReviewResult:
-    """Décisions à présenter, par objet, en comparant brut@reprise, brut@HEAD et
-    assets. Ne remonte que le bruit utile ; les règles de tri écartent les nouveaux
-    objets et les champs apparus techniques. Déterministe (tri). `raw_base` vide =
-    première revue (tout le brut est nouveau)."""
+    """Décisions à présenter, par objet, en comparant le brut publié (`raw_base`),
+    le brut de ma vue (`raw_head`) et les assets. Ne remonte que le bruit utile ;
+    les règles de tri écartent les nouveaux objets et les champs apparus
+    techniques. Déterministe (tri)."""
     rule_list = list(rules)
     objects: list[ReviewObject] = []
     for name in sorted(set(raw_base) | set(raw_head) | set(assets)):
@@ -651,15 +642,15 @@ def build_review(
         asset = assets.get(name)
         if asset is not None:
             if rh is None:
-                if rb is not None:  # retenu, existait à la reprise, disparu à HEAD
-                    objects.append(
-                        ReviewObject(
-                            path=name,
-                            title=str(asset.get("title") or asset.get("$id") or name),
-                            status="object-disappeared",
-                            fields=[],
-                        )
+                # Retenu mais absent du brut (orphelin), publié ou non.
+                objects.append(
+                    ReviewObject(
+                        path=name,
+                        title=str(asset.get("title") or asset.get("$id") or name),
+                        status="object-disappeared",
+                        fields=[],
                     )
+                )
                 continue
             fields = _review_fields(rb, rh, asset, rule_list)
             if fields:
@@ -672,7 +663,7 @@ def build_review(
                     )
                 )
         elif rh is not None and rb is None and object_excluded(rh, rule_list) is None:
-            # Nouvel objet apparu dans la fenêtre, pas écarté par une règle de tri.
+            # Nouvel objet par rapport au publié, pas écarté par une règle de tri.
             objects.append(
                 ReviewObject(
                     path=name,
@@ -684,14 +675,9 @@ def build_review(
     return ReviewResult(objects=objects)
 
 
-def apply_review_fn(
-    slug: str, head_sha: str, decisions: ReviewDecisions, *, advance: bool = True
-) -> Callable[[Path], None]:
-    """Applique les décisions de revue **et** (si `advance`) avance le point de
-    reprise à `head_sha`, le tout en un seul commit. Un changement non décidé est
-    laissé tel quel (le point de reprise avance quand même). Sans `advance`, seules
-    les décisions s'écrivent : la revue étant relative à l'asset, un changement
-    appliqué n'y figure plus. Déterministe (`dump_schema`)."""
+def apply_review_fn(slug: str, decisions: ReviewDecisions) -> Callable[[Path], None]:
+    """Applique les décisions de revue dans ma vue (donc dans mon brouillon). Un
+    changement non décidé est laissé tel quel. Déterministe (`dump_schema`)."""
 
     def write(workdir: Path) -> None:
         raw_dir = safe_source_path(workdir, slug) / RAW_DIR
@@ -733,8 +719,6 @@ def apply_review_fn(
             assets_dir.mkdir(parents=True, exist_ok=True)
             asset = build_asset(new_raw, None, None, f"{RAW_DIR}/{path}")
             (assets_dir / path).write_text(dump_schema(asset), encoding="utf-8")
-        if advance:
-            _write_review_point(workdir, slug, head_sha)
 
     return write
 

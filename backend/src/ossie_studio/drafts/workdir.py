@@ -26,7 +26,7 @@ from ossie_studio.drafts.store import (
     db_list_objects,
     db_replace_draft,
 )
-from ossie_studio.spaces.gitcli import run_git
+from ossie_studio.spaces.gitcli import run_git, show_files
 from ossie_studio.spaces.views import (
     DraftState,
     DraftViewManager,
@@ -250,22 +250,32 @@ class DraftWorkdir:
         username: str,
         token: str | None,
         raw_rel: str,
-        base_sha_fn: Callable[[Path], str | None],
         tree_fn: Callable[[Path], _T],
-    ) -> tuple[str, str | None, dict[str, str], _T]:
+    ) -> tuple[str, dict[str, str | None], _T]:
+        """Entrées d'une revue (ticket docflow aad1d3c6) : la tête publiée, le
+        brut **publié** des seuls fichiers de `raw_rel` que mon brouillon touche
+        (nom → texte, None s'il n'existe pas côté publié), et ce que `tree_fn`
+        lit dans ma vue. La base de comparaison est la branche publiée : ce que
+        mon brouillon n'a pas touché y est identique à ma vue, inutile de le relire."""
         if self.published_only or not await self.has_draft():
-            return await self._manager.review_inputs(
-                space_id, slug, repo_url, username, token, raw_rel, base_sha_fn, tree_fn
+            head, tree = await self._manager.review_inputs(
+                space_id, slug, repo_url, username, token, tree_fn
             )
+            return head, {}, tree
+        prefix = f"{raw_rel.rstrip('/')}/"
+        state = await self._state()
+        touched = [
+            o.path
+            for o in state.objects
+            if o.path.startswith(prefix)
+            and "/" not in o.path[len(prefix) :]
+            and o.path.endswith(".json")
+        ]
 
-        async def fn(ctx: ViewContext) -> tuple[tuple[str, str | None, dict[str, str], _T], None]:
-            base_sha = base_sha_fn(ctx.path)
-            raw_base = (
-                await self._manager.tree_text(ctx.path, base_sha, raw_rel, ctx.env)
-                if base_sha
-                else {}
-            )
-            return (ctx.head, base_sha, raw_base, tree_fn(ctx.path)), None
+        async def fn(ctx: ViewContext) -> tuple[tuple[str, dict[str, str | None], _T], None]:
+            texts = await show_files(ctx.path, ctx.env, ctx.head, touched)
+            published = {path[len(prefix) :]: text for path, text in texts.items()}
+            return (ctx.head, published, tree_fn(ctx.path)), None
 
         return await self._views.run(
             space_id=space_id,

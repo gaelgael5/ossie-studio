@@ -35,9 +35,8 @@ from ossie_studio.sources.curation import (
     get_object_detail,
     is_schema_file,
     list_curation,
-    parse_schema_texts,
+    published_raw,
     read_enrichment,
-    read_review_point,
     read_source_trees,
     read_tri_rules,
     read_tri_rules_raw,
@@ -109,10 +108,6 @@ class ReviewApplyBody(BaseModel):
     remove_fields: list[ReviewFieldRef] = []  # champs disparus à retirer
     remove_objects: list[str] = []  # objets disparus : retirer l'asset
     retain_objects: list[str] = []  # objets nouveaux : retenir en entier
-    # False : décisions d'un seul objet, prises depuis l'aperçu de l'explorateur
-    # raw — le point de reprise de la source n'avance pas (la revue de la source
-    # le fait, une fois tout revu).
-    advance: bool = True
 
 
 class EnrichValues(BaseModel):
@@ -553,24 +548,22 @@ async def get_source_review(
     space, username, token = await space_credentials(conn, crypto, space_id)
     raw_rel = f"{source_rel_dir(slug)}/{RAW_DIR}"
     try:
-        head_sha, base_sha, raw_base_text, bundle = await workdir.review_inputs(
+        head_sha, published_texts, bundle = await workdir.review_inputs(
             space.id,
             branch_slug,
             space.repo_url,
             username,
             token,
             raw_rel,
-            lambda wc: read_review_point(wc, slug),
             lambda wc: (read_source_trees(wc, slug), read_tri_rules(wc, slug)),
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
-    (raw_head, assets), rules = bundle
-    result = build_review(parse_schema_texts(raw_base_text), raw_head, assets, rules)
+    (raw_view, assets), rules = bundle
+    # Base : la branche publiée (ticket docflow aad1d3c6, plus de point de reprise).
+    result = build_review(published_raw(raw_view, published_texts), raw_view, assets, rules)
     return {
-        "base_sha": base_sha,
         "head_sha": head_sha,
-        "up_to_date": base_sha == head_sha,
         "objects": [_review_object_payload(o) for o in result.objects],
     }
 
@@ -614,7 +607,6 @@ async def apply_source_review(
             slug,
             body.head_sha,
             decisions,
-            advance=body.advance,
         )
         commit = result.revision
     except WorkdirError as exc:
@@ -632,7 +624,6 @@ async def apply_source_review(
         remove=len(body.remove_fields),
         remove_objects=len(body.remove_objects),
         retain=len(body.retain_objects),
-        advance=body.advance,
     )
     return {"ok": True, "commit": commit}
 

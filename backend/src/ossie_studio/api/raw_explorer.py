@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import asdict
 from typing import Annotated
 
 import structlog
@@ -26,12 +27,14 @@ from ossie_studio.api.tag_rules import TagRuleBody
 from ossie_studio.connections.service import db_get_connection_by_slug
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
+from ossie_studio.drafts.store import db_get_draft, db_list_object_states
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.links import forge_file_url
 from ossie_studio.governance.tag_rules import parse_rule
 from ossie_studio.parsers.base import STATUT_ERREUR
 from ossie_studio.sources.curation import is_schema_file
+from ossie_studio.sources.draft_changes import asset_names, group_changes
 from ossie_studio.sources.explorer import (
     DEFAULT_MODE,
     GIT_SOURCE_TYPE,
@@ -217,6 +220,39 @@ async def list_explorer_sources(
             }
         )
     return {"sources": out}
+
+
+@router.get("/changes")
+async def list_draft_changes(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    """Vue « Modifications » (ticket docflow aad1d3c6) : mon brouillon rangé par
+    source — objets raw, assets, autres fichiers — avec les titres et dossiers
+    de l'explorateur, plus les assets orphelins de ma vue."""
+    key, branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    graph = await _reference_graph(conn, key, DEFAULT_MODE)
+    draft = await db_get_draft(conn, workdir.user_id, branch_id)
+    objects = await db_list_object_states(conn, draft.id) if draft is not None else []
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        assets = await workdir.read_branch(
+            space.id, branch_ref, space.repo_url, username, token, asset_names
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    labels = {s.slug: s.label for s in await db_list_indexed_sources(conn, key)}
+    sources, outside = group_changes(objects, graph, labels, assets)
+    return {
+        "count": len(objects),
+        "mode": DEFAULT_MODE,
+        "sources": [asdict(s) for s in sources],
+        "other": [asdict(f) for f in outside],
+    }
 
 
 @router.get("/{slug}/tree")

@@ -35,7 +35,6 @@ from ossie_studio.sources.curation import (
 from ossie_studio.sources.paths import (
     ASSETS_DIR,
     MANIFEST_FILENAME,
-    REVIEW_FILE,
     safe_assets_path,
     safe_source_path,
     source_rel_dir,
@@ -85,8 +84,16 @@ class CurationTarget:
     ) -> str | None:
         message = f"{intent} ({self.via})" if self.via else intent
         return await self.workdir.commit_to_branch(
-            self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token,
-            self.author, self.author, message, fn, expect_head=expect_head,
+            self.space.id,
+            self.branch_ref,
+            self.space.repo_url,
+            self.username,
+            self.token,
+            self.author,
+            self.author,
+            message,
+            fn,
+            expect_head=expect_head,
         )
 
 
@@ -192,7 +199,11 @@ async def refresh(target: CurationTarget, slug: str, paths: list[str] | None) ->
     """Rafraîchir depuis le brut les assets retenus (tous si `paths` est None).
     Ne touche que ceux qui changeraient ; sans changement, rien n'est écrit."""
     changed = await target.workdir.read_branch(
-        target.space.id, target.branch_ref, target.space.repo_url, target.username, target.token,
+        target.space.id,
+        target.branch_ref,
+        target.space.repo_url,
+        target.username,
+        target.token,
         lambda root: refresh_targets(root, slug, paths),
     )
     if not changed:
@@ -279,9 +290,8 @@ def invalid_review_decisions(review: ReviewResult, decisions: ReviewDecisions) -
     return bad
 
 
-def review_paths(slug: str, decisions: ReviewDecisions, *, advance: bool = True) -> list[str]:
-    """Chemins qu'une revue appliquée peut toucher : les assets visés et, si elle
-    avance, le point de reprise."""
+def review_paths(slug: str, decisions: ReviewDecisions) -> list[str]:
+    """Chemins qu'une revue appliquée peut toucher : les assets visés."""
     names = (
         set(decisions.apply_fields)
         | set(decisions.take_fields)
@@ -289,8 +299,7 @@ def review_paths(slug: str, decisions: ReviewDecisions, *, advance: bool = True)
         | set(decisions.remove_objects)
         | set(decisions.retain_objects)
     )
-    point = [f"{source_rel_dir(slug)}/{REVIEW_FILE}"] if advance else []
-    return [asset_repo_path(slug, n) for n in sorted(names)] + point
+    return [asset_repo_path(slug, n) for n in sorted(names)]
 
 
 async def apply_review(
@@ -298,21 +307,16 @@ async def apply_review(
     slug: str,
     head_sha: str,
     decisions: ReviewDecisions,
-    *,
-    advance: bool = True,
 ) -> WriteResult:
-    """Appliquer des décisions de revue et (si `advance`) avancer le point de
-    reprise à `head_sha`, en une écriture. Si le brut a bougé depuis (tête
-    publiée ≠ `head_sha`), WorkdirError « review_stale » avant toute écriture.
-    Un changement non décidé est laissé tel quel ; le point de reprise avance.
-    Sans `advance` (décisions d'un seul objet, depuis l'explorateur raw), seules
-    les décisions s'écrivent."""
+    """Appliquer des décisions de revue, en une écriture dans le brouillon. Si la
+    branche publiée a bougé depuis la lecture de la revue (tête ≠ `head_sha`),
+    WorkdirError « review_stale » avant toute écriture : les décisions visaient
+    une comparaison qui n'est plus la bonne. Un changement non décidé est laissé
+    tel quel. Plus de point de reprise (ticket docflow aad1d3c6)."""
     revision = await target.write(
-        f"curation {slug} : revue validée"
-        if advance
-        else f"curation {slug} : décisions de revue appliquées",
-        apply_review_fn(slug, head_sha, decisions, advance=advance),
+        f"curation {slug} : décisions de revue appliquées",
+        apply_review_fn(slug, decisions),
         expect_head=head_sha,
     )
-    paths = review_paths(slug, decisions, advance=advance) if revision else []
+    paths = review_paths(slug, decisions) if revision else []
     return WriteResult(revision, paths)

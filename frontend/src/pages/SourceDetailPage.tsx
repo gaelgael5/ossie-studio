@@ -89,7 +89,6 @@ export function SourceDetailPage() {
     const target = new URLSearchParams({ tab: 'raw', source: slug })
     const object = searchParams.get('object')
     if (legacyTab === 'curation' && object) target.set('sel', object)
-    if (legacyTab === 'revue') target.set('view', 'review')
     return <Navigate to={`/sources?${target.toString()}`} replace />
   }
 

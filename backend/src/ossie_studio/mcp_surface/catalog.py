@@ -219,8 +219,7 @@ CATALOG: tuple[Primitive, ...] = (
             "kind (field, list, map, inherits, foreign_key) and the cardinality. Use it to find "
             "the objects that reference an object instead of reading every schema. Limits: a "
             "reference left unresolved (external type) has no incoming side; across two "
-            "sources only SQL foreign keys are linked. Truncated beyond 40 nodes."
-            + _DRAFT_NOTE
+            "sources only SQL foreign keys are linked. Truncated beyond 40 nodes." + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
@@ -258,8 +257,9 @@ CATALOG: tuple[Primitive, ...] = (
         access="read",
         capability="curation:review",
         description=(
-            "Show the raw changes of a source not reviewed yet since its last review point: "
-            "retained objects touched, objects disappeared, new objects."
+            "Show what needs a decision on a source, compared with the published branch: "
+            "retained objects whose raw changed or no longer matches the asset, retained "
+            "objects that disappeared from raw, new objects of the user's draft."
         ),
     ),
     # --- Écriture : curation (toujours dans le brouillon de la personne)
@@ -331,8 +331,8 @@ CATALOG: tuple[Primitive, ...] = (
         description=(
             "Apply decisions to the review read with get_review (same head_sha): refresh "
             "changed fields, add appeared fields, remove disappeared fields or objects, retain "
-            "new objects. Undecided changes are left as they are and the review point moves "
-            "forward. Every decision must match the review. Written to the user's draft."
+            "new objects. Undecided changes are left as they are. Every decision must match "
+            "the review. Written to the user's draft."
         ),
         person_only=True,
         destructive=True,

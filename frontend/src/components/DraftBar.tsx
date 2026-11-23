@@ -44,6 +44,9 @@ export function DraftBar({ spaceId, branchId }: { spaceId: string; branchId: str
             </label>
           ))}
         </div>
+        <Link to={`/spaces/${spaceId}/branches/${branchId}/changes`} className="btn btn-sm">
+          {t('changesLink')}
+        </Link>
         <Link to={`/spaces/${spaceId}/branches/${branchId}/publish`} className="btn btn-sm btn-primary">
           {t('draftPublishLink')}
         </Link>

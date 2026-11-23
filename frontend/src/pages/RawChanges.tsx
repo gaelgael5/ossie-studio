@@ -8,14 +8,14 @@ import { ErrorList } from '../components/ErrorList'
 import { useSession } from '../hooks'
 
 // Onglet « Changements » de l'aperçu (epic « Curation dans l'explorateur raw ») :
-// la revue de la source, réduite à l'objet affiché. Les décisions s'appliquent
-// à cet objet seul, SANS avancer le point de reprise de la source (`advance:
-// false`) — c'est la revue de la source qui le fait, une fois tout revu. La revue
-// étant relative à l'asset, un changement appliqué disparaît de la liste.
+// la revue de la source, réduite à l'objet affiché. Elle compare le brut de ma
+// vue à la branche publiée et à l'asset (ticket docflow aad1d3c6, plus de point
+// de reprise). Les décisions s'appliquent à cet objet seul, dans mon brouillon ;
+// la revue étant relative à l'asset, un changement appliqué disparaît de la liste.
 
 const STALE_MS = 30_000
 
-/** Les changements de l'objet `file` depuis le dernier point de revue. */
+/** Les changements de l'objet `file` par rapport à la branche publiée et à son asset. */
 export function useObjectChanges(spaceId: string, branchId: string, slug: string, file: string) {
   const review = useQuery({
     queryKey: ['review', spaceId, branchId, slug],
@@ -25,9 +25,9 @@ export function useObjectChanges(spaceId: string, branchId: string, slug: string
   })
   const data = review.data
   const found = data?.objects.find((o) => o.path === file)
-  // Source jamais revue : tout le brut est « nouveau » pour la revue ; dans
-  // l'aperçu, ce serait du bruit (« Créer un asset » couvre déjà le cas).
-  const item = found && (found.status !== 'new' || data?.base_sha) ? found : undefined
+  // Objet nouveau de mon brouillon : « Créer un asset » couvre déjà le cas, le
+  // répéter dans cet onglet serait du bruit.
+  const item = found && found.status !== 'new' ? found : undefined
   const count = !data
     ? undefined
     : !item
@@ -51,7 +51,6 @@ function bodyFor(data: ReviewResult, item: ReviewObjectItem, checked: Record<str
     remove_fields: pick('disappeared'),
     remove_objects: item.status === 'object-disappeared' && objectChosen ? [item.path] : [],
     retain_objects: item.status === 'new' && objectChosen ? [item.path] : [],
-    advance: false,
   }
 }
 

@@ -58,6 +58,11 @@ export function PublishPage() {
         }
         title={t('publishTitle')}
         subtitle={t('publishIntro')}
+        actions={
+          <Link to={`/spaces/${spaceId}/branches/${branchId}/changes`} className="btn">
+            {t('changesLink')}
+          </Link>
+        }
       />
       <ErrorList messages={messages} />
       {notice ? <div className="banner">{notice}</div> : null}

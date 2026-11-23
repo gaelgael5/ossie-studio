@@ -227,9 +227,7 @@ async def enrich_asset(ctx: PrimitiveContext, args: EnrichArgs) -> dict[str, Any
     object_values = args.object.model_dump(exclude_unset=True) if args.object else None
     field_values = {name: v.model_dump(exclude_unset=True) for name, v in args.fields.items()}
     result = await _write(
-        lambda: curation_actions.enrich(
-            target, args.source, args.path, object_values, field_values
-        )
+        lambda: curation_actions.enrich(target, args.source, args.path, object_values, field_values)
     )
     return {**written_payload(result), "asset": await _asset_after(ctx, args)}
 
@@ -292,7 +290,7 @@ async def apply_review(ctx: PrimitiveContext, args: ApplyReviewArgs) -> dict[str
     )
     # La revue que l'agent a lue (même calcul que get_review) : ses décisions
     # doivent toutes y correspondre, sinon rien n'est écrit.
-    head_sha, _base, review = await reads.compute_review(bv, args.source)
+    head_sha, review = await reads.compute_review(bv, args.source)
     if head_sha != args.head_sha:
         raise PrimitiveError("review_stale")
     invalid = curation_actions.invalid_review_decisions(review, decisions)
@@ -302,6 +300,6 @@ async def apply_review(ctx: PrimitiveContext, args: ApplyReviewArgs) -> dict[str
     result = await _write(
         lambda: curation_actions.apply_review(target, args.source, args.head_sha, decisions)
     )
-    after_head, after_base, after = await reads.compute_review(bv, args.source)
-    after_review = reads.review_payload(after_head, after_base, after)
+    after_head, after = await reads.compute_review(bv, args.source)
+    after_review = reads.review_payload(after_head, after)
     return {**written_payload(result), "review": after_review}
