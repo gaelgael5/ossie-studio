@@ -18,7 +18,7 @@ import uuid
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import SourcesRead
@@ -36,13 +36,17 @@ from ossie_studio.sources.explorer import (
     DEFAULT_MODE,
     GIT_SOURCE_TYPE,
     MODES,
+    SEARCH_LIMIT,
     ExplorerDocument,
     ExplorerObject,
     ObjectTag,
+    SearchCriteria,
+    SearchFacets,
     SourceEntries,
     SourceIndex,
     folder_item_count,
     index_from_entries,
+    match_counts,
     object_folder,
     search_objects,
     sort_objects,
@@ -284,7 +288,7 @@ async def get_explorer_folder(
     }
 
 
-@router.get("/{slug}/search")
+@router.get("/search")
 async def search_explorer(
     conn: ConnDep,
     crypto: CryptoDep,
@@ -292,25 +296,78 @@ async def search_explorer(
     _: SourcesRead,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
-    slug: str,
     q: str = "",
     mode: str = DEFAULT_MODE,
+    source: Annotated[list[str] | None, Query()] = None,
+    path: str = "",
+    tag: str = "",
+    visibility: Annotated[list[str] | None, Query()] = None,
+    kind: str = "",
+    badge: str = "",
+    hide_excluded: bool = False,
 ) -> dict[str, object]:
-    """Objets de la source dont le nom contient `q` (insensible à la casse), avec
-    le dossier où les ouvrir dans le mode courant."""
-    index, _scan_files, key = await _read_index(
-        conn, crypto, workdir, space_id, branch_id, slug, _check_mode(mode)
+    """Recherche combinée de l'explorateur (ticket docflow be0f301c) : texte,
+    sources, tag, visibilité, type et état, en ET, évalués avant la limite.
+
+    Portée : les sources demandées (aucune : toutes celles de la branche ; une
+    inconnue est ignorée). `path` (un dossier et ses sous-dossiers) ne vaut que
+    pour une source seule : un même chemin n'a pas de sens d'une source à
+    l'autre. `facets` : les valeurs présentes dans la portée, pour les listes
+    déroulantes, même dans un dossier sans objet direct. `tree_counts` : par
+    source cherchée, objets correspondants par dossier (sous-dossiers compris,
+    toute la source), pour l'arbre filtré ; vide sans critère."""
+    mode = _check_mode(mode)
+    key, branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    indexed = [s.slug for s in await db_list_indexed_sources(conn, key)]
+    wanted = [s for s in dict.fromkeys(source or []) if s in indexed] if source else indexed
+    scope_path = path if len(wanted) == 1 else ""
+    criteria = SearchCriteria(
+        text=q[:200],
+        tag=tag,
+        visibilities=frozenset(visibility or []),
+        kind=kind,
+        badge=badge,
+        hide_excluded=hide_excluded,
     )
     graph = await _reference_graph(conn, key, mode)
-    return {
-        "results": [
+    facets = SearchFacets()
+    results: list[dict[str, object]] = []
+    # Arbre filtré : objets correspondants par dossier de chaque source cherchée.
+    tree_counts: dict[str, dict[str, int]] = {}
+    truncated = False
+    for slug in wanted:
+        entries = await db_get_source_entries(conn, key, slug)
+        if entries is None:
+            continue
+        scan = await _scan(conn, space_id, branch_ref, slug)
+        errors = {f.path for f in scan if f.statut == STATUT_ERREUR}
+        index = index_from_entries(entries, mode, errors)
+        if criteria.active():
+            tree_counts[slug] = match_counts(index, criteria)
+        remaining = SEARCH_LIMIT - len(results)
+        found = search_objects(index, criteria, scope_path, facets, limit=remaining + 1)
+        if len(found) > remaining:
+            truncated = True
+            found = found[:remaining]
+        results.extend(
             {
+                "source": slug,
                 "folder": folder,
                 **_object_payload(obj),
                 "referenced_by": graph.incoming_count((slug, obj.file)),
             }
-            for folder, obj in search_objects(index, q[:200])
-        ]
+            for folder, obj in found
+        )
+    return {
+        "results": results,
+        "truncated": truncated,
+        "tree_counts": tree_counts,
+        "facets": {
+            "tags": sorted(facets.tags),
+            "visibilities": sorted(facets.visibilities),
+            "kinds": sorted(facets.kinds),
+            "badges": sorted(facets.badges),
+        },
     }
 
 

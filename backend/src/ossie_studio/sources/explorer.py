@@ -24,7 +24,7 @@ import hashlib
 import json
 import subprocess
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -61,7 +61,8 @@ BADGE_ERROR = "error"
 DOCUMENTS_FOLDER = "documents"
 MARKDOWN_PARSER = "markdown"
 
-_SEARCH_LIMIT = 50
+# Résultats rendus au plus par une recherche (toutes sources confondues).
+SEARCH_LIMIT = 200
 
 
 @dataclass(frozen=True)
@@ -779,20 +780,113 @@ def subtree_file_counts(index: SourceIndex) -> dict[str, int]:
     return counts
 
 
-def search_objects(index: SourceIndex, query: str) -> list[tuple[str, ExplorerObject]]:
-    """Objets dont le nom (titre ou fichier) contient `query`, insensible à la
-    casse ; rend (dossier, objet), au plus 50 résultats."""
-    needle = query.strip().casefold()
-    if not needle:
-        return []
+@dataclass(frozen=True)
+class SearchCriteria:
+    """Critères de recherche de l'explorateur, combinés en ET (ticket docflow
+    be0f301c). Évalués AVANT la limite du nombre de résultats : filtrer après
+    la coupe (comme le faisait l'écran) rendait 3 objets quand il en existait 40.
+    Un critère vide ne filtre pas."""
+
+    text: str = ""  # contenu dans le titre ou le nom de fichier, sans casse
+    tag: str = ""
+    visibilities: frozenset[str] = frozenset()  # vide : toutes
+    kind: str = ""
+    badge: str = ""
+    hide_excluded: bool = False
+
+    def active(self) -> bool:
+        return bool(
+            self.text.strip()
+            or self.tag
+            or self.visibilities
+            or self.kind
+            or self.badge
+            or self.hide_excluded
+        )
+
+
+def object_matches(obj: ExplorerObject, criteria: SearchCriteria) -> bool:
+    needle = criteria.text.strip().casefold()
+    if needle and needle not in obj.title.casefold() and needle not in obj.file.casefold():
+        return False
+    if criteria.tag and not any(t.tag == criteria.tag for t in obj.tags):
+        return False
+    if criteria.visibilities and obj.visibility not in criteria.visibilities:
+        return False
+    if criteria.kind and obj.kind != criteria.kind:
+        return False
+    if criteria.badge and criteria.badge not in obj.badges:
+        return False
+    return not (criteria.hide_excluded and BADGE_EXCLUDED in obj.badges)
+
+
+def scope_objects(index: SourceIndex, path: str = "") -> Iterator[tuple[str, ExplorerObject]]:
+    """(dossier, objet) du dossier `path` ET de tous ses sous-dossiers, dans
+    l'ordre des dossiers. Un dossier qui ne contient que des sous-dossiers
+    (cas de `src`) a donc une portée non vide : ses filtres servent."""
+    prefix = f"{path}/" if path else ""
+    for folder in sorted(index.folders):
+        if path and folder != path and not folder.startswith(prefix):
+            continue
+        yield from ((folder, obj) for obj in index.folders[folder].objects)
+
+
+@dataclass
+class SearchFacets:
+    """Valeurs présentes dans la portée (sources et dossier), indépendamment des
+    autres filtres : ce que les listes déroulantes proposent."""
+
+    tags: set[str] = field(default_factory=set)
+    visibilities: set[str] = field(default_factory=set)
+    kinds: set[str] = field(default_factory=set)
+    badges: set[str] = field(default_factory=set)
+
+    def add(self, obj: ExplorerObject) -> None:
+        self.tags.update(t.tag for t in obj.tags)
+        if obj.visibility:
+            self.visibilities.add(obj.visibility)
+        self.kinds.add(obj.kind)
+        self.badges.update(obj.badges)
+
+
+def search_objects(
+    index: SourceIndex,
+    criteria: SearchCriteria,
+    path: str = "",
+    facets: SearchFacets | None = None,
+    limit: int = SEARCH_LIMIT,
+) -> list[tuple[str, ExplorerObject]]:
+    """Objets de la portée qui remplissent tous les critères, au plus `limit`.
+    `facets`, si fourni, reçoit les valeurs de TOUTE la portée (le parcours
+    continue au-delà de la limite pour elles). Aucun critère : aucun résultat
+    (l'écran montre alors le dossier)."""
     found: list[tuple[str, ExplorerObject]] = []
-    for path in sorted(index.folders):
-        for obj in index.folders[path].objects:
-            if needle in obj.title.casefold() or needle in obj.file.casefold():
-                found.append((path, obj))
-                if len(found) >= _SEARCH_LIMIT:
-                    return found
+    searching = criteria.active()
+    for folder, obj in scope_objects(index, path):
+        if facets is not None:
+            facets.add(obj)
+        elif not searching or len(found) >= limit:
+            break
+        if searching and len(found) < limit and object_matches(obj, criteria):
+            found.append((folder, obj))
     return found
+
+
+def match_counts(index: SourceIndex, criteria: SearchCriteria) -> dict[str, int]:
+    """Objets correspondant aux critères par dossier, sous-dossiers compris
+    (« » = toute la source). Sert à l'arbre filtré : un dossier absent n'a aucun
+    objet correspondant, ni lui ni sa descendance, et disparaît de l'arbre.
+    Toute la source, sans limite : l'arbre dit OÙ sont les objets trouvés."""
+    counts: dict[str, int] = {}
+    for path, folder in index.folders.items():
+        own = sum(1 for o in folder.objects if object_matches(o, criteria))
+        if not own:
+            continue
+        current: str | None = path
+        while current is not None:
+            counts[current] = counts.get(current, 0) + own
+            current = _dirname(current) if current else None
+    return counts
 
 
 def sort_objects(objects: Sequence[ExplorerObject]) -> list[ExplorerObject]:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -18,11 +19,16 @@ from ossie_studio.sources.explorer import (
     BADGE_MODIFIED,
     BADGE_NEW,
     BADGE_RETAINED,
+    ObjectTag,
+    SearchCriteria,
+    SearchFacets,
     SourceEntries,
+    SourceIndex,
     build_source_index,
     clear_caches,
     collect_source_entries,
     git_blob_id,
+    match_counts,
     search_objects,
     subtree_file_counts,
 )
@@ -230,9 +236,81 @@ def test_git_blob_id_identique_a_git(tmp_path: Path) -> None:
 def test_recherche_insensible_a_la_casse(tmp_path: Path) -> None:
     _write(tmp_path, _git_files())
     index = build_source_index(tmp_path, "app", "origin")
-    found = search_objects(index, "ORD")
+    found = search_objects(index, SearchCriteria(text="ORD"))
     assert [(folder, o.file) for folder, o in found] == [("src/Domain", "order.json")]
-    assert search_objects(index, "  ") == []
+    assert search_objects(index, SearchCriteria(text="  ")) == []
+
+
+def _tagged(index: SourceIndex, tags: dict[str, str], visibility: dict[str, str]) -> None:
+    """Pose des tags et des visibilités sur l'index (les règles ne sont pas l'objet ici)."""
+    for folder in index.folders.values():
+        folder.objects = [
+            replace(
+                o,
+                tags=(ObjectTag(tag=tags[o.file], rule="r", rule_name="R"),)
+                if o.file in tags
+                else (),
+                visibility=visibility.get(o.file, o.visibility),
+            )
+            for o in folder.objects
+        ]
+
+
+def test_recherche_criteres_combines_portee_et_facettes(tmp_path: Path) -> None:
+    _write(tmp_path, _git_files())
+    index = build_source_index(tmp_path, "app", "origin")
+    _tagged(
+        index,
+        {"order.json": "technique/service", "customer.json": "technique/service"},
+        {"order.json": "public", "customer.json": "internal", "status.json": "public"},
+    )
+    files = lambda found: sorted(o.file for _, o in found)  # noqa: E731
+    # Un filtre seul, sans texte, lance la recherche.
+    tag = SearchCriteria(tag="technique/service")
+    assert files(search_objects(index, tag)) == ["customer.json", "order.json"]
+    # Tag ET visibilité ET texte.
+    both = SearchCriteria(tag="technique/service", visibilities=frozenset({"public"}))
+    assert files(search_objects(index, both)) == ["order.json"]
+    assert search_objects(index, replace(both, text="cust")) == []
+    # Portée : le dossier `src` (sans objet direct) et tous ses sous-dossiers.
+    facets = SearchFacets()
+    assert files(search_objects(index, tag, "src", facets)) == ["customer.json", "order.json"]
+    assert facets.tags == {"technique/service"}
+    assert facets.visibilities == {"public", "internal"}
+    assert facets.kinds == {"class", "enum", "record"}
+    assert files(search_objects(index, tag, "src/Domain/Sub")) == ["customer.json"]
+    # Un préfixe de nom n'est pas un sous-dossier.
+    assert search_objects(index, tag, "sr") == []
+    # Aucun critère : rien (l'écran montre le dossier), mais les facettes sont là.
+    facets = SearchFacets()
+    assert search_objects(index, SearchCriteria(), "src", facets) == []
+    assert facets.tags == {"technique/service"}
+
+
+def test_compteurs_de_l_arbre_filtre(tmp_path: Path) -> None:
+    _write(tmp_path, _git_files())
+    index = build_source_index(tmp_path, "app", "origin")
+    _tagged(index, {"customer.json": "donnees/adresse"}, {})
+    # Cumul vers les parents ; les dossiers sans objet correspondant sont absents.
+    assert match_counts(index, SearchCriteria(tag="donnees/adresse")) == {
+        "": 1,
+        "src": 1,
+        "src/Domain": 1,
+        "src/Domain/Sub": 1,
+    }
+    counts = match_counts(index, SearchCriteria(kind="enum"))
+    assert counts == {"": 1, "src": 1, "src/Domain": 1}
+    assert "docs" not in counts  # les documents ne comptent pas
+    assert match_counts(index, SearchCriteria(text="zzz")) == {}
+
+
+def test_recherche_limite_appliquee_apres_filtrage(tmp_path: Path) -> None:
+    _write(tmp_path, _git_files())
+    index = build_source_index(tmp_path, "app", "origin")
+    _tagged(index, {"status.json": "x"}, {})
+    # La limite à 1 ne coupe pas avant le filtre : Status reste trouvé.
+    found = search_objects(index, SearchCriteria(tag="x"), limit=1)
+    assert [o.file for _, o in found] == ["status.json"]
 
 
 def test_manifeste_non_conforme_reste_explorable(tmp_path: Path) -> None:
@@ -290,10 +368,46 @@ async def test_api_sources_arbre_dossier_recherche(sp: ApiSpace) -> None:
     assert [o["title"] for o in body["objects"]] == ["Order", "Status"]
     assert body["objects"][0]["badges"] == []
 
-    r = await sp.client.get(f"{base}/app/search", params={"q": "cust"})
+    r = await sp.client.get(f"{base}/search", params={"q": "cust", "source": "app"})
     assert [(x["folder"], x["file"]) for x in r.json()["results"]] == [
         ("src/Domain/Sub", "customer.json")
     ]
+
+
+async def test_api_recherche_plusieurs_sources_et_portee(sp: ApiSpace) -> None:
+    forge_edit(sp, {**_git_files("app"), **_git_files("crm")})
+    url = f"{sp.base}/raw-explorer/search"
+
+    # Aucune source demandée : toutes ; chaque résultat dit sa source.
+    r = await sp.client.get(url, params={"kind": "record"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [(x["source"], x["folder"], x["file"]) for x in body["results"]] == [
+        ("app", "src/Domain/Sub", "customer.json"),
+        ("crm", "src/Domain/Sub", "customer.json"),
+    ]
+    assert body["truncated"] is False
+    assert body["tree_counts"]["app"] == {"": 1, "src": 1, "src/Domain": 1, "src/Domain/Sub": 1}
+    assert body["facets"]["kinds"] == ["class", "enum", "record"]
+
+    # Une source et un dossier : le dossier et ses sous-dossiers seulement.
+    params: dict[str, str | list[str]] = {"source": "app", "path": "src/Domain/Sub", "q": "o"}
+    r = await sp.client.get(url, params=params)
+    assert [x["file"] for x in r.json()["results"]] == ["customer.json"]
+    assert r.json()["facets"]["kinds"] == ["record"]
+
+    # Plusieurs sources : le dossier ne vaut plus (un chemin n'a pas de sens
+    # d'une source à l'autre) ; une source inconnue est ignorée.
+    params = {"source": ["app", "crm", "inconnue"], "path": "src/Domain/Sub", "kind": "enum"}
+    r = await sp.client.get(url, params=params)
+    assert r.status_code == 200, r.text
+    assert [x["source"] for x in r.json()["results"]] == ["app", "crm"]
+
+    # Visibilité à choix multiple (aucun objet n'en porte ici) et mode invalide.
+    r = await sp.client.get(url, params={"visibility": ["public", "private"]})
+    assert r.json()["results"] == []
+    r = await sp.client.get(url, params={"mode": "nimporte"})
+    assert r.status_code == 400
 
 
 async def test_api_erreurs(sp: ApiSpace) -> None:
@@ -366,7 +480,7 @@ async def test_api_index_reutilise_puis_reconstruit(sp: ApiSpace, app: FastAPI) 
     # Un commit sur la forge : la signature change, l'index suit.
     forge_edit(sp, {"sources/app/raw/invoice.json": _schema("Invoice")})
     app.state.workdir_manager._head_cache.clear()  # pas d'attente du délai de fetch
-    r = await sp.client.get(f"{base}/app/search", params={"q": "invoice"})
+    r = await sp.client.get(f"{base}/search", params={"q": "invoice"})
     assert [x["file"] for x in r.json()["results"]] == ["invoice.json"]
 
 

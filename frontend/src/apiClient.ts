@@ -464,6 +464,8 @@ export interface RawObjectItem {
   referenced_by?: number
   /** Espace de noms d'origine (x-namespace) ; vide pour une table, un contrat. */
   namespace?: string
+  /** Source de l'objet : posée seulement sur un résultat de recherche (plusieurs sources). */
+  source?: string
 }
 
 export interface RawDocumentItem {
@@ -619,7 +621,31 @@ export interface RawGraph {
 }
 
 export interface RawSearchResult extends RawObjectItem {
+  source: string
   folder: string
+}
+
+/** Critères de la recherche de l'explorateur, combinés en ET côté serveur. */
+export interface RawSearchCriteria {
+  mode: RawExplorerMode
+  sources: string[]
+  /** Dossier (et ses sous-dossiers) ; ignoré par le serveur pour plusieurs sources. */
+  path: string
+  q: string
+  tag: string
+  visibilities: string[]
+  kind: string
+  badge: string
+  hideExcluded: boolean
+}
+
+export interface RawSearchResponse {
+  results: RawSearchResult[]
+  truncated: boolean
+  /** Par source cherchée : objets correspondants par dossier (sous-dossiers compris, « » = source). */
+  tree_counts: Record<string, Record<string, number>>
+  /** Valeurs présentes dans la portée, indépendamment des autres filtres. */
+  facets: { tags: string[]; visibilities: string[]; kinds: string[]; badges: string[] }
 }
 
 export interface CurationObjectItem {
@@ -1267,16 +1293,23 @@ export const api = {
     apiFetch<RawDocumentDetail>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/document?mode=${mode}&path=${encodeURIComponent(path)}`,
     ),
-  searchRawExplorer: (
-    spaceId: string,
-    branchId: string,
-    slug: string,
-    mode: RawExplorerMode,
-    q: string,
-  ) =>
-    apiFetch<{ results: RawSearchResult[] }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/search?mode=${mode}&q=${encodeURIComponent(q)}`,
-    ),
+  searchRawExplorer: (spaceId: string, branchId: string, c: RawSearchCriteria) => {
+    const query = new URLSearchParams({ mode: c.mode })
+    for (const slug of c.sources) query.append('source', slug)
+    for (const v of c.visibilities) query.append('visibility', v)
+    const optional: [string, string][] = [
+      ['path', c.path],
+      ['q', c.q],
+      ['tag', c.tag],
+      ['kind', c.kind],
+      ['badge', c.badge],
+    ]
+    for (const [key, value] of optional) if (value) query.set(key, value)
+    if (c.hideExcluded) query.set('hide_excluded', 'true')
+    return apiFetch<RawSearchResponse>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/search?${query}`,
+    )
+  },
   listCuration: (spaceId: string, branchId: string, slug: string, showExcluded = false) =>
     apiFetch<{ objects: CurationObjectItem[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation?show_excluded=${showExcluded}`,

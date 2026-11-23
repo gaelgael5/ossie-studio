@@ -83,6 +83,83 @@ function folderBody(path: string) {
   }
 }
 
+// Doublure de la recherche combinée : filtre comme le serveur (portée = sources
+// demandées, dossier et sous-dossiers ; critères en ET ; facettes de la portée).
+type SearchObj = {
+  file: string
+  title: string
+  kind: string
+  badges: string[]
+  visibility: string
+  tags: { tag: string }[]
+  source: string
+  folder: string
+}
+function searchBody(u: URL) {
+  const sources = u.searchParams.getAll('source')
+  const path = u.searchParams.get('path') ?? ''
+  const all = [
+    ...(folderBody('src/Domain').objects as unknown as SearchObj[]).map((o) => ({
+      ...o,
+      source: 'app',
+      folder: 'src/Domain',
+    })),
+    { ...OBJ, file: 'client.json', title: 'Client', badges: [], visibility: 'public', visibility_source: '', tags: [SERVICE_TAG], source: 'crm', folder: 'Ventes' },
+  ] as SearchObj[]
+  const scope = all.filter(
+    (o) => sources.includes(o.source) && (!path || o.folder === path || o.folder.startsWith(`${path}/`)),
+  )
+  const q = (u.searchParams.get('q') ?? '').toLowerCase()
+  const tag = u.searchParams.get('tag') ?? ''
+  const vis = u.searchParams.getAll('visibility')
+  const kind = u.searchParams.get('kind') ?? ''
+  const badge = u.searchParams.get('badge') ?? ''
+  const hide = u.searchParams.get('hide_excluded') === 'true'
+  const active = !!(q || tag || vis.length || kind || badge || hide)
+  const results = active
+    ? scope.filter(
+        (o) =>
+          (!q || o.title.toLowerCase().includes(q) || o.file.includes(q)) &&
+          (!tag || o.tags.some((x) => x.tag === tag)) &&
+          (!vis.length || vis.includes(o.visibility)) &&
+          (!kind || o.kind === kind) &&
+          (!badge || o.badges.includes(badge)) &&
+          !(hide && o.badges.includes('excluded')),
+      )
+    : []
+  const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))].sort()
+  // Compteurs de l'arbre : toute la source (sans `path`), cumulés vers les parents.
+  const tree_counts: Record<string, Record<string, number>> = {}
+  if (active) for (const slug of sources) tree_counts[slug] = {}
+  if (active)
+    for (const o of all.filter((x) => sources.includes(x.source))) {
+      const matches =
+        (!q || o.title.toLowerCase().includes(q) || o.file.includes(q)) &&
+        (!tag || o.tags.some((x) => x.tag === tag)) &&
+        (!vis.length || vis.includes(o.visibility)) &&
+        (!kind || o.kind === kind) &&
+        (!badge || o.badges.includes(badge))
+      if (!matches) continue
+      const counts = (tree_counts[o.source] ??= {})
+      const parts = o.folder.split('/')
+      for (let i = 0; i <= parts.length; i++) {
+        const key = parts.slice(0, i).join('/')
+        counts[key] = (counts[key] ?? 0) + 1
+      }
+    }
+  return {
+    results,
+    tree_counts,
+    truncated: false,
+    facets: {
+      tags: uniq(scope.flatMap((o) => o.tags.map((x) => x.tag))),
+      visibilities: uniq(scope.map((o) => o.visibility)),
+      kinds: uniq(scope.map((o) => o.kind)),
+      badges: uniq(scope.flatMap((o) => o.badges)),
+    },
+  }
+}
+
 const DECLARED = {
   sources: [
     {
@@ -238,8 +315,7 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
       else if (u.pathname.endsWith('/object')) body = { ...DETAIL, ...DETAIL_OVERRIDE.value }
       else if (u.pathname.endsWith('/document'))
         body = { path: 'docs/guide.md', title: 'Guide', sections: 2, mentions: ['Order'], objects: [] }
-      else if (u.pathname.endsWith('/search'))
-        body = { results: [{ ...OBJ, file: 'order.json', title: 'Order', badges: [], folder: 'src/Domain' }] }
+      else if (u.pathname.endsWith('/raw-explorer/search')) body = searchBody(u)
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
   )
@@ -310,8 +386,9 @@ describe('RawExplorer', () => {
     mockApi()
     const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app')
-    await user.type(await screen.findByLabelText('Rechercher un objet dans la source'), 'ord')
-    expect(await screen.findByText('1 objet(s) trouvé(s) pour « ord » dans la source.')).toBeInTheDocument()
+    await user.type(await screen.findByLabelText('Rechercher un objet'), 'ord')
+    expect(await screen.findByText(/1 objet\(s\) trouvé\(s\)/)).toBeInTheDocument()
+    expect(screen.getByTestId('loc').textContent).toContain('q=ord')
     // Les dossiers de la racine ne s'affichent plus : seulement les résultats.
     expect(screen.queryByRole('button', { name: /^DIR\s*src/ })).not.toBeInTheDocument()
     await user.click(screen.getByText('Order'))
@@ -319,8 +396,8 @@ describe('RawExplorer', () => {
     expect(loc).toContain('path=src%2FDomain')
     expect(loc).toContain('sel=order.json')
     // Les résultats restent affichés tant que la recherche n'est pas effacée.
-    expect(screen.getByText('1 objet(s) trouvé(s) pour « ord » dans la source.')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Effacer la recherche' }))
+    expect(screen.getByText(/1 objet\(s\) trouvé\(s\)/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Effacer les critères' }))
     expect(await screen.findByText('Status')).toBeInTheDocument()
   })
 
@@ -359,12 +436,93 @@ describe('RawExplorer', () => {
     expect(rows()[0]).toContain('Status')
   })
 
-  it('pas de filtre sans objet dans le dossier ; l’état ne propose que ceux présents', async () => {
-    mockApi()
+  it('dossier sans objet direct (src) : les filtres proposent ce qu’il y a dessous, combinés', async () => {
+    const calls = mockApi()
+    const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app&path=src')
     await screen.findByRole('button', { name: /^DIR\s*Domain/ })
-    expect(screen.queryByLabelText('Nature')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('État')).not.toBeInTheDocument()
+    const tag = await screen.findByRole('combobox', { name: 'Filtrer par tag de gouvernance' })
+    await user.selectOptions(tag, 'technique/service')
+    // La recherche est bornée au dossier où elle a été lancée, sous-dossiers compris.
+    expect(await screen.findByText('Order')).toBeInTheDocument()
+    expect(screen.queryByText('Status')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^DIR\s*Domain/ })).not.toBeInTheDocument()
+    expect(screen.getByText('dans src')).toBeInTheDocument()
+    let loc = screen.getByTestId('loc').textContent ?? ''
+    expect(loc).toContain('ftag=technique%2Fservice')
+    expect(loc).toContain('in=src')
+    const last = () => new URL(calls.filter((c) => c.includes('/raw-explorer/search')).at(-1)!, 'http://t')
+    expect(last().searchParams.get('path')).toBe('src')
+    // Tag ET visibilité : Order est public, pas internal.
+    await user.click(screen.getByRole('checkbox', { name: 'internal' }))
+    expect(await screen.findByText('Aucun objet trouvé.')).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: 'internal' }))
+    expect(await screen.findByText('Order')).toBeInTheDocument()
+    // Fermer la puce : toute la source.
+    await user.click(screen.getByRole('button', { name: 'Chercher dans toute la source' }))
+    await waitFor(() => expect(last().searchParams.get('path')).toBeNull())
+    loc = screen.getByTestId('loc').textContent ?? ''
+    expect(loc).not.toContain('in=')
+    // Ouvrir un résultat ne réduit pas la recherche à son dossier.
+    await user.click(screen.getByText('Order'))
+    expect(screen.getByTestId('loc').textContent).toContain('path=src%2FDomain')
+    expect(screen.queryByText('dans Domain')).not.toBeInTheDocument()
+    // Effacer : retour à la vue du dossier.
+    await user.click(screen.getByRole('button', { name: 'Effacer les critères' }))
+    expect(await screen.findByText('Status')).toBeInTheDocument()
+  })
+
+  it('l’arbre suit les critères : compteurs mis à jour, dossiers sans objet trouvé masqués', async () => {
+    mockApi({
+      sources: [SOURCES.sources[0]],
+    })
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain')
+    await screen.findByText('Status')
+    const tree = () => within(screen.getByRole('complementary', { name: 'Arbre des sources' }))
+    expect(tree().getByRole('button', { name: /Application\s*2/ })).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Rechercher un objet'), 'zzz')
+    // Aucun objet trouvé : les dossiers disparaissent, la source compte 0.
+    await waitFor(() => expect(tree().queryByRole('button', { name: /src/ })).not.toBeInTheDocument())
+    expect(tree().getByRole('button', { name: /Application\s*0/ })).toBeInTheDocument()
+    await user.clear(screen.getByLabelText('Rechercher un objet'))
+    await user.type(screen.getByLabelText('Rechercher un objet'), 'stat')
+    expect(await tree().findByRole('button', { name: /Domain\s*1/ })).toBeInTheDocument()
+    expect(tree().getByRole('button', { name: /Application\s*1/ })).toBeInTheDocument()
+    // Critères effacés : l'arbre redevient complet.
+    await user.click(screen.getByRole('button', { name: 'Effacer les critères' }))
+    expect(await tree().findByRole('button', { name: /Domain\s*2/ })).toBeInTheDocument()
+  })
+
+  it('filtre Source : plusieurs sources, chaque résultat dit la sienne et ouvre la bonne source', async () => {
+    const calls = mockApi({
+      sources: [
+        ...SOURCES.sources,
+        { ...SOURCES.sources[0], slug: 'crm', label: 'CRM' },
+      ],
+    })
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src')
+    await user.click(await screen.findByLabelText('Sources'))
+    await user.click(screen.getByRole('checkbox', { name: 'Toutes les sources' }))
+    expect(screen.getByTestId('loc').textContent).toContain('fsrc=all')
+    // La source seule ne lance pas de recherche ; le tag, si.
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Filtrer par tag de gouvernance' }),
+      'technique/service',
+    )
+    expect(await screen.findByText('Client')).toBeInTheDocument()
+    expect(screen.getByText('Order')).toBeInTheDocument()
+    expect(screen.getByText('dans 2 sources')).toBeInTheDocument()
+    const last = new URL(calls.filter((c) => c.includes('/raw-explorer/search')).at(-1)!, 'http://t')
+    expect(last.searchParams.getAll('source')).toEqual(['app', 'crm'])
+    expect(last.searchParams.get('path')).toBeNull() // un chemin ne vaut pas pour plusieurs sources
+    expect(screen.getByText('CRM', { selector: '.raw-tile-source' })).toBeInTheDocument()
+    await user.click(screen.getByText('Client'))
+    const loc = screen.getByTestId('loc').textContent ?? ''
+    expect(loc).toContain('source=crm')
+    expect(loc).toContain('path=Ventes')
+    expect(loc).toContain('sel=client.json')
   })
 
   it('les filtres proposés sont ceux du dossier', async () => {
@@ -578,7 +736,7 @@ describe('RawExplorer', () => {
     renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
     await screen.findByText('Une commande du client.')
     // L'objet de test est déjà retenu (id exposé) : bouton « Retirer » et œil cliquable.
-    await user.click(screen.getByRole('button', { name: 'Exposer le champ customer' }))
+    await user.click(await screen.findByRole('button', { name: 'Exposer le champ customer' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
     const retain = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
     expect(JSON.parse(retain.body!)).toEqual({ path: 'order.json', fields: ['id', 'customer'] })
@@ -608,7 +766,7 @@ describe('RawExplorer', () => {
     const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
     await screen.findByText('Une commande du client.')
-    await user.click(screen.getByRole('button', { name: 'Exposer le champ customer' }))
+    await user.click(await screen.findByRole('button', { name: 'Exposer le champ customer' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
     const sent = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
     expect(JSON.parse(sent.body!)).toEqual({ path: 'order.json', fields: ['customer'] })
@@ -621,7 +779,7 @@ describe('RawExplorer', () => {
     const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
     await screen.findByText('Une commande du client.')
-    await user.click(screen.getByRole('button', { name: 'Créer un asset' }))
+    await user.click(await screen.findByRole('button', { name: 'Créer un asset' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
     const sent = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
     expect(JSON.parse(sent.body!)).toEqual({ path: 'order.json', fields: null })

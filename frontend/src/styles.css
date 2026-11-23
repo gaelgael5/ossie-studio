@@ -1471,6 +1471,57 @@ body.resizing-x {
   margin: 0 0 10px;
   font-size: 0.85rem;
 }
+/* Portée d'une recherche : « dans src ✕ », ou le nombre de sources. */
+.raw-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+.raw-scope-chip .btn-link {
+  color: var(--muted);
+  padding: 0 4px;
+}
+/* Filtre Source : liste à cases, dépliée sous le bouton. */
+.raw-source-filter {
+  position: relative;
+}
+.raw-source-filter summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  white-space: nowrap;
+}
+.raw-source-filter-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 6px 18px rgba(13, 28, 38, 0.12);
+}
+.raw-tile-source {
+  font-size: 0.8rem;
+  font-family: var(--mono);
+  color: var(--primary);
+}
 .raw-collect {
   margin: 0 0 12px;
   font-size: 0.85rem;

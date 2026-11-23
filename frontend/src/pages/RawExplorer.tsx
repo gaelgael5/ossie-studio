@@ -52,8 +52,6 @@ const WIDTH_KEY = 'ossie.rawExplorer.treeWidth'
 const PREVIEW_KEY = 'ossie.rawExplorer.preview'
 // Tags montrés sur une vignette au repos ; les autres apparaissent au survol.
 const TILE_TAGS = 2
-// Résultats rendus au plus par le serveur (raw_explorer `_SEARCH_LIMIT`).
-const SEARCH_LIMIT = 50
 const TREE_MIN = 180
 const TREE_MAX = 720
 const TREE_DEFAULT = 300
@@ -161,12 +159,21 @@ export function RawExplorer({
 }) {
   const { t } = useTranslation()
   const [params, setParams] = useSearchParams()
-  const [search, setSearch] = useState('')
-  const [debounced, setDebounced] = useState('')
-  const [kindFilter, setKindFilter] = useState('')
-  const [badgeFilter, setBadgeFilter] = useState('')
-  const [tagFilter, setTagFilter] = useState('')
-  const [visFilter, setVisFilter] = useState<string[]>([])
+  // Critères de recherche (ticket docflow be0f301c) : dans l'adresse, pour
+  // qu'un lien filtré se partage et que le retour arrière les retrouve.
+  const fText = params.get('q') ?? ''
+  const kindFilter = params.get('fkind') ?? ''
+  const badgeFilter = params.get('fstate') ?? ''
+  const tagFilter = params.get('ftag') ?? ''
+  const fvis = params.get('fvis') ?? ''
+  const visFilter = useMemo(() => fvis.split(',').filter(Boolean), [fvis])
+  // Sources de la recherche : absent = la source ouverte (rien ne change tant
+  // qu'il n'y en a qu'une), « all » = toutes, sinon une liste.
+  const fsrc = params.get('fsrc')
+  // La source n'est pas un critère : seule, elle ne lance pas de recherche.
+  const criteriaActive =
+    !!fText || !!kindFilter || !!badgeFilter || !!tagFilter || visFilter.length > 0
+  const [search, setSearch] = useState(fText)
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({
     key: 'name',
     asc: true,
@@ -275,8 +282,25 @@ export function RawExplorer({
       ? { view: params.get('back') === 'list' ? 'list' : null, back: null, center: null }
       : {}
   /** Navigation vers un dossier : quitte le graphe s'il est affiché. */
+  // Pendant une recherche, naviguer dans l'arbre ou le fil d'Ariane déplace la
+  // portée (`in`) sur le nouveau dossier ; ouvrir un résultat, non (sinon la
+  // liste se réduirait au dossier du résultat cliqué).
   const goFolder = (changes: Record<string, string | null>, replace = false) =>
-    go({ ...changes, ...leaveGraph() }, replace)
+    go(
+      {
+        ...changes,
+        ...leaveGraph(),
+        ...(criteriaActive && 'path' in changes ? { in: changes.path ?? null } : {}),
+      },
+      replace,
+    )
+  /** Change des critères ; la première recherche lancée d'un dossier y est bornée. */
+  const setCriteria = (changes: Record<string, string | null>) =>
+    go({ ...changes, ...(criteriaActive ? {} : { in: path || null }) }, true)
+  const clearCriteria = () => {
+    setSearch('')
+    go({ q: null, fkind: null, fstate: null, ftag: null, fvis: null, in: null }, true)
+  }
   /** Entrée dans la revue de la source (même retour que le graphe). */
   const reviewEntry = (): Record<string, string | null> => ({
     view: 'review',
@@ -353,28 +377,69 @@ export function RawExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folder.error])
 
-  // Un filtre ne survit pas au changement de dossier : il masquerait tout dans
-  // un dossier où sa valeur n'existe pas.
-  // Pendant une recherche, les filtres portent sur les résultats : ouvrir le
-  // dossier d'un résultat ne les remet pas à zéro.
+  // Saisie : écrite dans l'adresse après une courte pause ; un retour arrière
+  // (adresse changée) remet le champ à jour.
   useEffect(() => {
-    if (search.trim()) return
-    setKindFilter('')
-    setBadgeFilter('')
-    setTagFilter('')
-    setVisFilter([])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceSlug, mode, path])
-
-  useEffect(() => {
-    const id = setTimeout(() => setDebounced(search.trim()), 300)
+    const value = search.trim()
+    if (value === fText) return
+    const id = setTimeout(() => setCriteria({ q: value || null }), 300)
     return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
+  useEffect(() => {
+    if (search.trim() !== fText) setSearch(fText)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fText])
 
+  const collectedSlugs = useMemo(
+    () => sourceList.filter((s) => s.collected).map((s) => s.slug),
+    [sourceList],
+  )
+  const filterSources = useMemo(
+    () =>
+      fsrc === 'all'
+        ? collectedSlugs
+        : fsrc
+          ? fsrc.split(',').filter((slug) => sourceList.some((s) => s.slug === slug))
+          : [sourceSlug],
+    [fsrc, collectedSlugs, sourceList, sourceSlug],
+  )
+  const singleSource = filterSources.length === 1 && filterSources[0] === sourceSlug
+  const scopeIn = params.get('in') ?? ''
+  // Portée : pendant une recherche, le dossier où elle a été lancée (`in`,
+  // absent = toute la source) ; sinon le dossier ouvert, pour que les filtres
+  // proposent ce qu'il contient, sous-dossiers compris (cas de `src`).
+  const scopePath = singleSource ? (criteriaActive ? scopeIn : path) : ''
   const results = useQuery({
-    queryKey: ['rawSearch', spaceId, branchId, sourceSlug, mode, debounced],
-    queryFn: () => api.searchRawExplorer(spaceId, branchId, sourceSlug, mode, debounced),
-    enabled: !!current && current.collected && debounced.length > 0,
+    queryKey: [
+      'rawSearch',
+      spaceId,
+      branchId,
+      mode,
+      filterSources,
+      scopePath,
+      fText,
+      tagFilter,
+      fvis,
+      kindFilter,
+      badgeFilter,
+      criteriaActive && hideExcluded,
+    ],
+    queryFn: () =>
+      api.searchRawExplorer(spaceId, branchId, {
+        mode,
+        sources: filterSources,
+        path: scopePath,
+        q: fText,
+        tag: tagFilter,
+        visibilities: visFilter,
+        kind: kindFilter,
+        badge: badgeFilter,
+        hideExcluded: criteriaActive && hideExcluded,
+      }),
+    enabled: !!current && current.collected && filterSources.length > 0,
+    // Les listes de filtres restent en place pendant le rechargement.
+    placeholderData: (previous) => previous,
     staleTime: STALE_MS,
     retry: false,
   })
@@ -394,13 +459,14 @@ export function RawExplorer({
 
   // Recherche en cours : la grille montre les objets trouvés dans toute la
   // source (et non plus le dossier), les autres filtres s'appliquant dessus.
-  const searching = debounced.length > 0 && !!results.data
-  const objects = useMemo(
+  const searching = criteriaActive
+  const objects: RawObjectItem[] = useMemo(
     () => (searching ? (results.data?.results ?? []) : (folder.data?.objects ?? [])),
     [searching, results.data, folder.data],
   )
   const resultFolder = useMemo(
-    () => new Map((results.data?.results ?? []).map((r) => [r.file, r.folder])),
+    () =>
+      new Map((results.data?.results ?? []).map((r) => [`${r.source}/${r.file}`, r.folder])),
     [results.data],
   )
   // Le dossier courant reste visible dans l'arbre (après un clic sur un
@@ -411,39 +477,51 @@ export function RawExplorer({
       ?.scrollIntoView?.({ block: 'nearest' })
   }, [path, sourceSlug])
   /** Sélection d'un objet ; pour un résultat de recherche, son dossier s'ouvre dans l'arbre. */
-  const selectObject = (file: string) =>
-    searching && resultFolder.has(file)
-      ? go({ path: resultFolder.get(file) || null, sel: file })
-      : go({ sel: file }, true)
-  const kinds = useMemo(() => [...new Set(objects.map((o) => o.kind))].sort(), [objects])
-  const presentVisibilities = useMemo(
-    () => VISIBILITIES.filter((v) => objects.some((o) => o.visibility === v)),
-    [objects],
+  const selectObject = (file: string, source?: string) => {
+    const key = `${source ?? sourceSlug}/${file}`
+    if (searching && resultFolder.has(key)) {
+      go({ source: source ?? sourceSlug, path: resultFolder.get(key) || null, sel: file })
+    } else go({ sel: file }, true)
+  }
+  // Arbre filtré (complément du ticket be0f301c) : pendant une recherche, les
+  // dossiers d'une source cherchée ne gardent que ceux qui contiennent un objet
+  // correspondant (sous-dossiers compris), avec ce nombre en compteur. Les
+  // compteurs portent sur toute la source, même bornée par la puce « dans … » :
+  // l'arbre dit où aller.
+  const treeCounts = searching ? results.data?.tree_counts : undefined
+  const sourceCounts = treeCounts?.[sourceSlug]
+  const treeFolders = useMemo(
+    () =>
+      sourceCounts
+        ? (tree.data?.folders ?? [])
+            .filter((f) => (sourceCounts[f.path] ?? 0) > 0)
+            .map((f) => ({ ...f, files: sourceCounts[f.path] }))
+        : (tree.data?.folders ?? []),
+    [tree.data, sourceCounts],
   )
-  // Seuls les états réellement portés par un objet du dossier sont proposés :
-  // un filtre sans choix utile ne s'affiche pas.
-  const presentBadges = useMemo(
-    () => BADGES.filter((b) => objects.some((o) => o.badges.includes(b))),
-    [objects],
+  // Valeurs proposées par les filtres : celles de la portée (sources, dossier et
+  // sous-dossiers), rendues par le serveur. Un filtre sans valeur ne s'affiche
+  // pas ; une valeur choisie reste proposée même si la portée change.
+  const facets = results.data?.facets
+  const withChosen = (values: string[], chosen: string[]) => [
+    ...values,
+    ...chosen.filter((c) => c && !values.includes(c)),
+  ]
+  const kinds = withChosen(facets?.kinds ?? [], [kindFilter]).sort()
+  const presentVisibilities = VISIBILITIES.filter((v) =>
+    withChosen(facets?.visibilities ?? [], visFilter).includes(v),
   )
-  // Tags gouvernés présents dans le dossier : comme l'état, « tous » + au moins un tag.
-  const presentTags = useMemo(
-    () => [...new Set(objects.flatMap((o) => o.tags.map((tag) => tag.tag)))].sort(),
-    [objects],
+  const presentBadges = BADGES.filter((b) =>
+    withChosen(facets?.badges ?? [], [badgeFilter]).includes(b),
   )
-  const shownObjects = objects.filter(
-    (o) =>
-      (!kindFilter || o.kind === kindFilter) &&
-      (!tagFilter || o.tags.some((tag) => tag.tag === tagFilter)) &&
-      !(hideExcluded && o.badges.includes('excluded')) &&
-      (!badgeFilter || o.badges.includes(badgeFilter as RawBadge)) &&
-      // Rien de coché : tout s'affiche (tables et contrats compris, sans visibilité).
-      (visFilter.length === 0 || visFilter.includes(o.visibility)),
-  )
-  const filtering = !!kindFilter || !!badgeFilter || !!tagFilter || visFilter.length > 0
-  const shownFolders = filtering || searching ? [] : (folder.data?.folders ?? [])
-  const shownDocuments = filtering || searching ? [] : (folder.data?.documents ?? [])
-  const hasContent = searching || !!folder.data
+  const presentTags = withChosen(facets?.tags ?? [], [tagFilter]).sort()
+  // Pendant une recherche, le serveur a déjà appliqué tous les critères.
+  const shownObjects = searching
+    ? objects
+    : objects.filter((o) => !(hideExcluded && o.badges.includes('excluded')))
+  const shownFolders = searching ? [] : (folder.data?.folders ?? [])
+  const shownDocuments = searching ? [] : (folder.data?.documents ?? [])
+  const hasContent = searching ? !!results.data : !!folder.data
 
   const messages = [sources.error, tree.error, results.error]
     .filter((e): e is Error => !!e)
@@ -582,11 +660,13 @@ export function RawExplorer({
                 >
                   <span className="raw-tree-glyph">SRC</span>
                   {s.label}
-                  <span className="raw-count">{s.objects + s.documents}</span>
+                  <span className="raw-count">
+                    {treeCounts?.[s.slug] ? (treeCounts[s.slug][''] ?? 0) : s.objects + s.documents}
+                  </span>
                 </button>
                 {s.slug === sourceSlug && tree.data ? (
                   <FolderBranch
-                    folders={tree.data.folders}
+                    folders={treeFolders}
                     parent=""
                     current={path}
                     label={folderLabel}
@@ -689,12 +769,18 @@ export function RawExplorer({
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
+                <SourceFilter
+                  sources={sourceList.filter((s) => s.collected)}
+                  chosen={filterSources}
+                  current={sourceSlug}
+                  onChange={(next) => go({ fsrc: next }, true)}
+                />
                 {kinds.length > 1 ? (
                   <select
                     className="select"
                     aria-label={t('rawFilterKind')}
                     value={kindFilter}
-                    onChange={(e) => setKindFilter(e.target.value)}
+                    onChange={(e) => setCriteria({ fkind: e.target.value || null })}
                   >
                     <option value="">{t('rawFilterKindAll')}</option>
                     {kinds.map((k) => (
@@ -709,7 +795,7 @@ export function RawExplorer({
                     className="select"
                     aria-label={t('rawFilterState')}
                     value={badgeFilter}
-                    onChange={(e) => setBadgeFilter(e.target.value)}
+                    onChange={(e) => setCriteria({ fstate: e.target.value || null })}
                   >
                     <option value="">{t('rawFilterStateAll')}</option>
                     {presentBadges.map((b) => (
@@ -734,7 +820,7 @@ export function RawExplorer({
                     className="select"
                     aria-label={t('rawFilterTag')}
                     value={tagFilter}
-                    onChange={(e) => setTagFilter(e.target.value)}
+                    onChange={(e) => setCriteria({ ftag: e.target.value || null })}
                   >
                     <option value="">{t('rawFilterTagAll')}</option>
                     {presentTags.map((tag) => (
@@ -752,11 +838,12 @@ export function RawExplorer({
                         <input
                           type="checkbox"
                           checked={visFilter.includes(v)}
-                          onChange={(e) =>
-                            setVisFilter((cur) =>
-                              e.target.checked ? [...cur, v] : cur.filter((x) => x !== v),
-                            )
-                          }
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...visFilter, v]
+                              : visFilter.filter((x) => x !== v)
+                            setCriteria({ fvis: next.join(',') || null })
+                          }}
                         />{' '}
                         {t(`rawVisibility.${v}`)}
                       </label>
@@ -771,21 +858,33 @@ export function RawExplorer({
             <>
               {searching ? (
                 <p className="raw-search-summary" role="status">
-                  {t(
-                    (results.data?.results.length ?? 0) >= SEARCH_LIMIT
-                      ? 'rawSearchSummaryLimit'
-                      : 'rawSearchSummary',
-                    { count: results.data?.results.length ?? 0, query: debounced },
+                  {!results.data ? (
+                    <span className="spinner" aria-hidden="true" />
+                  ) : (
+                    t(results.data.truncated ? 'rawCriteriaSummaryLimit' : 'rawCriteriaSummary', {
+                      count: results.data.results.length,
+                    })
                   )}{' '}
-                  <button
-                    type="button"
-                    className="btn-link"
-                    onClick={() => {
-                      setSearch('')
-                      setDebounced('')
-                    }}
-                  >
-                    {t('rawSearchClear')}
+                  {singleSource && scopeIn ? (
+                    <span className="raw-scope-chip" title={scopeIn}>
+                      {t('rawScopeIn', { folder: folderLabel(scopeIn) })}
+                      <button
+                        type="button"
+                        className="btn-link"
+                        aria-label={t('rawScopeWiden')}
+                        title={t('rawScopeWiden')}
+                        onClick={() => go({ in: null }, true)}
+                      >
+                        {'✕'}
+                      </button>
+                    </span>
+                  ) : !singleSource ? (
+                    <span className="raw-scope-chip">
+                      {t('rawScopeSources', { count: filterSources.length })}
+                    </span>
+                  ) : null}{' '}
+                  <button type="button" className="btn-link" onClick={clearCriteria}>
+                    {t('rawCriteriaClear')}
                   </button>
                 </p>
               ) : null}
@@ -850,11 +949,7 @@ export function RawExplorer({
           ) : hasContent &&
             shownFolders.length + shownObjects.length + shownDocuments.length === 0 ? (
             <div className="empty-note">
-              {searching
-                ? t('rawSearchNone')
-                : filtering
-                  ? t('rawFilterEmpty')
-                  : t('rawFolderEmpty')}
+              {searching ? t('rawSearchNone') : t('rawFolderEmpty')}
             </div>
           ) : hasContent && view === 'tiles' ? (
             <Tiles
@@ -862,6 +957,9 @@ export function RawExplorer({
               objects={shownObjects}
               documents={shownDocuments}
               selected={selected}
+              currentSource={sourceSlug}
+              showSource={searching && !singleSource}
+              sourceLabel={(slug) => sourceList.find((x) => x.slug === slug)?.label ?? slug}
               folderLabel={folderLabel}
               onOpenFolder={(p) => go({ path: p, sel: null })}
               onSelect={selectObject}
@@ -871,7 +969,7 @@ export function RawExplorer({
                 <RefMenu
                   spaceId={spaceId}
                   branchId={branchId}
-                  slug={sourceSlug}
+                  slug={o.source ?? sourceSlug}
                   mode={mode}
                   file={o.file}
                   count={o.referenced_by ?? 0}
@@ -885,6 +983,9 @@ export function RawExplorer({
               objects={shownObjects}
               documents={shownDocuments}
               selected={selected}
+              currentSource={sourceSlug}
+              showSource={searching && !singleSource}
+              sourceLabel={(slug) => sourceList.find((x) => x.slug === slug)?.label ?? slug}
               sort={sort}
               onSort={(key) => setSort((s) => ({ key, asc: s.key === key ? !s.asc : true }))}
               folderLabel={folderLabel}
@@ -895,7 +996,7 @@ export function RawExplorer({
                 <RefMenu
                   spaceId={spaceId}
                   branchId={branchId}
-                  slug={sourceSlug}
+                  slug={o.source ?? sourceSlug}
                   mode={mode}
                   file={o.file}
                   count={o.referenced_by ?? 0}
@@ -921,7 +1022,7 @@ export function RawExplorer({
             slug={sourceSlug}
             mode={mode}
             selected={selected}
-            folderObjects={objects}
+            folderObjects={objects.filter((o) => (o.source ?? sourceSlug) === sourceSlug)}
             onOpen={openTarget}
             onCollapse={() => togglePreview(false)}
           />
@@ -1114,9 +1215,14 @@ interface ContentProps {
   objects: RawObjectItem[]
   documents: RawDocumentItem[]
   selected: string
+  /** Source ouverte : la sélection (`sel`) ne porte que sur elle. */
+  currentSource: string
+  /** Résultats de plusieurs sources : chacun dit la sienne. */
+  showSource: boolean
+  sourceLabel: (slug: string) => string
   folderLabel: (path: string) => string
   onOpenFolder: (path: string) => void
-  onSelect: (file: string) => void
+  onSelect: (file: string, source?: string) => void
   excludedBy?: (path: string) => string | null
   /** Double-clic : vue exclusive d'un objet, ou document en pleine page. */
   onOpenItem?: (file: string) => void
@@ -1129,6 +1235,9 @@ function Tiles({
   objects,
   documents,
   selected,
+  currentSource,
+  showSource,
+  sourceLabel,
   folderLabel,
   onOpenFolder,
   onSelect,
@@ -1137,6 +1246,8 @@ function Tiles({
   refMenu,
 }: ContentProps) {
   const { t } = useTranslation()
+  const isSelected = (o: RawObjectItem) =>
+    selected === o.file && (o.source ?? currentSource) === currentSource
   return (
     <div className="raw-sections">
       {folders.length > 0 ? (
@@ -1170,16 +1281,19 @@ function Tiles({
             {objects.map((o) => (
               // Le compteur est à côté du bouton de la vignette, pas dedans : un
               // bouton ne peut pas en contenir d'autres (menu cliquable).
-              <div key={o.file} className="raw-tile-wrap">
+              <div key={`${o.source ?? ''}/${o.file}`} className="raw-tile-wrap">
                 <button
                   type="button"
-                  className={`raw-tile${selected === o.file ? ' selected' : ''}`}
-                  aria-pressed={selected === o.file}
-                  onClick={() => onSelect(o.file)}
+                  className={`raw-tile${isSelected(o) ? ' selected' : ''}`}
+                  aria-pressed={isSelected(o)}
+                  onClick={() => onSelect(o.file, o.source)}
                   onDoubleClick={() => onOpenItem?.(o.file)}
                 >
                   <span className="raw-glyph">{kindGlyph(o.kind)}</span>
                   <span className="raw-tile-name">{o.title}</span>
+                  {showSource && o.source ? (
+                    <span className="raw-tile-source">{sourceLabel(o.source)}</span>
+                  ) : null}
                   <span className="raw-tile-sub">
                     {t('rawFields', { count: o.fields })}
                     {o.origin ? ` · ${lastSegment(o.origin)}` : ''}
@@ -1245,6 +1359,9 @@ function ListView({
   objects,
   documents,
   selected,
+  currentSource,
+  showSource,
+  sourceLabel,
   sort,
   onSort,
   folderLabel,
@@ -1257,6 +1374,8 @@ function ListView({
   onSort: (key: SortKey) => void
 }) {
   const { t } = useTranslation()
+  const isSelected = (o: RawObjectItem) =>
+    selected === o.file && (o.source ?? currentSource) === currentSource
   const sorted = useMemo(() => {
     const value = (o: RawObjectItem): string | number => {
       switch (sort.key) {
@@ -1320,13 +1439,16 @@ function ListView({
           ))}
           {sorted.map((o) => (
             <tr
-              key={o.file}
-              className={`row-clickable${selected === o.file ? ' selected' : ''}`}
-              onClick={() => onSelect(o.file)}
+              key={`${o.source ?? ''}/${o.file}`}
+              className={`row-clickable${isSelected(o) ? ' selected' : ''}`}
+              onClick={() => onSelect(o.file, o.source)}
               onDoubleClick={() => onOpenItem?.(o.file)}
             >
               <td>
                 <span className="raw-glyph-sm">{kindGlyph(o.kind)}</span> {o.title}
+                {showSource && o.source ? (
+                  <span className="raw-tile-source"> · {sourceLabel(o.source)}</span>
+                ) : null}
               </td>
               <td>{t(`rawKind.${o.kind}`, { defaultValue: o.kind })}</td>
               <td>{o.fields}</td>
@@ -1357,5 +1479,79 @@ function ListView({
         </tbody>
       </table>
     </div>
+  )
+}
+
+/**
+ * Filtre Source (ticket docflow be0f301c) : sur quelles sources porte la
+ * recherche. `null` = la source ouverte (défaut), « all » = toutes, sinon une
+ * liste séparée par des virgules. Au moins une source reste cochée.
+ */
+function SourceFilter({
+  sources,
+  chosen,
+  current,
+  onChange,
+}: {
+  sources: RawExplorerSource[]
+  chosen: string[]
+  current: string
+  onChange: (next: string | null) => void
+}) {
+  const { t } = useTranslation()
+  if (sources.length === 0) return null
+  const all = sources.map((s) => s.slug)
+  const encode = (list: string[]): string | null =>
+    list.length === 1 && list[0] === current
+      ? null
+      : list.length === all.length && all.every((s) => list.includes(s))
+        ? 'all'
+        : list.join(',')
+  const summary =
+    chosen.length === all.length && all.length > 1
+      ? t('rawFilterSourceAll')
+      : chosen.length === 1
+        ? (sources.find((s) => s.slug === chosen[0])?.label ?? chosen[0])
+        : t('rawFilterSourceCount', { count: chosen.length })
+  return (
+    <details className="raw-source-filter">
+      <summary aria-label={t('rawFilterSource')}>
+        <span className="muted">{t('rawFilterSource')} :</span> {summary}
+      </summary>
+      <div className="raw-source-filter-menu">
+        {all.length > 1 ? (
+          <label>
+            <input
+              type="checkbox"
+              checked={chosen.length === all.length}
+              onChange={(e) => onChange(e.target.checked ? 'all' : null)}
+            />{' '}
+            {t('rawFilterSourceAll')}
+          </label>
+        ) : null}
+        {sources.map((s) => {
+          const checked = chosen.includes(s.slug)
+          return (
+            <label key={s.slug}>
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={checked && chosen.length === 1}
+                onChange={(e) =>
+                  onChange(
+                    encode(
+                      e.target.checked
+                        ? all.filter((x) => x === s.slug || chosen.includes(x))
+                        : chosen.filter((x) => x !== s.slug),
+                    ),
+                  )
+                }
+              />{' '}
+              {s.label}
+            </label>
+          )
+        })}
+      </div>
+    </details>
   )
 }

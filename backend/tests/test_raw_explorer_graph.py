@@ -208,7 +208,7 @@ async def test_api_compteur_et_liste_des_references_entrantes(sp: ApiSpace) -> N
     assert folder.status_code == 200, folder.text
     counts = {o["title"]: o["referenced_by"] for o in folder.json()["objects"]}
     assert counts["Customer"] == 1
-    found = await sp.client.get(f"{base}/search", params={"q": "ord"})
+    found = await sp.client.get(f"{sp.base}/raw-explorer/search", params={"q": "ord"})
     assert found.json()["results"][0]["referenced_by"] == 0
     r = await sp.client.get(f"{base}/incoming", params={"file": "customer.json"})
     assert r.status_code == 200, r.text
