@@ -1116,6 +1116,26 @@ export type FoundContract = {
   error: string
 }
 
+// Journal d'audit (ticket cf4434da).
+export interface AuditEvent {
+  at: string
+  actor_label: string
+  actor_id: string | null
+  action: 'created' | 'updated' | 'deleted'
+  object_type: string
+  object_id: string
+  object_label: string
+  detail: Record<string, unknown>
+  /** « db » : table d'audit ; « git » : commit publié de la gouvernance. */
+  origin: 'db' | 'git'
+  ref: string
+}
+export interface AuditPage {
+  events: AuditEvent[]
+  next: string | null
+  types: string[]
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setLanguage: (language: string) =>
@@ -1531,6 +1551,8 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${encodeURIComponent(slug)}/openapi-search`,
       { method: 'POST' },
     ),
+  listAudit: (params: Record<string, string>) =>
+    apiFetch<AuditPage>(`/api/audit?${new URLSearchParams(params).toString()}`),
   listCodePlugins: () =>
     apiFetch<{ plugins: { id: string; label: string; globs: string[] }[] }>(
       '/api/parsing/code-plugins',

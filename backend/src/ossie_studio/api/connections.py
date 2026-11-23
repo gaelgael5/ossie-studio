@@ -10,6 +10,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import ConnectionsRead, ConnectionsWrite
+from ossie_studio.audit.service import (
+    CREATED,
+    DELETED,
+    UPDATED,
+    audited,
+    audited_secret_removal,
+)
 from ossie_studio.connections.forms import validate_connection
 from ossie_studio.connections.service import (
     ConnectionDuplicateError,
@@ -188,7 +195,7 @@ def pick_default_branch(branches: list[str], declared: str | None) -> str:
 async def create_connection(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: ConnectionsWrite,
+    user: ConnectionsWrite,
     http_client_factory: HttpFactoryDep,
     body: ConnectionCreate,
 ) -> dict[str, object]:
@@ -218,15 +225,19 @@ async def create_connection(
             raise ApiError(exc.code, status_code=400) from None
 
     try:
-        connection = await db_create_connection(
-            conn,
-            label=body.label.strip(),
-            forge=body.forge,
-            url=url,
-            secret_slug=secret.slug,
-            identity=identity,
-            slug=slug,
-        )
+        async with audited(
+            conn, user, CREATED, "connection", detail={"forge": body.forge, "url": url}
+        ) as entry:
+            connection = await db_create_connection(
+                conn,
+                label=body.label.strip(),
+                forge=body.forge,
+                url=url,
+                secret_slug=secret.slug,
+                identity=identity,
+                slug=slug,
+            )
+            entry.target(connection.id, connection.label)
     except ConnectionSlugTakenError:
         raise ApiError("connection_slug_taken", status_code=409, slug=slug) from None
     except ConnectionDuplicateError:
@@ -238,7 +249,7 @@ async def create_connection(
 async def update_connection(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: ConnectionsWrite,
+    user: ConnectionsWrite,
     http_client_factory: HttpFactoryDep,
     connection_id: uuid.UUID,
     body: ConnectionUpdate,
@@ -264,14 +275,18 @@ async def update_connection(
         except ForgeError as exc:
             raise ApiError(exc.code, status_code=400) from None
     try:
-        updated = await db_update_connection(
-            conn,
-            connection_id,
-            label=body.label.strip(),
-            url=url,
-            secret_slug=secret.slug,
-            identity=identity,
-        )
+        async with audited(
+            conn, user, UPDATED, "connection", connection_id, body.label.strip(), {"url": url}
+        ) as entry:
+            updated = await db_update_connection(
+                conn,
+                connection_id,
+                label=body.label.strip(),
+                url=url,
+                secret_slug=secret.slug,
+                identity=identity,
+            )
+            entry.skip = updated is None
     except ConnectionDuplicateError:
         raise ApiError("connection_duplicate", status_code=409) from None
     if updated is None:
@@ -312,19 +327,27 @@ async def test_connection(
 
 @router.delete("/{connection_id}", status_code=204)
 async def delete_connection(
-    conn: ConnDep, _: ConnectionsWrite, connection_id: uuid.UUID, delete_secret: bool = False
+    conn: ConnDep, user: ConnectionsWrite, connection_id: uuid.UUID, delete_secret: bool = False
 ) -> None:
     # Une connexion utilisée par un ou plusieurs espaces Git ne se supprime pas :
     # le refus nomme les espaces.
     spaces = await db_spaces_using_connection(conn, connection_id)
     if spaces:
         raise ApiError("connection_in_use", status_code=409, spaces=spaces)
-    secret_slug = await db_delete_connection(conn, connection_id)
+    current = await db_get_connection(conn, connection_id)
+    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
+    async with audited(
+        conn, user, DELETED, "connection", connection_id, current.label if current else ""
+    ) as entry:
+        secret_slug = await db_delete_connection(conn, connection_id)
+        entry.skip = secret_slug is None
     if secret_slug is None:
         raise ApiError("connection_not_found", status_code=404)
     # Le secret ne part que si demandé ET s'il n'est plus utilisé par rien
     # d'autre (vérifié à l'instant, la connexion étant déjà supprimée).
-    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
     if delete_secret:
-        secret_outcome = await db_delete_secret_if_unused(conn, secret_slug)
+        slug = secret_slug
+        secret_outcome = await audited_secret_removal(
+            conn, user, slug, lambda: db_delete_secret_if_unused(conn, slug)
+        )
     log.info("connection_removed", secret=secret_outcome)

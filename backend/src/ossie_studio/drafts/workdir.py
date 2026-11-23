@@ -38,6 +38,7 @@ from ossie_studio.spaces.workdir import (
     _COMMIT_PREFIX,
     _VERSION_FETCH_REFSPEC,
     _VERSION_PREFIX,
+    PathCommit,
     UnpublishedCommit,
     VersionRestored,
     WorkdirError,
@@ -361,6 +362,21 @@ class DraftWorkdir:
     ) -> list[UnpublishedCommit]:
         # L'historique est celui du travail publié : un brouillon n'a pas d'histoire.
         return await self._manager.file_history(
+            space_id, slug, repo_url, username, token, rel_path, limit
+        )
+
+    async def path_log(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        rel_path: str,
+        limit: int = 200,
+    ) -> list[PathCommit]:
+        # Historique publié : un brouillon n'a pas d'histoire.
+        return await self._manager.path_log(
             space_id, slug, repo_url, username, token, rel_path, limit
         )
 

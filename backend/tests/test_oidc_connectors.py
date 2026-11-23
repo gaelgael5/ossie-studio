@@ -290,3 +290,23 @@ async def test_slug_du_connecteur_invalide_refuse(admin_client: AsyncClient) -> 
     )
     assert response.status_code == 400
     assert "connector_slug_invalid" in response.json()["error_args"]["fields"]
+
+
+async def test_audit_ajout_reglage_suppression(admin_client: AsyncClient, app: FastAPI) -> None:
+    # Ticket cf4434da : connecteur créé, réglé (revendication), supprimé.
+    await _add(admin_client)
+    connector_id = await db_fetchval(app, "SELECT id FROM oidc_connectors")
+    r = await admin_client.put(
+        f"/api/oidc/connectors/{connector_id}/roles-claim", json={"roles_claim": "groups"}
+    )
+    assert r.status_code == 200, r.text
+    r = await admin_client.delete(f"/api/oidc/connectors/{connector_id}")
+    assert r.status_code == 204
+    events = (await admin_client.get("/api/audit", params={"type": "oidc_connector"})).json()
+    assert [(e["action"], e["detail"].get("change")) for e in events["events"]] == [
+        ("deleted", None),
+        ("updated", "roles_claim"),
+        ("created", None),
+    ]
+    assert events["events"][2]["detail"] == {"issuer": ISSUER}
+    assert SECRET not in (await admin_client.get("/api/audit")).text

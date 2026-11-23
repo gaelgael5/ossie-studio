@@ -37,6 +37,7 @@ const SETTINGS_NAV: NavItem[] = [
   { key: 'navUsers', to: '/users', capability: 'users:read', prefix: '/users' },
   { key: 'navAgentProfiles', to: '/agent-profiles', capability: 'agent_profiles:read', prefix: '/agent-profiles' },
   { key: 'navApiKeys', to: '/api-keys', capability: 'api_keys:read', prefix: '/api-keys' },
+  { key: 'navHistory', to: '/historique', capability: 'audit:read', prefix: '/historique' },
 ]
 
 export function Layout({ children }: { children: ReactNode }) {

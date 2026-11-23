@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import SecretsRead, SecretsWrite
+from ossie_studio.audit.service import CREATED, DELETED, UPDATED, audited
 from ossie_studio.crypto import CryptoService, SecretValue
 from ossie_studio.deps import ConnDep, get_crypto
 from ossie_studio.errors import ApiError
@@ -103,9 +104,7 @@ async def list_secrets(conn: ConnDep, _: SecretsRead, category: str = "") -> dic
         secrets = await db_list_secrets_by_category(conn, category)
     else:
         secrets = await db_list_secrets(conn)
-    rows = [
-        {**_payload(s), "used_by": await db_count_secret_usages(conn, s.slug)} for s in secrets
-    ]
+    rows = [{**_payload(s), "used_by": await db_count_secret_usages(conn, s.slug)} for s in secrets]
     return {
         "secrets": rows,
         "categories": SECRET_CATEGORIES,
@@ -115,7 +114,7 @@ async def list_secrets(conn: ConnDep, _: SecretsRead, category: str = "") -> dic
 
 @router.post("", status_code=201)
 async def create_secret(
-    conn: ConnDep, crypto: CryptoDep, _: SecretsWrite, body: SecretCreate
+    conn: ConnDep, crypto: CryptoDep, user: SecretsWrite, body: SecretCreate
 ) -> dict[str, object]:
     slug = body.slug.strip()
     # Pour une catégorie « keyfile », la valeur stockée est la clé ouverte.
@@ -127,9 +126,13 @@ async def create_secret(
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
     try:
-        secret = await db_create_secret(
-            conn, slug, body.label.strip(), body.category, crypto.encrypt(SecretValue(value))
-        )
+        # Jamais la valeur dans l'audit : le slug, le libellé et la catégorie.
+        async with audited(
+            conn, user, CREATED, "secret", slug, body.label.strip(), {"category": body.category}
+        ):
+            secret = await db_create_secret(
+                conn, slug, body.label.strip(), body.category, crypto.encrypt(SecretValue(value))
+            )
     except SecretSlugTakenError:
         raise ApiError("secret_slug_taken", status_code=409, slug=slug) from None
     log.info("secret_created", slug=slug, category=body.category)
@@ -138,17 +141,20 @@ async def create_secret(
 
 @router.put("/{slug}/value")
 async def replace_value(
-    conn: ConnDep, crypto: CryptoDep, _: SecretsWrite, slug: str, body: SecretValueBody
+    conn: ConnDep, crypto: CryptoDep, user: SecretsWrite, slug: str, body: SecretValueBody
 ) -> dict[str, object]:
     errors = validate_value(body.value)
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
     try:
-        async with conn.transaction():
+        async with audited(
+            conn, user, UPDATED, "secret", slug, detail={"change": "value_replaced"}
+        ) as entry:
             secret = await db_replace_secret_value(
                 conn, slug, crypto.encrypt(SecretValue(body.value))
             )
             reset = await db_reset_status_for_secret(conn, slug)
+            entry.object_label = secret.label
     except SecretNotFoundError:
         raise ApiError("secret_not_found", status_code=404, slug=slug) from None
     log.info("secret_value_replaced", slug=slug, usages_reset=reset)
@@ -157,25 +163,30 @@ async def replace_value(
 
 @router.put("/{slug}/label")
 async def update_label(
-    conn: ConnDep, _: SecretsWrite, slug: str, body: SecretLabelBody
+    conn: ConnDep, user: SecretsWrite, slug: str, body: SecretLabelBody
 ) -> dict[str, object]:
     if not body.label.strip():
         raise ApiError("invalid_request", status_code=400, fields=["label_required"])
     try:
-        secret = await db_update_secret_label(conn, slug, body.label.strip())
+        async with audited(
+            conn, user, UPDATED, "secret", slug, body.label.strip(), {"change": "label"}
+        ):
+            secret = await db_update_secret_label(conn, slug, body.label.strip())
     except SecretNotFoundError:
         raise ApiError("secret_not_found", status_code=404, slug=slug) from None
     return _payload(secret)
 
 
 @router.delete("/{slug}", status_code=204)
-async def delete_secret(conn: ConnDep, _: SecretsWrite, slug: str) -> None:
+async def delete_secret(conn: ConnDep, user: SecretsWrite, slug: str) -> None:
     # Supprimer un secret utilisé casserait silencieusement les objets qui le
     # désignent : on refuse, en disant combien l'utilisent.
     usages = await db_list_secret_usages(conn, slug)
     if usages:
         raise ApiError("secret_in_use", status_code=409, slug=slug, count=len(usages))
-    deleted = await db_delete_secret(conn, slug)
+    async with audited(conn, user, DELETED, "secret", slug) as entry:
+        deleted = await db_delete_secret(conn, slug)
+        entry.skip = not deleted
     if not deleted:
         raise ApiError("secret_not_found", status_code=404, slug=slug)
     log.info("secret_deleted", slug=slug)

@@ -379,3 +379,27 @@ async def test_modification_connexion_inconnue_404(admin_client: AsyncClient) ->
 async def db_execute_sql(app: FastAPI, sql: str) -> None:
     async with app.state.pool.acquire() as conn:
         await conn.execute(sql)
+
+
+async def test_audit_creation_modification_suppression(admin_client: AsyncClient) -> None:
+    # Ticket cf4434da : chaque écriture d'une connexion laisse une ligne d'audit.
+    await _create(admin_client)
+    connection_id = (await admin_client.get("/api/connections")).json()["connections"][0]["id"]
+    secret = (await admin_client.get("/api/connections")).json()["connections"][0]["secret_slug"]
+    r = await admin_client.put(
+        f"/api/connections/{connection_id}",
+        json={"label": "Renommée", "url": URL, "secret_slug": secret},
+    )
+    assert r.status_code == 200, r.text
+    r = await admin_client.delete(f"/api/connections/{connection_id}?delete_secret=true")
+    assert r.status_code == 204
+    events = (await admin_client.get("/api/audit")).json()["events"]
+    assert [(e["action"], e["object_type"]) for e in events] == [
+        ("deleted", "secret"),
+        ("deleted", "connection"),
+        ("updated", "connection"),
+        ("created", "connection"),
+        ("created", "secret"),
+    ]
+    assert events[1]["object_label"] == "Renommée"
+    assert GOOD_TOKEN not in (await admin_client.get("/api/audit")).text

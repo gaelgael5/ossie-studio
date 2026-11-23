@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import ConnectionsRead, ConnectionsWrite
+from ossie_studio.audit.service import CREATED, DELETED, audited, audited_secret_removal
 from ossie_studio.crypto import CryptoService
 from ossie_studio.databases.base import VERIFY_TIMEOUT_SECONDS, DbEngineError
 from ossie_studio.databases.registry import get_engine, is_known_engine, list_engine_specs
@@ -32,6 +33,7 @@ from ossie_studio.slugs import is_valid_slug
 
 def _str_params(params: dict[str, object]) -> dict[str, str]:
     return {k: str(v) for k, v in params.items()}
+
 
 log = structlog.get_logger(__name__)
 
@@ -114,7 +116,7 @@ async def list_engines(_: ConnectionsRead) -> dict[str, object]:
 async def create_db_connection(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: ConnectionsWrite,
+    user: ConnectionsWrite,
     body: DbConnectionCreate,
 ) -> dict[str, object]:
     if not body.label.strip():
@@ -145,17 +147,23 @@ async def create_db_connection(
         raise ApiError("db_host_unreachable", status_code=400) from None
 
     try:
-        created = await db_create_db_connection(
-            conn,
-            label=body.label.strip(),
-            engine=body.engine,
-            target=body.params.get(spec.target_field, ""),
-            params=dict(body.params),
-            secret_slug=secret.slug,
-            identity=identity.username,
-            server_version=identity.server_version,
-            slug=slug,
-        )
+        # Paramètres de connexion hors audit : seuls le moteur et la cible.
+        target = body.params.get(spec.target_field, "")
+        async with audited(
+            conn, user, CREATED, "db_connection", detail={"engine": body.engine, "target": target}
+        ) as entry:
+            created = await db_create_db_connection(
+                conn,
+                label=body.label.strip(),
+                engine=body.engine,
+                target=target,
+                params=dict(body.params),
+                secret_slug=secret.slug,
+                identity=identity.username,
+                server_version=identity.server_version,
+                slug=slug,
+            )
+            entry.target(created.id, created.label)
     except DbConnectionSlugTakenError:
         raise ApiError("db_connection_slug_taken", status_code=409, slug=slug) from None
     except DbConnectionDuplicateError:
@@ -200,12 +208,20 @@ async def test_db_connection(
 
 @router.delete("/{connection_id}", status_code=204)
 async def delete_db_connection(
-    conn: ConnDep, _: ConnectionsWrite, connection_id: uuid.UUID, delete_secret: bool = False
+    conn: ConnDep, user: ConnectionsWrite, connection_id: uuid.UUID, delete_secret: bool = False
 ) -> None:
-    secret_slug = await db_delete_db_connection(conn, connection_id)
+    current = await db_get_db_connection(conn, connection_id)
+    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
+    async with audited(
+        conn, user, DELETED, "db_connection", connection_id, current.label if current else ""
+    ) as entry:
+        secret_slug = await db_delete_db_connection(conn, connection_id)
+        entry.skip = secret_slug is None
     if secret_slug is None:
         raise ApiError("db_connection_not_found", status_code=404)
-    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
     if delete_secret:
-        secret_outcome = await db_delete_secret_if_unused(conn, secret_slug)
+        slug = secret_slug
+        secret_outcome = await audited_secret_removal(
+            conn, user, slug, lambda: db_delete_secret_if_unused(conn, slug)
+        )
     log.info("db_connection_removed", secret=secret_outcome)

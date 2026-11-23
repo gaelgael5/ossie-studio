@@ -42,6 +42,9 @@ CATALOG: tuple[Domain, ...] = (
     Domain("api_keys", ("api_keys:read", "api_keys:write")),
     # Toutes les connexions OAuth d'agents (chacun gère toujours les siennes).
     Domain("agent_connections", ("agent_connections:read", "agent_connections:write")),
+    # Journal d'audit et page Historique (ticket cf4434da) : lecture seule, aucune
+    # capacité d'écriture — aucune route ne modifie une ligne d'audit.
+    Domain("audit", ("audit:read",)),
 )
 
 ALL_CAPABILITIES: frozenset[str] = frozenset(

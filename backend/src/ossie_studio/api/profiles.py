@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import ProfilesRead, ProfilesWrite
+from ossie_studio.audit.service import CREATED, DELETED, UPDATED, audited
 from ossie_studio.authz.catalog import ALL_CAPABILITIES, catalog_payload, is_known_capability
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
@@ -91,7 +92,11 @@ async def create_profile(
     if not slug:
         slug = await free_slug(conn, "profiles", slugify(name, fallback="profil"))
     try:
-        profile = await db_create_profile(conn, name, body.description.strip(), caps, slug)
+        async with audited(
+            conn, user, CREATED, "profile", detail={"capabilities": sorted(caps)}
+        ) as entry:
+            profile = await db_create_profile(conn, name, body.description.strip(), caps, slug)
+            entry.target(profile.id, profile.name)
     except ProfileSlugTakenError:
         raise ApiError("profile_slug_taken", status_code=409, slug=slug) from None
     except ProfileNameTakenError:
@@ -112,10 +117,17 @@ async def duplicate_profile(
     name, suffix = base, 2
     while True:
         try:
-            copy = await db_create_profile(
-                conn, name, source.description, caps,
-                await db_free_profile_slug(conn, f"{source.slug or 'profil'}-copie"),
-            )
+            async with audited(
+                conn, user, CREATED, "profile", detail={"duplicated_from": source.name}
+            ) as entry:
+                copy = await db_create_profile(
+                    conn,
+                    name,
+                    source.description,
+                    caps,
+                    await db_free_profile_slug(conn, f"{source.slug or 'profil'}-copie"),
+                )
+                entry.target(copy.id, copy.name)
             break
         except ProfileNameTakenError:
             name = f"{base} {suffix}"
@@ -141,7 +153,12 @@ async def update_profile(
         raise ApiError("invalid_request", status_code=400, fields=["profile_name_required"])
     caps = _clean_capabilities(body.capabilities)
     try:
-        profile = await db_update_profile(conn, profile_id, name, body.description.strip(), caps)
+        async with audited(
+            conn, user, UPDATED, "profile", profile_id, name, {"capabilities": sorted(caps)}
+        ):
+            profile = await db_update_profile(
+                conn, profile_id, name, body.description.strip(), caps
+            )
     except ProfileNameTakenError:
         raise ApiError("profile_name_taken", status_code=409, name=name) from None
     except ProfileNotFoundError:
@@ -168,7 +185,8 @@ async def delete_profile(conn: ConnDep, user: ProfilesWrite, profile_id: uuid.UU
     if mappings > 0:
         # Un profil visé par une correspondance OIDC n'est pas supprimable.
         raise ApiError("profile_in_mapping", status_code=409, count=mappings)
-    await db_delete_profile(conn, profile_id)
+    async with audited(conn, user, DELETED, "profile", profile_id, source.name):
+        await db_delete_profile(conn, profile_id)
     log.info("profile_deleted", profile_id=str(profile_id), author=user.email)
 
 
@@ -183,7 +201,10 @@ async def set_default(
         # L'Administrateur ne peut pas être le profil par défaut (il ouvrirait
         # tous les droits à quiconque se connecte).
         raise ApiError("profile_admin_default", status_code=409)
-    profile = await db_set_default_profile(conn, profile_id)
+    async with audited(
+        conn, user, UPDATED, "profile", profile_id, source.name, {"change": "default"}
+    ):
+        profile = await db_set_default_profile(conn, profile_id)
     count = await db_count_users_with_profile(conn, profile_id)
     log.info("profile_default_set", profile_id=str(profile_id), author=user.email)
     return _payload(profile, count)

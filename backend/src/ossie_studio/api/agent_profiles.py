@@ -25,6 +25,7 @@ from ossie_studio.agent_profiles.service import (
     db_update_agent_profile,
 )
 from ossie_studio.api.common import AgentProfilesRead, AgentProfilesWrite
+from ossie_studio.audit.service import CREATED, DELETED, UPDATED, audited
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.mcp_surface import catalog
@@ -135,14 +136,18 @@ async def create_agent_profile(
         slug = await db_free_agent_profile_slug(conn, slugify(name, fallback="profil-agent"))
     draft = AgentProfile(uuid.uuid4(), slug, name, "", primitives, body.all_read, False)
     await _guard(conn, user, set(), draft.effective_primitives())
-    profile = await _create(
-        conn,
-        name=name,
-        slug=slug,
-        description=body.description.strip(),
-        primitives=primitives,
-        all_read=body.all_read,
-    )
+    async with audited(
+        conn, user, CREATED, "agent_profile", detail={"primitives": sorted(primitives)}
+    ) as entry:
+        profile = await _create(
+            conn,
+            name=name,
+            slug=slug,
+            description=body.description.strip(),
+            primitives=primitives,
+            all_read=body.all_read,
+        )
+        entry.target(profile.id, profile.name)
     log.info("agent_profile_created", agent_profile_id=str(profile.id), author=user.email)
     return await _payload(conn, profile)
 
@@ -160,14 +165,18 @@ async def duplicate_agent_profile(
     name, suffix = base, 2
     while True:
         try:
-            copy = await db_create_agent_profile(
-                conn,
-                name=name,
-                slug=slug,
-                description=source.description,
-                primitives=source.primitives,
-                all_read=source.all_read,
-            )
+            async with audited(
+                conn, user, CREATED, "agent_profile", detail={"duplicated_from": source.name}
+            ) as entry:
+                copy = await db_create_agent_profile(
+                    conn,
+                    name=name,
+                    slug=slug,
+                    description=source.description,
+                    primitives=source.primitives,
+                    all_read=source.all_read,
+                )
+                entry.target(copy.id, copy.name)
             break
         except AgentProfileNameTakenError:
             name, suffix = f"{base} {suffix}", suffix + 1
@@ -192,14 +201,26 @@ async def update_agent_profile(
     ).effective_primitives()
     await _guard(conn, user, source.effective_primitives(), after)
     try:
-        profile = await db_update_agent_profile(
+        async with audited(
             conn,
+            user,
+            UPDATED,
+            "agent_profile",
             profile_id,
-            name=name,
-            description=body.description.strip(),
-            primitives=primitives,
-            all_read=body.all_read,
-        )
+            name,
+            {
+                "added": sorted(after - source.effective_primitives()),
+                "removed": sorted(source.effective_primitives() - after),
+            },
+        ):
+            profile = await db_update_agent_profile(
+                conn,
+                profile_id,
+                name=name,
+                description=body.description.strip(),
+                primitives=primitives,
+                all_read=body.all_read,
+            )
     except AgentProfileNameTakenError:
         raise ApiError("agent_profile_name_taken", status_code=409, name=name) from None
     log.info(
@@ -216,7 +237,7 @@ async def update_agent_profile(
 async def delete_agent_profile(
     conn: ConnDep, user: AgentProfilesWrite, profile_id: uuid.UUID
 ) -> None:
-    await _editable(conn, profile_id)
+    source = await _editable(conn, profile_id)
     usage = await db_agent_profile_usage(conn, profile_id)
     if usage.in_use:
         raise ApiError(
@@ -225,5 +246,6 @@ async def delete_agent_profile(
             keys=", ".join(usage.keys) or "—",
             connections=", ".join(usage.connections) or "—",
         )
-    await db_delete_agent_profile(conn, profile_id)
+    async with audited(conn, user, DELETED, "agent_profile", profile_id, source.name):
+        await db_delete_agent_profile(conn, profile_id)
     log.info("agent_profile_deleted", agent_profile_id=str(profile_id), author=user.email)

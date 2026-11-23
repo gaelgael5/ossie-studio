@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import UsersRead, UsersWrite
+from ossie_studio.audit.service import UPDATED, audited
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.profiles.service import db_get_profile
@@ -127,6 +128,11 @@ async def list_users(
     }
 
 
+async def _email(conn: ConnDep, user_id: uuid.UUID) -> str:
+    """Empreinte lisible du compte visé, figée dans la ligne d'audit."""
+    return str(await conn.fetchval("SELECT email FROM users WHERE id = $1", user_id) or "")
+
+
 @router.put("/{user_id}/profile")
 async def assign_profile(
     conn: ConnDep, user: UsersWrite, user_id: uuid.UUID, body: AssignBody
@@ -138,7 +144,16 @@ async def assign_profile(
     if await db_get_profile(conn, profile_id) is None:
         raise ApiError("profile_not_found", status_code=404)
     try:
-        old_profile_id, _was_admin = await db_assign_profile(conn, user_id, profile_id)
+        async with audited(
+            conn,
+            user,
+            UPDATED,
+            "user",
+            user_id,
+            await _email(conn, user_id),
+            {"change": "profile", "profile": str(profile_id)},
+        ):
+            old_profile_id, _was_admin = await db_assign_profile(conn, user_id, profile_id)
     except UserNotFoundError:
         raise ApiError("user_not_found", status_code=404) from None
     except AdminLockoutError:
@@ -157,7 +172,12 @@ async def assign_profile(
 async def remove_pin(conn: ConnDep, user: UsersWrite, user_id: uuid.UUID) -> dict[str, bool]:
     # Retire la marque « fixé à la main » : les correspondances OIDC pourront de
     # nouveau choisir le profil à la connexion suivante.
-    if not await db_set_pin(conn, user_id, pinned=False):
+    async with audited(
+        conn, user, UPDATED, "user", user_id, await _email(conn, user_id), {"change": "unpinned"}
+    ) as entry:
+        done = await db_set_pin(conn, user_id, pinned=False)
+        entry.skip = not done
+    if not done:
         raise ApiError("user_not_found", status_code=404)
     log.info("profile_pin_removed", user_id=str(user_id), author=user.email)
     return {"ok": True}
@@ -175,7 +195,16 @@ async def add_team(
     except ValueError:
         raise ApiError("team_not_found", status_code=404) from None
     try:
-        await db_add_user_team(conn, user_id, team_id)
+        async with audited(
+            conn,
+            user,
+            UPDATED,
+            "user",
+            user_id,
+            await _email(conn, user_id),
+            {"change": "team_added", "team": str(team_id)},
+        ):
+            await db_add_user_team(conn, user_id, team_id)
     except UserNotFoundError:
         raise ApiError("user_not_found", status_code=404) from None
     except TeamNotFoundError:
@@ -190,9 +219,22 @@ async def remove_team(
 ) -> dict[str, bool]:
     # Retire un rattachement (décision humaine). Idempotent : retirer un
     # rattachement absent n'est pas une erreur.
-    removed = await db_remove_user_team(conn, user_id, team_id)
+    async with audited(
+        conn,
+        user,
+        UPDATED,
+        "user",
+        user_id,
+        await _email(conn, user_id),
+        {"change": "team_removed", "team": str(team_id)},
+    ) as entry:
+        removed = await db_remove_user_team(conn, user_id, team_id)
+        entry.skip = not removed
     log.info(
-        "team_removed", user_id=str(user_id), team=str(team_id),
-        removed=removed, author=user.email,
+        "team_removed",
+        user_id=str(user_id),
+        team=str(team_id),
+        removed=removed,
+        author=user.email,
     )
     return {"ok": True, "removed": removed}

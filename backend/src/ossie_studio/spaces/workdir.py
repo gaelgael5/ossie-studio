@@ -64,6 +64,18 @@ class UnpublishedCommit:
 
 
 @dataclass(frozen=True)
+class PathCommit:
+    """Commit publié qui touche un répertoire, avec les fichiers changés
+    (`A` ajouté, `M` modifié, `D` supprimé, `R…` renommé → nouveau chemin)."""
+
+    sha: str
+    author: str
+    date: str
+    message: str
+    files: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True)
 class Version:
     number: int
     label: str
@@ -493,6 +505,56 @@ class WorkdirManager:
                 commits.append(
                     UnpublishedCommit(sha=sha, author=author, date=date, message=message)
                 )
+            return commits
+
+    async def path_log(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        rel_path: str,
+        limit: int = 200,
+    ) -> list[PathCommit]:
+        """Commits publiés (du plus récent au plus ancien) qui touchent
+        `rel_path`, avec leurs fichiers changés : l'historique de la gouvernance
+        pour la page Historique (ticket cf4434da). Lecture seule."""
+        ref = slug
+        workdir = self._dir(space_id, slug)
+        async with self._lock(str(workdir)):
+            env = self._env(username, token)
+            await self._clone_or_refresh(workdir, repo_url, env)
+            if not await self._remote_branch_exists(workdir, ref, env):
+                raise WorkdirError("branch_not_found")
+            await self._checkout_branch(workdir, ref, env)
+            fmt = "\x1e" + _UNIT_SEP.join(["%H", "%an", "%aI", "%s"])
+            code, out, err = await run_git(
+                [
+                    "log",
+                    f"--pretty=format:{fmt}",
+                    "--name-status",
+                    f"--max-count={int(limit)}",
+                    "--",
+                    rel_path,
+                ],
+                workdir,
+                env,
+            )
+            if code != 0:
+                raise WorkdirError(_access_code(classify(err)))
+            commits: list[PathCommit] = []
+            for block in out.split("\x1e"):
+                lines = [ln for ln in block.splitlines() if ln.strip()]
+                if not lines:
+                    continue
+                sha, author, date, message = lines[0].split(_UNIT_SEP, 3)
+                files: list[tuple[str, str]] = []
+                for line in lines[1:]:
+                    parts = line.split("\t")
+                    if len(parts) >= 2:
+                        files.append((parts[0][:1], parts[-1]))
+                commits.append(PathCommit(sha, author, date, message, tuple(files)))
             return commits
 
     async def local_file_at(

@@ -27,6 +27,7 @@ from ossie_studio.api_keys.service import (
     db_revoke_api_key,
     db_set_api_key_profile,
 )
+from ossie_studio.audit.service import CREATED, UPDATED, audited
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.mcp_surface.guard import resource_url
@@ -133,7 +134,12 @@ async def issue_api_key(conn: ConnDep, user: ApiKeysWrite, body: IssueBody) -> J
     if not label or len(label) > _LABEL_MAX:
         raise ApiError("invalid_request", status_code=400, fields=["label_required"])
     profile = await _grantable_profile(conn, user, body.agent_profile_id)
-    key, secret = await db_create_api_key(conn, label, profile.id, user.id)
+    # Jamais la clé elle-même dans l'audit : son libellé et son profil.
+    async with audited(
+        conn, user, CREATED, "api_key", detail={"agent_profile": profile.name}
+    ) as entry:
+        key, secret = await db_create_api_key(conn, label, profile.id, user.id)
+        entry.target(key.id, label)
     log.info(
         "api_key_issued", key_id=str(key.id), agent_profile_id=str(profile.id), author=user.email
     )
@@ -153,7 +159,10 @@ async def change_api_key_profile(
     if key.revoked_at is not None:
         raise ApiError("api_key_revoked", status_code=409)
     profile = await _grantable_profile(conn, user, body.agent_profile_id)
-    await db_set_api_key_profile(conn, key_id, profile.id)
+    async with audited(
+        conn, user, UPDATED, "api_key", key_id, key.label, {"agent_profile": profile.name}
+    ):
+        await db_set_api_key_profile(conn, key_id, profile.id)
     log.info(
         "api_key_profile_changed",
         key_id=str(key_id),
@@ -165,7 +174,12 @@ async def change_api_key_profile(
 
 @router.post("/{key_id}/revoke")
 async def revoke_api_key(conn: ConnDep, user: ApiKeysWrite, key_id: uuid.UUID) -> dict[str, object]:
-    await _key_or_404(conn, key_id)
-    if await db_revoke_api_key(conn, key_id, user.id):
+    key = await _key_or_404(conn, key_id)
+    async with audited(
+        conn, user, UPDATED, "api_key", key_id, key.label, {"change": "revoked"}
+    ) as entry:
+        revoked = await db_revoke_api_key(conn, key_id, user.id)
+        entry.skip = not revoked  # déjà révoquée : rien n'a changé
+    if revoked:
         log.info("api_key_revoked", key_id=str(key_id), author=user.email)
     return _payload(await _key_or_404(conn, key_id))
