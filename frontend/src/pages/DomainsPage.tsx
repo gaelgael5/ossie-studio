@@ -7,6 +7,7 @@ import type { DomainDataset, DomainDetail } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
@@ -16,7 +17,6 @@ import { useWorkspace } from '../workspace'
 // asset donne un dataset (dérivé, en lecture seule : le travail humain se fait
 // sur l'asset, dans la Curation).
 
-const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 function useBranch(): { spaceId: string; branchId: string } | null {
   const ws = useWorkspace()
@@ -45,7 +45,8 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [creating, setCreating] = useState(false)
-  const [name, setName] = useState('')
+  // Règle commune : libellé d'abord, slug déduit et corrigeable (bug 668d0c75).
+  const pair = useLabelSlug()
   const [description, setDescription] = useState('')
   const [messages, setMessages] = useState<string[]>([])
   const list = useQuery({
@@ -53,7 +54,12 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
     queryFn: () => api.listDomains(spaceId, branchId),
   })
   const create = useMutation({
-    mutationFn: () => api.createDomain(spaceId, branchId, { name: name.trim(), description: description.trim() }),
+    mutationFn: () =>
+      api.createDomain(spaceId, branchId, {
+        name: pair.finalSlug,
+        label: pair.label.trim(),
+        description: description.trim(),
+      }),
     onMutate: () => setMessages([]),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: ['domains'] })
@@ -78,18 +84,13 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
       <ErrorList messages={list.error ? errorMessages(t, list.error) : messages} />
       {creating ? (
         <section className="panel stack" aria-label={t('domainNew')}>
-          <div className="field">
-            <label className="field-label" htmlFor="new-domain-name">
-              {t('domainName')}
-            </label>
-            <input
-              id="new-domain-name"
-              className="input"
-              value={name}
-              placeholder="expedition"
-              onChange={(e) => setName(e.target.value)}
+          <div className="form-grid">
+            <LabelSlugFields
+              idPrefix="new-domain"
+              state={pair}
+              labelText={t('fieldLabel')}
+              slugText={t('fieldSlug')}
             />
-            <span className="field-hint">{t('domainNameHint')}</span>
           </div>
           <div className="field">
             <label className="field-label" htmlFor="new-domain-desc">
@@ -111,7 +112,7 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
               className="btn btn-primary"
               busy={create.isPending}
               busyText={t('domainCreateBusy')}
-              disabled={!NAME.test(name.trim())}
+              disabled={!pair.label.trim() || !pair.finalSlug}
               onClick={() => create.mutate()}
             >
               {t('domainCreate')}
@@ -141,8 +142,9 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
                 <tr key={d.name}>
                   <td>
                     <Link className="link-strong" to={`/domaines/${encodeURIComponent(d.name)}`}>
-                      {d.name}
+                      {d.label}
                     </Link>
+                    <div className="muted mono small">{d.name}</div>
                     {d.warnings.length > 0 ? (
                       <span className="text-danger small"> {t('domainWarnings', { count: d.warnings.length })}</span>
                     ) : null}
@@ -297,11 +299,12 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
   return (
     <main className="stack">
       <div className="breadcrumb">
-        <Link to="/domaines">{t('domainsTitle')}</Link> › {name}
+        <Link to="/domaines">{t('domainsTitle')}</Link> › {domain?.label ?? name}
       </div>
       <div className="page-head">
         <div>
-          <h1 className="page-title">{name}</h1>
+          <h1 className="page-title">{domain?.label ?? name}</h1>
+          <p className="muted mono small">{name}</p>
           {domain?.description ? <p className="page-sub">{domain.description}</p> : null}
         </div>
         <div className="row">

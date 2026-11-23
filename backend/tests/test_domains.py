@@ -151,6 +151,21 @@ def test_domaine_virtuel_source_raw_et_references(tmp_path: Path) -> None:
     assert {p.name: p.read_bytes() for p in base.iterdir()} == before
 
 
+def test_libelle_dans_extend_jamais_dans_ossie(tmp_path: Path) -> None:
+    # Bug 668d0c75 : libellé libre + slug ; le libellé est hors norme Ossie.
+    domain = Domain(
+        name="point-relais",
+        label="Point relais PUDO",
+        datasets=[Dataset("A", "raw:s/a", False, True)],
+    )
+    texts = render_domain(domain)
+    assert "Point relais PUDO" not in (texts["point-relais.virtuel.ossie.yaml"] or "")
+    assert load_schema(texts["point-relais.extend.yaml"] or "")["label"] == "Point relais PUDO"
+    write_domain(tmp_path, domain)
+    again = read_domain(tmp_path, "point-relais")
+    assert again is not None and again.label == "Point relais PUDO"
+
+
 def test_domaine_vide_seul_extend(tmp_path: Path) -> None:
     write_domain(tmp_path, Domain(name="vide"))
     assert [p.name for p in (tmp_path / "domaines").iterdir()] == ["vide.extend.yaml"]
@@ -321,8 +336,11 @@ async def test_creer_regrouper_ouvrir_retirer_supprimer(sp: ApiSpace) -> None:
     assert r.status_code == 200, r.text
     api = f"{sp.base}/domains"
     assert (await sp.client.get(api)).json() == {"domains": []}
-    r = await sp.client.post(api, json={"name": "expedition", "description": "Colis"})
+    r = await sp.client.post(
+        api, json={"name": "expedition", "label": "Expédition des colis", "description": "Colis"}
+    )
     assert r.status_code == 201, r.text
+    assert r.json()["label"] == "Expédition des colis"
     assert (await sp.client.post(api, json={"name": "expedition"})).status_code == 409
     assert (await sp.client.post(api, json={"name": "Pas Bon"})).status_code == 400
 

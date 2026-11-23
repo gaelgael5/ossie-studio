@@ -7,6 +7,7 @@ import type { DomainAssetRef, DomainPlan } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from './BusyButton'
 import { ErrorList } from './ErrorList'
+import { LabelSlugFields, useLabelSlug } from './LabelSlugFields'
 
 // « Regrouper dans un domaine » (ticket docflow 36d35a88). Gael, 23/11/2026 :
 // « j'aimerais beaucoup regrouper ces items […] que me proposes-tu pour que ce
@@ -15,7 +16,6 @@ import { ErrorList } from './ErrorList'
 // ajouté (datasets, liens déduits cochés) avant de confirmer. Rien n'est écrit
 // avant la confirmation ; un domaine neuf n'est créé qu'à ce moment.
 
-const NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 export function AddToDomainDialog({
   spaceId,
@@ -34,7 +34,8 @@ export function AddToDomainDialog({
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
   const [choice, setChoice] = useState('') // nom d'un domaine existant, ou '' = nouveau
-  const [newName, setNewName] = useState('')
+  // Règle commune : libellé d'abord, slug déduit et corrigeable (bug 668d0c75).
+  const pair = useLabelSlug()
   const [description, setDescription] = useState('')
   const [plan, setPlan] = useState<DomainPlan | null>(null)
   const [unchecked, setUnchecked] = useState<Set<string>>(new Set())
@@ -46,12 +47,14 @@ export function AddToDomainDialog({
   })
   const existing = domains.data?.domains ?? []
   const creating = choice === ''
-  const name = creating ? newName.trim() : choice
-  const nameOk = NAME.test(name) && !(creating && existing.some((d) => d.name === name))
+  const name = creating ? pair.finalSlug : choice
+  const nameOk = name !== '' && !(creating && existing.some((d) => d.name === name))
+  const shownName = creating ? pair.label.trim() || name : existing.find((d) => d.name === name)?.label ?? name
   const body = {
     assets,
     with_references: withReferences,
     create: creating,
+    label: creating ? pair.label.trim() : '',
     description: description.trim(),
   }
 
@@ -72,7 +75,7 @@ export function AddToDomainDialog({
       }),
     onMutate: () => setMessages([]),
     onSuccess: async () => {
-      setDone(name)
+      setDone(shownName)
       await Promise.all(
         ['domains', 'domain', 'draft', 'draftChanges'].map((key) =>
           queryClient.invalidateQueries({ queryKey: [key] }),
@@ -96,7 +99,7 @@ export function AddToDomainDialog({
           <div className="stack">
             <p role="status">{t('domainAddDone', { name: done })}</p>
             <div className="row">
-              <Link className="btn btn-primary" to={`/domaines/${encodeURIComponent(done)}`}>
+              <Link className="btn btn-primary" to={`/domaines/${encodeURIComponent(name)}`}>
                 {t('domainOpen')}
               </Link>
               <button type="button" className="btn" onClick={onClose}>
@@ -122,26 +125,22 @@ export function AddToDomainDialog({
                 <option value="">{t('domainNewOption')}</option>
                 {existing.map((d) => (
                   <option key={d.name} value={d.name}>
-                    {d.name}
+                    {d.label}
                   </option>
                 ))}
               </select>
             </div>
             {creating ? (
               <>
-                <div className="field">
-                  <label className="field-label" htmlFor="domain-name">
-                    {t('domainName')}
-                  </label>
-                  <input
-                    id="domain-name"
-                    className="input"
-                    value={newName}
-                    placeholder="expedition"
-                    onChange={(e) => setNewName(e.target.value)}
-                  />
-                  <span className="field-hint">{t('domainNameHint')}</span>
-                </div>
+                <LabelSlugFields
+                  idPrefix="domain"
+                  state={pair}
+                  labelText={t('fieldLabel')}
+                  slugText={t('fieldSlug')}
+                />
+                {existing.some((d) => d.name === pair.finalSlug) ? (
+                  <span className="text-danger small">{t('domainSlugTaken')}</span>
+                ) : null}
                 <div className="field">
                   <label className="field-label" htmlFor="domain-desc">
                     {t('domainDescription')}
@@ -170,7 +169,7 @@ export function AddToDomainDialog({
           </div>
         ) : (
           <div className="stack">
-            <p>{t('domainPlanFor', { name })}</p>
+            <p>{t('domainPlanFor', { name: shownName })}</p>
             {plan.added.length > 0 ? (
               <ul className="list-plain">
                 {plan.added.map((d) => (

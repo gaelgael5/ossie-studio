@@ -1162,6 +1162,7 @@ export const fr = {
     domainsEmpty: 'Aucun domaine. Regroupez des assets depuis la Curation, ou créez un domaine.',
     domainNew: '+ Nouveau domaine',
     domainName: 'Nom',
+    domainSlugTaken: 'Un domaine avec ce slug existe déjà.',
     domainNameHint: 'Minuscules, chiffres et tirets (expedition, ventes-france).',
     domainDescription: 'Description',
     domainCreate: 'Créer',

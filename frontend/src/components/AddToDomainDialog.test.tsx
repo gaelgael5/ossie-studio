@@ -26,7 +26,7 @@ function setup() {
       const method = init?.method ?? 'GET'
       calls.push({ method, path, body: init?.body as string | undefined })
       let body: unknown = {}
-      if (path === BASE) body = { domains: [{ name: 'ventes', description: '', consultable: 0, virtual: 0, assets: [], warnings: [] }] }
+      if (path === BASE) body = { domains: [{ name: 'ventes', label: 'Ventes', description: '', consultable: 0, virtual: 0, assets: [], warnings: [] }] }
       else if (path.endsWith('/preview')) body = PLAN
       else if (path.endsWith('/assets')) body = { ...PLAN, commit: 'draft:4' }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
@@ -55,11 +55,16 @@ describe('AddToDomainDialog (ticket 36d35a88)', () => {
     const calls = setup()
     const user = userEvent.setup()
     const preview = screen.getByRole('button', { name: 'Voir ce qui sera ajouté' })
-    expect(preview).toBeDisabled() // nom vide
-    await user.type(screen.getByLabelText('Nom'), 'ventes')
-    expect(preview).toBeDisabled() // déjà pris
-    await user.clear(screen.getByLabelText('Nom'))
-    await user.type(screen.getByLabelText('Nom'), 'expedition')
+    expect(preview).toBeDisabled() // libellé vide
+    await user.type(screen.getByLabelText('Libellé'), 'Ventes')
+    expect(preview).toBeDisabled() // slug « ventes » déjà pris
+    expect(screen.getByText('Un domaine avec ce slug existe déjà.')).toBeInTheDocument()
+    await user.clear(screen.getByLabelText('Libellé'))
+    // Bug 668d0c75 : libellé libre, slug déduit.
+    await user.type(screen.getByLabelText('Libellé'), 'Expédition des colis')
+    expect(screen.getByLabelText('Slug')).toHaveValue('expedition-des-colis')
+    await user.clear(screen.getByLabelText('Slug'))
+    await user.type(screen.getByLabelText('Slug'), 'expedition')
     await user.click(preview)
     expect(await screen.findByText('Order')).toBeInTheDocument()
     expect(screen.getByText(/Status/)).toBeInTheDocument() // ignoré, signalé
@@ -75,16 +80,17 @@ describe('AddToDomainDialog (ticket 36d35a88)', () => {
       assets: [{ source: 'app', path: 'order.schema.yaml' }],
       with_references: true,
       create: true,
+      label: 'Expédition des colis',
       description: '',
       links: [],
     })
-    expect(await screen.findByText('Regroupé dans le domaine « expedition ».')).toBeInTheDocument()
+    expect(await screen.findByText('Regroupé dans le domaine « Expédition des colis ».')).toBeInTheDocument()
   })
 
   it('domaine existant : pas de création demandée', async () => {
     const calls = setup()
     const user = userEvent.setup()
-    await screen.findByRole('option', { name: 'ventes' })
+    await screen.findByRole('option', { name: 'Ventes' })
     await user.selectOptions(screen.getByLabelText('Domaine'), 'ventes')
     await user.click(screen.getByRole('button', { name: 'Voir ce qui sera ajouté' }))
     await screen.findByText('Order')

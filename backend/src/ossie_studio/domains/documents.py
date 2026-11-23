@@ -121,8 +121,11 @@ class Reference:
 
 @dataclass
 class Domain:
-    name: str
+    name: str  # slug : nom des fichiers et `name` du modèle Ossie
     description: str = ""
+    # Libellé libre saisi à l'écran (règle libellé + slug de l'application) ;
+    # hors norme Ossie, donc dans le `.extend.yaml`. Vide : on affiche le slug.
+    label: str = ""
     datasets: list[Dataset] = field(default_factory=list)
     relationships: list[Relationship] = field(default_factory=list)
     references: list[Reference] = field(default_factory=list)
@@ -152,6 +155,7 @@ EXTEND_SCHEMA: dict[str, Any] = {
     "properties": {
         "version": {"const": EXTEND_VERSION},
         "name": _STR,
+        "label": _STR,
         "description": _STR,
         "datasets": {
             "type": "object",
@@ -279,6 +283,8 @@ def _extend_document(domain: Domain) -> dict[str, Any]:
             entry["fields"] = fields
         datasets[ds.name] = entry
     doc: dict[str, Any] = {"version": EXTEND_VERSION, "name": domain.name}
+    if domain.label:
+        doc["label"] = domain.label
     if domain.description:
         doc["description"] = domain.description
     if datasets:
@@ -410,7 +416,11 @@ def read_domain(root: Path, name: str) -> Domain | None:
         return None
     extend = _load(extend_file)
     _check(_extend_validator(), extend, "extend_invalid")
-    domain = Domain(name=name, description=str(extend.get("description") or ""))
+    domain = Domain(
+        name=name,
+        description=str(extend.get("description") or ""),
+        label=str(extend.get("label") or ""),
+    )
     ext_datasets: dict[str, Any] = extend.get("datasets") or {}
     seen: set[str] = set()
     for suffix, consultable in ((OSSIE_SUFFIX, True), (VIRTUAL_SUFFIX, False)):

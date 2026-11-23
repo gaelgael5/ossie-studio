@@ -10,6 +10,7 @@ vi.mock('../workspace', () => ({ useWorkspace: () => ({ spaceId: 's1', branchId:
 const BASE = '/api/spaces/s1/branches/b1/domains'
 const DETAIL = {
   name: 'expedition',
+  label: 'Expédition',
   description: 'Colis',
   consultable: 0,
   virtual: 2,
@@ -24,12 +25,12 @@ const DETAIL = {
 }
 
 function setup(url: string) {
-  const calls: { method: string; path: string }[] = []
+  const calls: { method: string; path: string; body?: string }[] = []
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
-      calls.push({ method, path })
+      calls.push({ method, path, body: init?.body as string | undefined })
       let body: unknown = {}
       if (path === '/api/session') body = { authenticated: true, capabilities: ['curation:read', 'curation:write'] }
       else if (path === BASE && method === 'GET') body = { domains: [] }
@@ -59,9 +60,15 @@ describe('Domaines (tickets a7baaaa3, 36d35a88)', () => {
     expect(await screen.findByText(/Aucun domaine/)).toBeInTheDocument()
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: '+ Nouveau domaine' }))
-    await user.type(screen.getByLabelText('Nom'), 'expedition')
+    await user.type(screen.getByLabelText('Libellé'), 'Point relais PUDO')
+    expect(screen.getByLabelText('Slug')).toHaveValue('point-relais-pudo')
     await user.click(screen.getByRole('button', { name: 'Créer' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === BASE)).toBe(true))
+    expect(JSON.parse(calls.find((c) => c.method === 'POST')!.body!)).toEqual({
+      name: 'point-relais-pudo',
+      label: 'Point relais PUDO',
+      description: '',
+    })
   })
 
   it('écran du domaine : datasets virtuels, liens, retrait d’un dataset', async () => {

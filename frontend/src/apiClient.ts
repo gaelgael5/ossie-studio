@@ -1140,7 +1140,10 @@ export interface DomainDataset {
   primary_key: string[]
 }
 export interface DomainSummary {
+  /** Slug : nom des fichiers et du modèle Ossie. */
   name: string
+  /** Libellé saisi (le slug à défaut). */
+  label: string
   description: string
   consultable: number
   virtual: number
@@ -1630,7 +1633,11 @@ export const api = {
     apiFetch<DomainDetail>(
       `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}`,
     ),
-  createDomain: (spaceId: string, branchId: string, body: { name: string; description: string }) =>
+  createDomain: (
+    spaceId: string,
+    branchId: string,
+    body: { name: string; label: string; description: string },
+  ) =>
     apiFetch<DomainSummary>(`/api/spaces/${spaceId}/branches/${branchId}/domains`, {
       method: 'POST',
       body: JSON.stringify(body),

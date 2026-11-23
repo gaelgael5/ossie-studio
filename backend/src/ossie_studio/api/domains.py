@@ -53,8 +53,12 @@ WorkdirDep = Annotated[DraftWorkdir, Depends(get_draft_workdir)]
 
 
 class DomainCreate(BaseModel):
+    """Libellé libre et slug (déduit du libellé à l'écran, corrigeable) : règle
+    commune des écrans. Le slug nomme les fichiers et le modèle Ossie."""
+
     model_config = ConfigDict(extra="forbid")
     name: str = ""
+    label: str = ""
     description: str = ""
 
 
@@ -77,6 +81,7 @@ class AddBody(BaseModel):
     # fenêtre « Regrouper dans un domaine » crée et remplit en un seul commit,
     # et l'aperçu ne crée rien.
     create: bool = False
+    label: str = ""
     description: str = ""
 
 
@@ -186,6 +191,7 @@ def _dataset_payload(ds: Dataset) -> dict[str, object]:
 def _summary(domain: Domain) -> dict[str, object]:
     return {
         "name": domain.name,
+        "label": domain.label or domain.name,
         "description": domain.description,
         "consultable": sum(1 for d in domain.datasets if d.consultable),
         "virtual": sum(1 for d in domain.datasets if not d.consultable),
@@ -251,7 +257,7 @@ async def create_branch_domain(
     if not is_valid_domain_name(name):
         raise ApiError("domain_name_invalid", status_code=400, detail=name)
     ctx, _ref = await _ctx(conn, crypto, workdir, space_id, branch_id)
-    domain = Domain(name=name, description=body.description.strip())
+    domain = Domain(name=name, label=body.label.strip(), description=body.description.strip())
 
     def write(root: Path) -> None:
         if name in list_domain_names(root):
@@ -349,7 +355,7 @@ def _plan(root: Path, name: str, body: AddBody, graph: ReferenceGraph) -> tuple[
             raise _NotFound(name)
         if not is_valid_domain_name(name):
             raise DomainError("domain_name_invalid", name)
-        domain = Domain(name=name, description=body.description.strip())
+        domain = Domain(name=name, label=body.label.strip(), description=body.description.strip())
     assets = read_assets(root)
     for key in _keys(body):
         if key not in assets:

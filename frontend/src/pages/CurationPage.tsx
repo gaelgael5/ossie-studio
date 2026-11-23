@@ -125,6 +125,10 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
     queryKey: ['domains', spaceId, branchId],
     queryFn: () => api.listDomains(spaceId, branchId),
   })
+  const domainLabels = useMemo(
+    () => new Map((domainList.data?.domains ?? []).map((d) => [d.name, d.label])),
+    [domainList.data],
+  )
   const memberOf = useMemo(() => {
     const out = new Map<string, string[]>()
     for (const d of domainList.data?.domains ?? []) {
@@ -238,7 +242,7 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
             <option value="">{t('domainFilterAll')}</option>
             {(domainList.data?.domains ?? []).map((d) => (
               <option key={d.name} value={d.name}>
-                {d.name}
+                {d.label}
               </option>
             ))}
           </select>
@@ -343,7 +347,10 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
             branchId={branchId}
             summary={current}
             sourceLabel={labels.get(current.source) ?? current.source}
-            domains={memberOf.get(`${current.source}/${current.path}`) ?? []}
+            domains={(memberOf.get(`${current.source}/${current.path}`) ?? []).map((d) => ({
+              name: d,
+              label: domainLabels.get(d) ?? d,
+            }))}
             tab={(params.get('tab') as Tab | null) ?? 'properties'}
             onTab={(tab) => update({ tab: tab === 'properties' ? null : tab })}
             onOpen={(s, p) => update({ source: s, path: p, tab: null })}
@@ -376,7 +383,7 @@ function AssetPanel({
   onTab: (tab: Tab) => void
   onOpen: (source: string, path: string) => void
   schemes: ClassScheme[]
-  domains: string[]
+  domains: { name: string; label: string }[]
 }) {
   const { t } = useTranslation()
   const session = useSession()
@@ -433,9 +440,9 @@ function AssetPanel({
             <p className="small">
               {t('domainMemberOf')}{' '}
               {domains.map((d, i) => (
-                <span key={d}>
+                <span key={d.name}>
                   {i > 0 ? ', ' : ''}
-                  <Link to={`/domaines/${encodeURIComponent(d)}`}>{d}</Link>
+                  <Link to={`/domaines/${encodeURIComponent(d.name)}`}>{d.label}</Link>
                 </span>
               ))}
             </p>

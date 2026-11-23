@@ -1160,6 +1160,7 @@ export const en = {
     domainsEmpty: 'No domain. Group assets from Curation, or create a domain.',
     domainNew: '+ New domain',
     domainName: 'Name',
+    domainSlugTaken: 'A domain with this slug already exists.',
     domainNameHint: 'Lowercase letters, digits and dashes (shipping, sales-france).',
     domainDescription: 'Description',
     domainCreate: 'Create',
