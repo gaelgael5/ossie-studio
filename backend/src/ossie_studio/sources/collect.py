@@ -23,6 +23,7 @@ from ossie_studio.parsers.base import (
     RawAccess,
     matches_globs,
 )
+from ossie_studio.parsers.openapi import FoundContract, inspect_contract
 from ossie_studio.parsers.registry import openapi_plugin, select_code_plugins
 from ossie_studio.sources.collect_core import RAW_DIR, checksum
 from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
@@ -123,6 +124,7 @@ def _read_source_files(
     directories: list[str] | None = None,
     exclusions: list[str] | None = None,
     progress: CollectProgress | None = None,
+    patterns: list[str] | None = None,
 ) -> dict[str, bytes]:
     """Lit les fichiers du code descendu, chemin relatif POSIX → octets. Le
     processus maître applique les sous-répertoires du manifeste (si donnés) et les
@@ -139,6 +141,10 @@ def _read_source_files(
         if is_excluded(rel, exclusions):
             continue
         if roots and not any(rel == r or rel.startswith(f"{r}/") for r in roots):
+            continue
+        # Lecture limitée à certains motifs (recherche des contrats : inutile de
+        # lire tout le code pour n'en regarder que les YAML / JSON).
+        if patterns is not None and not matches_globs(patterns, rel.lower()):
             continue
         files[rel] = path.read_bytes()
         if progress is not None:
@@ -463,6 +469,49 @@ class SourceCollector:
                 plugin_params=plugin_params or {},
                 progress=progress,
             )
+
+    async def find_contracts(
+        self,
+        *,
+        space: GitSpace,
+        source_slug: str,
+        source_clone_url: str,
+        source_branch: str,
+        source_username: str,
+        source_token: str | None,
+        directories: list[str] | None = None,
+        exclusions: list[str] | None = None,
+    ) -> list[FoundContract]:
+        """« Rechercher les contrats » (ticket 56be38c6) : descend le dépôt comme
+        la collecte, puis liste les contrats OpenAPI trouvés — sans rien écrire
+        dans le brouillon. Mêmes sous-répertoires et exclusions que la collecte,
+        pour montrer exactement ce qu'elle prendrait."""
+        try:
+            await self._downloader.download(
+                space.id,
+                source_slug,
+                source_clone_url,
+                source_branch,
+                source_username,
+                source_token,
+            )
+        except SourceDownloadError as exc:
+            raise CollectionError(exc.code) from None
+        source_dir = self._downloader.source_path(space.id, source_slug)
+        repo_plugin = next(p for p in select_code_plugins(["openapi"]))
+        files = await asyncio.to_thread(
+            _read_source_files,
+            source_dir,
+            directories=directories,
+            exclusions=exclusions,
+            patterns=repo_plugin.globs(),
+        )
+
+        def inspect_all() -> list[FoundContract]:
+            found = (inspect_contract(path, data) for path, data in sorted(files.items()))
+            return [c for c in found if c is not None]
+
+        return await asyncio.to_thread(inspect_all)
 
     async def collect_openapi(
         self,

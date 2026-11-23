@@ -16,6 +16,7 @@ from ossie_studio.parsers.base import (
     PluginContext,
     PluginError,
     PluginResult,
+    claims,
 )
 from ossie_studio.parsers.conventions import (
     ConventionError,
@@ -140,7 +141,7 @@ def run_collection(
     handled: dict[str, Parser] = {}
     for path in source_files:
         for parser in parsers:
-            if parser.handles(path):
+            if parser.handles(path) and claims(parser, path, source_files[path]):
                 handled[path] = parser
                 break
 

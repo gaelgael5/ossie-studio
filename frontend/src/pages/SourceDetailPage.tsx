@@ -14,6 +14,7 @@ import { CollectErrorCause, splitScanMessage } from '../components/CollectErrorC
 import { useWorkspace } from '../workspace'
 import { exclusionsOf } from '../sourceExclusions'
 import { SourceExclusions } from '../components/SourceExclusions'
+import { SourceContractsSearch } from '../components/SourceContractsSearch'
 
 const LINKABLE_TABS: string[] = ['overview', 'contrats', 'collectes', 'scan', 'manifeste']
 
@@ -203,6 +204,13 @@ export function SourceDetailPage() {
             setTab('collectes')
             collect.start(false)
           }}
+        />
+      ) : null}
+      {effectiveTab === 'overview' && source?.ok && source.type === 'git' ? (
+        <SourceContractsSearch
+          spaceId={ws.spaceId as string}
+          branchId={ws.branchId as string}
+          source={source}
         />
       ) : null}
 

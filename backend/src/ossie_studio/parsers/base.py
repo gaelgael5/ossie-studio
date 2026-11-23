@@ -180,6 +180,20 @@ class Parser(Protocol):
         ...
 
 
+def claims(parser: Parser, path: str, content: bytes) -> bool:
+    """Le parseur prend-il ce fichier, **d'après son contenu** ? Un parseur peut
+    exposer une méthode facultative `claims(path, content) -> bool`, consultée
+    après `handles` (l'extension). Sans elle, `handles` suffit : le comportement
+    des parseurs existants ne change pas.
+
+    Ticket 56be38c6 : un contrat OpenAPI ne se reconnaît pas à son extension
+    (`.yaml`, `.json` sont partout dans un dépôt) mais à la clé `openapi` de sa
+    racine. La méthode reste facultative plutôt qu'ajoutée au Protocol pour ne
+    pas imposer un « toujours vrai » à chaque parseur de code."""
+    method = getattr(parser, "claims", None)
+    return True if method is None else bool(method(path, content))
+
+
 class Plugin(Protocol):
     """Contrat commun à tous les plugins de parsing. Un plugin annonce son
     identité, sa cible, ses motifs globing et ses paramètres, et transforme les

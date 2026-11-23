@@ -656,3 +656,17 @@ async def test_collecte_en_echec_rapporte_l_erreur(
     status = (await client.get(f"{base}/inconnue/collect")).json()
     assert status["state"] == "failed"
     assert status["error"]["error"] == "source_not_found"
+
+
+async def test_rechercher_les_contrats_refuse_une_source_non_git(
+    branch: tuple[AsyncClient, str, str, str],
+) -> None:
+    # Ticket 56be38c6 : « Rechercher les contrats » ne vaut que pour une source Git.
+    client, space_id, branch_id, _ = branch
+    base = f"/api/spaces/{space_id}/branches/{branch_id}/sources"
+    await _declare_openapi(client, base)
+    r = await client.post(f"{base}/api-paiement/openapi-search")
+    assert r.status_code == 400, r.text
+    assert "not_git_source" in r.text
+    r = await client.post(f"{base}/inconnue/openapi-search")
+    assert r.status_code == 404, r.text

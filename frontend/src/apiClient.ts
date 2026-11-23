@@ -1056,6 +1056,16 @@ export type AgentProfileBody = {
   all_read: boolean
 }
 
+export type FoundContract = {
+  path: string
+  /** supported | unsupported (Swagger 2.0) | invalid (mal formé) */
+  status: 'supported' | 'unsupported' | 'invalid'
+  title: string
+  version: string
+  openapi: string
+  error: string
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setLanguage: (language: string) =>
@@ -1447,6 +1457,13 @@ export const api = {
   getReviewHistory: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<{ commits: ReviewHistoryCommit[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/review/history?path=${encodeURIComponent(path)}`,
+    ),
+  // « Rechercher les contrats » d'une source Git (ticket 56be38c6) : rien n'est
+  // écrit dans le brouillon, le dépôt est seulement descendu.
+  searchSourceContracts: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ contracts: FoundContract[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${encodeURIComponent(slug)}/openapi-search`,
+      { method: 'POST' },
     ),
   listCodePlugins: () =>
     apiFetch<{ plugins: { id: string; label: string; globs: string[] }[] }>(

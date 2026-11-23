@@ -358,6 +358,22 @@ export const fr = {
     exclusionsDefaults: 'Toujours exclus :',
     exclusionsReincluded: 'Exclusion de « {{entry}} » retirée : ses objets reviendront à la prochaine collecte.',
     exclusionsRecollect: 'Relancer la collecte',
+    contractsSearchTitle: 'Contrats OpenAPI du dépôt',
+    contractsSearchIntro:
+      'Liste les contrats OpenAPI que la collecte prendrait (fichiers YAML ou JSON dont la racine porte la clé « openapi »), sans rien écrire dans votre brouillon.',
+    contractsSearchRun: 'Rechercher les contrats',
+    contractsSearchBusy: 'Recherche…',
+    contractsSearchNone: 'Aucun contrat OpenAPI trouvé dans le dépôt.',
+    contractsSearchNotChosen:
+      'Le parseur « Contrats OpenAPI » n’est pas choisi sur cette source : la collecte ne prendra pas ces contrats.',
+    contractsSearchPath: 'Chemin',
+    contractsSearchName: 'Titre',
+    contractsSearchVersion: 'Version',
+    contractsSearchOpenapi: 'OpenAPI',
+    contractsSearchStatus: 'État',
+    contractsSearchSupported: 'Pris en charge',
+    contractsSearchUnsupported: 'Non pris en charge (Swagger 2.0)',
+    contractsSearchInvalid: 'Mal formé',
     changesLink: 'Voir les modifications',
     changesTitle: 'Modifications',
     changesIntro:

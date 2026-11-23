@@ -20,15 +20,32 @@ _TYPESCRIPT = TypeScriptParser()
 _KOTLIN_JAVA = KotlinJavaParser()
 _SQLSERVER_PROJECT = SqlServerProjectParser()
 _OPENAPI = OpenApiParser()
+# Le même parseur `openapi`, pour une source Git : il cherche les contrats parmi
+# les YAML / JSON du dépôt (reconnaissance par contenu) — ticket 56be38c6.
+_OPENAPI_REPO = OpenApiParser(repository=True)
 
 # Plugins appliqués au **code** d'une source Git (choisis par le manifeste, défaut
-# : tous). Le plugin OpenAPI n'en fait pas partie : il ne tourne que sur les
-# sources `openapi`, sur les contrats déposés.
+# : tous). `openapi` en fait partie depuis le ticket 56be38c6 : sans risque par
+# défaut, il ne prend que les fichiers dont la racine porte la clé `openapi`.
 _CODE_PLUGINS: tuple[Plugin, ...] = (
-    _CSHARP, _PYTHON, _TYPESCRIPT, _KOTLIN_JAVA, _SQLSERVER_PROJECT, _DEMO, _MARKDOWN,
+    _CSHARP,
+    _PYTHON,
+    _TYPESCRIPT,
+    _KOTLIN_JAVA,
+    _SQLSERVER_PROJECT,
+    _DEMO,
+    _MARKDOWN,
+    _OPENAPI_REPO,
 )
 _ALL_PLUGINS: tuple[Plugin, ...] = (
-    _CSHARP, _PYTHON, _TYPESCRIPT, _KOTLIN_JAVA, _SQLSERVER_PROJECT, _DEMO, _MARKDOWN, _OPENAPI,
+    _CSHARP,
+    _PYTHON,
+    _TYPESCRIPT,
+    _KOTLIN_JAVA,
+    _SQLSERVER_PROJECT,
+    _DEMO,
+    _MARKDOWN,
+    _OPENAPI,
 )
 
 
@@ -43,7 +60,7 @@ def code_plugins() -> tuple[Plugin, ...]:
 
 
 def openapi_plugin() -> Plugin:
-    """Le plugin qui traite les contrats d'une source OpenAPI."""
+    """Le plugin qui traite les contrats **déposés** d'une source OpenAPI."""
     return _OPENAPI
 
 
@@ -62,8 +79,11 @@ def conflicting_glob(parseurs: list[str]) -> str | None:
     """Un motif globing pris en charge par deux des parseurs choisis, s'il existe
     (pour refuser deux parseurs qui se disputent le même fichier)."""
     owner: dict[str, str] = {}
+    # Les instances « source Git » (dont `openapi` en mode dépôt), pas celles
+    # des types de source : ce sont leurs motifs qui se disputent les fichiers.
+    by_id = {p.id: p for p in _CODE_PLUGINS}
     for pid in parseurs:
-        plugin = plugin_by_id(pid)
+        plugin = by_id.get(pid)
         if plugin is None:
             continue
         for pattern in plugin.globs():

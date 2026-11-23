@@ -638,6 +638,61 @@ async def _collect(
     return _report_payload(report)
 
 
+@router.post("/{slug}/openapi-search")
+async def search_branch_source_contracts(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: SourcesCollect,
+    workdir: WorkdirDep,
+    collector: CollectorDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    """« Rechercher les contrats » d'une source Git (ticket 56be38c6) : les
+    contrats OpenAPI que la collecte prendrait, sans rien écrire dans le
+    brouillon. Le dépôt est descendu (ou mis à jour) sur le volume des sources,
+    comme pour une collecte : d'où la capacité de collecter."""
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    manifest = await _existing_manifest(conn, crypto, workdir, space_id, branch_slug, slug)
+    if manifest.type != GIT_TYPE:
+        raise ApiError("invalid_request", status_code=400, fields=["not_git_source"])
+    connection = await db_get_connection_by_slug(conn, manifest.connection)
+    if connection is None:
+        raise ApiError("invalid_request", status_code=400, fields=["connection_invalid"])
+    space, _username, _token = await space_credentials(conn, crypto, space_id)
+    strategy = get_strategy(connection.forge)
+    source_token = (await resolve_connection_token(conn, crypto, connection)).reveal()
+    try:
+        found = await collector.find_contracts(
+            space=space,
+            source_slug=slug,
+            source_clone_url=strategy.git_clone_url(
+                connection.url, str(manifest.parameters.get("repository", ""))
+            ),
+            source_branch=str(manifest.parameters.get("branch", "")),
+            source_username=strategy.git_username(),
+            source_token=source_token,
+            directories=_str_list(manifest.parameters.get("directories")),
+            exclusions=_str_list(manifest.parameters.get("exclusions")),
+        )
+    except CollectionError as exc:
+        raise _collect_error(exc.code) from None
+    return {
+        "contracts": [
+            {
+                "path": c.path,
+                "status": c.status,
+                "title": c.title,
+                "version": c.version,
+                "openapi": c.openapi,
+                "error": c.error,
+            }
+            for c in found
+        ]
+    }
+
+
 @router.get("/{slug}/collections")
 async def list_source_collections(
     conn: ConnDep,

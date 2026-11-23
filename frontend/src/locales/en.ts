@@ -357,6 +357,22 @@ export const en = {
     exclusionsDefaults: 'Always excluded:',
     exclusionsReincluded: 'Exclusion of “{{entry}}” removed: its objects will come back with the next collection.',
     exclusionsRecollect: 'Run the collection again',
+    contractsSearchTitle: 'OpenAPI contracts in the repository',
+    contractsSearchIntro:
+      'Lists the OpenAPI contracts the collection would take (YAML or JSON files whose root has the “openapi” key), without writing anything to your draft.',
+    contractsSearchRun: 'Search for contracts',
+    contractsSearchBusy: 'Searching…',
+    contractsSearchNone: 'No OpenAPI contract found in the repository.',
+    contractsSearchNotChosen:
+      'The “OpenAPI contracts” parser is not chosen on this source: the collection will not take these contracts.',
+    contractsSearchPath: 'Path',
+    contractsSearchName: 'Title',
+    contractsSearchVersion: 'Version',
+    contractsSearchOpenapi: 'OpenAPI',
+    contractsSearchStatus: 'Status',
+    contractsSearchSupported: 'Supported',
+    contractsSearchUnsupported: 'Not supported (Swagger 2.0)',
+    contractsSearchInvalid: 'Malformed',
     changesLink: 'See the changes',
     changesTitle: 'Changes',
     changesIntro:
