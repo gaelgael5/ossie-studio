@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 
 from ossie_studio.models import GitSpace
+from ossie_studio.parsers.conventions import load_schema
 from ossie_studio.parsers.demo import _key_from_path
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.collect_core import (
@@ -106,14 +107,13 @@ async def test_premiere_collecte_ecrit_les_schemas(
     assert report.added == 2
     assert report.local_commit is not None
     raw = _raw(tmp_path, space)
-    assert (raw / "a.json").is_file() and (raw / "b.json").is_file()
+    assert (raw / "a.schema.yaml").is_file() and (raw / "b.schema.yaml").is_file()
     assert (raw / "manifest-jsonschema-demo.yaml").is_file()
 
 
 async def test_csharp_classes_partielles_une_seule_collecte(
     setup: tuple[SourceCollector, GitSpace, Path, Path],
 ) -> None:
-    import json
 
     collector, space, tmp_path, _ = setup
     await _base_branch(collector, space)
@@ -128,14 +128,13 @@ async def test_csharp_classes_partielles_une_seule_collecte(
     await _collect(collector, space, src)
     raw = _raw(tmp_path, space)
     # Les deux parties fusionnent en un seul schéma dès la première collecte.
-    schema = json.loads((raw / "app-foo.json").read_text(encoding="utf-8"))
+    schema = load_schema((raw / "app-foo.schema.yaml").read_text(encoding="utf-8"))
     assert set(schema["properties"]) == {"A", "B"}
 
 
 async def test_resolution_references_croisees_entre_fichiers(
     setup: tuple[SourceCollector, GitSpace, Path, Path],
 ) -> None:
-    import json
 
     collector, space, tmp_path, _ = setup
     await _base_branch(collector, space)
@@ -152,8 +151,8 @@ async def test_resolution_references_croisees_entre_fichiers(
     report = await _collect(collector, space, src)
     assert report.resolved == 1
     raw = _raw(tmp_path, space)
-    commande = json.loads((raw / "app-commande.json").read_text(encoding="utf-8"))
-    assert commande["properties"]["L"]["$ref"] == "app-ligne.json"
+    commande = load_schema((raw / "app-commande.schema.yaml").read_text(encoding="utf-8"))
+    assert commande["properties"]["L"]["$ref"] == "app-ligne.schema.yaml"
     # Idempotent : une 2e collecte sans changement ne recommit rien.
     second = await _collect(collector, space, src)
     assert second.local_commit is None
@@ -219,7 +218,7 @@ async def test_fichier_supprime(
     _push(work)
     report = await _collect(collector, space, src)
     assert report.deleted == 1
-    assert not (_raw(tmp_path, space) / "b.json").exists()
+    assert not (_raw(tmp_path, space) / "b.schema.yaml").exists()
 
 
 async def test_collecte_forcee_relit_tout(
@@ -270,7 +269,6 @@ async def _collect_sql(collector, space, engine, *, force=False):
 async def test_collect_sql_ecrit_les_schemas(
     setup: tuple[SourceCollector, GitSpace, Path, Path],
 ) -> None:
-    import json
 
     from ossie_studio.databases.base import CatalogColumn, CatalogObject
 
@@ -287,7 +285,7 @@ async def test_collect_sql_ecrit_les_schemas(
     assert report.added == 1
     raw = view_dir(tmp_path, space) / "sources" / "db" / "raw"
     assert (raw / "manifest-postgres.yaml").is_file()
-    schema = json.loads((raw / "app-client.json").read_text(encoding="utf-8"))
+    schema = load_schema((raw / "app-client.schema.yaml").read_text(encoding="utf-8"))
     assert schema["x-kind"] == "table" and schema["x-primary-key"] == ["id"]
     # Idempotent : une 2e collecte sans changement ne recommit rien.
     second = await _collect_sql(collector, space, _FakeEngine([obj]))
@@ -323,7 +321,7 @@ async def test_exclusion_retire_tout_de_suite_coherente_avec_la_collecte(
     )
     await _collect(collector, space, src)
     raw = _raw(tmp_path, space)
-    tests_schema = f"{_key_from_path('tests/t.schema.json')}.json"
+    tests_schema = f"{_key_from_path('tests/t.schema.json')}.schema.yaml"
     assert (raw / tests_schema).is_file() and (raw / "docs" / "tests" / "README.md").is_file()
 
     removed: list[str] = []
@@ -341,7 +339,7 @@ async def test_exclusion_retire_tout_de_suite_coherente_avec_la_collecte(
     raw = _raw(tmp_path, space)
     assert not (raw / tests_schema).exists()
     assert not (raw / "docs" / "tests" / "README.md").exists()
-    assert (raw / "a.json").is_file() and (raw / "docs" / "README.md").is_file()
+    assert (raw / "a.schema.yaml").is_file() and (raw / "docs" / "README.md").is_file()
     assert "tests/README.md" not in (raw / "docs-index.yaml").read_text()
     # Idempotent : rien de plus à retirer.
     removed.clear()
@@ -357,21 +355,23 @@ def test_exclusion_garde_un_schema_partage_et_suit_la_regle_de_la_collecte(
 ) -> None:
     raw = tmp_path / "sources" / "api" / "raw"
     raw.mkdir(parents=True)
-    for name in ("a.json", "t.json", "g.json", "s.json"):
+    for name in ("a.schema.yaml", "t.schema.yaml", "g.schema.yaml", "s.schema.yaml"):
         (raw / name).write_text("{}")
     manifest = TechManifest(
         entries={
-            "src/A.cs": TechEntry("x", ["a.json"], "main", "csharp"),
-            "tests/A.Part.cs": TechEntry("x", ["a.json"], "main", "csharp"),  # classe partielle
-            "tests/T.cs": TechEntry("x", ["t.json"], "main", "csharp"),
-            "src/Gen/G.g.cs": TechEntry("x", ["g.json"], "main", "csharp"),
-            "src/Lib/S.cs": TechEntry("x", ["s.json"], "main", "csharp"),
+            "src/A.cs": TechEntry("x", ["a.schema.yaml"], "main", "csharp"),
+            "tests/A.Part.cs": TechEntry(
+                "x", ["a.schema.yaml"], "main", "csharp"
+            ),  # classe partielle
+            "tests/T.cs": TechEntry("x", ["t.schema.yaml"], "main", "csharp"),
+            "src/Gen/G.g.cs": TechEntry("x", ["g.schema.yaml"], "main", "csharp"),
+            "src/Lib/S.cs": TechEntry("x", ["s.schema.yaml"], "main", "csharp"),
         }
     )
     (raw / "manifest-csharp.yaml").write_text(dump_tech_manifest(manifest))
     removed = prune_excluded_raw(tmp_path, "api", ["tests", "src/Lib", "**/*.g.cs"])
-    assert sorted(removed) == ["g.json", "s.json", "t.json"]
-    assert (raw / "a.json").is_file()  # encore produit par src/A.cs
+    assert sorted(removed) == ["g.schema.yaml", "s.schema.yaml", "t.schema.yaml"]
+    assert (raw / "a.schema.yaml").is_file()  # encore produit par src/A.cs
     left = parse_tech_manifest((raw / "manifest-csharp.yaml").read_text())
     assert sorted(left.entries) == ["src/A.cs"]
     assert prune_excluded_raw(tmp_path, "api", ["tests"]) == []
@@ -394,14 +394,14 @@ async def test_repertoire_exclu_retire_a_la_collecte_suivante(
     )
     await _collect(collector, space, src)
     raw = _raw(tmp_path, space)
-    tests_schema = f"{_key_from_path('tests/t.schema.json')}.json"
+    tests_schema = f"{_key_from_path('tests/t.schema.json')}.schema.yaml"
     assert (raw / tests_schema).is_file()
     # Le répertoire est exclu dans la configuration : la collecte suivante (un
     # simple rafraîchissement) retire ses schémas et ne les reprend plus.
     report = await _collect(collector, space, src, exclusions=["tests"])
     assert report.deleted == 1
     assert not (raw / tests_schema).exists()
-    assert (raw / "a.json").is_file()
+    assert (raw / "a.schema.yaml").is_file()
     # Les défauts restent appliqués malgré une exclusion saisie.
     assert not any(p.name.startswith("node") for p in raw.iterdir())
     again = await _collect(collector, space, src, exclusions=["tests"])

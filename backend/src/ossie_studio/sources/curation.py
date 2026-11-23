@@ -11,13 +11,17 @@ sans table de correspondance) ; la partie **structurelle** vient du brut, le
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import (
+    SchemaReadError,
+    dump_schema,
+    is_schema_name,
+    load_schema,
+)
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.manifest import ManifestError, dump_manifest, parse_manifest
 from ossie_studio.sources.paths import (
@@ -110,7 +114,7 @@ class CurationDetail:
 
 
 def is_schema_file(path: str) -> bool:
-    return path.endswith(".json") and "/" not in path
+    return is_schema_name(path)
 
 
 def _read_json_dir(directory: Path) -> dict[str, dict[str, Any]]:
@@ -120,8 +124,8 @@ def _read_json_dir(directory: Path) -> dict[str, dict[str, Any]]:
     for file in sorted(directory.iterdir()):
         if file.is_file() and is_schema_file(file.name):
             try:
-                data = json.loads(file.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
+                data = load_schema(file.read_text(encoding="utf-8"))
+            except SchemaReadError:
                 continue
             if isinstance(data, dict):
                 out[file.name] = data
@@ -218,13 +222,13 @@ def get_object_detail(
     if not raw_file.is_file():
         return None
     rule_list = list(rules)
-    raw = json.loads(raw_file.read_text(encoding="utf-8"))
+    raw = load_schema(raw_file.read_text(encoding="utf-8"))
     asset_data: dict[str, Any] = {}
     if asset_file.is_file():
         try:
-            asset = json.loads(asset_file.read_text(encoding="utf-8"))
+            asset = load_schema(asset_file.read_text(encoding="utf-8"))
             asset_data = asset.get("properties") or {}
-        except json.JSONDecodeError:
+        except SchemaReadError:
             asset_data = {}
     asset_props = set(asset_data.keys())
     raw_props = raw.get("properties") or {}
@@ -294,11 +298,11 @@ def retain_asset_fn(slug: str, path: str, fields: list[str] | None) -> Callable[
         raw_file = safe_source_path(workdir, slug) / RAW_DIR / path
         if not raw_file.is_file():
             raise AssetOriginMissingError(path)
-        raw = json.loads(raw_file.read_text(encoding="utf-8"))
+        raw = load_schema(raw_file.read_text(encoding="utf-8"))
         assets_dir = safe_assets_path(workdir, slug)
         asset_file = assets_dir / path
         existing = (
-            json.loads(asset_file.read_text(encoding="utf-8")) if asset_file.is_file() else None
+            load_schema(asset_file.read_text(encoding="utf-8")) if asset_file.is_file() else None
         )
         asset = build_asset(raw, fields, existing, f"{RAW_DIR}/{path}")
         assets_dir.mkdir(parents=True, exist_ok=True)
@@ -361,7 +365,7 @@ def read_enrichment(workdir: Path, slug: str, path: str) -> EnrichView | None:
         return None
     if not asset_file.is_file():
         return None
-    asset = json.loads(asset_file.read_text(encoding="utf-8"))
+    asset = load_schema(asset_file.read_text(encoding="utf-8"))
     fields = [
         _scope_view(name, prop)
         for name, prop in (asset.get("properties") or {}).items()
@@ -390,7 +394,7 @@ def enrich_asset_fn(
         asset_file = safe_assets_path(workdir, slug) / path
         if not asset_file.is_file():
             raise AssetNotRetainedError(path)
-        asset = json.loads(asset_file.read_text(encoding="utf-8"))
+        asset = load_schema(asset_file.read_text(encoding="utf-8"))
         if object_values is not None:
             apply_enrichment(asset, object_values)
         props = asset.get("properties") or {}
@@ -559,15 +563,15 @@ def read_source_trees(
 
 
 def parse_schema_texts(text_map: dict[str, str]) -> dict[str, dict[str, Any]]:
-    """Parse une table {fichier: texte JSON} (le brut publié) en
+    """Parse une table {fichier: texte YAML} (le brut publié) en
     {fichier: schéma}, en ignorant un fichier illisible."""
     out: dict[str, dict[str, Any]] = {}
     for name, text in text_map.items():
         if not is_schema_file(name):
             continue
         try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
+            data = load_schema(text)
+        except SchemaReadError:
             continue
         if isinstance(data, dict):
             out[name] = data
@@ -690,7 +694,7 @@ def apply_review_fn(slug: str, decisions: ReviewDecisions) -> Callable[[Path], N
             asset_file = assets_dir / path
             if not asset_file.is_file():
                 continue
-            asset = json.loads(asset_file.read_text(encoding="utf-8"))
+            asset = load_schema(asset_file.read_text(encoding="utf-8"))
             raw = raws.get(path) or {}
             rprops = raw.get("properties") or {}
             props: dict[str, Any] = asset.setdefault("properties", {})

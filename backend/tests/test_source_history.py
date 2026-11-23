@@ -23,9 +23,9 @@ async def test_table_supprimee(app: FastAPI) -> None:
 
 
 async def test_historique_git_du_repertoire_de_la_source(sp: ApiSpace) -> None:
-    forge_edit(sp, {"sources/api/raw/A.json": "{}"})
-    forge_edit(sp, {"sources/autre/raw/B.json": "{}"})
-    forge_edit(sp, {"sources/api/raw/A.json": '{"v": 2}'})
+    forge_edit(sp, {"sources/api/raw/A.schema.yaml": "{}"})
+    forge_edit(sp, {"sources/autre/raw/B.schema.yaml": "{}"})
+    forge_edit(sp, {"sources/api/raw/A.schema.yaml": '{"v": 2}'})
     response = await sp.client.get(f"{sp.base}/sources/api/collections")
     assert response.status_code == 200, response.text
     runs = response.json()["collections"]

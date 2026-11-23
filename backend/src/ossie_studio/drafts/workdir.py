@@ -26,6 +26,7 @@ from ossie_studio.drafts.store import (
     db_list_objects,
     db_replace_draft,
 )
+from ossie_studio.parsers.conventions import SCHEMA_SUFFIX
 from ossie_studio.spaces.gitcli import run_git, show_files
 from ossie_studio.spaces.views import (
     DraftState,
@@ -269,7 +270,7 @@ class DraftWorkdir:
             for o in state.objects
             if o.path.startswith(prefix)
             and "/" not in o.path[len(prefix) :]
-            and o.path.endswith(".json")
+            and o.path.endswith(SCHEMA_SUFFIX)
         ]
 
         async def fn(ctx: ViewContext) -> tuple[tuple[str, dict[str, str | None], _T], None]:

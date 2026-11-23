@@ -51,10 +51,14 @@ async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
         api_space,
         {
             "sources/ventes/manifest.yaml": dump_manifest(manifest),
-            "sources/ventes/raw/customer.json": json.dumps(CUSTOMER),
-            "sources/ventes/raw/legacy.json": json.dumps(LEGACY),
-            "sources/ventes/assets/customer.json": json.dumps(_asset(CUSTOMER, "customer.json")),
-            "sources/ventes/assets/legacy.json": json.dumps(_asset(LEGACY, "legacy.json")),
+            "sources/ventes/raw/customer.schema.yaml": json.dumps(CUSTOMER),
+            "sources/ventes/raw/legacy.schema.yaml": json.dumps(LEGACY),
+            "sources/ventes/assets/customer.schema.yaml": json.dumps(
+                _asset(CUSTOMER, "customer.schema.yaml")
+            ),
+            "sources/ventes/assets/legacy.schema.yaml": json.dumps(
+                _asset(LEGACY, "legacy.schema.yaml")
+            ),
         },
     )
     async with app.state.pool.acquire() as conn:
@@ -116,9 +120,9 @@ async def _collected_in_draft(app: FastAPI, space: ApiSpace) -> dict[str, Any]:
             "email": {"type": "string"},
         },
     }
-    await draft_write(app, space, "sources/ventes/raw/customer.json", customer)
-    await draft_write(app, space, "sources/ventes/raw/legacy.json", None)  # retenu disparu
-    await draft_write(app, space, "sources/ventes/raw/order.json", {"title": "Order"})
+    await draft_write(app, space, "sources/ventes/raw/customer.schema.yaml", customer)
+    await draft_write(app, space, "sources/ventes/raw/legacy.schema.yaml", None)  # retenu disparu
+    await draft_write(app, space, "sources/ventes/raw/order.schema.yaml", {"title": "Order"})
     return await _ok(app, AGENT, "get_review", _ids(space))
 
 
@@ -172,11 +176,11 @@ async def test_regle_invalide_refusee_en_la_nommant(app: FastAPI, space: ApiSpac
 async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) -> None:
     review = await _collected_in_draft(app, space)
     by_path = {o["path"]: o for o in review["objects"]}
-    assert by_path["customer.json"]["status"] == "retained-touched"
-    changes = {f["name"]: f["change"] for f in by_path["customer.json"]["fields"]}
+    assert by_path["customer.schema.yaml"]["status"] == "retained-touched"
+    changes = {f["name"]: f["change"] for f in by_path["customer.schema.yaml"]["fields"]}
     assert changes == {"name": "changed", "email": "appeared"}
-    assert by_path["legacy.json"]["status"] == "object-disappeared"
-    assert by_path["order.json"]["status"] == "new"
+    assert by_path["legacy.schema.yaml"]["status"] == "object-disappeared"
+    assert by_path["order.schema.yaml"]["status"] == "new"
 
     applied = await _ok(
         app,
@@ -185,29 +189,32 @@ async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) 
         _ids(
             space,
             head_sha=review["head_sha"],
-            apply_fields=[{"path": "customer.json", "name": "name"}],
-            take_fields=[{"path": "customer.json", "name": "email"}],
-            remove_objects=["legacy.json"],
-            retain_objects=["order.json"],
+            apply_fields=[{"path": "customer.schema.yaml", "name": "name"}],
+            take_fields=[{"path": "customer.schema.yaml", "name": "email"}],
+            remove_objects=["legacy.schema.yaml"],
+            retain_objects=["order.schema.yaml"],
         ),
     )
     assert applied["changed"] is True
     assert set(applied["changed_paths"]) == {
-        "sources/ventes/assets/customer.json",
-        "sources/ventes/assets/legacy.json",
-        "sources/ventes/assets/order.json",
+        "sources/ventes/assets/customer.schema.yaml",
+        "sources/ventes/assets/legacy.schema.yaml",
+        "sources/ventes/assets/order.schema.yaml",
     }
     assert applied["review"]["objects"] == []
     assert "up_to_date" not in applied["review"]  # plus de point de reprise
 
-    customer = await _ok(app, AGENT, "read_asset", _ids(space, path="customer.json"))
+    customer = await _ok(app, AGENT, "read_asset", _ids(space, path="customer.schema.yaml"))
     fields = {f["name"]: f for f in customer["fields"]}
     assert fields["email"]["retained"] is True and fields["name"]["type"] == "integer"
     assets = {a["path"] for a in (await _ok(app, AGENT, "list_assets", _ids(space)))["assets"]}
-    assert assets == {"customer.json", "order.json"}
+    assert assets == {"customer.schema.yaml", "order.schema.yaml"}
     # Rien n'est publié.
     published = await _ok(app, AGENT, "list_assets", _ids(space, view="published"))
-    assert {a["path"] for a in published["assets"]} == {"customer.json", "legacy.json"}
+    assert {a["path"] for a in published["assets"]} == {
+        "customer.schema.yaml",
+        "legacy.schema.yaml",
+    }
 
 
 # --- Critère 4 : head_sha périmé ---------------------------------------------------------------
@@ -215,7 +222,7 @@ async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) 
 
 async def test_revue_perimee_refusee_sans_ecriture(app: FastAPI, space: ApiSpace) -> None:
     first = await _ok(app, AGENT, "get_review", _ids(space))
-    forge_edit(space, {"sources/ventes/raw/order.json": json.dumps({"title": "Order"})})
+    forge_edit(space, {"sources/ventes/raw/order.schema.yaml": json.dumps({"title": "Order"})})
     before = await _draft_paths(app, space)
     stale = await _refusal(app, AGENT, "apply_review", _ids(space, head_sha=first["head_sha"]))
     assert stale["error"] == "review_stale"
@@ -238,17 +245,17 @@ async def test_decision_qui_ne_correspond_pas_a_la_revue_refusee(
             space,
             head_sha=review["head_sha"],
             # valide :
-            apply_fields=[{"path": "customer.json", "name": "name"}],
+            apply_fields=[{"path": "customer.schema.yaml", "name": "name"}],
             # mauvaise nature (name a changé, il n'est pas apparu) et objet inconnu :
-            take_fields=[{"path": "customer.json", "name": "name"}],
-            retain_objects=["legacy.json", "fantome.json"],
+            take_fields=[{"path": "customer.schema.yaml", "name": "name"}],
+            retain_objects=["legacy.schema.yaml", "fantome.schema.yaml"],
         ),
     )
     assert refused["error"] == "review_decision_invalid"
     assert refused["decisions"] == [
-        "take_fields:customer.json#name",
-        "retain_objects:legacy.json",
-        "retain_objects:fantome.json",
+        "take_fields:customer.schema.yaml#name",
+        "retain_objects:legacy.schema.yaml",
+        "retain_objects:fantome.schema.yaml",
     ]
     # Aucune écriture partielle : la décision valide n'a pas été appliquée.
     assert await _draft_paths(app, space) == before
@@ -338,7 +345,7 @@ async def test_routes_de_l_ecran_inchangees(
     legacy = await client.post(
         f"{base}/review/apply", json={"head_sha": review["head_sha"], "advance": False}
     )
-    assert legacy.status_code == 422  # l’option `advance` n’existe plus
-    forge_edit(space, {"sources/ventes/raw/order.json": json.dumps({"title": "Order"})})
+    assert legacy.status_code == 422  # l'option `advance` n'existe plus
+    forge_edit(space, {"sources/ventes/raw/order.schema.yaml": json.dumps({"title": "Order"})})
     stale = await client.post(f"{base}/review/apply", json={"head_sha": review["head_sha"]})
     assert stale.status_code == 409 and stale.json()["error"] == "review_stale"

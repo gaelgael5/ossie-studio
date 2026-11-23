@@ -13,7 +13,6 @@ capacité distincte n'apporterait rien tant qu'il ne modifie rien.
 
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import asdict
 from typing import Annotated
@@ -33,6 +32,7 @@ from ossie_studio.errors import ApiError
 from ossie_studio.forges.links import forge_file_url
 from ossie_studio.governance.tag_rules import parse_rule
 from ossie_studio.parsers.base import STATUT_ERREUR
+from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.draft_changes import asset_names, group_changes
 from ossie_studio.sources.explorer import (
@@ -542,8 +542,8 @@ async def _space_objects(conn: ConnDep, key: IndexKey, mode: str) -> SpaceObject
 def _json_object(text: str) -> dict[str, object]:
     """Un schéma illisible s'affiche vide plutôt que de faire échouer l'aperçu."""
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
+        data = load_schema(text)
+    except SchemaReadError:
         return {}
     return data if isinstance(data, dict) else {}
 

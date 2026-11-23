@@ -68,9 +68,11 @@ async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
             "sources/ventes/manifest.yaml": _manifest(
                 "ventes", [{"target": "object-name", "pattern": "*Dto", "kind": "glob"}]
             ),
-            "sources/ventes/raw/customer.json": json.dumps(CUSTOMER),
-            "sources/ventes/raw/order.json": json.dumps({"title": "Order", "properties": {}}),
-            "sources/ventes/assets/customer.json": json.dumps(CUSTOMER_ASSET),
+            "sources/ventes/raw/customer.schema.yaml": json.dumps(CUSTOMER),
+            "sources/ventes/raw/order.schema.yaml": json.dumps(
+                {"title": "Order", "properties": {}}
+            ),
+            "sources/ventes/assets/customer.schema.yaml": json.dumps(CUSTOMER_ASSET),
         },
     )
     async with app.state.pool.acquire() as conn:
@@ -151,9 +153,7 @@ async def test_cle_ne_peut_pas_demander_le_brouillon(app: FastAPI, space: ApiSpa
     )
     # Les primitives du brouillon ne sont même pas proposées à une clé.
     assert await _refusal(app, KEY, "get_my_draft", _ids(space)) == "primitive_forbidden"
-    assert await _refusal(app, KEY, "get_publish_readiness", _ids(space)) == (
-        "primitive_forbidden"
-    )
+    assert await _refusal(app, KEY, "get_publish_readiness", _ids(space)) == ("primitive_forbidden")
 
 
 # --- Schémas bruts ---------------------------------------------------------------------
@@ -163,17 +163,17 @@ async def test_schemas_bruts_listes_et_lus_avec_la_marque_du_brouillon(
     app: FastAPI, space: ApiSpace
 ) -> None:
     changed = {**CUSTOMER, "properties": {**CUSTOMER["properties"], "email": {"type": "string"}}}
-    await draft_write(app, space, "sources/ventes/raw/customer.json", changed)
+    await draft_write(app, space, "sources/ventes/raw/customer.schema.yaml", changed)
 
     listed = await _ok(app, AGENT, "list_raw_schemas", _ids(space, source="ventes"))
     by_path = {s["path"]: s for s in listed["schemas"]}
-    assert set(by_path) == {"customer.json", "order.json"}
-    assert by_path["customer.json"]["unpublished"] is True
-    assert by_path["customer.json"]["fields"] == 3
-    assert by_path["customer.json"]["retained"] == "partial"
-    assert by_path["order.json"]["unpublished"] is False
+    assert set(by_path) == {"customer.schema.yaml", "order.schema.yaml"}
+    assert by_path["customer.schema.yaml"]["unpublished"] is True
+    assert by_path["customer.schema.yaml"]["fields"] == 3
+    assert by_path["customer.schema.yaml"]["retained"] == "partial"
+    assert by_path["order.schema.yaml"]["unpublished"] is False
 
-    customer = _ids(space, source="ventes", path="customer.json")
+    customer = _ids(space, source="ventes", path="customer.schema.yaml")
     draft = await _ok(app, AGENT, "read_raw_schema", customer)
     assert "email" in draft["schema"]["properties"] and draft["unpublished"] is True
     published = await _ok(app, KEY, "read_raw_schema", customer)
@@ -187,7 +187,7 @@ async def test_schema_et_source_introuvables_nommes(app: FastAPI, space: ApiSpac
     assert await _refusal(app, KEY, "list_raw_schemas", _ids(space, source="../etc")) == (
         "source_not_found"
     )
-    for path in ("absent.json", "../manifest.yaml", "a/b.json"):
+    for path in ("absent.schema.yaml", "../manifest.yaml", "a/b.schema.yaml"):
         error = await _refusal(app, KEY, "read_raw_schema", _ids(space, source="ventes", path=path))
         assert error == "schema_not_found", path
 
@@ -195,21 +195,21 @@ async def test_schema_et_source_introuvables_nommes(app: FastAPI, space: ApiSpac
 # --- Assets ------------------------------------------------------------------------------
 
 
-async def test_assets_listes_et_lus_avec_leur_enrichissement(
-    app: FastAPI, space: ApiSpace
-) -> None:
+async def test_assets_listes_et_lus_avec_leur_enrichissement(app: FastAPI, space: ApiSpace) -> None:
     listed = await _ok(app, KEY, "list_assets", _ids(space, source="ventes"))
     assert [(a["path"], a["retained"], a["orphan"]) for a in listed["assets"]] == [
-        ("customer.json", "partial", False)
+        ("customer.schema.yaml", "partial", False)
     ]
 
-    asset = await _ok(app, KEY, "read_asset", _ids(space, source="ventes", path="customer.json"))
+    asset = await _ok(
+        app, KEY, "read_asset", _ids(space, source="ventes", path="customer.schema.yaml")
+    )
     assert asset["object"]["business_name"] == "Client"
     fields = {f["name"]: f for f in asset["fields"]}
     assert fields["id"]["retained"] is True and fields["id"]["business_name"] == "Identifiant"
     assert fields["name"]["retained"] is False and "business_name" not in fields["name"]
 
-    order = _ids(space, source="ventes", path="order.json")
+    order = _ids(space, source="ventes", path="order.schema.yaml")
     assert await _refusal(app, KEY, "read_asset", order) == "asset_not_retained"
 
 
@@ -230,10 +230,14 @@ async def test_brouillon_et_preparation_de_la_publication(app: FastAPI, space: A
     empty = await _ok(app, AGENT, "get_my_draft", _ids(space))
     assert empty == {"count": 0, "objects": []}
 
-    await draft_write(app, space, "sources/ventes/assets/order.json", {"title": "Order"})
+    await draft_write(app, space, "sources/ventes/assets/order.schema.yaml", {"title": "Order"})
     draft = await _ok(app, AGENT, "get_my_draft", _ids(space))
     assert draft["objects"] == [
-        {"path": "sources/ventes/assets/order.json", "state": "created", "changed_upstream": False}
+        {
+            "path": "sources/ventes/assets/order.schema.yaml",
+            "state": "created",
+            "changed_upstream": False,
+        }
     ]
 
     readiness = await _ok(app, AGENT, "get_publish_readiness", _ids(space))

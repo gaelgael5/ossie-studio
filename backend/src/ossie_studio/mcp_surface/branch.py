@@ -58,7 +58,9 @@ class SourceArgs(ViewArgs):
 
 
 class ObjectArgs(SourceArgs):
-    path: str = Field(description="Schema file name, e.g. 'customer.json' (from the lists).")
+    path: str = Field(
+        description="Schema file name, e.g. 'customer.schema.yaml' (from the lists)."
+    )
 
 
 @dataclass(frozen=True)

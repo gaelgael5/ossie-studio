@@ -33,7 +33,7 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import STANDARD_KEYWORDS, dump_schema
+from ossie_studio.parsers.conventions import STANDARD_KEYWORDS, dump_schema, schema_file
 
 OPENAPI_PARSER_ID = "openapi"
 # 1.1 : `x-source` porte `file` / `pointer` (au lieu de `fichier` / `pointeur`).
@@ -203,7 +203,7 @@ def analyze(raw: bytes) -> Analysis:
 
 def _dest_name(version: str, schema_name: str) -> str:
     """Nom du fichier schéma dans `raw/`, préfixé par la version du contrat."""
-    return f"{_slug(version)}-{_slug(schema_name)}.json"
+    return schema_file(f"{_slug(version)}-{_slug(schema_name)}")
 
 
 def _convert(node: Any, *, major: str, version: str, names: set[str]) -> Any:

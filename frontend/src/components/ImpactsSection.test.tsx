@@ -19,7 +19,7 @@ describe('ImpactsSection', () => {
           init?.method === 'POST'
             ? { path: 'a', verified: true }
             : {
-                impacts: [{ path: 'sources/s/assets/U.json', reads: ['sources/s/raw/U.json'], rules: ['raw_asset'], verified }],
+                impacts: [{ path: 'sources/s/assets/U.schema.yaml', reads: ['sources/s/raw/U.schema.yaml'], rules: ['raw_asset'], verified }],
                 pending: verified ? 0 : 1,
               }
         return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
@@ -33,7 +33,7 @@ describe('ImpactsSection', () => {
       </QueryClientProvider>,
     )
     await waitFor(() => expect(screen.getByText('Impacts à traiter : 1')).toBeInTheDocument())
-    expect(screen.getByText('lit sources/s/raw/U.json')).toBeInTheDocument()
+    expect(screen.getByText('lit sources/s/raw/U.schema.yaml')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Vérifié, rien à corriger' }))
     await waitFor(() => expect(screen.getByText('vérifié')).toBeInTheDocument())
     expect(calls).toContain('POST /api/spaces/s1/branches/b1/draft/impacts/verify')

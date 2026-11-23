@@ -228,7 +228,10 @@ async def test_parcours_openapi_jusqu_a_la_collecte(
     collected = await _ok(app, AGENT, "collect_source", _branch(space, source="boutique"))
     assert collected["state"] == "done", collected
     schemas = await _ok(app, AGENT, "list_raw_schemas", _branch(space, source="boutique"))
-    assert {s["path"] for s in schemas["schemas"]} == {"v1-commande.json", "v1-ligne.json"}
+    assert {s["path"] for s in schemas["schemas"]} == {
+        "v1-commande.schema.yaml",
+        "v1-ligne.schema.yaml",
+    }
     assert all(s["unpublished"] for s in schemas["schemas"])
 
     status = await _ok(app, AGENT, "get_collect_status", _branch(space, source="boutique"))

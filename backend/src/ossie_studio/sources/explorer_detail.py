@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
+from ossie_studio.parsers.conventions import schema_key
 from ossie_studio.sources.explorer import (
     VISIBILITY_SOURCE_KEY,
     VISIBILITY_UNKNOWN,
@@ -57,8 +58,8 @@ class SpaceObjects:
                 for key in {obj.schema_id, obj.file}:
                     if key:
                         self._by_id.setdefault(key, target)
-                # Une table SQL `schéma.table` a pour fichier `schéma.table.json`.
-                self._by_table.setdefault(obj.file.removesuffix(".json").casefold(), target)
+                # Une table SQL `schéma.table` a pour fichier `schéma.table.schema.yaml`.
+                self._by_table.setdefault(schema_key(obj.file).casefold(), target)
                 self._by_title.setdefault(obj.title, []).append(target)
 
     def by_ref(self, ref: str) -> Target | None:
@@ -201,7 +202,7 @@ def _citing_documents(
     obj: ExplorerObject, documents: Iterable[ExplorerDocument]
 ) -> list[dict[str, str]]:
     """Documents dont l'index cite l'objet (son nom ou son `$id` sans extension)."""
-    names = {obj.title, obj.schema_id.removesuffix(".json"), obj.file.removesuffix(".json")}
+    names = {obj.title, schema_key(obj.schema_id), schema_key(obj.file)}
     names.discard("")
     return [
         {"path": d.path, "title": d.title}
@@ -274,7 +275,7 @@ def object_detail(
     return {
         "file": obj.file,
         "title": obj.title,
-        "qualified_name": obj.schema_id.removesuffix(".json") or obj.file.removesuffix(".json"),
+        "qualified_name": schema_key(obj.schema_id) or schema_key(obj.file),
         # Espace de noms tel qu'écrit dans le code (`x-namespace`) ; vide pour une
         # table ou un contrat, et pour un objet collecté avant que le parseur le pose.
         "namespace": str(schema.get("x-namespace") or ""),

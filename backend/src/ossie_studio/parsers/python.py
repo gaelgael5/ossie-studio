@@ -26,7 +26,7 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import dump_schema, schema_file
 from ossie_studio.parsers.treesitter import grammar_version, node_text
 from ossie_studio.parsers.treesitter import parse as ts_parse
 
@@ -557,7 +557,7 @@ def _ref_schema(ref: _TypeRef, *, known: dict[str, str]) -> tuple[dict[str, Any]
     if name in _PRIMITIVES:
         return dict(_PRIMITIVES[name]), ref.nullable
     if name in known:
-        return {"$ref": f"{_slug(known[name])}.json"}, ref.nullable
+        return {"$ref": schema_file(_slug(known[name]))}, ref.nullable
     return {"x-unresolved-type": name}, ref.nullable
 
 
@@ -581,7 +581,7 @@ def _member_schema(member: _Member, *, known: dict[str, str]) -> tuple[dict[str,
 
 def _build_schema(info: _Type, *, total: bool, known: dict[str, str]) -> dict[str, Any]:
     schema: dict[str, Any] = {
-        "$id": f"{_slug(info.qualified)}.json",
+        "$id": schema_file(_slug(info.qualified)),
         "title": info.name,
         "x-language": "python",
         "x-kind": info.kind,
@@ -617,7 +617,7 @@ def _build_schema(info: _Type, *, total: bool, known: dict[str, str]) -> dict[st
         schema["required"] = sorted(required)
     if info.bases:
         schema["allOf"] = [
-            {"$ref": f"{_slug(known[b])}.json"} if b in known else {"x-unresolved-type": b}
+            {"$ref": schema_file(_slug(known[b]))} if b in known else {"x-unresolved-type": b}
             for b in info.bases
         ]
     return schema

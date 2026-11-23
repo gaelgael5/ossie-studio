@@ -6,7 +6,7 @@ ne voit QUE ce qui est retenu — Gael, 22/11/2026 : « dans curation on a que l
 objets que l'on a retenus » — pour le décrire (ticket docflow aeb2e429).
 
 Deux lectures :
-- les fichiers `sources/<slug>/assets/*.json` du brouillon, pour ce que l'humain
+- les fichiers `sources/<slug>/assets/*.schema.yaml` du brouillon, pour ce que l'humain
   a écrit (propriétés retenues, noms métier, descriptions) ;
 - le graphe de l'explorateur raw (index déjà en cache), pour ce qui vient du
   raw : fichier d'origine, nombre de champs, « modifié depuis la revue », et la

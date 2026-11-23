@@ -60,7 +60,7 @@ function folderBody(path: string) {
     objects: [
       {
         ...OBJ,
-        file: 'order.json',
+        file: 'order.schema.yaml',
         title: 'Order',
         badges: ['retained'],
         visibility: 'public',
@@ -71,7 +71,7 @@ function folderBody(path: string) {
       },
       {
         ...OBJ,
-        file: 'status.json',
+        file: 'status.schema.yaml',
         title: 'Status',
         kind: 'enum',
         badges: STATUS_EXCLUDED.value ? ['excluded'] : STATUS_NEW.value ? ['new'] : [],
@@ -104,7 +104,7 @@ function searchBody(u: URL) {
       source: 'app',
       folder: 'src/Domain',
     })),
-    { ...OBJ, file: 'client.json', title: 'Client', badges: [], visibility: 'public', visibility_source: '', tags: [SERVICE_TAG], source: 'crm', folder: 'Ventes' },
+    { ...OBJ, file: 'client.schema.yaml', title: 'Client', badges: [], visibility: 'public', visibility_source: '', tags: [SERVICE_TAG], source: 'crm', folder: 'Ventes' },
   ] as SearchObj[]
   const scope = all.filter(
     (o) => sources.includes(o.source) && (!path || o.folder === path || o.folder.startsWith(`${path}/`)),
@@ -178,24 +178,24 @@ const DECLARED = {
 }
 
 const GRAPH = {
-  center: 'app/order.json',
+  center: 'app/order.schema.yaml',
   depth: 1,
   truncated: false,
   nodes: [
-    { id: 'app/order.json', slug: 'app', file: 'order.json', title: 'Order', kind: 'class', visibility: 'public', folder: 'src/Domain', description: 'Une commande.', fields: ['id', 'customer'], external: false, level: 0 },
-    { id: 'app/customer.json', slug: 'app', file: 'customer.json', title: 'Customer', kind: 'class', visibility: 'public', folder: 'src/Domain/Sub', description: 'Le client.', fields: [], external: false, level: 1 },
-    { id: 'app/invoice.json', slug: 'app', file: 'invoice.json', title: 'Invoice', kind: 'class', visibility: '', folder: 'src', description: '', fields: [], external: false, level: -1 },
+    { id: 'app/order.schema.yaml', slug: 'app', file: 'order.schema.yaml', title: 'Order', kind: 'class', visibility: 'public', folder: 'src/Domain', description: 'Une commande.', fields: ['id', 'customer'], external: false, level: 0 },
+    { id: 'app/customer.schema.yaml', slug: 'app', file: 'customer.schema.yaml', title: 'Customer', kind: 'class', visibility: 'public', folder: 'src/Domain/Sub', description: 'Le client.', fields: [], external: false, level: 1 },
+    { id: 'app/invoice.schema.yaml', slug: 'app', file: 'invoice.schema.yaml', title: 'Invoice', kind: 'class', visibility: '', folder: 'src', description: '', fields: [], external: false, level: -1 },
     { id: '/ext:Money', slug: '', file: '', title: 'Money', kind: '', visibility: '', folder: '', description: '', fields: [], external: true, level: 1 },
   ],
   edges: [
-    { from: 'app/order.json', to: 'app/customer.json', field: 'customer', kind: 'field', cardinality: '1', direction: 'outgoing' },
-    { from: 'app/order.json', to: '/ext:Money', field: 'money', kind: 'field', cardinality: '0..1', direction: 'outgoing' },
-    { from: 'app/invoice.json', to: 'app/order.json', field: 'order', kind: 'field', cardinality: '0..1', direction: 'incoming' },
+    { from: 'app/order.schema.yaml', to: 'app/customer.schema.yaml', field: 'customer', kind: 'field', cardinality: '1', direction: 'outgoing' },
+    { from: 'app/order.schema.yaml', to: '/ext:Money', field: 'money', kind: 'field', cardinality: '0..1', direction: 'outgoing' },
+    { from: 'app/invoice.schema.yaml', to: 'app/order.schema.yaml', field: 'order', kind: 'field', cardinality: '0..1', direction: 'incoming' },
   ],
 }
 
 const DETAIL = {
-  file: 'order.json',
+  file: 'order.schema.yaml',
   title: 'Order',
   qualified_name: 'app.order',
   namespace: 'App.Domain',
@@ -209,9 +209,9 @@ const DETAIL = {
       tag: 'technique/entite',
       reason: '',
       value: '',
-      via: 'app/customer.json',
+      via: 'app/customer.schema.yaml',
       via_title: 'Customer',
-      via_target: { slug: 'app', file: 'customer.json', title: 'Customer', folder: 'src/Domain/Sub' },
+      via_target: { slug: 'app', file: 'customer.schema.yaml', title: 'Customer', folder: 'src/Domain/Sub' },
     },
   ],
   removed_tags: [{ ...SERVICE_TAG, tag: 'donnees/personnelles', reason: 'field', value: 'Email' }],
@@ -222,7 +222,7 @@ const DETAIL = {
     { name: 'id', type: { label: 'integer' }, required: true, description: '', annotations: ['[Key]'], exposed: true },
     {
       name: 'customer',
-      type: { label: 'Customer', target: { slug: 'app', file: 'customer.json', title: 'Customer', folder: 'src/Domain/Sub' } },
+      type: { label: 'Customer', target: { slug: 'app', file: 'customer.schema.yaml', title: 'Customer', folder: 'src/Domain/Sub' } },
       required: false,
       description: '',
       annotations: [],
@@ -235,17 +235,17 @@ const DETAIL = {
     {
       field: 'customer',
       kind: 'field',
-      label: 'customer.json',
-      target: { slug: 'app', file: 'customer.json', title: 'Customer', folder: 'src/Domain/Sub' },
+      label: 'customer.schema.yaml',
+      target: { slug: 'app', file: 'customer.schema.yaml', title: 'Customer', folder: 'src/Domain/Sub' },
     },
   ],
   annotations: [],
-  origin: { file: 'src/Domain/Order.cs', line: null, checksum: 'abc', parser: 'csharp', branch: 'main', raw_path: 'sources/app/raw/order.json' },
+  origin: { file: 'src/Domain/Order.cs', line: null, checksum: 'abc', parser: 'csharp', branch: 'main', raw_path: 'sources/app/raw/order.schema.yaml' },
   documents: [{ path: 'docs/guide.md', title: 'Guide' }],
   incoming: [
-    { field: 'order', kind: 'field', cardinality: '0..1', target: { slug: 'app', file: 'invoice.json', title: 'Invoice', folder: 'src' } },
-    { field: '', kind: 'inherits', cardinality: '', target: { slug: 'app', file: 'specialorder.json', title: 'SpecialOrder', folder: 'src/Domain' } },
-    { field: 'order_id', kind: 'foreign_key', cardinality: '1', target: { slug: 'db', file: 'dbo.invoice_line.json', title: 'invoice_line', folder: 'erp/dbo' } },
+    { field: 'order', kind: 'field', cardinality: '0..1', target: { slug: 'app', file: 'invoice.schema.yaml', title: 'Invoice', folder: 'src' } },
+    { field: '', kind: 'inherits', cardinality: '', target: { slug: 'app', file: 'specialorder.schema.yaml', title: 'SpecialOrder', folder: 'src/Domain' } },
+    { field: 'order_id', kind: 'foreign_key', cardinality: '1', target: { slug: 'db', file: 'dbo.invoice_line.schema.yaml', title: 'invoice_line', folder: 'erp/dbo' } },
   ],
   json: '{"title": "Order"}',
   forge_url: 'https://github.com/org/app/blob/main/src/Domain/Order.cs',
@@ -259,7 +259,7 @@ const REVIEW = {
   head_sha: 'bbbbbbb',
   objects: [
     {
-      path: 'order.json',
+      path: 'order.schema.yaml',
       title: 'Order',
       status: 'retained-touched',
       fields: [
@@ -291,7 +291,7 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
           fields: [{ name: 'id', business_name: '', description: '', concept: '', tags: [], readonly: {} }],
         }
       else if (u.pathname.endsWith('/curation/review')) body = REVIEW
-      else if (u.pathname.endsWith('/curation/refresh')) body = { ok: true, commit: 'abc', refreshed: ['order.json'] }
+      else if (u.pathname.endsWith('/curation/refresh')) body = { ok: true, commit: 'abc', refreshed: ['order.schema.yaml'] }
       else if (u.pathname.includes('/curation/')) body = { ok: true, commit: 'abc' }
       else if (u.pathname.endsWith('/sources')) body = declared
       else if (u.pathname.endsWith('/raw-explorer')) body = sources
@@ -372,7 +372,7 @@ describe('RawExplorer', () => {
     const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain')
     await user.click(await screen.findByRole('button', { name: /^CLS\s*Order/ }))
-    expect(screen.getByTestId('loc').textContent).toContain('sel=order.json')
+    expect(screen.getByTestId('loc').textContent).toContain('sel=order.schema.yaml')
     expect(screen.getByRole('button', { name: /^CLS\s*Order/ })).toHaveAttribute('aria-pressed', 'true')
   })
 
@@ -398,7 +398,7 @@ describe('RawExplorer', () => {
     await user.click(screen.getByText('Order'))
     const loc = screen.getByTestId('loc').textContent ?? ''
     expect(loc).toContain('path=src%2FDomain')
-    expect(loc).toContain('sel=order.json')
+    expect(loc).toContain('sel=order.schema.yaml')
     // Les résultats restent affichés tant que la recherche n'est pas effacée.
     expect(screen.getByText(/1 objet\(s\) trouvé\(s\)/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Effacer les critères' }))
@@ -549,7 +549,7 @@ describe('RawExplorer', () => {
     const loc = screen.getByTestId('loc').textContent ?? ''
     expect(loc).toContain('source=crm')
     expect(loc).toContain('path=Ventes')
-    expect(loc).toContain('sel=client.json')
+    expect(loc).toContain('sel=client.schema.yaml')
   })
 
   it('les filtres proposés sont ceux du dossier', async () => {
@@ -574,7 +574,7 @@ describe('RawExplorer', () => {
   it('aperçu : description, champs, référence cliquable, type externe, raccourcis', async () => {
     mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     expect(await screen.findByText('Une commande du client.')).toBeInTheDocument()
     expect(screen.getByText('[Key]')).toBeInTheDocument()
     expect(screen.getAllByText('externe').length).toBeGreaterThan(0)
@@ -588,15 +588,15 @@ describe('RawExplorer', () => {
     await user.click(screen.getAllByRole('button', { name: 'Customer' })[0])
     const loc = screen.getByTestId('loc').textContent ?? ''
     expect(loc).toContain('path=src%2FDomain%2FSub')
-    expect(loc).toContain('sel=customer.json')
+    expect(loc).toContain('sel=customer.schema.yaml')
   })
 
   it('aperçu : onglets JSON et Historique', async () => {
     mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
-    await user.click(screen.getByRole('tab', { name: 'JSON' }))
+    await user.click(screen.getByRole('tab', { name: 'YAML' }))
     expect(screen.getByText('{"title": "Order"}')).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: /Historique/ }))
     expect(await screen.findByText('collecte')).toBeInTheDocument()
@@ -661,7 +661,7 @@ describe('RawExplorer', () => {
 
   it('œil : exposé / non exposé, légende avec comptes et champs disparus', async () => {
     mockApi()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
     expect(screen.getAllByRole('img', { name: 'exposé dans le dataset' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('img', { name: 'non exposé' }).length).toBeGreaterThan(1)
@@ -673,7 +673,7 @@ describe('RawExplorer', () => {
   it('graphe : bandeau raw, liens libellés, clic sélectionne, double-clic recentre', async () => {
     mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json&view=graph')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml&view=graph')
     expect(await screen.findByText(/références lues dans la source, non validées/)).toBeInTheDocument()
     expect(screen.getByText('customer · 1')).toBeInTheDocument()
     expect(screen.getByText('order · 0..1')).toBeInTheDocument()
@@ -682,12 +682,12 @@ describe('RawExplorer', () => {
     expect(screen.getByText('Le client.')).toBeInTheDocument()
     await user.click(graph.getByRole('button', { name: 'Customer' }))
     let loc = screen.getByTestId('loc').textContent ?? ''
-    expect(loc).toContain('sel=customer.json')
-    expect(loc).toContain('center=app%2Forder.json') // sélection sans recentrer
+    expect(loc).toContain('sel=customer.schema.yaml')
+    expect(loc).toContain('center=app%2Forder.schema.yaml') // sélection sans recentrer
     // Le tableau des liens : un objet (non externe) se clique aussi.
     const table = within(document.querySelector('.raw-graph-table') as HTMLElement)
     await user.click(table.getByRole('button', { name: 'Invoice' }))
-    expect(screen.getByTestId('loc').textContent).toContain('sel=invoice.json')
+    expect(screen.getByTestId('loc').textContent).toContain('sel=invoice.schema.yaml')
     expect(table.queryByRole('button', { name: 'Money' })).not.toBeInTheDocument()
     await user.dblClick(graph.getByRole('button', { name: 'Customer' }))
     loc = screen.getByTestId('loc').textContent ?? ''
@@ -709,13 +709,13 @@ describe('RawExplorer', () => {
     expect(screen.getByText('règle « Contrôleurs » : hérite de ControllerBase')).toBeInTheDocument()
     const tagsSection = screen.getByText('Tags de gouvernance (posés par règle)').closest('section')!
     await user.click(within(tagsSection).getByRole('button', { name: 'Customer' }))
-    expect(screen.getByTestId('loc').textContent).toContain('sel=customer.json')
+    expect(screen.getByTestId('loc').textContent).toContain('sel=customer.schema.yaml')
   })
 
   it('onglet Technique : le fichier source ouvre la forge dans un nouvel onglet', async () => {
     mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
     await user.click(screen.getByRole('tab', { name: /Technique/ }))
     const link = screen.getByRole('link', { name: 'src/Domain/Order.cs' })
@@ -729,7 +729,7 @@ describe('RawExplorer', () => {
     SESSION_CAPS.value = ['governance:write']
     const calls = mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     const section = (await screen.findByText('Tags de gouvernance (posés par règle)')).closest('section')!
     expect(within(section).getByText('donnees/personnelles')).toHaveClass('removed')
     const removeButtons = await within(section).findAllByRole('button', { name: 'retirer' })
@@ -743,14 +743,14 @@ describe('RawExplorer', () => {
     )
     const sent = calls.bodies.find((b) => b.url.endsWith('/governance/tag-removals'))!
     expect(sent.url).toBe('/api/spaces/s1/branches/b1/governance/tag-removals')
-    expect(JSON.parse(sent.body!)).toEqual({ object: 'app/order.json', tag: 'technique/service', title: 'Order' })
+    expect(JSON.parse(sent.body!)).toEqual({ object: 'app/order.schema.yaml', tag: 'technique/service', title: 'Order' })
     await user.click(within(section).getByRole('button', { name: 'remettre' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/tag-removals/restore'))).toBe(true))
   })
 
   it('sans droit de gouvernance : tags en lecture seule', async () => {
     mockApi()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     const section = (await screen.findByText('Tags de gouvernance (posés par règle)')).closest('section')!
     expect(within(section).queryByRole('button', { name: 'retirer' })).not.toBeInTheDocument()
     expect(within(section).queryByRole('button', { name: 'remettre' })).not.toBeInTheDocument()
@@ -760,17 +760,17 @@ describe('RawExplorer', () => {
     SESSION_CAPS.value = ['curation:write']
     const calls = mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
     // L'objet de test est déjà retenu (id exposé) : bouton « Retirer » et œil cliquable.
     await user.click(await screen.findByRole('button', { name: 'Exposer le champ customer' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
     const retain = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
-    expect(JSON.parse(retain.body!)).toEqual({ path: 'order.json', fields: ['id', 'customer'] })
+    expect(JSON.parse(retain.body!)).toEqual({ path: 'order.schema.yaml', fields: ['id', 'customer'] })
     // Lien vers la page Curation de l'asset.
     expect(screen.getByRole('link', { name: 'Ouvrir dans la Curation' })).toHaveAttribute(
       'href',
-      '/curation?source=app&path=order.json',
+      '/curation?source=app&path=order.schema.yaml',
     )
     // id est le dernier champ exposé : le masquer retire l'asset, après confirmation.
     await user.click(screen.getByRole('button', { name: 'Masquer le champ id' }))
@@ -791,12 +791,12 @@ describe('RawExplorer', () => {
     DETAIL_OVERRIDE.value = { exposure: { retained: false, exposed: 0, hidden: 3, missing: [] } }
     const calls = mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
     await user.click(await screen.findByRole('button', { name: 'Exposer le champ customer' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
     const sent = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
-    expect(JSON.parse(sent.body!)).toEqual({ path: 'order.json', fields: ['customer'] })
+    expect(JSON.parse(sent.body!)).toEqual({ path: 'order.schema.yaml', fields: ['customer'] })
   })
 
   it('objet non retenu : « Créer un asset » retient tous les champs', async () => {
@@ -804,19 +804,19 @@ describe('RawExplorer', () => {
     DETAIL_OVERRIDE.value = { exposure: { retained: false, exposed: 0, hidden: 3, missing: [] } }
     const calls = mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
     await user.click(await screen.findByRole('button', { name: 'Créer un asset' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
     const sent = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
-    expect(JSON.parse(sent.body!)).toEqual({ path: 'order.json', fields: null })
+    expect(JSON.parse(sent.body!)).toEqual({ path: 'order.schema.yaml', fields: null })
   })
 
   it('onglet Enrichissement : le panneau de la curation, sur l’asset de l’objet', async () => {
     SESSION_CAPS.value = ['curation:write']
     const calls = mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
     await user.click(screen.getByRole('tab', { name: 'Enrichissement' }))
     const names = await screen.findAllByRole('textbox', { name: 'Nom métier' })
@@ -830,7 +830,7 @@ describe('RawExplorer', () => {
     SESSION_CAPS.value = ['curation:review']
     const calls = mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
     expect(await screen.findByRole('tab', { name: 'Changements (2)' })).toBeInTheDocument()
     // « Voir les changements » ouvre cet onglet.
@@ -842,7 +842,7 @@ describe('RawExplorer', () => {
     const sent = calls.bodies.find((b) => b.url.endsWith('/curation/review/apply'))!
     expect(JSON.parse(sent.body!)).toEqual({
       head_sha: 'bbbbbbb',
-      apply_fields: [{ path: 'order.json', name: 'id' }],
+      apply_fields: [{ path: 'order.schema.yaml', name: 'id' }],
       take_fields: [],
       remove_fields: [],
       remove_objects: [],
@@ -865,7 +865,7 @@ describe('RawExplorer', () => {
   it('onglet « Référencé par » : qui référence l’objet, par quel champ, et un clic l’ouvre', async () => {
     mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
     await user.click(screen.getByRole('tab', { name: 'Référencé par (3)' }))
     const table = within(document.querySelector('.raw-referenced-by') as HTMLElement)
@@ -875,7 +875,7 @@ describe('RawExplorer', () => {
     expect(table.getByText('order_id')).toBeInTheDocument()
     await user.click(table.getByRole('button', { name: 'Invoice' }))
     const loc = screen.getByTestId('loc').textContent ?? ''
-    expect(loc).toContain('sel=invoice.json')
+    expect(loc).toContain('sel=invoice.schema.yaml')
     expect(loc).toContain('path=src')
   })
 
@@ -897,7 +897,7 @@ describe('RawExplorer', () => {
     // Le clic sur le compteur n'a pas sélectionné la vignette.
     expect(screen.getByTestId('loc').textContent).not.toContain('sel=')
     await user.click(menu.getByRole('menuitem', { name: /SpecialOrder/ }))
-    expect(screen.getByTestId('loc').textContent).toContain('sel=specialorder.json')
+    expect(screen.getByTestId('loc').textContent).toContain('sel=specialorder.schema.yaml')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     // Echap ferme le menu.
     await user.click(screen.getByRole('button', { name: 'Référencé par 3 objet(s)' }))
@@ -909,13 +909,13 @@ describe('RawExplorer', () => {
     SESSION_CAPS.value = ['curation:write']
     DETAIL_OVERRIDE.value = { exposure: { retained: false, exposed: 0, hidden: 3, missing: [] } }
     DESCENDANTS.value = [
-      { slug: 'app', file: 'customer.json', title: 'Customer', retained: false },
-      { slug: 'app', file: 'address.json', title: 'Address', retained: true },
-      { slug: 'lib', file: 'money.json', title: 'Money', retained: false },
+      { slug: 'app', file: 'customer.schema.yaml', title: 'Customer', retained: false },
+      { slug: 'app', file: 'address.schema.yaml', title: 'Address', retained: true },
+      { slug: 'lib', file: 'money.schema.yaml', title: 'Money', retained: false },
     ]
     const calls = mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
     await screen.findByText('Une commande du client.')
     await user.click(await screen.findByRole('button', { name: 'Créer un asset ▾' }))
     const menu = within(screen.getByRole('menu'))
@@ -928,15 +928,15 @@ describe('RawExplorer', () => {
       .filter((b) => b.url.endsWith('/curation/retain-many'))
       .map((b) => [b.url.split('/sources/')[1].split('/')[0], JSON.parse(b.body!).paths])
     expect(sent).toEqual([
-      ['app', ['order.json', 'customer.json']],
-      ['lib', ['money.json']],
+      ['app', ['order.schema.yaml', 'customer.schema.yaml']],
+      ['lib', ['money.schema.yaml']],
     ])
   })
 
   it('graphe : ouvrir un dossier de l’arbre revient à la vue précédente', async () => {
     mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json&view=list')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml&view=list')
     await user.click(await screen.findByRole('button', { name: 'Graphe' }))
     await screen.findByText('order · 0..1')
     const tree = within(screen.getByRole('tree'))
@@ -950,7 +950,7 @@ describe('RawExplorer', () => {
   it('graphe : les filtres masquent une catégorie de liens sans recharger', async () => {
     const calls = mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json&view=graph')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml&view=graph')
     await screen.findByText('order · 0..1')
     const before = calls.filter((c) => c.includes('/graph')).length
     await user.click(screen.getByRole('checkbox', { name: 'entrantes' }))
@@ -963,7 +963,7 @@ describe('RawExplorer', () => {
     const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain')
     await user.dblClick(await screen.findByRole('button', { name: /^CLS\s*Order/ }))
-    expect(screen.getByTestId('loc').textContent).toContain('open=order.json')
+    expect(screen.getByTestId('loc').textContent).toContain('open=order.schema.yaml')
     expect(await screen.findByRole('tab', { name: 'Champs (3)' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Références (4)' })).toBeInTheDocument()
     // Précédent désactivé sur le premier objet du dossier, suivant actif.
@@ -977,19 +977,19 @@ describe('RawExplorer', () => {
     await user.click(screen.getByRole('button', { name: '← Retour aux vignettes' }))
     const loc = screen.getByTestId('loc').textContent ?? ''
     expect(loc).not.toContain('open=')
-    expect(loc).toContain('sel=order.json')
+    expect(loc).toContain('sel=order.schema.yaml')
     expect(await screen.findByText('Objets')).toBeInTheDocument()
   })
 
   it('vue exclusive : objet suivant dans l’ordre du dossier', async () => {
     mockApi()
     const user = userEvent.setup()
-    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&open=order.json&sel=order.json')
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&open=order.schema.yaml&sel=order.schema.yaml')
     await screen.findByRole('button', { name: 'Objet suivant ›' })
     // Les voisins viennent du contenu du dossier, chargé à part (et la barre est
     // re-rendue une fois l'objet chargé) : on reprend le bouton à jour.
     await waitFor(() => expect(screen.getByRole('button', { name: 'Objet suivant ›' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: 'Objet suivant ›' }))
-    expect(screen.getByTestId('loc').textContent).toContain('open=status.json')
+    expect(screen.getByTestId('loc').textContent).toContain('open=status.schema.yaml')
   })
 })

@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ossie_studio.parsers.conventions import is_schema_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.explorer import list_source_slugs
 from ossie_studio.sources.explorer_graph import ReferenceGraph
@@ -54,17 +55,17 @@ def asset_names(workdir: Path) -> dict[str, set[str]]:
         except ValueError:
             continue
         if directory.is_dir():
-            out[slug] = {p.name for p in directory.iterdir() if p.suffix == ".json"}
+            out[slug] = {p.name for p in directory.iterdir() if is_schema_name(p.name)}
     return out
 
 
 def _direct_child(rest: str, directory: str) -> str | None:
-    """Nom du fichier `.json` directement sous `directory/` dans `rest`, sinon None."""
+    """Nom du fichier de schéma directement sous `directory/` dans `rest`, sinon None."""
     prefix = f"{directory}/"
     if not rest.startswith(prefix):
         return None
     name = rest[len(prefix) :]
-    return name if name.endswith(".json") and "/" not in name else None
+    return name if is_schema_name(name) else None
 
 
 def group_changes(

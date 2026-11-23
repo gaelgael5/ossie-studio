@@ -13,7 +13,7 @@ from httpx import AsyncClient
 from ossie_studio.drafts.workdir import DraftWorkdir
 from tests.space_fixture import ApiSpace, forge_edit, make_api_space
 
-OBJ = "sources/s/raw/O.json"
+OBJ = "sources/s/raw/O.schema.yaml"
 
 
 @pytest.fixture
@@ -139,14 +139,14 @@ async def test_fermer_sans_valider_brouillon_inchange(app: FastAPI, sp: ApiSpace
 
 async def test_objet_hors_brouillon_404(app: FastAPI, sp: ApiSpace) -> None:
     await _draft_write(app, sp, OBJ, {"a": 2})
-    response = await sp.client.get(f"{sp.base}/draft/merge", params={"path": "autre.json"})
+    response = await sp.client.get(f"{sp.base}/draft/merge", params={"path": "autre.schema.yaml"})
     assert response.status_code == 404
 
 
 # --- Impacts (même fixture d'espace) -------------------------------------------
 
-RAW = "sources/s/raw/User.json"
-ASSET = "sources/s/assets/User.json"
+RAW = "sources/s/raw/User.schema.yaml"
+ASSET = "sources/s/assets/User.schema.yaml"
 
 
 async def test_impacts_puis_verifie(app: FastAPI, sp: ApiSpace) -> None:
@@ -174,7 +174,9 @@ async def test_corriger_l_impact_le_fait_entrer_au_brouillon(app: FastAPI, sp: A
 
 async def test_verifier_un_impact_inconnu_404(app: FastAPI, sp: ApiSpace) -> None:
     await _draft_write(app, sp, RAW, {"title": "User"})
-    response = await sp.client.post(f"{sp.base}/draft/impacts/verify", json={"path": "x.json"})
+    response = await sp.client.post(
+        f"{sp.base}/draft/impacts/verify", json={"path": "x.schema.yaml"}
+    )
     assert response.status_code == 404
 
 
@@ -187,9 +189,12 @@ async def test_journal_erreur_liee_au_brouillon_et_avertissement(
     forge_edit(sp, {RAW: json.dumps({"title": "User"})})
     # Le brouillon supprime la cible d'un $ref et laisse un asset sans son raw.
     await _draft_write(
-        app, sp, "sources/s/raw/Order.json", {"properties": {"u": {"$ref": "Absent.json"}}}
+        app,
+        sp,
+        "sources/s/raw/Order.schema.yaml",
+        {"properties": {"u": {"$ref": "Absent.schema.yaml"}}},
     )
-    await _draft_write(app, sp, "sources/s/assets/Seul.json", {"title": "Seul"})
+    await _draft_write(app, sp, "sources/s/assets/Seul.schema.yaml", {"title": "Seul"})
     log = (await sp.client.get(f"{sp.base}/draft/validation")).json()
     rules = {(e["rule"], e["level"], e["blocking"]) for e in log["entries"]}
     assert ("broken_ref", "error", True) in rules
@@ -207,13 +212,13 @@ async def test_journal_erreur_liee_au_brouillon_et_avertissement(
 
 async def test_accepter_une_erreur_refuse(app: FastAPI, sp: ApiSpace) -> None:
     await _draft_write(
-        app, sp, "sources/s/raw/Order.json", {"properties": {"u": {"$ref": "A.json"}}}
+        app, sp, "sources/s/raw/Order.schema.yaml", {"properties": {"u": {"$ref": "A.schema.yaml"}}}
     )
     response = await sp.client.post(
         f"{sp.base}/draft/validation/accept",
         json={
             "rule": "broken_ref",
-            "path": "sources/s/raw/Order.json",
+            "path": "sources/s/raw/Order.schema.yaml",
             "message_code": "ref_broken",
         },
     )

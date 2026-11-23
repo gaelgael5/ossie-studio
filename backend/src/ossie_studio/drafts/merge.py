@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 import yaml
 
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import SCHEMA_SUFFIX, dump_schema, load_schema
 
 
 class _Missing:
@@ -98,16 +98,20 @@ def parse(path: str, data: bytes | None) -> Any:
     if data is None:
         return MISSING
     text = data.decode("utf-8")
+    if path.endswith(SCHEMA_SUFFIX):
+        return load_schema(text) if text.strip() else {}
     if path.endswith(".json"):
         return json.loads(text) if text.strip() else {}
     return yaml.safe_load(text) if text.strip() else {}
 
 
 def serialize(path: str, value: Any) -> bytes:
-    """Même forme que celle qu'écrit l'application : JSON déterministe
-    (`dump_schema`), YAML dans l'ordre des clés (`dump_manifest`)."""
-    if path.endswith(".json"):
+    """Même forme que celle qu'écrit l'application : schéma YAML déterministe
+    (`dump_schema`), autre YAML dans l'ordre des clés (`dump_manifest`)."""
+    if path.endswith(SCHEMA_SUFFIX):
         return dump_schema(value).encode("utf-8")
+    if path.endswith(".json"):
+        return (json.dumps(value, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode()
     return yaml.safe_dump(
         value, sort_keys=False, allow_unicode=True, default_flow_style=False
     ).encode("utf-8")

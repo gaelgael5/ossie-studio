@@ -25,7 +25,7 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import dump_schema, schema_file
 
 _SLUG = re.compile(r"[^a-zA-Z0-9]+")
 _GLOBS = ["*"]
@@ -98,7 +98,7 @@ def _references_by_column(foreign_keys: list[dict[str, Any]]) -> dict[str, list[
 def _build_schema(data: dict[str, Any]) -> dict[str, Any]:
     key = _slug(f"{data['schema']}.{data['name']}")
     schema: dict[str, Any] = {
-        "$id": f"{key}.json",
+        "$id": schema_file(key),
         "title": data["name"],
         "x-kind": data["kind"],
     }

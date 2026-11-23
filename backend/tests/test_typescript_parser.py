@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
-
-from ossie_studio.parsers.conventions import validate_schema
+from ossie_studio.parsers.conventions import load_schema, validate_schema
 from ossie_studio.parsers.typescript import TypeScriptParser
 
 
@@ -10,7 +8,7 @@ def _parse(code: str, path: str = "a.ts") -> dict[str, dict]:
     objects = TypeScriptParser().parse({path: code.encode("utf-8")})
     out: dict[str, dict] = {}
     for obj in objects:
-        schema = json.loads(obj.schema)
+        schema = load_schema(obj.schema)
         validate_schema(schema)  # critère 4 : tout passe le validateur des conventions
         out[obj.key] = schema
     return out
@@ -72,7 +70,7 @@ def test_union_objets_oneof() -> None:
         "export interface C { v: A | B; }\n"
     )
     v = schemas["a-c"]["properties"]["v"]
-    assert v["oneOf"] == [{"$ref": "a-a.json"}, {"$ref": "a-b.json"}]
+    assert v["oneOf"] == [{"$ref": "a-a.schema.yaml"}, {"$ref": "a-b.schema.yaml"}]
 
 
 def test_intersection_allof() -> None:
@@ -82,7 +80,7 @@ def test_intersection_allof() -> None:
         "export interface C { v: A & B; }\n"
     )
     v = schemas["a-c"]["properties"]["v"]
-    assert v["allOf"] == [{"$ref": "a-a.json"}, {"$ref": "a-b.json"}]
+    assert v["allOf"] == [{"$ref": "a-a.schema.yaml"}, {"$ref": "a-b.schema.yaml"}]
 
 
 def test_heritage_allof_resolu_et_externe() -> None:
@@ -91,7 +89,7 @@ def test_heritage_allof_resolu_et_externe() -> None:
         "export interface Fille extends Base { nom: string; }\n"
         "export interface Autre extends Externe { a: number; }\n"
     )
-    assert schemas["a-fille"]["allOf"] == [{"$ref": "a-base.json"}]
+    assert schemas["a-fille"]["allOf"] == [{"$ref": "a-base.schema.yaml"}]
     assert set(schemas["a-fille"]["properties"]) == {"nom"}
     assert schemas["a-autre"]["allOf"] == [{"x-unresolved-type": "Externe"}]
 
@@ -102,7 +100,7 @@ def test_reference_resolue_vs_externe() -> None:
         "export interface Commande { ligne: Ligne; autre: Autre; }\n"
     )
     props = schemas["a-commande"]["properties"]
-    assert props["ligne"]["$ref"] == "a-ligne.json"
+    assert props["ligne"]["$ref"] == "a-ligne.schema.yaml"
     assert props["autre"]["x-unresolved-type"] == "Autre"
 
 

@@ -19,9 +19,9 @@ describe('ValidationLog', () => {
             : {
                 blocking: 1,
                 entries: [
-                  { level: 'error', path: 'sources/s/raw/O.json', rule: 'broken_ref', message_code: 'ref_broken', args: { target: 'sources/s/raw/X.json' }, preexisting: false, accepted: false, blocking: true },
+                  { level: 'error', path: 'sources/s/raw/O.schema.yaml', rule: 'broken_ref', message_code: 'ref_broken', args: { target: 'sources/s/raw/X.schema.yaml' }, preexisting: false, accepted: false, blocking: true },
                   { level: 'error', path: 'sources/v/manifest.yaml', rule: 'parseable', message_code: 'file_unreadable', args: {}, preexisting: true, accepted: false, blocking: false },
-                  { level: 'warning', path: 'sources/s/assets/A.json', rule: 'orphan_asset', message_code: 'asset_orphan', args: {}, preexisting: false, accepted: false, blocking: false },
+                  { level: 'warning', path: 'sources/s/assets/A.schema.yaml', rule: 'orphan_asset', message_code: 'asset_orphan', args: {}, preexisting: false, accepted: false, blocking: false },
                 ],
               }
         return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
@@ -35,10 +35,10 @@ describe('ValidationLog', () => {
       </QueryClientProvider>,
     )
     await waitFor(() => expect(screen.getByText('Journal de validation — erreurs bloquantes : 1')).toBeInTheDocument())
-    expect(screen.getByText('référence cassée vers sources/s/raw/X.json')).toBeInTheDocument()
+    expect(screen.getByText('référence cassée vers sources/s/raw/X.schema.yaml')).toBeInTheDocument()
     expect(screen.getByText('préexistant')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Accepter' }))
     await waitFor(() => expect(posts).toHaveLength(1))
-    expect(JSON.parse(posts[0] ?? '{}')).toEqual({ rule: 'orphan_asset', path: 'sources/s/assets/A.json', message_code: 'asset_orphan' })
+    expect(JSON.parse(posts[0] ?? '{}')).toEqual({ rule: 'orphan_asset', path: 'sources/s/assets/A.schema.yaml', message_code: 'asset_orphan' })
   })
 })

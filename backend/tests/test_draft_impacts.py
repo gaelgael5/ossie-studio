@@ -22,38 +22,47 @@ def _obj(path: str, content: object | None, base: str | None = "b") -> DraftObje
 
 
 def test_raw_modifie_impacte_son_asset(tmp_path: Path) -> None:
-    _put(tmp_path, "sources/s/raw/User.json", {"title": "User", "v": 2})
-    _put(tmp_path, "sources/s/assets/User.json", {"title": "User"})
-    impacts = compute_impacts(tmp_path, [_obj("sources/s/raw/User.json", {"v": 2})], {})
+    _put(tmp_path, "sources/s/raw/User.schema.yaml", {"title": "User", "v": 2})
+    _put(tmp_path, "sources/s/assets/User.schema.yaml", {"title": "User"})
+    impacts = compute_impacts(tmp_path, [_obj("sources/s/raw/User.schema.yaml", {"v": 2})], {})
     assert [(i.path, i.reads, i.rules) for i in impacts] == [
-        ("sources/s/assets/User.json", ["sources/s/raw/User.json"], ["raw_asset"])
+        ("sources/s/assets/User.schema.yaml", ["sources/s/raw/User.schema.yaml"], ["raw_asset"])
     ]
 
 
 def test_cible_ref_supprimee_impacte_le_referent(tmp_path: Path) -> None:
-    _put(tmp_path, "sources/s/raw/Order.json", {"properties": {"u": {"$ref": "User.json"}}})
-    impacts = compute_impacts(tmp_path, [_obj("sources/s/raw/User.json", None)], {})
-    assert [(i.path, i.rules) for i in impacts] == [("sources/s/raw/Order.json", ["ref"])]
+    _put(
+        tmp_path,
+        "sources/s/raw/Order.schema.yaml",
+        {"properties": {"u": {"$ref": "User.schema.yaml"}}},
+    )
+    impacts = compute_impacts(tmp_path, [_obj("sources/s/raw/User.schema.yaml", None)], {})
+    assert [(i.path, i.rules) for i in impacts] == [("sources/s/raw/Order.schema.yaml", ["ref"])]
 
 
 def test_objet_deja_dans_le_brouillon_n_est_pas_un_impact(tmp_path: Path) -> None:
-    _put(tmp_path, "sources/s/raw/User.json", {"v": 2})
-    _put(tmp_path, "sources/s/assets/User.json", {"title": "User corrigé"})
-    objects = [_obj("sources/s/raw/User.json", {"v": 2}), _obj("sources/s/assets/User.json", {})]
+    _put(tmp_path, "sources/s/raw/User.schema.yaml", {"v": 2})
+    _put(tmp_path, "sources/s/assets/User.schema.yaml", {"title": "User corrigé"})
+    objects = [
+        _obj("sources/s/raw/User.schema.yaml", {"v": 2}),
+        _obj("sources/s/assets/User.schema.yaml", {}),
+    ]
     assert compute_impacts(tmp_path, objects, {}) == []
 
 
 def test_sans_dependance_aucun_impact(tmp_path: Path) -> None:
-    _put(tmp_path, "sources/s/raw/Seul.json", {"title": "Seul"})
-    assert compute_impacts(tmp_path, [_obj("sources/s/raw/Seul.json", {"v": 1})], {}) == []
+    _put(tmp_path, "sources/s/raw/Seul.schema.yaml", {"title": "Seul"})
+    assert compute_impacts(tmp_path, [_obj("sources/s/raw/Seul.schema.yaml", {"v": 1})], {}) == []
 
 
 def test_verifie_puis_redevient_actif_si_l_objet_lu_change(tmp_path: Path) -> None:
-    _put(tmp_path, "sources/s/assets/User.json", {"title": "User"})
-    first = [_obj("sources/s/raw/User.json", {"v": 2})]
-    decided = {"sources/s/assets/User.json": fingerprint(["sources/s/raw/User.json"], first)}
+    _put(tmp_path, "sources/s/assets/User.schema.yaml", {"title": "User"})
+    first = [_obj("sources/s/raw/User.schema.yaml", {"v": 2})]
+    decided = {
+        "sources/s/assets/User.schema.yaml": fingerprint(["sources/s/raw/User.schema.yaml"], first)
+    }
     assert compute_impacts(tmp_path, first, decided)[0].verified is True
-    again = [_obj("sources/s/raw/User.json", {"v": 3})]
+    again = [_obj("sources/s/raw/User.schema.yaml", {"v": 3})]
     assert compute_impacts(tmp_path, again, decided)[0].verified is False
 
 
@@ -62,11 +71,11 @@ def test_collecte_500_objets_temps(tmp_path: Path) -> None:
     for i in range(500):
         _put(
             tmp_path,
-            f"sources/s/raw/O{i}.json",
-            {"properties": {"n": {"$ref": f"O{(i + 1) % 500}.json"}}},
+            f"sources/s/raw/O{i}.schema.yaml",
+            {"properties": {"n": {"$ref": f"O{(i + 1) % 500}.schema.yaml"}}},
         )
-        _put(tmp_path, f"sources/s/assets/O{i}.json", {"title": f"O{i}"})
-        objects.append(_obj(f"sources/s/raw/O{i}.json", {"i": i}))
+        _put(tmp_path, f"sources/s/assets/O{i}.schema.yaml", {"title": f"O{i}"})
+        objects.append(_obj(f"sources/s/raw/O{i}.schema.yaml", {"i": i}))
     started = time.perf_counter()
     impacts = compute_impacts(tmp_path, objects, {})
     elapsed = time.perf_counter() - started

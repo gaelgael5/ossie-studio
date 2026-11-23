@@ -38,7 +38,7 @@ const PROVIDED = {
 const HITS = {
   objects: 3,
   inherited: 2,
-  examples: [{ slug: 'app', file: 'orders.json', title: 'OrdersController', folder: 'src/Api', inherited: false }],
+  examples: [{ slug: 'app', file: 'orders.schema.yaml', title: 'OrdersController', folder: 'src/Api', inherited: false }],
 }
 
 function mockApi(capabilities: string[] = ['governance:read', 'governance:write', 'sources:read']) {
@@ -101,7 +101,7 @@ describe('GovernanceTagRulesPage', () => {
     expect(screen.getByText('3 objet(s), dont 2 par héritage.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'OrdersController' })).toHaveAttribute(
       'href',
-      '/sources?tab=raw&source=app&sel=orders.json&path=src%2FApi',
+      '/sources?tab=raw&source=app&sel=orders.schema.yaml&path=src%2FApi',
     )
     // Une règle invalide montre ses erreurs dans les mots du journal de validation.
     await user.click(screen.getByText('broken'))

@@ -123,9 +123,12 @@ export function EyeIcon({ exposed }: { exposed: boolean }) {
   )
 }
 
+/** Suffixe des fichiers de schéma, raw comme asset (backend `SCHEMA_SUFFIX`). */
+export const SCHEMA_SUFFIX = '.schema.yaml'
+
 /** Une sélection est un objet (fichier schéma à la racine de raw/) ou un document. */
 export function isObjectSelection(sel: string): boolean {
-  return sel.endsWith('.json') && !sel.includes('/')
+  return sel.endsWith(SCHEMA_SUFFIX) && !sel.includes('/')
 }
 
 interface PreviewProps {

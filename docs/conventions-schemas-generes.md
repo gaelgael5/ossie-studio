@@ -10,7 +10,10 @@ est signalé dans le compte rendu, jamais écrit).
 ## Forme générale
 
 - **JSON Schema 2020-12**, **un fichier par objet** (classe, record, struct,
-  enum, interface, table, vue).
+  enum, interface, table, vue), **écrit en YAML** : `<clé>.schema.yaml` dans
+  `raw/` (et l'asset de même nom dans `assets/`). Le suffixe double évite la
+  collision avec les index YAML de `raw/` (`manifest.yaml`, `docs-index.yaml`).
+  Écriture déterministe : clés triées, blocs, textes multilignes en `|`.
 - **Identité stable** : `$id` dérivé de la source et du nom qualifié de l'objet
   (espace de noms / module + nom ; schéma + table). Le nom de fichier en dérive.
   Jamais de dépendance à l'ordre de lecture.
@@ -36,9 +39,15 @@ est signalé dans le compte rendu, jamais écrit).
 
 Exemple (énumération) :
 
-```json
-{ "$id": "app.statut.json", "title": "Statut", "enum": ["ouvert", "fermé"],
-  "x-language": "csharp", "x-kind": "enum", "x-visibility": "public" }
+```yaml
+$id: app.statut.schema.yaml
+enum:
+- ouvert
+- fermé
+title: Statut
+x-kind: enum
+x-language: csharp
+x-visibility: public
 ```
 
 ## Références et héritage
@@ -54,10 +63,17 @@ Exemple (énumération) :
 
 Exemple (héritage) :
 
-```json
-{ "$id": "app.commande-web.json", "title": "CommandeWeb", "x-language": "csharp",
-  "x-visibility": "public", "allOf": [{ "$ref": "app.commande.json" }],
-  "properties": { "origine": { "type": "string", "x-visibility": "public" } } }
+```yaml
+$id: app.commande-web.schema.yaml
+allOf:
+- $ref: app.commande.schema.yaml
+properties:
+  origine:
+    type: string
+    x-visibility: public
+title: CommandeWeb
+x-language: csharp
+x-visibility: public
 ```
 
 ## Visibilité (code uniquement)

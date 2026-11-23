@@ -186,8 +186,8 @@ async def test_collecte_openapi_ecrit_les_schemas(
     assert report.added == 2  # Commande + Ligne
     assert report.local_commit is not None
     raw = _raw(tmp_path, space)
-    assert (raw / "v1-commande.json").is_file()
-    assert (raw / "v1-ligne.json").is_file()
+    assert (raw / "v1-commande.schema.yaml").is_file()
+    assert (raw / "v1-ligne.schema.yaml").is_file()
 
 
 async def test_collecte_openapi_idempotente(
@@ -220,11 +220,11 @@ async def test_retrait_contrat_supprime_ses_schemas(
     )
     await _collect(collector, space)
     raw = _raw(tmp_path, space)
-    assert (raw / "v1-commande.json").is_file()
+    assert (raw / "v1-commande.schema.yaml").is_file()
     # Retrait : le fichier et ses schémas quittent la branche, en un commit.
     await _commit(collector, space, remove_contract_fn("api", "v1"), "retire v1")
-    assert not (raw / "v1-commande.json").exists()
-    assert not (raw / "v1-ligne.json").exists()
+    assert not (raw / "v1-commande.schema.yaml").exists()
+    assert not (raw / "v1-ligne.schema.yaml").exists()
     contrats = view_dir(tmp_path, space) / "sources" / "api" / "contrats"
     assert not (contrats / "v1.yaml").exists()
 
@@ -249,8 +249,8 @@ async def test_versions_coexistent_sur_le_disque(
     report = await _collect(collector, space)
     raw = _raw(tmp_path, space)
     # v1 et v2 produisent des schémas distincts.
-    assert (raw / "v1-commande.json").is_file()
-    assert (raw / "v2-commande.json").is_file()
+    assert (raw / "v1-commande.schema.yaml").is_file()
+    assert (raw / "v2-commande.schema.yaml").is_file()
     assert report.added == 4
 
 

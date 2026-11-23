@@ -52,9 +52,9 @@ def test_merge_object_json_serialise_comme_l_application() -> None:
     base = json.dumps({"a": 1, "b": 1}).encode()
     theirs = json.dumps({"a": 2, "b": 1}).encode()
     mine = json.dumps({"a": 1, "b": 3}).encode()
-    merged = merge_object("sources/s/raw/O.json", base, theirs, mine)
+    merged = merge_object("sources/s/raw/O.schema.yaml", base, theirs, mine)
     assert merged.kind == "auto"
-    assert merged.result == b'{\n  "a": 2,\n  "b": 3\n}\n'
+    assert merged.result == b"a: 2\nb: 3\n"  # schéma : YAML déterministe (dump_schema)
 
 
 def test_merge_object_yaml_conflit() -> None:

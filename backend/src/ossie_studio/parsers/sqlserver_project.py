@@ -39,7 +39,7 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import dump_schema, is_schema_name, schema_file
 
 _PARSER_ID = "sqlserver-projet"
 _GLOBS = ["**/*.sql", "**/*.sqlproj", "**/*.schema.json"]
@@ -575,7 +575,7 @@ class SqlServerProjectParser:
             json_cols = {col: cid for col, (cid, _src) in matches.get(key, {}).items()}
             data = _normalized(obj, json_cols)
             schema = build_object_schema(data)
-            plan.writes[f"{_slug(f'{obj.schema}.{obj.name}')}.json"] = dump_schema(schema)
+            plan.writes[schema_file(_slug(f"{obj.schema}.{obj.name}"))] = dump_schema(schema)
 
         # Schémas de contenu JSON (un par colonne JSON reliée).
         for key, cols in sorted(matches.items()):
@@ -727,7 +727,7 @@ class SqlServerProjectParser:
             if obj.columns.get(real_col, {}).get("type") != "string":
                 plan.errors.append(PluginError(source=path, cause="json_schema_not_string"))
                 continue
-            content_id = f"{_slug(f'{obj.schema}.{obj.name}.{real_col}')}.json"
+            content_id = schema_file(_slug(f"{obj.schema}.{obj.name}.{real_col}"))
             result.setdefault(key, {})[real_col] = (content_id, path)
         return result
 
@@ -742,7 +742,7 @@ def _find_col(obj: _Obj | None, col_lower: str) -> str | None:
 
 
 def _is_schema(path: str) -> bool:
-    return path.endswith(".json") and "/" not in path
+    return is_schema_name(path)
 
 
 def _normalized(obj: _Obj, json_cols: dict[str, str]) -> dict[str, Any]:

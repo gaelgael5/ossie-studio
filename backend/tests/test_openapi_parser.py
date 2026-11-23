@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
-
 import pytest
 import yaml
 
+from ossie_studio.parsers.conventions import load_schema
 from ossie_studio.parsers.openapi import (
     Analysis,
     OpenApiError,
@@ -27,7 +26,7 @@ def _doc(**overrides: object) -> bytes:
 
 def _schema_of(parser: OpenApiParser, filename: str, raw: bytes, key: str) -> dict:
     objects = {o.key: o for o in parser.parse({filename: raw})}
-    return json.loads(objects[key].schema)
+    return load_schema(objects[key].schema)
 
 
 # --- Analyse -----------------------------------------------------------------
@@ -165,7 +164,7 @@ def test_schema_porte_origine_et_usage() -> None:
         },
     )
     schema = _schema_of(OpenApiParser(), "v1.yaml", raw, "v1-commande")
-    assert schema["$id"] == "v1-commande.json"
+    assert schema["$id"] == "v1-commande.schema.yaml"
     assert schema["x-source"] == {"file": "v1.yaml", "pointer": "#/components/schemas/Commande"}
     assert schema["x-used-by"] == ["POST /commandes"]
 
@@ -183,7 +182,7 @@ def test_ref_interne_pointe_vers_le_fichier_genere() -> None:
         }
     )
     schema = _schema_of(OpenApiParser(), "v2.yaml", raw, "v2-commande")
-    assert schema["properties"]["ligne"] == {"$ref": "v2-ligne.json"}
+    assert schema["properties"]["ligne"] == {"$ref": "v2-ligne.schema.yaml"}
 
 
 def test_ref_externe_devient_x_unresolved() -> None:
@@ -238,7 +237,7 @@ def test_30_nullable_avec_ref_devient_anyof() -> None:
     )
     schema = _schema_of(OpenApiParser(), "v1.yaml", raw, "v1-commande")
     ligne = schema["properties"]["ligne"]
-    assert ligne == {"anyOf": [{"$ref": "v1-ligne.json"}, {"type": "null"}]}
+    assert ligne == {"anyOf": [{"$ref": "v1-ligne.schema.yaml"}, {"type": "null"}]}
 
 
 def test_30_example_devient_examples() -> None:

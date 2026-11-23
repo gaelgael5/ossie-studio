@@ -9,16 +9,17 @@ Les changements sont des codes stables, traduits par l'interface.
 
 from __future__ import annotations
 
-import json
 from typing import Any
+
+from ossie_studio.parsers.conventions import SchemaReadError, load_schema, schema_key
 
 
 def _load(text: str | None) -> dict[str, Any] | None:
     if text is None:
         return None
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
+        data = load_schema(text)
+    except SchemaReadError:
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -27,7 +28,7 @@ def type_text(prop: dict[str, Any]) -> str:
     """Type d'un champ en une courte chaîne, sans résoudre les références (un
     historique compare des versions, pas l'espace d'aujourd'hui)."""
     if "$ref" in prop:
-        return str(prop["$ref"]).rsplit("/", 1)[-1].removesuffix(".json")
+        return schema_key(str(prop["$ref"]).rsplit("/", 1)[-1])
     if "x-unresolved-type" in prop:
         return str(prop["x-unresolved-type"])
     items, extra = prop.get("items"), prop.get("additionalProperties")

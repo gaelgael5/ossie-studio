@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
@@ -8,6 +7,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from ossie_studio.errors import ERROR_CODES, ApiError
+from ossie_studio.parsers.conventions import load_schema
 
 _FRONTEND_CODES = Path(__file__).resolve().parents[2] / "frontend" / "src" / "errorCodes.json"
 
@@ -19,7 +19,7 @@ def test_api_error_refuse_un_code_inconnu() -> None:
 
 def test_codes_backend_et_frontend_ne_divergent_pas() -> None:
     """La liste des codes est partagée : le JSON du front doit refléter le backend."""
-    frontend_codes = json.loads(_FRONTEND_CODES.read_text(encoding="utf-8"))
+    frontend_codes = load_schema(_FRONTEND_CODES.read_text(encoding="utf-8"))
     assert sorted(frontend_codes) == sorted(ERROR_CODES)
 
 

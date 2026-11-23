@@ -10,7 +10,6 @@ une **liste extensible** : la couche ontologique en ajoutera."""
 from __future__ import annotations
 
 import hashlib
-import json
 import posixpath
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -18,6 +17,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ossie_studio.drafts.store import DraftObject
+from ossie_studio.parsers.conventions import SCHEMA_SUFFIX, load_schema
 
 REF_KEY = "$ref"
 
@@ -31,12 +31,12 @@ class DependencyRule(Protocol):
 
 
 def _source_json(view: Path, folder: str) -> Iterator[Path]:
-    yield from (view / "sources").glob(f"*/{folder}/*.json")
+    yield from (view / "sources").glob(f"*/{folder}/*{SCHEMA_SUFFIX}")
 
 
 class RawAssetRule:
-    """Un asset curé (`sources/<s>/assets/X.json`) dépend du raw de même nom
-    (`sources/<s>/raw/X.json`) : même nom de fichier et même `$id`
+    """Un asset curé (`sources/<s>/assets/X.schema.yaml`) dépend du raw de même
+    nom (`sources/<s>/raw/X.schema.yaml`) : même nom de fichier et même `$id`
     (sources/curation.py)."""
 
     name = "raw_asset"
@@ -76,7 +76,7 @@ class RefRule:
         for file in [*_source_json(view, "raw"), *_source_json(view, "assets")]:
             rel = file.relative_to(view).as_posix()
             try:
-                data = json.loads(file.read_text(encoding="utf-8"))
+                data = load_schema(file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
             for ref in refs_in(data):

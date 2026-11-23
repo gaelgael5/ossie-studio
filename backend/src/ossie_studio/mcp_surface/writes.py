@@ -45,7 +45,9 @@ class SourceWriteArgs(BranchArgs):
 
 
 class ObjectWriteArgs(SourceWriteArgs):
-    path: str = Field(description="Schema file name, e.g. 'customer.json' (from the lists).")
+    path: str = Field(
+        description="Schema file name, e.g. 'customer.schema.yaml' (from the lists)."
+    )
 
 
 class RetainArgs(ObjectWriteArgs):

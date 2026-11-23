@@ -37,7 +37,7 @@ def _manifest(slug: str) -> str:
 def _schema(title: str, props: dict[str, Any] | None = None, **extra: Any) -> str:
     return json.dumps(
         {
-            "$id": f"{title.lower()}.json",
+            "$id": f"{title.lower()}.schema.yaml",
             "title": title,
             "type": "object",
             "x-kind": "class",
@@ -57,19 +57,21 @@ async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
         api_space,
         {
             "sources/ventes/manifest.yaml": _manifest("ventes"),
-            f"{raw}/customer.json": _schema("Customer", {"id": {"type": "integer"}}),
-            f"{raw}/order.json": _schema(
+            f"{raw}/customer.schema.yaml": _schema("Customer", {"id": {"type": "integer"}}),
+            f"{raw}/order.schema.yaml": _schema(
                 "Order",
                 {
-                    "customer": {"$ref": "customer.json"},
+                    "customer": {"$ref": "customer.schema.yaml"},
                     "total": {"x-unresolved-type": "Money"},
                 },
                 required=["customer"],
             ),
-            f"{raw}/invoice.json": _schema(
-                "Invoice", {"orders": {"type": "array", "items": {"$ref": "order.json"}}}
+            f"{raw}/invoice.schema.yaml": _schema(
+                "Invoice", {"orders": {"type": "array", "items": {"$ref": "order.schema.yaml"}}}
             ),
-            f"{raw}/specialorder.json": _schema("SpecialOrder", allOf=[{"$ref": "order.json"}]),
+            f"{raw}/specialorder.schema.yaml": _schema(
+                "SpecialOrder", allOf=[{"$ref": "order.schema.yaml"}]
+            ),
         },
     )
     async with app.state.pool.acquire() as conn:
@@ -94,7 +96,7 @@ def _args(space: ApiSpace, **extra: Any) -> dict[str, Any]:
         "space_id": space.space_id,
         "branch_id": space.branch_id,
         "source": "ventes",
-        "path": "order.json",
+        "path": "order.schema.yaml",
         **extra,
     }
 
@@ -114,8 +116,8 @@ async def test_qui_reference_l_objet(app: FastAPI, space: ApiSpace) -> None:
     data = await _ok(app, KEY, _args(space, direction="incoming"))
     assert data["view"] == "published"
     assert _edges(data) == {
-        ("ventes/invoice.json", "ventes/order.json", "list", "incoming"),
-        ("ventes/specialorder.json", "ventes/order.json", "inherits", "incoming"),
+        ("ventes/invoice.schema.yaml", "ventes/order.schema.yaml", "list", "incoming"),
+        ("ventes/specialorder.schema.yaml", "ventes/order.schema.yaml", "inherits", "incoming"),
     }
     titles = {n["title"] for n in data["nodes"]}
     assert titles == {"Order", "Invoice", "SpecialOrder"}
@@ -125,7 +127,7 @@ async def test_ce_que_l_objet_reference_et_les_deux_sens(app: FastAPI, space: Ap
     out = await _ok(app, AGENT, _args(space, direction="outgoing"))
     assert out["view"] == "draft"
     assert {(e["to"], e["cardinality"]) for e in out["edges"]} == {
-        ("ventes/customer.json", "1"),
+        ("ventes/customer.schema.yaml", "1"),
         ("/ext:Money", "0..1"),
     }
     external = next(n for n in out["nodes"] if n.get("external"))
@@ -133,7 +135,9 @@ async def test_ce_que_l_objet_reference_et_les_deux_sens(app: FastAPI, space: Ap
     both = await _ok(app, AGENT, _args(space))
     assert len(both["edges"]) == 4
     # Profondeur 2 en entrant depuis Customer : Order puis Invoice et SpecialOrder.
-    deep = await _ok(app, KEY, _args(space, path="customer.json", direction="incoming", depth=2))
+    deep = await _ok(
+        app, KEY, _args(space, path="customer.schema.yaml", direction="incoming", depth=2)
+    )
     assert {n["title"] for n in deep["nodes"]} == {"Customer", "Order", "Invoice", "SpecialOrder"}
 
 
@@ -141,18 +145,22 @@ async def test_le_brouillon_de_la_personne_compte(app: FastAPI, space: ApiSpace)
     await draft_write(
         app,
         space,
-        "sources/ventes/raw/refund.json",
-        {"$id": "refund.json", "title": "Refund", "properties": {"order": {"$ref": "order.json"}}},
+        "sources/ventes/raw/refund.schema.yaml",
+        {
+            "$id": "refund.schema.yaml",
+            "title": "Refund",
+            "properties": {"order": {"$ref": "order.schema.yaml"}},
+        },
     )
     draft = await _ok(app, AGENT, _args(space, direction="incoming"))
-    assert "ventes/refund.json" in {e["from"] for e in draft["edges"]}
+    assert "ventes/refund.schema.yaml" in {e["from"] for e in draft["edges"]}
     published = await _ok(app, KEY, _args(space, direction="incoming"))
-    assert "ventes/refund.json" not in {e["from"] for e in published["edges"]}
+    assert "ventes/refund.schema.yaml" not in {e["from"] for e in published["edges"]}
 
 
 async def test_erreurs_nommees(app: FastAPI, space: ApiSpace) -> None:
     for args in (
-        _args(space, path="absent.json"),
+        _args(space, path="absent.schema.yaml"),
         _args(space, path="../manifest.yaml"),
     ):
         result = await call_tool(app, KEY, "get_reference_graph", args)

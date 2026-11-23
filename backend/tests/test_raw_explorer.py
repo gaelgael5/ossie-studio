@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import dump_schema, load_schema
 from ossie_studio.sources.collect_core import TechEntry, TechManifest, dump_tech_manifest
 from ossie_studio.sources.explorer import (
     BADGE_ERROR,
@@ -45,7 +45,7 @@ def _fresh_caches() -> None:
 
 def _schema(title: str, kind: str = "class", fields: int = 1, **extra: object) -> str:
     data: dict[str, object] = {
-        "$id": f"{title.lower()}.json",
+        "$id": f"{title.lower()}.schema.yaml",
         "title": title,
         "type": "object",
         "x-kind": kind,
@@ -89,13 +89,13 @@ def _git_files(slug: str = "app") -> dict[str, str]:
     raw = f"sources/{slug}/raw"
     return {
         f"sources/{slug}/manifest.yaml": _manifest(slug),
-        f"{raw}/order.json": _schema("Order", fields=3),
-        f"{raw}/status.json": _schema("Status", kind="enum", fields=0),
-        f"{raw}/customer.json": _schema("Customer", kind="record", fields=2),
+        f"{raw}/order.schema.yaml": _schema("Order", fields=3),
+        f"{raw}/status.schema.yaml": _schema("Status", kind="enum", fields=0),
+        f"{raw}/customer.schema.yaml": _schema("Customer", kind="record", fields=2),
         f"{raw}/manifest-csharp.yaml": _tech(
             {
-                "src/Domain/Order.cs": (["order.json", "status.json"], "csharp"),
-                "src/Domain/Sub/Customer.cs": (["customer.json"], "csharp"),
+                "src/Domain/Order.cs": (["order.schema.yaml", "status.schema.yaml"], "csharp"),
+                "src/Domain/Sub/Customer.cs": (["customer.schema.yaml"], "csharp"),
             }
         ),
         f"{raw}/docs-index.yaml": (
@@ -123,9 +123,9 @@ def test_git_arborescence_d_origine(tmp_path: Path) -> None:
     assert index.collected and index.type == "git"
     assert set(index.folders) == {"", "src", "src/Domain", "src/Domain/Sub", "docs"}
     domain = index.folders["src/Domain"]
-    assert {o.file for o in domain.objects} == {"order.json", "status.json"}
+    assert {o.file for o in domain.objects} == {"order.schema.yaml", "status.schema.yaml"}
     assert domain.folders == {"src/Domain/Sub"}
-    order = next(o for o in domain.objects if o.file == "order.json")
+    order = next(o for o in domain.objects if o.file == "order.schema.yaml")
     assert (order.title, order.kind, order.fields) == ("Order", "class", 3)
     assert order.origin == "src/Domain/Order.cs" and order.parser == "csharp"
     assert [d.title for d in index.folders["docs"].documents] == ["Guide"]
@@ -137,7 +137,7 @@ def test_trois_modes_regroupent_les_memes_objets(tmp_path: Path) -> None:
     by_mode = {m: build_source_index(tmp_path, "app", m) for m in ("origin", "kind", "parser")}
     for index in by_mode.values():
         files = sorted(o.file for f in index.folders.values() for o in f.objects)
-        assert files == ["customer.json", "order.json", "status.json"]
+        assert files == ["customer.schema.yaml", "order.schema.yaml", "status.schema.yaml"]
     assert set(by_mode["kind"].folders) == {"", "class", "enum", "record", "documents"}
     assert set(by_mode["parser"].folders) == {"", "csharp", "markdown"}
 
@@ -150,12 +150,12 @@ def test_base_de_donnees_base_schema(tmp_path: Path) -> None:
             "sources/entrepot/manifest.yaml": _manifest(
                 "entrepot", "postgresql", database="ventes"
             ),
-            f"{raw}/public.orders.json": _schema("orders", kind="table"),
-            f"{raw}/audit.v_log.json": _schema("v_log", kind="view"),
+            f"{raw}/public.orders.schema.yaml": _schema("orders", kind="table"),
+            f"{raw}/audit.v_log.schema.yaml": _schema("v_log", kind="view"),
             f"{raw}/manifest-postgresql.yaml": _tech(
                 {
-                    "public.orders": (["public.orders.json"], "postgresql"),
-                    "audit.v_log": (["audit.v_log.json"], "postgresql"),
+                    "public.orders": (["public.orders.schema.yaml"], "postgresql"),
+                    "audit.v_log": (["audit.v_log.schema.yaml"], "postgresql"),
                 }
             ),
         },
@@ -172,7 +172,7 @@ def test_openapi_par_contrat(tmp_path: Path) -> None:
         tmp_path,
         {
             "sources/paiement/manifest.yaml": _manifest("paiement", "openapi"),
-            f"{raw}/v1-payment.json": _schema(
+            f"{raw}/v1-payment.schema.yaml": _schema(
                 "Payment",
                 kind="contract-schema",
                 **{"x-source": {"file": "v1.yaml", "pointer": "#/components/schemas/Payment"}},
@@ -185,14 +185,14 @@ def test_openapi_par_contrat(tmp_path: Path) -> None:
 
 def test_badges_retenu_ecarte_erreur_et_absents_sans_information(tmp_path: Path) -> None:
     files = _git_files()
-    files["sources/app/assets/order.json"] = _schema("Order")
-    files["sources/app/raw/broken.json"] = "{ pas du json"
+    files["sources/app/assets/order.schema.yaml"] = _schema("Order")
+    files["sources/app/raw/broken.schema.yaml"] = "{ pas du json"
     _write(tmp_path, files)
     plain = build_source_index(tmp_path, "app", "kind")
     badges = {o.file: o.badges for f in plain.folders.values() for o in f.objects}
-    assert badges["order.json"] == (BADGE_RETAINED,)
-    assert badges["status.json"] == ()  # hors git ni règle : aucun badge
-    assert badges["broken.json"] == (BADGE_ERROR,)  # illisible, mais les autres s'affichent
+    assert badges["order.schema.yaml"] == (BADGE_RETAINED,)
+    assert badges["status.schema.yaml"] == ()  # hors git ni règle : aucun badge
+    assert badges["broken.schema.yaml"] == (BADGE_ERROR,)  # illisible, mais les autres s'affichent
 
     # Règle de tri + fichier d'origine en erreur à la dernière collecte.
     (tmp_path / "sources/app/manifest.yaml").write_text(
@@ -202,9 +202,9 @@ def test_badges_retenu_ecarte_erreur_et_absents_sans_information(tmp_path: Path)
         tmp_path, "app", "kind", error_origins={"src/Domain/Sub/Customer.cs"}
     )
     badges = {o.file: o for f in index.folders.values() for o in f.objects}
-    assert BADGE_EXCLUDED in badges["status.json"].badges
-    assert badges["status.json"].excluded_by
-    assert badges["customer.json"].badges == (BADGE_ERROR,)
+    assert BADGE_EXCLUDED in badges["status.schema.yaml"].badges
+    assert badges["status.schema.yaml"].excluded_by
+    assert badges["customer.schema.yaml"].badges == (BADGE_ERROR,)
 
 
 def test_badges_nouveau_et_modifie_par_rapport_a_la_tete_publiee(tmp_path: Path) -> None:
@@ -219,13 +219,13 @@ def test_badges_nouveau_et_modifie_par_rapport_a_la_tete_publiee(tmp_path: Path)
     published = build_source_index(tmp_path, "app", "kind", published_base=base)
     assert all(not o.badges for f in published.folders.values() for o in f.objects)
     # Ma vue = publié + brouillon (fichiers modifiés par-dessus, sans commit).
-    (tmp_path / "sources/app/raw/order.json").write_text(_schema("Order", fields=4))
-    (tmp_path / "sources/app/raw/invoice.json").write_text(_schema("Invoice"))
+    (tmp_path / "sources/app/raw/order.schema.yaml").write_text(_schema("Order", fields=4))
+    (tmp_path / "sources/app/raw/invoice.schema.yaml").write_text(_schema("Invoice"))
     index = build_source_index(tmp_path, "app", "kind", published_base=base)
     badges = {o.file: o.badges for f in index.folders.values() for o in f.objects}
-    assert badges["order.json"] == (BADGE_MODIFIED,)
-    assert badges["invoice.json"] == (BADGE_NEW,)
-    assert badges["status.json"] == ()
+    assert badges["order.schema.yaml"] == (BADGE_MODIFIED,)
+    assert badges["invoice.schema.yaml"] == (BADGE_NEW,)
+    assert badges["status.schema.yaml"] == ()
     # Commit inconnu : pas de badge, pas d'erreur.
     index = build_source_index(tmp_path, "app", "kind", published_base="0" * 40)
     assert all(not o.badges for f in index.folders.values() for o in f.objects)
@@ -243,7 +243,7 @@ def test_recherche_insensible_a_la_casse(tmp_path: Path) -> None:
     _write(tmp_path, _git_files())
     index = build_source_index(tmp_path, "app", "origin")
     found = search_objects(index, SearchCriteria(text="ORD"))
-    assert [(folder, o.file) for folder, o in found] == [("src/Domain", "order.json")]
+    assert [(folder, o.file) for folder, o in found] == [("src/Domain", "order.schema.yaml")]
     assert search_objects(index, SearchCriteria(text="  ")) == []
 
 
@@ -267,24 +267,31 @@ def test_recherche_criteres_combines_portee_et_facettes(tmp_path: Path) -> None:
     index = build_source_index(tmp_path, "app", "origin")
     _tagged(
         index,
-        {"order.json": "technique/service", "customer.json": "technique/service"},
-        {"order.json": "public", "customer.json": "internal", "status.json": "public"},
+        {"order.schema.yaml": "technique/service", "customer.schema.yaml": "technique/service"},
+        {
+            "order.schema.yaml": "public",
+            "customer.schema.yaml": "internal",
+            "status.schema.yaml": "public",
+        },
     )
     files = lambda found: sorted(o.file for _, o in found)  # noqa: E731
     # Un filtre seul, sans texte, lance la recherche.
     tag = SearchCriteria(tag="technique/service")
-    assert files(search_objects(index, tag)) == ["customer.json", "order.json"]
+    assert files(search_objects(index, tag)) == ["customer.schema.yaml", "order.schema.yaml"]
     # Tag ET visibilité ET texte.
     both = SearchCriteria(tag="technique/service", visibilities=frozenset({"public"}))
-    assert files(search_objects(index, both)) == ["order.json"]
+    assert files(search_objects(index, both)) == ["order.schema.yaml"]
     assert search_objects(index, replace(both, text="cust")) == []
     # Portée : le dossier `src` (sans objet direct) et tous ses sous-dossiers.
     facets = SearchFacets()
-    assert files(search_objects(index, tag, "src", facets)) == ["customer.json", "order.json"]
+    assert files(search_objects(index, tag, "src", facets)) == [
+        "customer.schema.yaml",
+        "order.schema.yaml",
+    ]
     assert facets.tags == {"technique/service"}
     assert facets.visibilities == {"public", "internal"}
     assert facets.kinds == {"class", "enum", "record"}
-    assert files(search_objects(index, tag, "src/Domain/Sub")) == ["customer.json"]
+    assert files(search_objects(index, tag, "src/Domain/Sub")) == ["customer.schema.yaml"]
     # Un préfixe de nom n'est pas un sous-dossier.
     assert search_objects(index, tag, "sr") == []
     # Aucun critère : rien (l'écran montre le dossier), mais les facettes sont là.
@@ -296,7 +303,7 @@ def test_recherche_criteres_combines_portee_et_facettes(tmp_path: Path) -> None:
 def test_compteurs_de_l_arbre_filtre(tmp_path: Path) -> None:
     _write(tmp_path, _git_files())
     index = build_source_index(tmp_path, "app", "origin")
-    _tagged(index, {"customer.json": "donnees/adresse"}, {})
+    _tagged(index, {"customer.schema.yaml": "donnees/adresse"}, {})
     # Cumul vers les parents ; les dossiers sans objet correspondant sont absents.
     assert match_counts(index, SearchCriteria(tag="donnees/adresse")) == {
         "": 1,
@@ -313,23 +320,23 @@ def test_compteurs_de_l_arbre_filtre(tmp_path: Path) -> None:
 def test_critere_objets_modifies(tmp_path: Path) -> None:
     _write(tmp_path, _git_files())
     index = build_source_index(tmp_path, "app", "origin")
-    badges = {"order.json": (BADGE_NEW,), "status.json": (BADGE_MODIFIED,)}
+    badges = {"order.schema.yaml": (BADGE_NEW,), "status.schema.yaml": (BADGE_MODIFIED,)}
     for folder in index.folders.values():
         folder.objects = [replace(o, badges=badges.get(o.file, ())) for o in folder.objects]
     found = search_objects(index, SearchCriteria(changed=True))
-    assert sorted(o.file for _, o in found) == ["order.json", "status.json"]
+    assert sorted(o.file for _, o in found) == ["order.schema.yaml", "status.schema.yaml"]
     combined = SearchCriteria(changed=True, kind="enum")
-    assert [o.file for _, o in search_objects(index, combined)] == ["status.json"]
+    assert [o.file for _, o in search_objects(index, combined)] == ["status.schema.yaml"]
     assert match_counts(index, SearchCriteria(changed=True))["src/Domain"] == 2
 
 
 def test_recherche_limite_appliquee_apres_filtrage(tmp_path: Path) -> None:
     _write(tmp_path, _git_files())
     index = build_source_index(tmp_path, "app", "origin")
-    _tagged(index, {"status.json": "x"}, {})
+    _tagged(index, {"status.schema.yaml": "x"}, {})
     # La limite à 1 ne coupe pas avant le filtre : Status reste trouvé.
     found = search_objects(index, SearchCriteria(tag="x"), limit=1)
-    assert [o.file for _, o in found] == ["status.json"]
+    assert [o.file for _, o in found] == ["status.schema.yaml"]
 
 
 def test_manifeste_non_conforme_reste_explorable(tmp_path: Path) -> None:
@@ -350,7 +357,7 @@ def test_schema_relu_seulement_s_il_change(tmp_path: Path) -> None:
     _write(tmp_path, _git_files())
     first = build_source_index(tmp_path, "app", "kind")
     assert any(o.title == "Order" for o in first.objects)
-    (tmp_path / "sources/app/raw/order.json").write_text(_schema("Commande", fields=5))
+    (tmp_path / "sources/app/raw/order.schema.yaml").write_text(_schema("Commande", fields=5))
     second = build_source_index(tmp_path, "app", "kind")
     assert any(o.title == "Commande" and o.fields == 5 for o in second.objects)
 
@@ -389,7 +396,7 @@ async def test_api_sources_arbre_dossier_recherche(sp: ApiSpace) -> None:
 
     r = await sp.client.get(f"{base}/search", params={"q": "cust", "source": "app"})
     assert [(x["folder"], x["file"]) for x in r.json()["results"]] == [
-        ("src/Domain/Sub", "customer.json")
+        ("src/Domain/Sub", "customer.schema.yaml")
     ]
 
 
@@ -402,8 +409,8 @@ async def test_api_recherche_plusieurs_sources_et_portee(sp: ApiSpace) -> None:
     assert r.status_code == 200, r.text
     body = r.json()
     assert [(x["source"], x["folder"], x["file"]) for x in body["results"]] == [
-        ("app", "src/Domain/Sub", "customer.json"),
-        ("crm", "src/Domain/Sub", "customer.json"),
+        ("app", "src/Domain/Sub", "customer.schema.yaml"),
+        ("crm", "src/Domain/Sub", "customer.schema.yaml"),
     ]
     assert body["truncated"] is False
     assert body["tree_counts"]["app"] == {"": 1, "src": 1, "src/Domain": 1, "src/Domain/Sub": 1}
@@ -412,7 +419,7 @@ async def test_api_recherche_plusieurs_sources_et_portee(sp: ApiSpace) -> None:
     # Une source et un dossier : le dossier et ses sous-dossiers seulement.
     params: dict[str, str | list[str]] = {"source": "app", "path": "src/Domain/Sub", "q": "o"}
     r = await sp.client.get(url, params=params)
-    assert [x["file"] for x in r.json()["results"]] == ["customer.json"]
+    assert [x["file"] for x in r.json()["results"]] == ["customer.schema.yaml"]
     assert r.json()["facets"]["kinds"] == ["record"]
 
     # Plusieurs sources : le dossier ne vaut plus (un chemin n'a pas de sens
@@ -462,7 +469,10 @@ def test_tech_manifest_illisible_ne_bloque_pas(tmp_path: Path) -> None:
     index = build_source_index(tmp_path, "app", "origin")
     # Sans manifeste technique, les objets restent visibles (à la racine).
     assert len(index.folders[""].objects) == 3
-    assert json.loads((tmp_path / "sources/app/raw/order.json").read_text())["title"] == "Order"
+    assert (
+        load_schema((tmp_path / "sources/app/raw/order.schema.yaml").read_text())["title"]
+        == "Order"
+    )
 
 
 def test_comptes_de_fichiers_incluent_les_documents(tmp_path: Path) -> None:
@@ -497,15 +507,15 @@ async def test_api_index_reutilise_puis_reconstruit(sp: ApiSpace, app: FastAPI) 
     async with app.state.pool.acquire() as conn:
         assert await conn.fetchval("SELECT max(built_at) FROM raw_explorer_index") == first
     # Un commit sur la forge : la signature change, l'index suit.
-    forge_edit(sp, {"sources/app/raw/invoice.json": _schema("Invoice")})
+    forge_edit(sp, {"sources/app/raw/invoice.schema.yaml": _schema("Invoice")})
     app.state.workdir_manager._head_cache.clear()  # pas d'attente du délai de fetch
     r = await sp.client.get(f"{base}/search", params={"q": "invoice"})
-    assert [x["file"] for x in r.json()["results"]] == ["invoice.json"]
+    assert [x["file"] for x in r.json()["results"]] == ["invoice.schema.yaml"]
 
 
 def test_namespace_garde_dans_l_index(tmp_path: Path) -> None:
     files = _git_files()
-    files["sources/app/raw/order.json"] = _schema("Order", **{"x-namespace": "App.Domain"})
+    files["sources/app/raw/order.schema.yaml"] = _schema("Order", **{"x-namespace": "App.Domain"})
     _write(tmp_path, files)
     entries = collect_source_entries(tmp_path, "app")
     reread = SourceEntries.from_json("app", "APP", "git", True, entries.to_json())

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
-
-from ossie_studio.parsers.conventions import validate_schema
+from ossie_studio.parsers.conventions import load_schema, validate_schema
 from ossie_studio.parsers.csharp import CSharpParser
 
 
@@ -10,7 +8,7 @@ def _parse(code: str, path: str = "a.cs") -> dict[str, dict]:
     objects = CSharpParser().parse({path: code.encode("utf-8")})
     out: dict[str, dict] = {}
     for obj in objects:
-        schema = json.loads(obj.schema)
+        schema = load_schema(obj.schema)
         validate_schema(schema)  # critère 6 : tout passe le validateur
         out[obj.key] = schema
     return out
@@ -107,7 +105,7 @@ def test_heritage_allof_sans_aplatir() -> None:
     )
     fille = schemas["app-fille"]
     # allOf + $ref vers le parent (résolu, même source) ; pas d'aplatissement.
-    assert fille["allOf"] == [{"$ref": "app-base.json"}]
+    assert fille["allOf"] == [{"$ref": "app-base.schema.yaml"}]
     assert set(fille["properties"]) == {"Nom"}
 
 
@@ -121,7 +119,7 @@ def test_reference_resolue_vs_externe() -> None:
         " }"
     )
     props = schemas["app-commande"]["properties"]
-    assert props["L"]["$ref"] == "app-ligne.json"
+    assert props["L"]["$ref"] == "app-ligne.schema.yaml"
     assert props["A"]["x-unresolved-type"] == "Autre"
 
 
@@ -176,7 +174,7 @@ def test_classes_partielles_fusionnees() -> None:
     obj = objects[0]
     assert obj.key == "app-foo"
     assert sorted(obj.sources) == ["f1.cs", "f2.cs"]
-    schema = json.loads(obj.schema)
+    schema = load_schema(obj.schema)
     assert set(schema["properties"]) == {"A", "B"}
 
 

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
-
 from ossie_studio.databases.sqlserver import build_catalog
-from ossie_studio.parsers.conventions import validate_schema
+from ossie_studio.parsers.conventions import load_schema, validate_schema
 from ossie_studio.sources.sql_extract import SqlExtractor, object_to_source, source_key
 
 
@@ -112,7 +110,7 @@ def test_pipeline_complet_passe_le_validateur() -> None:
            "ref_table": "client", "ref_column": "id", "seq": 1, "fk_name": "fk"}]
     read = build_catalog(tables=tables, columns=cols, primary_keys=pk, foreign_keys=fk)
     files = {source_key(o): object_to_source(o) for o in read.objects}
-    schema = json.loads(SqlExtractor("sqlserver").parse(files)[0].schema)
+    schema = load_schema(SqlExtractor("sqlserver").parse(files)[0].schema)
     validate_schema(schema)
     assert schema["x-kind"] == "table"
     assert schema["properties"]["id"]["x-identity"] is True

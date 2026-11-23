@@ -28,7 +28,6 @@ La carte des projets se lit dans les fichiers du dépôt au moment de la collect
 
 from __future__ import annotations
 
-import json
 import posixpath
 import re
 from dataclasses import dataclass, field
@@ -37,16 +36,21 @@ from typing import Any
 import yaml
 
 from ossie_studio.parsers.base import OutputAction
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import (
+    SchemaReadError,
+    dump_schema,
+    is_schema_name,
+    load_schema,
+)
 
 UNRESOLVED_KEY = "x-unresolved-type"
 REF_KEY = "$ref"
 
 
 def is_schema_path(path: str) -> bool:
-    """Un schéma de `raw/` : un `.json` à la racine (les index sont des `.yaml`,
-    les documents sont sous `docs/`)."""
-    return path.endswith(".json") and "/" not in path
+    """Un schéma de `raw/` : un `.schema.yaml` à la racine (les index sont des
+    `.yaml` sans ce suffixe, les documents sont sous `docs/`)."""
+    return is_schema_name(path)
 
 
 # --- Carte des projets C# ---------------------------------------------------------
@@ -137,8 +141,8 @@ class SchemaIndex:
         self.contexts: dict[str, RefContext] = {}
         for path, content in schemas.items():
             try:
-                data = json.loads(content)
-            except (json.JSONDecodeError, TypeError):
+                data = load_schema(content)
+            except (SchemaReadError, TypeError):
                 continue
             if not isinstance(data, dict):
                 continue
@@ -277,8 +281,8 @@ def resolve_source_schemas(
     rewritten: dict[str, str] = {}
     for path, content in final.items():
         try:
-            data = json.loads(content)
-        except json.JSONDecodeError:
+            data = load_schema(content)
+        except SchemaReadError:
             continue
         before = counter[0]
         resolved = _resolve_node(data, index, counter, index.contexts.get(path))

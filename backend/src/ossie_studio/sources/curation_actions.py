@@ -12,7 +12,6 @@ champ doit le savoir.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -20,6 +19,7 @@ from typing import Any
 
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.models import GitSpace
+from ossie_studio.parsers.conventions import load_schema
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
     ReviewDecisions,
@@ -116,7 +116,7 @@ def _result(revision: str | None, slug: str, paths: list[str]) -> WriteResult:
 def _properties(file: Path) -> set[str] | None:
     if not file.is_file():
         return None
-    data = json.loads(file.read_text(encoding="utf-8"))
+    data = load_schema(file.read_text(encoding="utf-8"))
     props = data.get("properties") if isinstance(data, dict) else None
     return set(props) if isinstance(props, dict) else set()
 

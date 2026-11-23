@@ -9,7 +9,10 @@ même façon :
 - **visibilité** (`x-visibility`) obligatoire sur un objet issu d'un parseur de
   **code** (repéré par `x-language`), parmi public / internal / protected /
   private ; absente pour le SQL et les contrats ;
-- **sortie déterministe** : clefs triées, fin de ligne et encodage fixés.
+- **sortie déterministe** : clefs triées, fin de ligne et encodage fixés ;
+- **fichier YAML** `<clé>.schema.yaml` (ticket docflow 5cc1cb07, Gael 23/11/2026 :
+  « tu vas passer tous les raw qui sont en json en yaml ») ; le suffixe double
+  évite la collision avec les index YAML de `raw/` (`manifest.yaml`…).
 
 `validate_schema` refuse un schéma non conforme ; la collecte signale alors le
 fichier d'origine et la règle violée, et n'écrit rien. `dump_schema` sérialise de
@@ -18,8 +21,70 @@ façon déterministe (deux lectures du même original → mêmes octets).
 
 from __future__ import annotations
 
-import json
 from typing import Any
+
+import yaml
+
+# Suffixe d'un fichier de schéma (raw comme asset) ; `$id` et `$ref` le portent.
+SCHEMA_SUFFIX = ".schema.yaml"
+
+
+def schema_file(key: str) -> str:
+    """Nom du fichier (et `$id`) du schéma de clé `key`."""
+    return f"{key}{SCHEMA_SUFFIX}"
+
+
+def schema_key(name: str) -> str:
+    """Clé d'un nom de fichier de schéma (`order.schema.yaml` → `order`)."""
+    return name[: -len(SCHEMA_SUFFIX)] if name.endswith(SCHEMA_SUFFIX) else name
+
+
+def is_schema_name(name: str) -> bool:
+    """Un fichier de schéma directement dans son dossier (`raw/`, `assets/`)."""
+    return name.endswith(SCHEMA_SUFFIX) and "/" not in name
+
+
+_BaseLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+_BaseDumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
+
+
+class _SchemaDumper(_BaseDumper):  # type: ignore[misc,valid-type]
+    """Écriture des schémas : un texte sur plusieurs lignes (description
+    Markdown, diagramme Mermaid) en bloc littéral `|`, lisible dans un diff."""
+
+
+def _str_representer(dumper: yaml.SafeDumper, value: str) -> yaml.ScalarNode:
+    style = "|" if "\n" in value else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+
+_SchemaDumper.add_representer(str, _str_representer)
+
+
+class _SchemaLoader(_BaseLoader):  # type: ignore[misc,valid-type]
+    """Lecture sûre SANS conversion implicite des dates : une valeur comme
+    `2026-11-22` reste une chaîne, comme en JSON (sinon un objet date casse la
+    mise en index et les comparaisons)."""
+
+
+_SchemaLoader.yaml_implicit_resolvers = {
+    first: [(tag, rx) for tag, rx in resolvers if tag != "tag:yaml.org,2002:timestamp"]
+    for first, resolvers in _BaseLoader.yaml_implicit_resolvers.items()
+}
+
+
+class SchemaReadError(ValueError):
+    """Contenu de schéma illisible (YAML invalide)."""
+
+
+def load_schema(text: str | bytes) -> Any:
+    """Lit un schéma (YAML ; un JSON, sous-ensemble de YAML, se lit aussi).
+    Lève SchemaReadError si le texte est illisible. Le résultat n'est pas
+    forcément un objet : à l'appelant de vérifier."""
+    try:
+        return yaml.load(text, Loader=_SchemaLoader)  # noqa: S506 — chargeur sûr
+    except yaml.YAMLError as exc:
+        raise SchemaReadError(str(exc)) from None
 
 # Vocabulaire JSON Schema 2020-12 (mots-clefs standard). Toute autre clef doit
 # commencer par `$` (noyau) ou `x-` (extension), sinon elle est refusée.
@@ -117,6 +182,15 @@ def _check_visibility(node: dict[str, Any], missing: str, invalid: str, detail: 
 
 
 def dump_schema(schema: dict[str, Any]) -> str:
-    """Sérialisation déterministe d'un schéma : clefs triées, indentation fixe,
-    Unicode conservé, fin de ligne finale. Deux appels donnent les mêmes octets."""
-    return json.dumps(schema, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    """Sérialisation déterministe d'un schéma en YAML : clefs triées, blocs (pas
+    de style en ligne), Unicode conservé, aucune ligne repliée, fin de ligne
+    finale. Deux appels donnent les mêmes octets (pas de faux diff à chaque
+    collecte)."""
+    return yaml.dump(
+        schema,
+        Dumper=_SchemaDumper,
+        sort_keys=True,
+        allow_unicode=True,
+        default_flow_style=False,
+        width=1_000_000,
+    )

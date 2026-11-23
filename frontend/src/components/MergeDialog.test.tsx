@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MergeDialog } from './MergeDialog'
 
 const BASE = {
-  path: 'sources/s/raw/O.json',
+  path: 'sources/s/raw/O.schema.yaml',
   state: 'modified',
   changed_upstream: true,
   readonly: false,

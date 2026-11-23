@@ -21,7 +21,6 @@ taille et date de modification).
 from __future__ import annotations
 
 import hashlib
-import json
 import subprocess
 import threading
 from collections.abc import Iterable, Iterator, Sequence
@@ -31,7 +30,15 @@ from typing import Any
 
 import yaml
 
-from ossie_studio.parsers.conventions import CODE_LANGUAGE_KEY, VISIBILITIES, VISIBILITY_KEY
+from ossie_studio.parsers.conventions import (
+    CODE_LANGUAGE_KEY,
+    SCHEMA_SUFFIX,
+    VISIBILITIES,
+    VISIBILITY_KEY,
+    SchemaReadError,
+    is_schema_name,
+    load_schema,
+)
 from ossie_studio.parsers.markdown import DOCS_INDEX, parse_docs_index
 from ossie_studio.sources.collect_core import RAW_DIR, TECH_MANIFEST_NAME, parse_tech_manifest
 from ossie_studio.sources.manifest import ManifestError, parse_manifest
@@ -48,7 +55,8 @@ GIT_SOURCE_TYPE = "git"
 # Version du format des entrées mises en index : la changer (champ ajouté…)
 # force la reconstruction des index existants à la livraison suivante.
 # 9 : badges « nouveau » / « modifié » par rapport à la tête publiée (aad1d3c6).
-INDEX_FORMAT = "9"
+# 10 : schémas en YAML, `<clé>.schema.yaml` (ticket 5cc1cb07).
+INDEX_FORMAT = "10"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -292,8 +300,8 @@ def schema_refs(schema: dict[str, Any]) -> tuple[SchemaRef, ...]:
 def _summarize(data: bytes) -> SchemaSummary:
     blob = git_blob_id(data)
     try:
-        schema = json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+        schema = load_schema(data.decode("utf-8"))
+    except (UnicodeDecodeError, SchemaReadError):
         return SchemaSummary("", "", 0, (), blob, True)
     if not isinstance(schema, dict):
         return SchemaSummary("", "", 0, (), blob, True)
@@ -349,8 +357,8 @@ def schema_summary(path: Path) -> SchemaSummary:
 def _full_schema(path: Path) -> dict[str, Any]:
     """Schéma complet, lu seulement quand une règle de tri doit s'y appliquer."""
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        data = load_schema(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, SchemaReadError):
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -409,7 +417,7 @@ def published_raw_blobs(workdir: Path, slug: str, base_sha: str | None) -> dict[
         for line in out.stdout.splitlines():
             meta, _, path = line.partition("\t")
             parts = meta.split()
-            if len(parts) == 3 and parts[1] == "blob" and path.endswith(".json"):
+            if len(parts) == 3 and parts[1] == "blob" and path.endswith(SCHEMA_SUFFIX):
                 blobs[path.rsplit("/", 1)[-1]] = parts[2]
     with _LOCK:
         if len(_REVIEW_CACHE) >= _REVIEW_CACHE_MAX:
@@ -673,7 +681,7 @@ def collect_source_entries(
 
     objects: list[ExplorerObject] = []
     for path in sorted(raw_dir.iterdir()):
-        if not (path.is_file() and path.suffix == ".json"):
+        if not (path.is_file() and is_schema_name(path.name)):
             continue
         summary = schema_summary(path)
         origin, parser, checksum, branch = origins.get(path.name, ("", "", "", ""))

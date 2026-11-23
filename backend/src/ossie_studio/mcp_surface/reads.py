@@ -11,7 +11,6 @@ Les lectures d'une branche passent par `branch.open_branch` (vue `draft` ou
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -41,6 +40,7 @@ from ossie_studio.mcp_surface.branch import (
 )
 from ossie_studio.mcp_surface.core import NoArgs, PrimitiveContext, PrimitiveError
 from ossie_studio.models import SpaceBranch, User
+from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
     CurationObject,
@@ -250,8 +250,8 @@ async def read_raw_schema(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, 
         if file.stat().st_size > _RAW_SCHEMA_MAX_BYTES:
             return "schema_too_large", None
         try:
-            return "ok", json.loads(file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
+            return "ok", load_schema(file.read_text(encoding="utf-8"))
+        except (SchemaReadError, UnicodeDecodeError):
             return "schema_invalid", None
 
     outcome, schema = await bv.read(read)

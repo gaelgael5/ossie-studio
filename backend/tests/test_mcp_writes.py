@@ -81,8 +81,8 @@ async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
         api_space,
         {
             "sources/ventes/manifest.yaml": _manifest(),
-            "sources/ventes/raw/customer.json": json.dumps(CUSTOMER),
-            "sources/ventes/raw/order.json": json.dumps(ORDER),
+            "sources/ventes/raw/customer.schema.yaml": json.dumps(CUSTOMER),
+            "sources/ventes/raw/order.schema.yaml": json.dumps(ORDER),
         },
     )
     profile = await _profile(app, "Curation", sorted(WRITES), all_read=True)
@@ -128,16 +128,16 @@ async def _refusal(app: FastAPI, token: str, name: str, args: dict[str, Any]) ->
 async def test_l_agent_cure_dans_le_brouillon_sans_rien_publier(
     app: FastAPI, space: ApiSpace
 ) -> None:
-    order = _ids(space, path="order.json")
+    order = _ids(space, path="order.schema.yaml")
 
     retained = await _ok(app, AGENT, "retain_asset", order)
     assert retained["changed"] is True
-    assert retained["changed_paths"] == ["sources/ventes/assets/order.json"]
+    assert retained["changed_paths"] == ["sources/ventes/assets/order.schema.yaml"]
     assert retained["asset"]["unpublished"] is True
     assert {f["name"] for f in retained["asset"]["fields"] if f["retained"]} == {"id", "total"}
 
     partial = await _ok(
-        app, AGENT, "retain_asset", _ids(space, path="customer.json", fields=["id"])
+        app, AGENT, "retain_asset", _ids(space, path="customer.schema.yaml", fields=["id"])
     )
     assert [f["name"] for f in partial["asset"]["fields"] if f["retained"]] == ["id"]
 
@@ -155,13 +155,13 @@ async def test_l_agent_cure_dans_le_brouillon_sans_rien_publier(
     forge_edit(
         space,
         {
-            "sources/ventes/raw/order.json": json.dumps(
+            "sources/ventes/raw/order.schema.yaml": json.dumps(
                 {**ORDER, "properties": {**ORDER["properties"], "total": {"type": "string"}}}
             )
         },
     )
     refreshed = await _ok(app, AGENT, "refresh_assets", _ids(space))
-    assert refreshed["refreshed"] == ["order.json"]
+    assert refreshed["refreshed"] == ["order.schema.yaml"]
 
     # Rien n'est publié : le publié n'a aucun asset ; le brouillon en a deux.
     published = await _ok(app, AGENT, "list_assets", _ids(space, view="published"))
@@ -170,14 +170,14 @@ async def test_l_agent_cure_dans_le_brouillon_sans_rien_publier(
         app, AGENT, "get_my_draft", {"space_id": space.space_id, "branch_id": space.branch_id}
     )
     assert {o["path"] for o in draft["objects"]} == {
-        "sources/ventes/assets/order.json",
-        "sources/ventes/assets/customer.json",
+        "sources/ventes/assets/order.schema.yaml",
+        "sources/ventes/assets/customer.schema.yaml",
     }
 
     removed = await _ok(app, AGENT, "remove_asset", order)
     assert removed["changed"] is True and removed["asset"] is None
     names = [a["path"] for a in (await _ok(app, AGENT, "list_assets", _ids(space)))["assets"]]
-    assert names == ["customer.json"]
+    assert names == ["customer.schema.yaml"]
 
 
 # --- Critère 2 : jamais pour une clé d'API --------------------------------------------
@@ -185,7 +185,7 @@ async def test_l_agent_cure_dans_le_brouillon_sans_rien_publier(
 
 async def test_une_cle_ne_voit_ni_n_appelle_aucune_ecriture(app: FastAPI, space: ApiSpace) -> None:
     assert not WRITES & set(await tool_names(app, KEY))
-    refused = await _refusal(app, KEY, "retain_asset", _ids(space, path="order.json"))
+    refused = await _refusal(app, KEY, "retain_asset", _ids(space, path="order.schema.yaml"))
     assert refused["error"] == "primitive_forbidden"
 
 
@@ -231,7 +231,7 @@ async def test_ecriture_bornee_par_les_droits_sur_l_espace(app: FastAPI, space: 
 
     # curation:write sur un AUTRE espace : outil visible, refusé sur celui-ci.
     assert "retain_asset" in await tool_names(app, "ana")
-    refused = await _refusal(app, "ana", "retain_asset", _ids(space, path="order.json"))
+    refused = await _refusal(app, "ana", "retain_asset", _ids(space, path="order.schema.yaml"))
     assert refused["error"] == "primitive_forbidden"
 
     # Donné sur cet espace : permis ; retiré : refusé dès l'appel suivant.
@@ -241,12 +241,12 @@ async def test_ecriture_bornee_par_les_droits_sur_l_espace(app: FastAPI, space: 
             "WHERE id = $1",
             base,
         )
-    assert (await _ok(app, "ana", "retain_asset", _ids(space, path="order.json")))["changed"]
+    assert (await _ok(app, "ana", "retain_asset", _ids(space, path="order.schema.yaml")))["changed"]
     async with app.state.pool.acquire() as conn:
         await conn.execute(
             "UPDATE profiles SET capabilities = '{spaces:read,curation:read}' WHERE id = $1", base
         )
-    refused = await _refusal(app, "ana", "remove_asset", _ids(space, path="order.json"))
+    refused = await _refusal(app, "ana", "remove_asset", _ids(space, path="order.schema.yaml"))
     assert refused["error"] == "primitive_forbidden"
 
 
@@ -267,7 +267,7 @@ async def test_aucun_profil_existant_ne_recoit_l_ecriture(app: FastAPI, space: A
 
 
 async def test_rejeu_sans_effet_ni_erreur(app: FastAPI, space: ApiSpace) -> None:
-    order = _ids(space, path="order.json")
+    order = _ids(space, path="order.schema.yaml")
     assert (await _ok(app, AGENT, "retain_asset", order))["changed"] is True
     again = await _ok(app, AGENT, "retain_asset", order)
     assert again["changed"] is False and again["changed_paths"] == []
@@ -282,39 +282,45 @@ async def test_rejeu_sans_effet_ni_erreur(app: FastAPI, space: ApiSpace) -> None
 
 
 async def test_cas_limites_refus_nommes(app: FastAPI, space: ApiSpace) -> None:
-    absent = await _refusal(app, AGENT, "retain_asset", _ids(space, path="absent.json"))
+    absent = await _refusal(app, AGENT, "retain_asset", _ids(space, path="absent.schema.yaml"))
     assert absent["error"] == "asset_origin_missing"
     unknown = await _refusal(
-        app, AGENT, "retain_asset", _ids(space, path="order.json", fields=["id", "fantome"])
+        app, AGENT, "retain_asset", _ids(space, path="order.schema.yaml", fields=["id", "fantome"])
     )
     assert unknown == {"error": "field_not_found", "fields": ["fantome"]}
     not_retained = await _refusal(
-        app, AGENT, "enrich_asset", {**_ids(space, path="order.json"), "object": {"concept": "x"}}
+        app,
+        AGENT,
+        "enrich_asset",
+        {**_ids(space, path="order.schema.yaml"), "object": {"concept": "x"}},
     )
     assert not_retained["error"] == "asset_not_retained"
-    await _ok(app, AGENT, "retain_asset", _ids(space, path="order.json"))
+    await _ok(app, AGENT, "retain_asset", _ids(space, path="order.schema.yaml"))
     bad_key = await _refusal(
-        app, AGENT, "enrich_asset", {**_ids(space, path="order.json"), "object": {"couleur": "x"}}
+        app,
+        AGENT,
+        "enrich_asset",
+        {**_ids(space, path="order.schema.yaml"), "object": {"couleur": "x"}},
     )
     assert bad_key["error"] == "invalid_arguments"
     bad_field = await _refusal(
         app,
         AGENT,
         "enrich_asset",
-        {**_ids(space, path="order.json"), "fields": {"fantome": {"concept": "x"}}},
+        {**_ids(space, path="order.schema.yaml"), "fields": {"fantome": {"concept": "x"}}},
     )
     assert bad_field == {"error": "field_not_found", "fields": ["fantome"]}
     no_source = await _refusal(
-        app, AGENT, "retain_asset", {**_ids(space, path="order.json"), "source": "inconnue"}
+        app, AGENT, "retain_asset", {**_ids(space, path="order.schema.yaml"), "source": "inconnue"}
     )
     assert no_source["error"] == "source_not_found"
     bad_path = await _refusal(app, AGENT, "remove_asset", _ids(space, path="../manifest.yaml"))
     assert bad_path["error"] == "curation_path_invalid"
-    # Aucune de ces tentatives n'a écrit : seul order.json est dans le brouillon.
+    # Aucune de ces tentatives n'a écrit : seul order.schema.yaml est dans le brouillon.
     draft = await _ok(
         app, AGENT, "get_my_draft", {"space_id": space.space_id, "branch_id": space.branch_id}
     )
-    assert [o["path"] for o in draft["objects"]] == ["sources/ventes/assets/order.json"]
+    assert [o["path"] for o in draft["objects"]] == ["sources/ventes/assets/order.schema.yaml"]
 
 
 # --- Critère 7 : l'écran et l'agent écrivent en même temps ----------------------------
@@ -324,9 +330,9 @@ async def test_ecran_et_agent_en_meme_temps_rien_n_est_perdu(
     app: FastAPI, client: AsyncClient, space: ApiSpace
 ) -> None:
     screen = client.post(
-        f"{space.base}/sources/ventes/curation/retain", json={"path": "customer.json"}
+        f"{space.base}/sources/ventes/curation/retain", json={"path": "customer.schema.yaml"}
     )
-    agent = call_tool(app, AGENT, "retain_asset", _ids(space, path="order.json"))
+    agent = call_tool(app, AGENT, "retain_asset", _ids(space, path="order.schema.yaml"))
     screen_response, agent_result = await asyncio.gather(screen, agent)
     assert screen_response.status_code == 200, screen_response.text
     assert not agent_result.is_error
@@ -334,8 +340,8 @@ async def test_ecran_et_agent_en_meme_temps_rien_n_est_perdu(
         app, AGENT, "get_my_draft", {"space_id": space.space_id, "branch_id": space.branch_id}
     )
     assert {o["path"] for o in draft["objects"]} == {
-        "sources/ventes/assets/customer.json",
-        "sources/ventes/assets/order.json",
+        "sources/ventes/assets/customer.schema.yaml",
+        "sources/ventes/assets/order.schema.yaml",
     }
 
 
@@ -358,19 +364,22 @@ async def test_annotations_envoyees_au_client(app: FastAPI, space: ApiSpace) -> 
 async def test_ecriture_journalisee_sans_le_contenu(
     app: FastAPI, space: ApiSpace, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    await _ok(app, AGENT, "retain_asset", _ids(space, path="order.json"))
+    await _ok(app, AGENT, "retain_asset", _ids(space, path="order.schema.yaml"))
     capsys.readouterr()
     await _ok(
         app,
         AGENT,
         "enrich_asset",
-        {**_ids(space, path="order.json"), "object": {"description": "Valeur-confidentielle"}},
+        {
+            **_ids(space, path="order.schema.yaml"),
+            "object": {"description": "Valeur-confidentielle"},
+        },
     )
     out = capsys.readouterr().out
     entries = [json.loads(line) for line in out.splitlines() if line.startswith("{")]
     call = next(e for e in entries if e.get("event") == "mcp_call")
     assert call["primitive"] == "enrich_asset" and call["outcome"] == "ok"
-    assert call["changed_paths"] == ["sources/ventes/assets/order.json"]
+    assert call["changed_paths"] == ["sources/ventes/assets/order.schema.yaml"]
     assert call["client_id"] == "claude" and call["user_id"]
     write = next(e for e in entries if e.get("event") == "draft_write")
     assert "via l'agent claude" in write["intent"]
@@ -384,22 +393,22 @@ async def test_routes_de_l_ecran_inchangees(
     app: FastAPI, client: AsyncClient, space: ApiSpace
 ) -> None:
     base = f"{space.base}/sources/ventes/curation"
-    retained = await client.post(f"{base}/retain", json={"path": "order.json"})
+    retained = await client.post(f"{base}/retain", json={"path": "order.schema.yaml"})
     assert retained.status_code == 200 and retained.json()["commit"].startswith("draft:")
     # L'écran ignore un champ inconnu (comportement historique, inchangé).
     partial = await client.post(
-        f"{base}/retain", json={"path": "customer.json", "fields": ["id", "x"]}
+        f"{base}/retain", json={"path": "customer.schema.yaml", "fields": ["id", "x"]}
     )
     assert partial.status_code == 200
     enriched = await client.put(
-        f"{base}/enrich", json={"path": "order.json", "obj": {"business_name": "Commande"}}
+        f"{base}/enrich", json={"path": "order.schema.yaml", "obj": {"business_name": "Commande"}}
     )
     assert enriched.status_code == 200 and enriched.json()["commit"]
     refreshed = await client.post(f"{base}/refresh", json={})
     assert refreshed.json() == {"ok": True, "commit": None, "refreshed": []}
-    removed = await client.post(f"{base}/remove", json={"path": "order.json"})
+    removed = await client.post(f"{base}/remove", json={"path": "order.schema.yaml"})
     assert removed.json()["commit"]
-    again = await client.post(f"{base}/remove", json={"path": "order.json"})
+    again = await client.post(f"{base}/remove", json={"path": "order.schema.yaml"})
     assert again.json() == {"ok": True, "commit": None}
-    missing = await client.post(f"{base}/retain", json={"path": "absent.json"})
+    missing = await client.post(f"{base}/retain", json={"path": "absent.schema.yaml"})
     assert missing.status_code == 404 and missing.json()["error"] == "asset_origin_missing"

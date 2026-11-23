@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from ossie_studio.parsers.conventions import schema_key
+
 # Ce sur quoi porte une règle. Les quatre premières écartent un **objet** entier ;
 # `field-name` écarte un **champ** d'un objet.
 TRI_TARGETS = ("object-name", "object-type", "field-name", "file-path", "sql-schema")
@@ -100,7 +102,7 @@ def _matches(rule: TriRule, value: str) -> bool:
 
 
 def _strip_json(name: str) -> str:
-    return name[:-5] if name.endswith(".json") else name
+    return schema_key(name)
 
 
 def _source_files(schema: dict[str, Any]) -> list[str]:
@@ -122,7 +124,7 @@ def _source_files(schema: dict[str, Any]) -> list[str]:
 
 
 def _sql_schema_of(schema: dict[str, Any]) -> str:
-    """Nom de schéma SQL d'un objet, déduit du `$id` (`<schema>.<table>.json`)."""
+    """Nom de schéma SQL d'un objet, déduit du `$id` (`<schema>.<table>.schema.yaml`)."""
     sid = _strip_json(str(schema.get("$id") or ""))
     return sid.rsplit(".", 1)[0] if "." in sid else ""
 

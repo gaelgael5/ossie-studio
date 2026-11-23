@@ -116,20 +116,23 @@ async def test_chemin_hors_depot_refuse(app: FastAPI, ids: dict[str, uuid.UUID],
 
 
 def test_chemin_valide() -> None:
-    assert validate_draft_path("sources/api/raw/User.json") == "sources/api/raw/User.json"
+    assert (
+        validate_draft_path("sources/api/raw/User.schema.yaml")
+        == "sources/api/raw/User.schema.yaml"
+    )
 
 
 async def test_objet_trop_gros_refuse(app: FastAPI, ids: dict[str, uuid.UUID]) -> None:
     with pytest.raises(DraftObjectTooLargeError):
         await _replace(
-            app, ids, [DraftChange("gros.json", None, b"x" * (DRAFT_OBJECT_MAX_BYTES + 1))]
+            app, ids, [DraftChange("gros.schema.yaml", None, b"x" * (DRAFT_OBJECT_MAX_BYTES + 1))]
         )
 
 
 async def test_objet_de_5_mo_accepte(app: FastAPI, ids: dict[str, uuid.UUID]) -> None:
     payload = b"x" * (5 * 1024 * 1024)
-    await _replace(app, ids, [DraftChange("gros.json", None, payload)])
-    assert (await _objects(app, ids))["gros.json"] == (None, payload)
+    await _replace(app, ids, [DraftChange("gros.schema.yaml", None, payload)])
+    assert (await _objects(app, ids))["gros.schema.yaml"] == (None, payload)
 
 
 async def test_rebase_objet(app: FastAPI, ids: dict[str, uuid.UUID]) -> None:

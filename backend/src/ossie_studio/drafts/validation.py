@@ -22,6 +22,7 @@ from typing import Literal, Protocol
 import yaml
 
 from ossie_studio.drafts.impacts import refs_in
+from ossie_studio.parsers.conventions import SCHEMA_SUFFIX, load_schema
 from ossie_studio.sources.manifest import ManifestError, parse_manifest
 
 Level = Literal["error", "warning"]
@@ -118,12 +119,12 @@ class BrokenRefRule:
     def check(self, view: Path) -> list[Finding]:
         out: list[Finding] = []
         for file in [
-            *(view / "sources").glob("*/raw/*.json"),
-            *(view / "sources").glob("*/assets/*.json"),
+            *(view / "sources").glob(f"*/raw/*{SCHEMA_SUFFIX}"),
+            *(view / "sources").glob(f"*/assets/*{SCHEMA_SUFFIX}"),
         ]:
             rel = file.relative_to(view).as_posix()
             try:
-                data = json.loads(file.read_text(encoding="utf-8"))
+                data = load_schema(file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
             for ref in sorted(set(refs_in(data))):
@@ -148,7 +149,7 @@ class OrphanAssetRule:
 
     def check(self, view: Path) -> list[Finding]:
         out: list[Finding] = []
-        for file in (view / "sources").glob("*/assets/*.json"):
+        for file in (view / "sources").glob(f"*/assets/*{SCHEMA_SUFFIX}"):
             raw = file.parent.parent / "raw" / file.name
             if not raw.is_file():
                 rel = file.relative_to(view).as_posix()

@@ -20,11 +20,11 @@ const CHANGES = {
       slug: 'colis-21',
       label: 'colis 21',
       raw: [
-        { file: 'order.json', title: 'Order', state: 'modified', folder: 'src/Domain' },
-        { file: 'old.json', title: 'old.json', state: 'deleted', folder: null },
+        { file: 'order.schema.yaml', title: 'Order', state: 'modified', folder: 'src/Domain' },
+        { file: 'old.schema.yaml', title: 'old.schema.yaml', state: 'deleted', folder: null },
       ],
-      assets: [{ file: 'order.json', title: 'Order', state: 'created', folder: 'src/Domain' }],
-      orphans: [{ file: 'ghost.json', title: 'ghost.json', state: 'orphan', folder: null }],
+      assets: [{ file: 'order.schema.yaml', title: 'Order', state: 'created', folder: 'src/Domain' }],
+      orphans: [{ file: 'ghost.schema.yaml', title: 'ghost.schema.yaml', state: 'orphan', folder: null }],
       other: [{ path: 'sources/colis-21/manifest.yaml', state: 'modified' }],
     },
     { slug: 'crm', label: 'CRM', raw: many, assets: [], orphans: [], other: [] },
@@ -61,17 +61,17 @@ describe('DraftChangesPage', () => {
     const [rawLink, assetLink] = colis.getAllByRole('link', { name: 'Order' })
     expect(rawLink).toHaveAttribute(
       'href',
-      '/sources?tab=raw&source=colis-21&mode=origin&path=src%2FDomain&sel=order.json',
+      '/sources?tab=raw&source=colis-21&mode=origin&path=src%2FDomain&sel=order.schema.yaml',
     )
-    expect(assetLink).toHaveAttribute('href', '/curation?source=colis-21&path=order.json')
+    expect(assetLink).toHaveAttribute('href', '/curation?source=colis-21&path=order.schema.yaml')
     // Un objet supprimé n'a plus de lien.
-    expect(colis.queryByRole('link', { name: 'old.json' })).not.toBeInTheDocument()
+    expect(colis.queryByRole('link', { name: 'old.schema.yaml' })).not.toBeInTheDocument()
     expect(colis.getByText('supprimé')).toBeInTheDocument()
     expect(colis.getByText('Assets (1)')).toBeInTheDocument()
     expect(colis.getByText('Assets orphelins (1)')).toBeInTheDocument()
-    expect(colis.getByRole('link', { name: 'ghost.json' })).toHaveAttribute(
+    expect(colis.getByRole('link', { name: 'ghost.schema.yaml' })).toHaveAttribute(
       'href',
-      '/curation?source=colis-21&path=ghost.json',
+      '/curation?source=colis-21&path=ghost.schema.yaml',
     )
     expect(colis.getByText('sources/colis-21/manifest.yaml')).toBeInTheDocument()
     expect(screen.getByText('Hors des sources')).toBeInTheDocument()

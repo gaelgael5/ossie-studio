@@ -33,10 +33,10 @@ PREPARATION = {
     "get_validation_log",
     "accept_validation_warning",
 }
-OBJ = "sources/s/raw/O.json"
-OTHER = "sources/s/raw/P.json"
-RAW = "sources/s/raw/User.json"
-ASSET = "sources/s/assets/User.json"
+OBJ = "sources/s/raw/O.schema.yaml"
+OTHER = "sources/s/raw/P.schema.yaml"
+RAW = "sources/s/raw/User.schema.yaml"
+ASSET = "sources/s/assets/User.schema.yaml"
 
 
 def _wire(app: FastAPI, callers: dict[str, McpCaller]) -> None:
@@ -209,9 +209,12 @@ async def test_impacts_verifies_par_l_agent(app: FastAPI, space: ApiSpace) -> No
 async def test_avertissement_accepte_erreur_refusee(app: FastAPI, space: ApiSpace) -> None:
     forge_edit(space, {RAW: json.dumps({"title": "User"})})
     await draft_write(
-        app, space, "sources/s/raw/Order.json", {"properties": {"u": {"$ref": "A.json"}}}
+        app,
+        space,
+        "sources/s/raw/Order.schema.yaml",
+        {"properties": {"u": {"$ref": "A.schema.yaml"}}},
     )
-    await draft_write(app, space, "sources/s/assets/Seul.json", {"title": "Seul"})
+    await draft_write(app, space, "sources/s/assets/Seul.schema.yaml", {"title": "Seul"})
     log = await _ok(app, "get_validation_log", _ids(space))
     assert log["blocking"] == 1
     warning = next(e for e in log["entries"] if e["rule"] == "orphan_asset")
@@ -246,13 +249,13 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
     cases: list[tuple[str, dict[str, Any], dict[str, Any]]] = [
         (
             "get_merge_conflicts",
-            _ids(space, path="ailleurs.json"),
-            {"error": "draft_object_not_found", "path": "ailleurs.json"},
+            _ids(space, path="ailleurs.schema.yaml"),
+            {"error": "draft_object_not_found", "path": "ailleurs.schema.yaml"},
         ),
         (
             "resolve_merge",
-            _ids(space, path="ailleurs.json", resolutions={"/a": "mine"}),
-            {"error": "draft_object_not_found", "path": "ailleurs.json"},
+            _ids(space, path="ailleurs.schema.yaml", resolutions={"/a": "mine"}),
+            {"error": "draft_object_not_found", "path": "ailleurs.schema.yaml"},
         ),
         ("resolve_merge", _ids(space, path=OBJ), {"error": "merge_unresolved", "pointers": ["/a"]}),
         (
@@ -267,13 +270,13 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
         ),
         (
             "verify_impact",
-            _ids(space, path="x.json"),
-            {"error": "impact_not_found", "path": "x.json"},
+            _ids(space, path="x.schema.yaml"),
+            {"error": "impact_not_found", "path": "x.schema.yaml"},
         ),
         (
             "accept_validation_warning",
-            _ids(space, rule="orphan_asset", path="x.json", message_code="asset_orphan"),
-            {"error": "warning_not_found", "path": "x.json"},
+            _ids(space, rule="orphan_asset", path="x.schema.yaml", message_code="asset_orphan"),
+            {"error": "warning_not_found", "path": "x.schema.yaml"},
         ),
     ]
     for name, args, expected in cases:
@@ -398,30 +401,30 @@ async def test_decisions_de_l_agent_dans_le_message_du_commit(
     forge_edit(
         space,
         {
-            "sources/s/raw/U.json": "{}",
-            "sources/s/assets/U.json": "{}",
-            "sources/s/raw/V.json": "{}",
-            "sources/s/assets/V.json": "{}",
+            "sources/s/raw/U.schema.yaml": "{}",
+            "sources/s/assets/U.schema.yaml": "{}",
+            "sources/s/raw/V.schema.yaml": "{}",
+            "sources/s/assets/V.schema.yaml": "{}",
         },
     )
-    await draft_write(app, space, "sources/s/raw/U.json", {"v": 2})
-    await draft_write(app, space, "sources/s/raw/V.json", {"v": 2})
-    await draft_write(app, space, "sources/s/assets/Orphelin.json", {"t": 1})
+    await draft_write(app, space, "sources/s/raw/U.schema.yaml", {"v": 2})
+    await draft_write(app, space, "sources/s/raw/V.schema.yaml", {"v": 2})
+    await draft_write(app, space, "sources/s/assets/Orphelin.schema.yaml", {"t": 1})
     await set_credential(app, space)
     # L'agent vérifie U et accepte l'avertissement ; la personne vérifie V.
-    await _ok(app, "verify_impact", _ids(space, path="sources/s/assets/U.json"))
+    await _ok(app, "verify_impact", _ids(space, path="sources/s/assets/U.schema.yaml"))
     await _ok(
         app,
         "accept_validation_warning",
         _ids(
             space,
             rule="orphan_asset",
-            path="sources/s/assets/Orphelin.json",
+            path="sources/s/assets/Orphelin.schema.yaml",
             message_code="asset_orphan",
         ),
     )
     response = await space.client.post(
-        f"{space.base}/draft/impacts/verify", json={"path": "sources/s/assets/V.json"}
+        f"{space.base}/draft/impacts/verify", json={"path": "sources/s/assets/V.schema.yaml"}
     )
     assert response.status_code == 200
     response = await space.client.post(
@@ -429,10 +432,10 @@ async def test_decisions_de_l_agent_dans_le_message_du_commit(
     )
     assert response.status_code == 200, response.text
     body = _last_message(space)
-    assert "Impact vérifié : sources/s/assets/U.json (via l'agent claude)" in body
-    assert "Impact vérifié : sources/s/assets/V.json\n" in body
+    assert "Impact vérifié : sources/s/assets/U.schema.yaml (via l'agent claude)" in body
+    assert "Impact vérifié : sources/s/assets/V.schema.yaml\n" in body
     assert (
-        "Avertissement accepté : orphan_asset sources/s/assets/Orphelin.json "
+        "Avertissement accepté : orphan_asset sources/s/assets/Orphelin.schema.yaml "
         "(via l'agent claude)" in body
     )
 
@@ -440,15 +443,15 @@ async def test_decisions_de_l_agent_dans_le_message_du_commit(
 async def test_une_decision_reprise_par_la_personne_n_est_plus_celle_de_l_agent(
     app: FastAPI, space: ApiSpace
 ) -> None:
-    forge_edit(space, {"sources/s/raw/U.json": "{}", "sources/s/assets/U.json": "{}"})
-    await draft_write(app, space, "sources/s/raw/U.json", {"v": 2})
+    forge_edit(space, {"sources/s/raw/U.schema.yaml": "{}", "sources/s/assets/U.schema.yaml": "{}"})
+    await draft_write(app, space, "sources/s/raw/U.schema.yaml", {"v": 2})
     await set_credential(app, space)
-    await _ok(app, "verify_impact", _ids(space, path="sources/s/assets/U.json"))
+    await _ok(app, "verify_impact", _ids(space, path="sources/s/assets/U.schema.yaml"))
     await space.client.post(
-        f"{space.base}/draft/impacts/verify", json={"path": "sources/s/assets/U.json"}
+        f"{space.base}/draft/impacts/verify", json={"path": "sources/s/assets/U.schema.yaml"}
     )
     response = await space.client.post(f"{space.base}/draft/publish", json={"comment": "Repris"})
     assert response.status_code == 200, response.text
     body = _last_message(space)
-    assert "Impact vérifié : sources/s/assets/U.json\n" in body
+    assert "Impact vérifié : sources/s/assets/U.schema.yaml\n" in body
     assert "via l'agent" not in body

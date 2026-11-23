@@ -12,6 +12,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from ossie_studio.parsers.conventions import load_schema
 from ossie_studio.spaces.workdir import WorkdirManager
 from tests.space_fixture import (
     ApiSpace,
@@ -22,7 +23,7 @@ from tests.space_fixture import (
     set_credential,
 )
 
-OBJ = "sources/s/raw/O.json"
+OBJ = "sources/s/raw/O.schema.yaml"
 
 
 @pytest.fixture
@@ -70,7 +71,7 @@ async def test_publication_un_commit_auteur_utilisateur(app: FastAPI, sp: ApiSpa
     assert await _readiness(sp) == []
     response = await _publish(sp)
     assert response.status_code == 200, response.text
-    assert json.loads(forge_read(sp, OBJ) or "{}") == {"a": 1}
+    assert load_schema(forge_read(sp, OBJ) or "{}") == {"a": 1}
     assert _log(sp, "%an|%s") == "Gaël Admin|ossie: Ma modification"
     assert (await sp.client.get(f"{sp.base}/draft")).json()["count"] == 0
     assert not _leftovers(app)  # aucun worktree de publication résiduel
@@ -126,12 +127,12 @@ async def test_fusion_auto_pendant_la_publication(app: FastAPI, sp: ApiSpace) ->
     await set_credential(app, sp)
     assert "conflicts" not in await _readiness(sp)
     assert (await _publish(sp)).status_code == 200
-    assert json.loads(forge_read(sp, OBJ) or "{}") == {"a": 9, "b": 2}
+    assert load_schema(forge_read(sp, OBJ) or "{}") == {"a": 9, "b": 2}
 
 
 async def test_impact_en_attente_bloque(app: FastAPI, sp: ApiSpace) -> None:
-    forge_edit(sp, {"sources/s/raw/U.json": "{}", "sources/s/assets/U.json": "{}"})
-    await draft_write(app, sp, "sources/s/raw/U.json", {"v": 2})
+    forge_edit(sp, {"sources/s/raw/U.schema.yaml": "{}", "sources/s/assets/U.schema.yaml": "{}"})
+    await draft_write(app, sp, "sources/s/raw/U.schema.yaml", {"v": 2})
     await set_credential(app, sp)
     assert "impacts_pending" in await _readiness(sp)
 
@@ -141,7 +142,9 @@ async def test_erreur_liee_au_brouillon_bloque_preexistante_non(app: FastAPI, sp
     await draft_write(app, sp, OBJ, {"a": 1})
     await set_credential(app, sp)
     assert "validation_errors" not in await _readiness(sp)
-    await draft_write(app, sp, "sources/s/raw/R.json", {"properties": {"x": {"$ref": "Nope.json"}}})
+    await draft_write(
+        app, sp, "sources/s/raw/R.schema.yaml", {"properties": {"x": {"$ref": "Nope.schema.yaml"}}}
+    )
     assert "validation_errors" in await _readiness(sp)
 
 
@@ -174,29 +177,29 @@ async def test_message_contient_les_decisions(app: FastAPI, sp: ApiSpace) -> Non
     forge_edit(
         sp,
         {
-            "sources/s/raw/U.json": "{}",
-            "sources/s/assets/U.json": "{}",
-            "sources/s/raw/Seul.json": "{}",
+            "sources/s/raw/U.schema.yaml": "{}",
+            "sources/s/assets/U.schema.yaml": "{}",
+            "sources/s/raw/Seul.schema.yaml": "{}",
         },
     )
-    await draft_write(app, sp, "sources/s/raw/U.json", {"v": 2})
-    await draft_write(app, sp, "sources/s/assets/Orphelin.json", {"t": 1})
+    await draft_write(app, sp, "sources/s/raw/U.schema.yaml", {"v": 2})
+    await draft_write(app, sp, "sources/s/assets/Orphelin.schema.yaml", {"t": 1})
     await set_credential(app, sp)
     await sp.client.post(
-        f"{sp.base}/draft/impacts/verify", json={"path": "sources/s/assets/U.json"}
+        f"{sp.base}/draft/impacts/verify", json={"path": "sources/s/assets/U.schema.yaml"}
     )
     await sp.client.post(
         f"{sp.base}/draft/validation/accept",
         json={
             "rule": "orphan_asset",
-            "path": "sources/s/assets/Orphelin.json",
+            "path": "sources/s/assets/Orphelin.schema.yaml",
             "message_code": "asset_orphan",
         },
     )
     assert (await _publish(sp, "Avec décisions")).status_code == 200
     body = _log(sp, "%B")
-    assert "Impact vérifié : sources/s/assets/U.json" in body
-    assert "Avertissement accepté : orphan_asset sources/s/assets/Orphelin.json" in body
+    assert "Impact vérifié : sources/s/assets/U.schema.yaml" in body
+    assert "Avertissement accepté : orphan_asset sources/s/assets/Orphelin.schema.yaml" in body
 
 
 async def test_push_exterieur_autre_objet_reconstruit(
@@ -220,7 +223,7 @@ async def test_push_exterieur_autre_objet_reconstruit(
     assert response.status_code == 200, response.text
     assert calls["n"] == 2  # un nouvel essai sur la nouvelle tête
     assert forge_read(sp, "sources/ailleurs.txt") == "course"
-    assert json.loads(forge_read(sp, OBJ) or "{}") == {"a": 1}
+    assert load_schema(forge_read(sp, OBJ) or "{}") == {"a": 1}
 
 
 async def test_push_exterieur_meme_objet_renvoi_fusion(
@@ -318,7 +321,7 @@ async def test_ecriture_pendant_le_push_reste_au_brouillon(
         # brouillon tout de suite et attend la copie de lecture tenue par le push.
         pending.append(
             asyncio.create_task(
-                draft_write(app, sp, "sources/s/raw/Pendant.json", {"pendant": True})
+                draft_write(app, sp, "sources/s/raw/Pendant.schema.yaml", {"pendant": True})
             )
         )
         await asyncio.sleep(0.2)
@@ -328,5 +331,5 @@ async def test_ecriture_pendant_le_push_reste_au_brouillon(
     assert (await _publish(sp)).status_code == 200
     await asyncio.gather(*pending)
     draft = (await sp.client.get(f"{sp.base}/draft")).json()
-    assert [o["path"] for o in draft["objects"]] == ["sources/s/raw/Pendant.json"]
-    assert json.loads(forge_read(sp, OBJ) or "{}") == {"a": 1}
+    assert [o["path"] for o in draft["objects"]] == ["sources/s/raw/Pendant.schema.yaml"]
+    assert load_schema(forge_read(sp, OBJ) or "{}") == {"a": 1}

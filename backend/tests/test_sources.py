@@ -490,7 +490,7 @@ async def test_depot_collecte_telechargement_retrait(
     assert collect.status_code == 200, collect.text
     assert collect.json()["added"] == 2
     raw = _view(tmp_path, space_id) / "sources" / "api-paiement" / "raw"
-    assert (raw / "v2-commande.json").is_file()
+    assert (raw / "v2-commande.schema.yaml").is_file()
     after = (await client.get(f"{base}/api-paiement/contracts")).json()["contracts"]
     assert after[0]["collected"] is True
     # Téléchargement : octets déposés.
@@ -500,7 +500,7 @@ async def test_depot_collecte_telechargement_retrait(
     # Retrait : fichier + schémas partent.
     rm = await client.delete(f"{base}/api-paiement/contracts/v2")
     assert rm.status_code == 204
-    assert not (raw / "v2-commande.json").exists()
+    assert not (raw / "v2-commande.schema.yaml").exists()
     assert (await client.get(f"{base}/api-paiement/contracts")).json()["contracts"] == []
 
 

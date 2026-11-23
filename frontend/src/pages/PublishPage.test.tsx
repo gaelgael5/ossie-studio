@@ -9,7 +9,7 @@ const DRAFT = {
   count: 1,
   revision: 2,
   changed_upstream_count: 0,
-  objects: [{ path: 'sources/s/raw/O.json', state: 'modified', changed_upstream: false }],
+  objects: [{ path: 'sources/s/raw/O.schema.yaml', state: 'modified', changed_upstream: false }],
 }
 
 function mockApi(readiness: { ok: boolean; reasons: string[]; conflicts: string[] }) {
@@ -62,7 +62,7 @@ describe('PublishPage', () => {
     const calls = mockApi({ ok: true, reasons: [], conflicts: [] })
     const user = userEvent.setup()
     renderPage()
-    await waitFor(() => expect(screen.getByText('sources/s/raw/O.json')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('sources/s/raw/O.schema.yaml')).toBeInTheDocument())
     const button = screen.getByRole('button', { name: 'Publier' })
     expect(button).toBeDisabled() // commentaire vide
     await user.type(screen.getByLabelText('Commentaire du commit'), 'Ma modif')

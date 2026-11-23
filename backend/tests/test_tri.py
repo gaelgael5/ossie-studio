@@ -19,7 +19,7 @@ def test_validate_ok_et_erreurs_nomment_la_regle() -> None:
     bad = [
         {"target": "nope", "pattern": "x", "kind": "glob"},
         {"target": "object-name", "pattern": "(", "kind": "regex"},  # regex invalide
-        {"target": "field-name", "pattern": "", "kind": "glob"},     # motif vide
+        {"target": "field-name", "pattern": "", "kind": "glob"},  # motif vide
         {"target": "object-name", "pattern": "x", "kind": "fuzzy"},  # genre invalide
     ]
     errors = validate_tri_rules(bad)
@@ -50,8 +50,10 @@ def test_object_excluded_par_type_et_regex() -> None:
 
 def test_object_excluded_par_schema_sql_depuis_id() -> None:
     rules = compile_rules([{"target": "sql-schema", "pattern": "staging", "kind": "glob"}])
-    assert object_excluded({"$id": "staging.orders.json", "title": "orders"}, rules) is not None
-    assert object_excluded({"$id": "app.orders.json", "title": "orders"}, rules) is None
+    assert (
+        object_excluded({"$id": "staging.orders.schema.yaml", "title": "orders"}, rules) is not None
+    )
+    assert object_excluded({"$id": "app.orders.schema.yaml", "title": "orders"}, rules) is None
 
 
 def test_object_excluded_par_chemin_fichier() -> None:

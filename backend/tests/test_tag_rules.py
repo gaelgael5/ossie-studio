@@ -33,7 +33,7 @@ def _fresh_caches() -> None:
 
 def _schema(title: str, *, bases: list[dict] | None = None, **extra: object) -> str:
     data: dict[str, object] = {
-        "$id": f"{title.lower()}.json",
+        "$id": f"{title.lower()}.schema.yaml",
         "title": title,
         "type": "object",
         "x-kind": "class",
@@ -52,46 +52,48 @@ def _files() -> dict[str, str]:
     lib = "sources/lib/raw"
     return {
         "sources/app/manifest.yaml": _manifest("app"),
-        f"{raw}/orderscontroller.json": _schema(
+        f"{raw}/orderscontroller.schema.yaml": _schema(
             "OrdersController",
             bases=[{"x-unresolved-type": "Microsoft.AspNetCore.Mvc.ControllerBase"}],
         ),
-        f"{raw}/admincontroller.json": _schema(
-            "AdminController", bases=[{"$ref": "orderscontroller.json"}]
+        f"{raw}/admincontroller.schema.yaml": _schema(
+            "AdminController", bases=[{"$ref": "orderscontroller.schema.yaml"}]
         ),
-        f"{raw}/superadmincontroller.json": _schema(
-            "SuperAdminController", bases=[{"$ref": "admincontroller.json"}]
+        f"{raw}/superadmincontroller.schema.yaml": _schema(
+            "SuperAdminController", bases=[{"$ref": "admincontroller.schema.yaml"}]
         ),
-        f"{raw}/healthcontroller.json": _schema(
+        f"{raw}/healthcontroller.schema.yaml": _schema(
             "HealthController", **{"x-annotations": [{"nom": "ApiController", "arguments": []}]}
         ),
-        f"{raw}/order.json": _schema(
+        f"{raw}/order.schema.yaml": _schema(
             "Order", properties={"Id": {"type": "string"}, "Email": {"type": "string"}}
         ),
-        f"{raw}/orderdto.json": _schema("OrderDto"),
-        f"{raw}/customer.json": _schema("Customer", bases=[{"$ref": "baseentity.json"}]),
-        f"{raw}/javacontroller.json": _schema(
+        f"{raw}/orderdto.schema.yaml": _schema("OrderDto"),
+        f"{raw}/customer.schema.yaml": _schema(
+            "Customer", bases=[{"$ref": "baseentity.schema.yaml"}]
+        ),
+        f"{raw}/javacontroller.schema.yaml": _schema(
             "JavaController", bases=[{"x-unresolved-type": "ControllerBase"}]
         ),
-        f"{raw}/cyclea.json": _schema("CycleA", bases=[{"$ref": "cycleb.json"}]),
-        f"{raw}/cycleb.json": _schema("CycleB", bases=[{"$ref": "cyclea.json"}]),
+        f"{raw}/cyclea.schema.yaml": _schema("CycleA", bases=[{"$ref": "cycleb.schema.yaml"}]),
+        f"{raw}/cycleb.schema.yaml": _schema("CycleB", bases=[{"$ref": "cyclea.schema.yaml"}]),
         f"{raw}/manifest-csharp.yaml": _tech(
             {
-                "src/Api/OrdersController.cs": (["orderscontroller.json"], "csharp"),
-                "src/Api/AdminController.cs": (["admincontroller.json"], "csharp"),
-                "src/Api/SuperAdminController.cs": (["superadmincontroller.json"], "csharp"),
-                "src/Api/HealthController.cs": (["healthcontroller.json"], "csharp"),
-                "src/Domain/Order.cs": (["order.json"], "csharp"),
-                "src/Dto/OrderDto.cs": (["orderdto.json"], "csharp"),
-                "src/Domain/Customer.cs": (["customer.json"], "csharp"),
-                "src/Cycle.cs": (["cyclea.json", "cycleb.json"], "csharp"),
-                "java/JavaController.java": (["javacontroller.json"], "java"),
+                "src/Api/OrdersController.cs": (["orderscontroller.schema.yaml"], "csharp"),
+                "src/Api/AdminController.cs": (["admincontroller.schema.yaml"], "csharp"),
+                "src/Api/SuperAdminController.cs": (["superadmincontroller.schema.yaml"], "csharp"),
+                "src/Api/HealthController.cs": (["healthcontroller.schema.yaml"], "csharp"),
+                "src/Domain/Order.cs": (["order.schema.yaml"], "csharp"),
+                "src/Dto/OrderDto.cs": (["orderdto.schema.yaml"], "csharp"),
+                "src/Domain/Customer.cs": (["customer.schema.yaml"], "csharp"),
+                "src/Cycle.cs": (["cyclea.schema.yaml", "cycleb.schema.yaml"], "csharp"),
+                "java/JavaController.java": (["javacontroller.schema.yaml"], "java"),
             }
         ),
         "sources/lib/manifest.yaml": _manifest("lib"),
-        f"{lib}/baseentity.json": _schema("BaseEntity"),
+        f"{lib}/baseentity.schema.yaml": _schema("BaseEntity"),
         f"{lib}/manifest-csharp.yaml": _tech(
-            {"Common/BaseEntity.cs": (["baseentity.json"], "csharp")}
+            {"Common/BaseEntity.cs": (["baseentity.schema.yaml"], "csharp")}
         ),
     }
 
@@ -303,7 +305,7 @@ async def test_api_regle_cree_les_tags_et_l_explorateur_les_montre(
     assert by_title["HealthController"] == []
 
     detail = await sp.client.get(
-        f"{sp.base}/raw-explorer/app/object", params={"file": "orderscontroller.json"}
+        f"{sp.base}/raw-explorer/app/object", params={"file": "orderscontroller.schema.yaml"}
     )
     assert detail.json()["tags"][0]["value"] == "Microsoft.AspNetCore.Mvc.ControllerBase"
 
@@ -375,7 +377,7 @@ async def test_api_decompte_et_apercu_sur_l_index(sp: ApiSpace, no_builtin: None
 
 
 def _removal(title: str, tag: str = "service") -> tuple[str, str]:
-    return (f"app/{title.lower()}.json", tag)
+    return (f"app/{title.lower()}.schema.yaml", tag)
 
 
 def _removed(sources: list[SourceEntries]) -> dict[str, set[str]]:
@@ -417,9 +419,9 @@ def test_decompte_des_derivees_qui_perdront_le_tag(tmp_path: Path) -> None:
     from ossie_studio.sources.explorer_tags import dependents_losing, index_removals
 
     tagged = apply_tag_rules(_sources(tmp_path), [_rule(when=CONTROLLERS, inherit_tags=True)])
-    assert dependents_losing(tagged, "app/orderscontroller.json", "service") == 2
-    assert dependents_losing(tagged, "app/admincontroller.json", "service") == 1
-    assert dependents_losing(tagged, "app/superadmincontroller.json", "service") == 0
+    assert dependents_losing(tagged, "app/orderscontroller.schema.yaml", "service") == 2
+    assert dependents_losing(tagged, "app/admincontroller.schema.yaml", "service") == 1
+    assert dependents_losing(tagged, "app/superadmincontroller.schema.yaml", "service") == 0
     removed = apply_tag_rules(tagged, [_rule(when=CONTROLLERS)], {_removal("OrdersController")})
     assert index_removals(removed) == {_removal("OrdersController")}
 
@@ -432,8 +434,8 @@ def test_fichier_des_retraits(tmp_path: Path) -> None:
         write_tag_removals,
     )
 
-    write_tag_removals(tmp_path, [TagRemoval("app/a.json", "service", "A")] * 2)
-    assert read_tag_removals(tmp_path) == [TagRemoval("app/a.json", "service", "A")]
+    write_tag_removals(tmp_path, [TagRemoval("app/a.schema.yaml", "service", "A")] * 2)
+    assert read_tag_removals(tmp_path) == [TagRemoval("app/a.schema.yaml", "service", "A")]
     assert removal_errors(tmp_path) == []
     write_tag_removals(tmp_path, [])
     assert not (tmp_path / "governance/tag-removals.yaml").exists()
@@ -454,10 +456,16 @@ async def test_api_retrait_memorise_transmis_et_annulable(sp: ApiSpace, no_built
     }
     await sp.client.put(f"{sp.base}/governance/tag-rules/ctrl", json=rule)
     detail_url = f"{sp.base}/raw-explorer/app/object"
-    detail = (await sp.client.get(detail_url, params={"file": "orderscontroller.json"})).json()
+    detail = (
+        await sp.client.get(detail_url, params={"file": "orderscontroller.schema.yaml"})
+    ).json()
     assert detail["tag_dependents"] == {"service": 2}
 
-    removal = {"object": "app/orderscontroller.json", "tag": "service", "title": "OrdersController"}
+    removal = {
+        "object": "app/orderscontroller.schema.yaml",
+        "tag": "service",
+        "title": "OrdersController",
+    }
     url = f"{sp.base}/governance/tag-removals"
     assert (await sp.client.post(url, json=removal)).status_code == 200
     assert (await sp.client.post(url, json=removal)).status_code == 200  # idempotent
@@ -465,11 +473,13 @@ async def test_api_retrait_memorise_transmis_et_annulable(sp: ApiSpace, no_built
 
     folder = await sp.client.get(f"{sp.base}/raw-explorer/app/folder", params={"path": "src/Api"})
     assert all(o["tags"] == [] for o in folder.json()["objects"])
-    detail = (await sp.client.get(detail_url, params={"file": "orderscontroller.json"})).json()
+    detail = (
+        await sp.client.get(detail_url, params={"file": "orderscontroller.schema.yaml"})
+    ).json()
     assert [t["tag"] for t in detail["removed_tags"]] == ["service"]
     # Une nouvelle collecte (nouveau commit de la source) ne remet pas le tag.
     files = _files()
-    files["sources/app/raw/order.json"] = _schema("Order", description="modifié")
+    files["sources/app/raw/order.schema.yaml"] = _schema("Order", description="modifié")
     forge_edit(sp, files)
     folder = await sp.client.get(f"{sp.base}/raw-explorer/app/folder", params={"path": "src/Api"})
     assert all(o["tags"] == [] for o in folder.json()["objects"])
@@ -490,7 +500,7 @@ async def test_sans_droit_de_gouvernance_refus_explicite(sp: ApiSpace, app: Fast
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as other:
         await login(other, "simple@example.org", "mot-de-passe-simple")
-        removal = {"object": "app/a.json", "tag": "service"}
+        removal = {"object": "app/a.schema.yaml", "tag": "service"}
         r = await other.post(f"{sp.base}/governance/tag-removals", json=removal)
         assert r.status_code == 403
         rule = {"files": ["*.cs"], "tags": ["s"], "when": {"name": ["X"]}}

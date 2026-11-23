@@ -212,7 +212,7 @@ async def test_brouillon_de_500_objets_lecture(app: FastAPI, tmp_path: Path) -> 
         folder = root / "sources" / "api" / "raw"
         folder.mkdir(parents=True, exist_ok=True)
         for i in range(500):
-            (folder / f"o{i}.json").write_text(f'{{"i": {i}}}')
+            (folder / f"o{i}.schema.yaml").write_text(f'{{"i": {i}}}')
 
     started = time.perf_counter()
     await _commit(workdir, space, many)
@@ -224,7 +224,7 @@ async def test_brouillon_de_500_objets_lecture(app: FastAPI, tmp_path: Path) -> 
         space.repo_url,
         "x",
         None,  # type: ignore[attr-defined]
-        lambda root: len(list((root / "sources" / "api" / "raw").glob("*.json"))),
+        lambda root: len(list((root / "sources" / "api" / "raw").glob("*.schema.yaml"))),
     )
     read_s = time.perf_counter() - started
     assert count == 500

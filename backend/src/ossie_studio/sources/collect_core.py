@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,7 +17,14 @@ from ossie_studio.parsers.base import (
     PluginError,
     PluginResult,
 )
-from ossie_studio.parsers.conventions import ConventionError, validate_schema
+from ossie_studio.parsers.conventions import (
+    ConventionError,
+    SchemaReadError,
+    is_schema_name,
+    load_schema,
+    schema_file,
+    validate_schema,
+)
 
 # Version 2 : clés en anglais. La version 1 (clés françaises : parseurs, entrees,
 # branche, parseur) se relit en repli ; on réécrit toujours en version 2.
@@ -112,7 +118,7 @@ class CollectionPlan:
 
 
 def _destination_name(key: str) -> str:
-    return f"{key}.json"
+    return schema_file(key)
 
 
 def run_collection(
@@ -213,7 +219,7 @@ def run_collection(
         # la lecture du fichier concerné ; il n'est jamais écrit.
         try:
             for obj in objects:
-                validate_schema(json.loads(obj.schema))
+                validate_schema(load_schema(obj.schema))
         except ConventionError as exc:
             for source in sorted(group):
                 plan.errors.append(
@@ -221,10 +227,10 @@ def run_collection(
                 )
                 plan.statuses[source] = STATUT_ERREUR
             continue
-        except json.JSONDecodeError as exc:
+        except SchemaReadError as exc:
             for source in sorted(group):
                 plan.errors.append(
-                    CollectError(source=source, cause="convention:not_json", detail=str(exc))
+                    CollectError(source=source, cause="convention:unreadable", detail=str(exc))
                 )
                 plan.statuses[source] = STATUT_ERREUR
             continue
@@ -281,7 +287,7 @@ def schema_plugin_run(
     context: PluginContext, parser: Parser, *, index_name: str = ""
 ) -> PluginResult:
     """Adapte le moteur incrémental de schémas au contrat de plugin : lit l'index
-    du plugin et ses sorties `.json` dans `raw/`, applique `run_collection`, et
+    du plugin et ses sorties `.schema.yaml` dans `raw/`, applique `run_collection`, et
     rend des actions d'écriture (dont l'index régénéré). Les plugins de schémas
     (démo, OpenAPI, C#…) délèguent ici ; chacun garde **son** fichier d'index."""
     index_name = index_name or schema_index_name(parser.id)
@@ -290,7 +296,7 @@ def schema_plugin_run(
     existing = {
         path: content
         for path, content in context.raw.list_outputs().items()
-        if path.endswith(".json") and "/" not in path
+        if is_schema_name(path)
     }
     plan = run_collection(
         context.contents,

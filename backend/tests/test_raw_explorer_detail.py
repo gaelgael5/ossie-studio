@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 
 from ossie_studio.forges.links import forge_file_url
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import dump_schema, load_schema
 from ossie_studio.sources.explorer import (
     ExplorerDocument,
     ExplorerObject,
@@ -45,17 +45,17 @@ def _obj(file: str, title: str, kind: str = "class", origin: str = "") -> Explor
 
 
 _ORDER = {
-    "$id": "app.order.json",
+    "$id": "app.order.schema.yaml",
     "title": "Order",
     "description": "Une commande.",
     "x-kind": "class",
     "x-annotations": ['[Table("orders")]'],
-    "allOf": [{"$ref": "app.base.json"}],
+    "allOf": [{"$ref": "app.base.schema.yaml"}],
     "required": ["id", "customer"],
     "properties": {
         "id": {"type": "integer", "x-annotations": ["[Key]"]},
-        "customer": {"$ref": "app.customer.json"},
-        "lines": {"type": "array", "items": {"$ref": "app.line.json"}},
+        "customer": {"$ref": "app.customer.schema.yaml"},
+        "lines": {"type": "array", "items": {"$ref": "app.line.schema.yaml"}},
         "money": {"x-unresolved-type": "Money"},
         "note": {"type": "string", "description": "Libre."},
     },
@@ -70,9 +70,9 @@ def _app_entries(docs: list[ExplorerDocument] | None = None) -> SourceEntries:
         database="",
         collected=True,
         objects=[
-            _obj("app.order.json", "Order", origin="src/Order.cs"),
-            _obj("app.customer.json", "Customer", origin="src/Customer.cs"),
-            _obj("app.base.json", "Base", origin="src/Base.cs"),
+            _obj("app.order.schema.yaml", "Order", origin="src/Order.cs"),
+            _obj("app.customer.schema.yaml", "Customer", origin="src/Customer.cs"),
+            _obj("app.base.schema.yaml", "Base", origin="src/Base.cs"),
         ],
         documents=docs or [],
     )
@@ -85,7 +85,7 @@ def _db_entries() -> SourceEntries:
         type="postgresql",
         database="ventes",
         collected=True,
-        objects=[_obj("public.customers.json", "customers", "table", "public.customers")],
+        objects=[_obj("public.customers.schema.yaml", "customers", "table", "public.customers")],
         documents=[],
     )
 
@@ -100,7 +100,7 @@ def test_detail_champs_propres_description_annotations() -> None:
     assert list(fields) == ["id", "customer", "lines", "money", "note"]  # propres, non aplatis
     assert fields["id"]["required"] and fields["id"]["annotations"] == ["[Key]"]
     assert not fields["note"]["required"] and fields["note"]["description"] == "Libre."
-    assert fields["customer"]["type"]["target"]["file"] == "app.customer.json"
+    assert fields["customer"]["type"]["target"]["file"] == "app.customer.schema.yaml"
     assert fields["money"]["type"] == {"label": "Money", "external": True}
     assert detail["origin"]["checksum"] == "abc" and detail["origin"]["parser"] == "csharp"
 
@@ -113,7 +113,7 @@ def test_references_heritage_externe_et_non_resolue() -> None:
     inherits = by_field[("", "inherits")]
     assert inherits["target"] == {
         "slug": "app",
-        "file": "app.base.json",
+        "file": "app.base.schema.yaml",
         "title": "Base",
         "folder": "src",
     }
@@ -124,7 +124,7 @@ def test_references_heritage_externe_et_non_resolue() -> None:
 
 def test_cle_etrangere_resolue_dans_une_autre_source() -> None:
     table = {
-        "$id": "public.orders.json",
+        "$id": "public.orders.schema.yaml",
         "title": "orders",
         "x-kind": "table",
         "properties": {
@@ -134,7 +134,7 @@ def test_cle_etrangere_resolue_dans_une_autre_source() -> None:
             }
         },
     }
-    orders = _obj("public.orders.json", "orders", "table", "public.orders")
+    orders = _obj("public.orders.schema.yaml", "orders", "table", "public.orders")
     db = _db_entries()
     db.objects.append(orders)
     space = SpaceObjects([_app_entries(), db], "origin")
@@ -142,7 +142,7 @@ def test_cle_etrangere_resolue_dans_une_autre_source() -> None:
     assert ref["kind"] == "foreign_key" and ref["label"] == "public.customers.id"
     assert ref["target"] == {
         "slug": "entrepot",
-        "file": "public.customers.json",
+        "file": "public.customers.schema.yaml",
         "title": "customers",
         "folder": "ventes/public",
     }
@@ -155,7 +155,7 @@ def test_documents_qui_citent_et_objets_cites() -> None:
     detail = object_detail(_ORDER, "{}", entries.objects[0], entries, space)
     assert detail["documents"] == [{"path": "docs/guide.md", "title": "Guide"}]
     cited = document_detail(doc, space)["objects"]
-    assert [c["file"] for c in cited] == ["app.order.json"]
+    assert [c["file"] for c in cited] == ["app.order.schema.yaml"]
 
 
 def test_liens_forge() -> None:
@@ -186,14 +186,14 @@ async def sp(client: AsyncClient, app: FastAPI, tmp_path: Path) -> ApiSpace:
 
 async def test_api_objet_document_historique(sp: ApiSpace) -> None:
     files = _git_files()
-    files["sources/app/raw/order.json"] = dump_schema(
+    files["sources/app/raw/order.schema.yaml"] = dump_schema(
         {
-            "$id": "order.json",
+            "$id": "order.schema.yaml",
             "title": "Order",
             "type": "object",
             "x-kind": "class",
             "description": "Commande.",
-            "properties": {"customer": {"$ref": "customer.json"}},
+            "properties": {"customer": {"$ref": "customer.schema.yaml"}},
         }
     )
     files["sources/app/raw/docs-index.yaml"] = (
@@ -201,30 +201,30 @@ async def test_api_objet_document_historique(sp: ApiSpace) -> None:
         "- {path: docs/guide.md, crc: a, title: Guide, sections: [Un], mentions: [Order],"
         " resources: []}\n"
     )
-    files["sources/app/assets/order.json"] = dump_schema(
-        {"$id": "order.json", "title": "Order", "properties": {"customer": {}}}
+    files["sources/app/assets/order.schema.yaml"] = dump_schema(
+        {"$id": "order.schema.yaml", "title": "Order", "properties": {"customer": {}}}
     )
     forge_edit(sp, files)
     base = f"{sp.base}/raw-explorer/app"
-    r = await sp.client.get(f"{base}/object", params={"file": "order.json"})
+    r = await sp.client.get(f"{base}/object", params={"file": "order.schema.yaml"})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["description"] == "Commande."
-    assert body["fields"][0]["type"]["target"]["file"] == "customer.json"
-    assert json.loads(body["json"])["title"] == "Order"  # le schéma exact
+    assert body["fields"][0]["type"]["target"]["file"] == "customer.schema.yaml"
+    assert load_schema(body["json"])["title"] == "Order"  # le schéma exact
     assert body["documents"] == [{"path": "docs/guide.md", "title": "Guide"}]
     assert body["exposure"]["retained"] is True and body["fields"][0]["exposed"] is True
     assert body["forge_url"] is None  # connexion « c » inconnue : pas de lien deviné
 
     r = await sp.client.get(f"{base}/document", params={"path": "docs/guide.md"})
-    assert [o["file"] for o in r.json()["objects"]] == ["order.json"]
+    assert [o["file"] for o in r.json()["objects"]] == ["order.schema.yaml"]
 
-    r = await sp.client.get(f"{base}/object/history", params={"file": "order.json"})
+    r = await sp.client.get(f"{base}/object/history", params={"file": "order.schema.yaml"})
     assert r.status_code == 200 and len(r.json()["commits"]) == 1
 
-    r = await sp.client.get(f"{base}/object", params={"file": "absent.json"})
+    r = await sp.client.get(f"{base}/object", params={"file": "absent.schema.yaml"})
     assert r.status_code == 404 and r.json()["error"] == "raw_explorer_object_not_found"
-    r = await sp.client.get(f"{base}/object", params={"file": "../x.json"})
+    r = await sp.client.get(f"{base}/object", params={"file": "../x.schema.yaml"})
     assert r.status_code == 404
 
 
@@ -246,12 +246,12 @@ async def test_api_objet_lit_le_brouillon(sp: ApiSpace, app: FastAPI) -> None:
             "INSERT INTO draft_objects (draft_id, path, base_blob, content) "
             "VALUES ($1, $2, 'x', $3)",
             draft,
-            "sources/app/raw/order.json",
+            "sources/app/raw/order.schema.yaml",
             _schema("OrderDraft").encode(),
         )
-    r = await sp.client.get(f"{base}/object", params={"file": "order.json"})
+    r = await sp.client.get(f"{base}/object", params={"file": "order.schema.yaml"})
     assert r.status_code == 200, r.text
-    assert json.loads(r.json()["json"])["title"] == "OrderDraft"
+    assert load_schema(r.json()["json"])["title"] == "OrderDraft"
 
 
 def test_visibilite_lue_jamais_deduite() -> None:
@@ -280,7 +280,7 @@ def test_visibilite_des_champs_et_mot_cle_d_origine() -> None:
         },
     }
     obj = ExplorerObject(
-        file="conf.json",
+        file="conf.schema.yaml",
         title="Conf",
         kind="class",
         fields=2,
@@ -308,10 +308,10 @@ def test_index_porte_la_visibilite(tmp_path: Path) -> None:
     raw = tmp_path / "sources" / "app" / "raw"
     raw.mkdir(parents=True)
     (tmp_path / "sources/app/manifest.yaml").write_text(_manifest_git(), encoding="utf-8")
-    (raw / "a.json").write_text(
+    (raw / "a.schema.yaml").write_text(
         dump_schema(
             {
-                "$id": "a.json",
+                "$id": "a.schema.yaml",
                 "title": "A",
                 "x-language": "java",
                 "x-kind": "class",
@@ -320,13 +320,15 @@ def test_index_porte_la_visibilite(tmp_path: Path) -> None:
             }
         )
     )
-    (raw / "t.json").write_text(dump_schema({"$id": "t.json", "title": "T", "x-kind": "table"}))
+    (raw / "t.schema.yaml").write_text(
+        dump_schema({"$id": "t.schema.yaml", "title": "T", "x-kind": "table"})
+    )
     objs = {o.file: o for o in collect_source_entries(tmp_path, "app").objects}
-    assert (objs["a.json"].visibility, objs["a.json"].visibility_source) == (
+    assert (objs["a.schema.yaml"].visibility, objs["a.schema.yaml"].visibility_source) == (
         "internal",
         "package-private",
     )
-    assert objs["t.json"].visibility == ""
+    assert objs["t.schema.yaml"].visibility == ""
 
 
 def _manifest_git() -> str:
@@ -336,7 +338,7 @@ def _manifest_git() -> str:
 def _exposure_case(asset: dict | None) -> dict:
     schema = {"title": "O", "properties": {f"f{i}": {"type": "string"} for i in range(9)}}
     obj = ExplorerObject(
-        file="o.json",
+        file="o.schema.yaml",
         title="O",
         kind="class",
         fields=9,
@@ -382,7 +384,7 @@ def test_historique_lisible() -> None:
     after = json.dumps(
         {
             "description": "b",
-            "properties": {"total": {"$ref": "money.json"}, "new": {"type": "string"}},
+            "properties": {"total": {"$ref": "money.schema.yaml"}, "new": {"type": "string"}},
         }
     )
     codes = schema_changes(before, after)

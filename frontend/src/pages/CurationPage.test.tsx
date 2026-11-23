@@ -38,7 +38,7 @@ const BASE = '/api/spaces/s1/branches/b1'
 
 const SUMMARY = {
   source: 'api-boutique',
-  path: 'commande.json',
+  path: 'commande.schema.yaml',
   title: 'Commande',
   kind: 'class',
   parser: 'csharp',
@@ -52,7 +52,7 @@ const SUMMARY = {
   orphan: false,
   property_names: ['Client', 'CreeLe', 'Numero', 'numeroCommande'],
 }
-const CLIENT = { ...SUMMARY, path: 'client.json', title: 'Client', undescribed: 0, modified: true, property_names: ['Email'] }
+const CLIENT = { ...SUMMARY, path: 'client.schema.yaml', title: 'Client', undescribed: 0, modified: true, property_names: ['Email'] }
 const MERMAID = 'Articles commandés.\n\n```mermaid\ngraph TD; A-->B\n```\n'
 const DETAIL = {
   ...SUMMARY,
@@ -76,7 +76,7 @@ const DETAIL = {
       type: '',
       format: '',
       max_length: null,
-      ref: { source: 'api-boutique', path: 'client.json', title: 'Client', kind: 'field', retained: true },
+      ref: { source: 'api-boutique', path: 'client.schema.yaml', title: 'Client', kind: 'field', retained: true },
       external: '',
       description: MERMAID,
       missing: false,
@@ -108,7 +108,7 @@ function mockApi(capabilities: string[] = ['curation:read', 'curation:write'], a
         body = { sources: assets.length ? [{ slug: 'api-boutique', label: 'api-boutique' }] : [], assets }
       else if (path.startsWith(`${BASE}/curation-assets/asset/history`)) body = { commits: [] }
       else if (path.startsWith(`${BASE}/curation-assets/asset`)) {
-        body = path.includes('client.json')
+        body = path.includes('client.schema.yaml')
           ? { ...DETAIL, ...CLIENT, properties: [] }
           : DETAIL
       } else if (method === 'PUT' && path.endsWith('/curation/enrich')) body = { ok: true, commit: 'draft:2' }
@@ -168,7 +168,7 @@ describe('CurationPage', () => {
   it('tableau des propriétés : nom métier, nom raw, type, début de description, mermaid', async () => {
     mockApi()
     const user = userEvent.setup()
-    renderPage('/curation?source=api-boutique&path=commande.json')
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml')
     const table = await screen.findByRole('table')
     expect(within(table).getByText('numeroCommande')).toBeInTheDocument()
     expect(within(table).getByText('raw : Numero')).toBeInTheDocument()
@@ -178,7 +178,7 @@ describe('CurationPage', () => {
     expect(within(table).getByText('— à décrire')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Voir dans l’Explorateur raw' })).toHaveAttribute(
       'href',
-      '/sources?tab=raw&source=api-boutique&path=Ventes&sel=commande.json',
+      '/sources?tab=raw&source=api-boutique&path=Ventes&sel=commande.schema.yaml',
     )
     // Une référence vers un asset retenu le sélectionne.
     await user.click(within(table).getByRole('button', { name: '→ Client' }))
@@ -188,7 +188,7 @@ describe('CurationPage', () => {
   it('« Rédiger » : la description existante s’ouvre telle quelle, « Enregistrer » n’envoie qu’elle', async () => {
     const calls = mockApi()
     const user = userEvent.setup()
-    renderPage('/curation?source=api-boutique&path=commande.json')
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml')
     await user.click(await screen.findByRole('button', { name: 'Rédiger la description de Client' }))
     const dialog = screen.getByRole('dialog')
     const editor = await within(dialog).findByRole('textbox')
@@ -200,7 +200,7 @@ describe('CurationPage', () => {
     const put = calls.find((c) => c.method === 'PUT')!
     expect(put.path).toBe(`${BASE}/sources/api-boutique/curation/enrich`)
     expect(JSON.parse(put.body!)).toEqual({
-      path: 'commande.json',
+      path: 'commande.schema.yaml',
       fields: { Client: { description: 'Client qui a passé la commande.' } },
     })
   })
@@ -208,7 +208,7 @@ describe('CurationPage', () => {
   it('« Annuler » ferme sans rien écrire', async () => {
     const calls = mockApi()
     const user = userEvent.setup()
-    renderPage('/curation?source=api-boutique&path=commande.json')
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml')
     await user.click(await screen.findByRole('button', { name: 'Rédiger la description de CreeLe' }))
     const dialog = screen.getByRole('dialog')
     await user.type(await within(dialog).findByRole('textbox'), 'brouillon')
@@ -220,7 +220,7 @@ describe('CurationPage', () => {
   it('description de l’asset : même fenêtre, sur l’objet', async () => {
     const calls = mockApi()
     const user = userEvent.setup()
-    renderPage('/curation?source=api-boutique&path=commande.json&tab=description')
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml&tab=description')
     expect(await screen.findByText('— à décrire')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Rédiger' }))
     const dialog = screen.getByRole('dialog')
@@ -228,14 +228,14 @@ describe('CurationPage', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Enregistrer' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true))
     expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({
-      path: 'commande.json',
+      path: 'commande.schema.yaml',
       obj: { description: 'Une commande.' },
     })
   })
 
   it('sans curation:write : « Rédiger » désactivé', async () => {
     mockApi(['curation:read'])
-    renderPage('/curation?source=api-boutique&path=commande.json')
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml')
     const write = await screen.findByRole('button', { name: 'Rédiger la description de CreeLe' })
     expect(write).toBeDisabled()
   })

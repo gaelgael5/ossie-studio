@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -31,6 +30,7 @@ from ossie_studio.governance.repo import (
 )
 from ossie_studio.governance.tag_rules import TAG_REMOVALS_FILE, read_tag_rules, removal_errors
 from ossie_studio.governance.tags import validate_tag_fields
+from ossie_studio.parsers.conventions import SCHEMA_SUFFIX, load_schema
 
 
 class GovernanceRule:
@@ -126,9 +126,9 @@ class GovernanceAssetsRule:
         if not changed_tags:
             return {}
         out: dict[str, set[str]] = {}
-        for file in (view / "sources").glob("*/assets/*.json"):
+        for file in (view / "sources").glob(f"*/assets/*{SCHEMA_SUFFIX}"):
             try:
-                data = json.loads(file.read_text(encoding="utf-8"))
+                data = load_schema(file.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
             used = set(_tags_in(data)) & set(changed_tags)

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
-
 from ossie_studio.databases.base import CatalogColumn, CatalogForeignKey, CatalogObject
-from ossie_studio.parsers.conventions import validate_schema
+from ossie_studio.parsers.conventions import load_schema, validate_schema
 from ossie_studio.sources.sql_extract import SqlExtractor, object_to_source, source_key
 
 
@@ -11,7 +9,7 @@ def _extract(obj: CatalogObject) -> dict:
     files = {source_key(obj): object_to_source(obj)}
     objects = SqlExtractor("postgres").parse(files)
     assert len(objects) == 1
-    schema = json.loads(objects[0].schema)
+    schema = load_schema(objects[0].schema)
     validate_schema(schema)  # critère 7 : passe le validateur des conventions
     return schema
 
@@ -42,7 +40,7 @@ def test_table_colonnes_et_obligatoires() -> None:
         primary_key=("id",),
     )
     schema = _extract(obj)
-    assert schema["$id"] == "app-client.json"
+    assert schema["$id"] == "app-client.schema.yaml"
     assert schema["title"] == "client"
     assert schema["x-kind"] == "table"
     assert schema["description"] == "Un client."

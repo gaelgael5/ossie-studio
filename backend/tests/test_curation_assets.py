@@ -26,9 +26,9 @@ async def sp(client: AsyncClient, app: FastAPI, tmp_path: Path) -> ApiSpace:
 
 def _files() -> dict[str, str]:
     files = _git_files()
-    files["sources/app/raw/order.json"] = dump_schema(
+    files["sources/app/raw/order.schema.yaml"] = dump_schema(
         {
-            "$id": "order.json",
+            "$id": "order.schema.yaml",
             "title": "Order",
             "type": "object",
             "x-kind": "class",
@@ -36,7 +36,7 @@ def _files() -> dict[str, str]:
             "properties": {
                 "id": {"type": "string", "format": "uuid"},
                 "numero": {"type": "string", "maxLength": 20},
-                "customer": {"$ref": "customer.json"},
+                "customer": {"$ref": "customer.schema.yaml"},
                 "lines": {"type": "array", "items": {"type": "string"}},
             },
         }
@@ -53,13 +53,13 @@ async def test_seuls_les_assets_retenus_avec_compteurs_et_proprietes(sp: ApiSpac
 
     cur = f"{sp.base}/sources/app/curation"
     r = await sp.client.post(
-        f"{cur}/retain", json={"path": "order.json", "fields": ["id", "numero", "customer"]}
+        f"{cur}/retain", json={"path": "order.schema.yaml", "fields": ["id", "numero", "customer"]}
     )
     assert r.status_code == 200, r.text
     r = await sp.client.put(
         f"{cur}/enrich",
         json={
-            "path": "order.json",
+            "path": "order.schema.yaml",
             "fields": {
                 "numero": {"business_name": "numeroCommande"},
                 "id": {"description": "Identifiant.\n\n```mermaid\ngraph TD; A-->B\n```"},
@@ -70,7 +70,7 @@ async def test_seuls_les_assets_retenus_avec_compteurs_et_proprietes(sp: ApiSpac
 
     listing = (await sp.client.get(api)).json()
     assert [s["slug"] for s in listing["sources"]] == ["app"]
-    assert [a["path"] for a in listing["assets"]] == ["order.json"]
+    assert [a["path"] for a in listing["assets"]] == ["order.schema.yaml"]
     order = listing["assets"][0]
     assert order["title"] == "Order"
     assert order["property_count"] == 3 and order["raw_fields"] == 4
@@ -78,7 +78,9 @@ async def test_seuls_les_assets_retenus_avec_compteurs_et_proprietes(sp: ApiSpac
     assert order["origin"] == "src/Domain/Order.cs" and order["orphan"] is False
     assert order["property_names"] == ["customer", "id", "numero", "numeroCommande"]
 
-    detail = await sp.client.get(f"{api}/asset", params={"source": "app", "path": "order.json"})
+    detail = await sp.client.get(
+        f"{api}/asset", params={"source": "app", "path": "order.schema.yaml"}
+    )
     assert detail.status_code == 200, detail.text
     props = {p["name"]: p for p in detail.json()["properties"]}
     assert props["id"]["type"] == "string" and props["id"]["format"] == "uuid"
@@ -86,12 +88,14 @@ async def test_seuls_les_assets_retenus_avec_compteurs_et_proprietes(sp: ApiSpac
     assert props["numero"]["business_name"] == "numeroCommande"
     assert props["numero"]["max_length"] == 20
     ref = props["customer"]["ref"]
-    assert ref["path"] == "customer.json" and ref["title"] == "Customer"
+    assert ref["path"] == "customer.schema.yaml" and ref["title"] == "Customer"
     assert ref["retained"] is False
 
     # La cible retenue devient un lien vers son asset.
-    await sp.client.post(f"{cur}/retain", json={"path": "customer.json", "fields": None})
-    detail = await sp.client.get(f"{api}/asset", params={"source": "app", "path": "order.json"})
+    await sp.client.post(f"{cur}/retain", json={"path": "customer.schema.yaml", "fields": None})
+    detail = await sp.client.get(
+        f"{api}/asset", params={"source": "app", "path": "order.schema.yaml"}
+    )
     props = {p["name"]: p for p in detail.json()["properties"]}
     assert props["customer"]["ref"]["retained"] is True
 
@@ -99,16 +103,16 @@ async def test_seuls_les_assets_retenus_avec_compteurs_et_proprietes(sp: ApiSpac
 async def test_enrichir_une_seule_cle_ne_touche_pas_les_autres(sp: ApiSpace) -> None:
     forge_edit(sp, _files())
     cur = f"{sp.base}/sources/app/curation"
-    await sp.client.post(f"{cur}/retain", json={"path": "order.json", "fields": None})
+    await sp.client.post(f"{cur}/retain", json={"path": "order.schema.yaml", "fields": None})
     await sp.client.put(
         f"{cur}/enrich",
-        json={"path": "order.json", "obj": {"business_name": "Commande", "tags": ["pii"]}},
+        json={"path": "order.schema.yaml", "obj": {"business_name": "Commande", "tags": ["pii"]}},
     )
     await sp.client.put(
-        f"{cur}/enrich", json={"path": "order.json", "obj": {"description": "Une commande."}}
+        f"{cur}/enrich", json={"path": "order.schema.yaml", "obj": {"description": "Une commande."}}
     )
     detail = await sp.client.get(
-        f"{sp.base}/curation-assets/asset", params={"source": "app", "path": "order.json"}
+        f"{sp.base}/curation-assets/asset", params={"source": "app", "path": "order.schema.yaml"}
     )
     body = detail.json()
     assert body["business_name"] == "Commande"
@@ -119,11 +123,13 @@ async def test_enrichir_une_seule_cle_ne_touche_pas_les_autres(sp: ApiSpace) -> 
 async def test_asset_absent_et_historique(sp: ApiSpace) -> None:
     forge_edit(sp, _files())
     api = f"{sp.base}/curation-assets"
-    r = await sp.client.get(f"{api}/asset", params={"source": "app", "path": "order.json"})
+    r = await sp.client.get(f"{api}/asset", params={"source": "app", "path": "order.schema.yaml"})
     assert r.status_code == 404
     assert "asset_not_retained" in r.text
-    r = await sp.client.get(f"{api}/asset", params={"source": "../x", "path": "order.json"})
+    r = await sp.client.get(f"{api}/asset", params={"source": "../x", "path": "order.schema.yaml"})
     assert r.status_code == 404
-    h = await sp.client.get(f"{api}/asset/history", params={"source": "app", "path": "order.json"})
+    h = await sp.client.get(
+        f"{api}/asset/history", params={"source": "app", "path": "order.schema.yaml"}
+    )
     assert h.status_code == 200, h.text
     assert h.json() == {"commits": []}

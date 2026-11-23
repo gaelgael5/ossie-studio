@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
-
-from ossie_studio.parsers.conventions import validate_schema
+from ossie_studio.parsers.conventions import load_schema, validate_schema
 from ossie_studio.parsers.python import PythonParser
 
 
@@ -10,7 +8,7 @@ def _parse(code: str, path: str = "a.py") -> dict[str, dict]:
     objects = PythonParser().parse({path: code.encode("utf-8")})
     out: dict[str, dict] = {}
     for obj in objects:
-        schema = json.loads(obj.schema)
+        schema = load_schema(obj.schema)
         validate_schema(schema)  # critère : tout passe le validateur des conventions
         out[obj.key] = schema
     return out
@@ -138,7 +136,7 @@ def test_heritage_allof_sans_aplatir() -> None:
         "class Fille(Base):\n    nom: str\n"
     )
     fille = schemas["a-fille"]
-    assert fille["allOf"] == [{"$ref": "a-base.json"}]
+    assert fille["allOf"] == [{"$ref": "a-base.schema.yaml"}]
     assert set(fille["properties"]) == {"nom"}
 
 
@@ -154,7 +152,7 @@ def test_reference_resolue_vs_externe() -> None:
         "class Commande:\n    ligne: Ligne\n    autre: Autre\n"
     )
     props = schemas["a-commande"]["properties"]
-    assert props["ligne"]["$ref"] == "a-ligne.json"
+    assert props["ligne"]["$ref"] == "a-ligne.schema.yaml"
     assert props["autre"]["x-unresolved-type"] == "Autre"
 
 
@@ -164,7 +162,7 @@ def test_annotation_en_chaine_resolue() -> None:
         "class Autre:\n    n: int\n"
         "class C:\n    o: 'Autre'\n"
     )
-    assert schemas["a-c"]["properties"]["o"]["$ref"] == "a-autre.json"
+    assert schemas["a-c"]["properties"]["o"]["$ref"] == "a-autre.schema.yaml"
 
 
 def test_collections_et_dictionnaire() -> None:

@@ -29,7 +29,7 @@ def test_premiere_collecte() -> None:
     plan = run_collection(files, PARSERS, TechManifest(), {})
     assert plan.added == 2
     assert plan.unchanged == 0
-    assert set(plan.writes) == {"a.json", "b.json"}
+    assert set(plan.writes) == {"a.schema.yaml", "b.schema.yaml"}
     assert len(plan.manifest.entries) == 2
 
 
@@ -50,7 +50,7 @@ def test_fichier_modifie_seul_retransforme() -> None:
     disk = _apply(first, {})
     files["b.schema.json"] = b'{"title": "B2", "type": "object"}'
     second = run_collection(files, PARSERS, first.manifest, disk)
-    assert set(second.writes) == {"b.json"}
+    assert set(second.writes) == {"b.schema.yaml"}
     assert second.modified == 1
     assert second.unchanged == 1
 
@@ -61,7 +61,7 @@ def test_fichier_supprime() -> None:
     disk = _apply(first, {})
     del files["b.schema.json"]
     second = run_collection(files, PARSERS, first.manifest, disk)
-    assert "b.json" in second.deletes
+    assert "b.schema.yaml" in second.deletes
     assert second.deleted == 1
     assert "b.schema.json" not in second.manifest.entries
 
@@ -73,7 +73,7 @@ def test_version_parseur_change_retransforme_tout() -> None:
     stale = first.manifest
     stale.parsers = {"jsonschema-demo": "0.9"}  # ancienne version
     second = run_collection(files, PARSERS, stale, disk)
-    assert set(second.writes) == {"a.json"}  # retransformé malgré checksum identique
+    assert set(second.writes) == {"a.schema.yaml"}  # retransformé malgré checksum identique
 
 
 def test_collecte_forcee() -> None:
@@ -81,13 +81,13 @@ def test_collecte_forcee() -> None:
     first = run_collection(files, PARSERS, TechManifest(), {})
     disk = _apply(first, {})
     forced = run_collection(files, PARSERS, first.manifest, disk, force=True)
-    assert set(forced.writes) == {"a.json"}
+    assert set(forced.writes) == {"a.schema.yaml"}
 
 
 def test_fichier_illisible_signale_et_continue() -> None:
     files = {"bon.schema.json": _schema("Bon"), "casse.schema.json": b"{ pas du json"}
     plan = run_collection(files, PARSERS, TechManifest(), {})
-    assert "bon.json" in plan.writes
+    assert "bon.schema.yaml" in plan.writes
     assert [e.source for e in plan.errors] == ["casse.schema.json"]
     # Le fichier en erreur n'est pas enregistré (pas de checksum) → retenté ensuite.
     assert "casse.schema.json" not in plan.manifest.entries
@@ -108,7 +108,7 @@ def test_manifeste_technique_roundtrip() -> None:
     reloaded = parse_tech_manifest(dump_tech_manifest(plan.manifest))
     assert reloaded.parsers == {"jsonschema-demo": "1.0"}
     assert reloaded.entries["a.schema.json"].branch == "work/ventes"
-    assert reloaded.entries["a.schema.json"].destinations == ["a.json"]
+    assert reloaded.entries["a.schema.json"].destinations == ["a.schema.yaml"]
 
 
 def test_manifeste_technique_ecrit_en_anglais() -> None:
@@ -128,13 +128,13 @@ def test_manifeste_technique_version_1_relu() -> None:
     # Un `raw/` collecté avant le passage aux clés anglaises reste lisible.
     legacy = (
         "version: 1\nparseurs:\n  jsonschema-demo: '1.0'\nentrees:\n"
-        "- source: a.schema.json\n  checksum: abc\n  destination: [a.json]\n"
+        "- source: a.schema.json\n  checksum: abc\n  destination: [a.schema.yaml]\n"
         "  branche: work/ventes\n  parseur: jsonschema-demo\n"
     )
     manifest = parse_tech_manifest(legacy)
     assert manifest.parsers == {"jsonschema-demo": "1.0"}
     entry = manifest.entries["a.schema.json"]
-    assert (entry.checksum, entry.destinations) == ("abc", ["a.json"])
+    assert (entry.checksum, entry.destinations) == ("abc", ["a.schema.yaml"])
     assert (entry.branch, entry.parser) == ("work/ventes", "jsonschema-demo")
 
 

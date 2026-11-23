@@ -102,16 +102,16 @@ async def test_renommer_ou_supprimer_un_tag_impacte_les_assets(app: FastAPI, gov
             "governance/tags/pii.yaml": yaml.safe_dump(
                 {"id": "pii", "info": {"owner": "", "description": ""}}
             ),
-            "sources/s/raw/User.json": json.dumps({"title": "User"}),
-            "sources/s/assets/User.json": json.dumps({"title": "User", "x-tags": ["pii"]}),
-            "sources/s/assets/Autre.json": json.dumps({"title": "Autre"}),
+            "sources/s/raw/User.schema.yaml": json.dumps({"title": "User"}),
+            "sources/s/assets/User.schema.yaml": json.dumps({"title": "User", "x-tags": ["pii"]}),
+            "sources/s/assets/Autre.schema.yaml": json.dumps({"title": "Autre"}),
         },
     )
     # Supprimer le tag : l'asset qui le porte est impacté, pas l'autre.
     await gov.delete("/api/governance/tags/pii")
     impacts = (await gov.client.get(f"{gov.space.base}/draft/impacts")).json()["impacts"]
     assert [(i["path"], i["rules"]) for i in impacts] == [
-        ("sources/s/assets/User.json", ["governance_assets"])
+        ("sources/s/assets/User.schema.yaml", ["governance_assets"])
     ]
 
 
