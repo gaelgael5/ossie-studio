@@ -793,6 +793,9 @@ class SearchCriteria:
     kind: str = ""
     badge: str = ""
     hide_excluded: bool = False
+    # « Objets modifiés » (ticket c8185c47) : nouveaux OU modifiés depuis la
+    # revue ; le filtre État n'en prend qu'un à la fois.
+    changed: bool = False
 
     def active(self) -> bool:
         return bool(
@@ -802,6 +805,7 @@ class SearchCriteria:
             or self.kind
             or self.badge
             or self.hide_excluded
+            or self.changed
         )
 
 
@@ -816,6 +820,8 @@ def object_matches(obj: ExplorerObject, criteria: SearchCriteria) -> bool:
     if criteria.kind and obj.kind != criteria.kind:
         return False
     if criteria.badge and criteria.badge not in obj.badges:
+        return False
+    if criteria.changed and BADGE_NEW not in obj.badges and BADGE_MODIFIED not in obj.badges:
         return False
     return not (criteria.hide_excluded and BADGE_EXCLUDED in obj.badges)
 

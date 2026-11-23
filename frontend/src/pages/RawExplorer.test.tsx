@@ -74,7 +74,7 @@ function folderBody(path: string) {
         file: 'status.json',
         title: 'Status',
         kind: 'enum',
-        badges: STATUS_EXCLUDED.value ? ['excluded'] : [],
+        badges: STATUS_EXCLUDED.value ? ['excluded'] : STATUS_NEW.value ? ['new'] : [],
         visibility: 'internal',
         visibility_source: 'package-private',
       },
@@ -115,7 +115,9 @@ function searchBody(u: URL) {
   const kind = u.searchParams.get('kind') ?? ''
   const badge = u.searchParams.get('badge') ?? ''
   const hide = u.searchParams.get('hide_excluded') === 'true'
-  const active = !!(q || tag || vis.length || kind || badge || hide)
+  const changed = u.searchParams.get('changed') === 'true'
+  const isChanged = (o: SearchObj) => o.badges.includes('new') || o.badges.includes('modified')
+  const active = !!(q || tag || vis.length || kind || badge || hide || changed)
   const results = active
     ? scope.filter(
         (o) =>
@@ -124,6 +126,7 @@ function searchBody(u: URL) {
           (!vis.length || vis.includes(o.visibility)) &&
           (!kind || o.kind === kind) &&
           (!badge || o.badges.includes(badge)) &&
+          (!changed || isChanged(o)) &&
           !(hide && o.badges.includes('excluded')),
       )
     : []
@@ -138,7 +141,8 @@ function searchBody(u: URL) {
         (!tag || o.tags.some((x) => x.tag === tag)) &&
         (!vis.length || vis.includes(o.visibility)) &&
         (!kind || o.kind === kind) &&
-        (!badge || o.badges.includes(badge))
+        (!badge || o.badges.includes(badge)) &&
+        (!changed || isChanged(o))
       if (!matches) continue
       const counts = (tree_counts[o.source] ??= {})
       const parts = o.folder.split('/')
@@ -250,6 +254,7 @@ const DETAIL = {
 const SESSION_CAPS = { value: [] as string[] }
 const DESCENDANTS = { value: [] as { slug: string; file: string; title: string; retained: boolean }[] }
 const STATUS_EXCLUDED = { value: false }
+const STATUS_NEW = { value: false }
 const REVIEW = {
   base_sha: 'aaa',
   head_sha: 'bbbbbbb',
@@ -344,6 +349,7 @@ beforeEach(() => {
   SESSION_CAPS.value = []
   DESCENDANTS.value = []
   STATUS_EXCLUDED.value = false
+  STATUS_NEW.value = false
   DETAIL_OVERRIDE.value = {}
   setCurrentWorkspace('s1', 'b1')
 })
@@ -492,6 +498,29 @@ describe('RawExplorer', () => {
     // Critères effacés : l'arbre redevient complet.
     await user.click(screen.getByRole('button', { name: 'Effacer les critères' }))
     expect(await tree().findByRole('button', { name: /Domain\s*2/ })).toBeInTheDocument()
+  })
+
+  it('filtre « Objets modifiés » : absent quand rien n’a changé', async () => {
+    mockApi()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain')
+    await screen.findByText('Status')
+    expect(screen.queryByRole('checkbox', { name: 'Objets modifiés' })).not.toBeInTheDocument()
+  })
+
+  it('filtre « Objets modifiés » : seuls les nouveaux ou modifiés, dans l’adresse et l’arbre', async () => {
+    STATUS_NEW.value = true
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src')
+    await user.click(await screen.findByRole('checkbox', { name: 'Objets modifiés' }))
+    expect(await screen.findByText('Status')).toBeInTheDocument()
+    expect(screen.queryByText('Order')).not.toBeInTheDocument()
+    expect(screen.getByTestId('loc').textContent).toContain('fchanged=1')
+    const tree = within(screen.getByRole('complementary', { name: 'Arbre des sources' }))
+    expect(await tree.findByRole('button', { name: /src\s*1/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: 'Objets modifiés' }))
+    expect(await screen.findByRole('button', { name: /^DIR\s*Domain/ })).toBeInTheDocument()
+    expect(screen.getByTestId('loc').textContent).not.toContain('fchanged')
   })
 
   it('filtre Source : plusieurs sources, chaque résultat dit la sienne et ouvre la bonne source', async () => {

@@ -636,6 +636,8 @@ export interface RawSearchCriteria {
   visibilities: string[]
   kind: string
   badge: string
+  /** Nouveaux ou modifiés depuis la dernière revue de la source. */
+  changed: boolean
   hideExcluded: boolean
 }
 
@@ -1306,6 +1308,7 @@ export const api = {
     ]
     for (const [key, value] of optional) if (value) query.set(key, value)
     if (c.hideExcluded) query.set('hide_excluded', 'true')
+    if (c.changed) query.set('changed', 'true')
     return apiFetch<RawSearchResponse>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/search?${query}`,
     )

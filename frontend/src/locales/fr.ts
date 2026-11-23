@@ -1245,6 +1245,7 @@ export const fr = {
     rawScopeWiden: 'Chercher dans toute la source',
     rawScopeSources: 'dans {{count}} sources',
     rawFilterSource: 'Sources',
+    rawFilterChanged: 'Objets modifiés',
     rawFilterSourceAll: 'Toutes les sources',
     rawFilterSourceCount: '{{count}} sources',
     rawFilterKind: 'Nature',

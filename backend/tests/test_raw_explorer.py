@@ -304,6 +304,19 @@ def test_compteurs_de_l_arbre_filtre(tmp_path: Path) -> None:
     assert match_counts(index, SearchCriteria(text="zzz")) == {}
 
 
+def test_critere_objets_modifies(tmp_path: Path) -> None:
+    _write(tmp_path, _git_files())
+    index = build_source_index(tmp_path, "app", "origin")
+    badges = {"order.json": (BADGE_NEW,), "status.json": (BADGE_MODIFIED,)}
+    for folder in index.folders.values():
+        folder.objects = [replace(o, badges=badges.get(o.file, ())) for o in folder.objects]
+    found = search_objects(index, SearchCriteria(changed=True))
+    assert sorted(o.file for _, o in found) == ["order.json", "status.json"]
+    combined = SearchCriteria(changed=True, kind="enum")
+    assert [o.file for _, o in search_objects(index, combined)] == ["status.json"]
+    assert match_counts(index, SearchCriteria(changed=True))["src/Domain"] == 2
+
+
 def test_recherche_limite_appliquee_apres_filtrage(tmp_path: Path) -> None:
     _write(tmp_path, _git_files())
     index = build_source_index(tmp_path, "app", "origin")

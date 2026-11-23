@@ -165,6 +165,8 @@ export function RawExplorer({
   const kindFilter = params.get('fkind') ?? ''
   const badgeFilter = params.get('fstate') ?? ''
   const tagFilter = params.get('ftag') ?? ''
+  // « Objets modifiés » (ticket c8185c47) : nouveaux ou modifiés depuis la revue.
+  const changedFilter = params.get('fchanged') === '1'
   const fvis = params.get('fvis') ?? ''
   const visFilter = useMemo(() => fvis.split(',').filter(Boolean), [fvis])
   // Sources de la recherche : absent = la source ouverte (rien ne change tant
@@ -172,7 +174,12 @@ export function RawExplorer({
   const fsrc = params.get('fsrc')
   // La source n'est pas un critère : seule, elle ne lance pas de recherche.
   const criteriaActive =
-    !!fText || !!kindFilter || !!badgeFilter || !!tagFilter || visFilter.length > 0
+    !!fText ||
+    !!kindFilter ||
+    !!badgeFilter ||
+    !!tagFilter ||
+    visFilter.length > 0 ||
+    changedFilter
   const [search, setSearch] = useState(fText)
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({
     key: 'name',
@@ -299,7 +306,10 @@ export function RawExplorer({
     go({ ...changes, ...(criteriaActive ? {} : { in: path || null }) }, true)
   const clearCriteria = () => {
     setSearch('')
-    go({ q: null, fkind: null, fstate: null, ftag: null, fvis: null, in: null }, true)
+    go(
+      { q: null, fkind: null, fstate: null, ftag: null, fvis: null, fchanged: null, in: null },
+      true,
+    )
   }
   /** Entrée dans la revue de la source (même retour que le graphe). */
   const reviewEntry = (): Record<string, string | null> => ({
@@ -423,6 +433,7 @@ export function RawExplorer({
       fvis,
       kindFilter,
       badgeFilter,
+      changedFilter,
       criteriaActive && hideExcluded,
     ],
     queryFn: () =>
@@ -435,6 +446,7 @@ export function RawExplorer({
         visibilities: visFilter,
         kind: kindFilter,
         badge: badgeFilter,
+        changed: changedFilter,
         hideExcluded: criteriaActive && hideExcluded,
       }),
     enabled: !!current && current.collected && filterSources.length > 0,
@@ -829,6 +841,17 @@ export function RawExplorer({
                       </option>
                     ))}
                   </select>
+                ) : null}
+                {changedFilter ||
+                (facets?.badges ?? []).some((b) => b === 'new' || b === 'modified') ? (
+                  <label className="raw-hide-excluded">
+                    <input
+                      type="checkbox"
+                      checked={changedFilter}
+                      onChange={(e) => setCriteria({ fchanged: e.target.checked ? '1' : null })}
+                    />{' '}
+                    {t('rawFilterChanged')}
+                  </label>
                 ) : null}
                 {presentVisibilities.length > 0 ? (
                   <fieldset className="raw-vis-filter">

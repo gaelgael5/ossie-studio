@@ -305,6 +305,7 @@ async def search_explorer(
     kind: str = "",
     badge: str = "",
     hide_excluded: bool = False,
+    changed: bool = False,
 ) -> dict[str, object]:
     """Recherche combinée de l'explorateur (ticket docflow be0f301c) : texte,
     sources, tag, visibilité, type et état, en ET, évalués avant la limite.
@@ -328,6 +329,7 @@ async def search_explorer(
         kind=kind,
         badge=badge,
         hide_excluded=hide_excluded,
+        changed=changed,
     )
     graph = await _reference_graph(conn, key, mode)
     facets = SearchFacets()

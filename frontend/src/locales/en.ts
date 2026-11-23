@@ -1243,6 +1243,7 @@ export const en = {
     rawScopeWiden: 'Search the whole source',
     rawScopeSources: 'in {{count}} sources',
     rawFilterSource: 'Sources',
+    rawFilterChanged: 'Changed objects',
     rawFilterSourceAll: 'All sources',
     rawFilterSourceCount: '{{count}} sources',
     rawFilterKind: 'Kind',
