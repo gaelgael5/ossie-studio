@@ -139,5 +139,13 @@
   "agent_profile_name_taken",
   "agent_profile_slug_taken",
   "agent_profile_builtin_protected",
-  "agent_profile_in_use"
+  "agent_profile_in_use",
+  "domain_not_found",
+  "domain_name_invalid",
+  "domain_name_taken",
+  "domain_dataset_not_found",
+  "domain_invalid",
+  "dataset_name_taken",
+  "relationship_cross_document",
+  "relationship_columns_mismatch"
 ]

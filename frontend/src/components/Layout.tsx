@@ -23,6 +23,7 @@ const MAIN_NAV: NavItem[] = [
   { key: 'navSpaces', to: '/spaces', capability: 'spaces:read', prefix: '/spaces' },
   { key: 'navSources', to: '/sources', capability: 'sources:read', prefix: '/sources' },
   { key: 'navCuration', to: '/curation', capability: 'curation:read', prefix: '/curation' },
+  { key: 'navDomains', to: '/domaines', capability: 'curation:read', prefix: '/domaines' },
   { key: 'navGovernance', to: '/governance/tags', capability: 'governance:read', prefix: '/governance' },
 ]
 

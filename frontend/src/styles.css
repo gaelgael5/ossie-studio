@@ -2403,3 +2403,65 @@ td .raw-ref-menu {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Fenêtre « Regrouper dans un domaine » (ticket 36d35a88). */
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 27, 45, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px;
+  z-index: 50;
+  overflow: auto;
+}
+.dialog-panel {
+  width: min(720px, 100%);
+  margin-top: 24px;
+}
+.dialog-head {
+  justify-content: space-between;
+}
+.dialog-head h2 {
+  margin: 0;
+}
+
+/* Écran d'un domaine : graphe des datasets et de leurs liens. */
+.domain-graph {
+  width: 100%;
+  max-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.domain-graph text {
+  font-size: 12px;
+  fill: var(--text);
+}
+.domain-graph .domain-edge {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+.domain-graph .domain-edge-relationship {
+  stroke: var(--primary);
+}
+.domain-graph .domain-node {
+  fill: #fff;
+  stroke: var(--primary);
+  stroke-width: 1.5;
+}
+.domain-graph .domain-node-virtual {
+  stroke-dasharray: 4 3;
+}
+
+/* Liste de la Curation : case de sélection devant l'asset (ticket 36d35a88). */
+.curation-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.curation-row > .curation-item {
+  flex: 1;
+  min-width: 0;
+}

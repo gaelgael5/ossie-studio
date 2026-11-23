@@ -12,6 +12,7 @@ import type {
   CurationAssetSummary,
 } from '../apiClient'
 import { ClassBadges } from '../components/ClassBadges'
+import { AddToDomainDialog } from '../components/AddToDomainDialog'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { NoBranchNote } from '../components/NoBranchNote'
@@ -117,6 +118,27 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
   // Filtre par niveau de classification (`schéma/niveau`) : un asset apparaît si
   // l'un de ses niveaux effectifs, champs compris, correspond (ticket 5e8680d7).
   const level = params.get('level') ?? ''
+  // Domaines (ticket 36d35a88) : appartenance de chaque asset, filtre, et
+  // sélection pour « Ajouter à un domaine… ».
+  const domainFilter = params.get('domain') ?? ''
+  const domainList = useQuery({
+    queryKey: ['domains', spaceId, branchId],
+    queryFn: () => api.listDomains(spaceId, branchId),
+  })
+  const memberOf = useMemo(() => {
+    const out = new Map<string, string[]>()
+    for (const d of domainList.data?.domains ?? []) {
+      for (const a of d.assets) {
+        const key = `${a.source}/${a.path}`
+        out.set(key, [...(out.get(key) ?? []), d.name])
+      }
+    }
+    return out
+  }, [domainList.data])
+  const session = useSession()
+  const canWrite = sessionCapabilities(session.data).includes('curation:write')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [grouping, setGrouping] = useState(false)
 
   const update = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(params)
@@ -134,6 +156,7 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
     (a) =>
       matches(a, filter) &&
       (!level || a.class_levels.includes(level)) &&
+      (!domainFilter || (memberOf.get(`${a.source}/${a.path}`) ?? []).includes(domainFilter)) &&
       (!q ||
         a.title.toLowerCase().includes(q) ||
         a.path.toLowerCase().includes(q) ||
@@ -149,7 +172,18 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
     undescribed: assets.filter((a) => a.undescribed > 0).length,
     modified: assets.filter((a) => a.modified).length,
   }
-  const selected = assets.find((a) => a.source === source && a.path === path)
+  const current = assets.find((a) => a.source === source && a.path === path)
+  const toggleSelected = (key: string) =>
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  const selectedRefs = [...selected].map((key) => {
+    const at = key.indexOf('/')
+    return { source: key.slice(0, at), path: key.slice(at + 1) }
+  })
 
   return (
     <main className="curation-page">
@@ -194,6 +228,40 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
             ))}
           </select>
         ) : null}
+        {(domainList.data?.domains ?? []).length > 0 ? (
+          <select
+            className="select"
+            aria-label={t('domainFilterLabel')}
+            value={domainFilter}
+            onChange={(e) => update({ domain: e.target.value || null })}
+          >
+            <option value="">{t('domainFilterAll')}</option>
+            {(domainList.data?.domains ?? []).map((d) => (
+              <option key={d.name} value={d.name}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {selected.size > 0 ? (
+          <div className="banner row" role="status">
+            <span>{t('domainSelected', { count: selected.size })}</span>
+            <button type="button" className="btn btn-sm btn-primary" onClick={() => setGrouping(true)}>
+              {t('domainAddSelected')}
+            </button>
+          </div>
+        ) : null}
+        {grouping ? (
+          <AddToDomainDialog
+            spaceId={spaceId}
+            branchId={branchId}
+            assets={selectedRefs}
+            onClose={() => {
+              setGrouping(false)
+              setSelected(new Set())
+            }}
+          />
+        ) : null}
         <ErrorList messages={listing.error ? errorMessages(t, listing.error) : []} />
         {listing.isLoading ? <p className="muted">{t('loading')}</p> : null}
         {!listing.isLoading && assets.length === 0 ? (
@@ -214,11 +282,19 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
               </div>
               <ul className="curation-list">
                 {shown.map((a) => (
-                  <li key={a.path}>
+                  <li key={a.path} className="curation-row">
+                    {canWrite ? (
+                      <input
+                        type="checkbox"
+                        aria-label={t('domainSelectAsset', { name: a.title })}
+                        checked={selected.has(`${a.source}/${a.path}`)}
+                        onChange={() => toggleSelected(`${a.source}/${a.path}`)}
+                      />
+                    ) : null}
                     <button
                       type="button"
-                      className={`curation-item${a === selected ? ' active' : ''}`}
-                      aria-current={a === selected ? 'true' : undefined}
+                      className={`curation-item${a === current ? ' active' : ''}`}
+                      aria-current={a === current ? 'true' : undefined}
                       onClick={() => update({ source: a.source, path: a.path, tab: null })}
                     >
                       <span className="curation-glyph" aria-hidden="true">
@@ -260,13 +336,14 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
         <p className="curation-note small muted">{t('curationNote')}</p>
       </aside>
       <section className="curation-main">
-        {selected ? (
+        {current ? (
           <AssetPanel
-            key={`${selected.source}/${selected.path}`}
+            key={`${current.source}/${current.path}`}
             spaceId={spaceId}
             branchId={branchId}
-            summary={selected}
-            sourceLabel={labels.get(selected.source) ?? selected.source}
+            summary={current}
+            sourceLabel={labels.get(current.source) ?? current.source}
+            domains={memberOf.get(`${current.source}/${current.path}`) ?? []}
             tab={(params.get('tab') as Tab | null) ?? 'properties'}
             onTab={(tab) => update({ tab: tab === 'properties' ? null : tab })}
             onOpen={(s, p) => update({ source: s, path: p, tab: null })}
@@ -289,6 +366,7 @@ function AssetPanel({
   onTab,
   onOpen,
   schemes,
+  domains,
 }: {
   spaceId: string
   branchId: string
@@ -298,10 +376,12 @@ function AssetPanel({
   onTab: (tab: Tab) => void
   onOpen: (source: string, path: string) => void
   schemes: ClassScheme[]
+  domains: string[]
 }) {
   const { t } = useTranslation()
   const session = useSession()
   const canWrite = sessionCapabilities(session.data).includes('curation:write')
+  const [grouping, setGrouping] = useState(false)
   const detail = useQuery({
     queryKey: ['curationAsset', spaceId, branchId, summary.source, summary.path],
     queryFn: () => api.getCurationAsset(spaceId, branchId, summary.source, summary.path),
@@ -349,12 +429,37 @@ function AssetPanel({
             {summary.orphan ? ` · ${t('curationOrphan')}` : ''}
             {summary.modified ? ` · ${t('curationModified')}` : ''}
           </p>
+          {domains.length > 0 ? (
+            <p className="small">
+              {t('domainMemberOf')}{' '}
+              {domains.map((d, i) => (
+                <span key={d}>
+                  {i > 0 ? ', ' : ''}
+                  <Link to={`/domaines/${encodeURIComponent(d)}`}>{d}</Link>
+                </span>
+              ))}
+            </p>
+          ) : null}
         </div>
+        {canWrite ? (
+          <button type="button" className="btn" onClick={() => setGrouping(true)}>
+            {t('domainAddWithRefs')}
+          </button>
+        ) : null}
         {summary.orphan ? null : (
           <Link className="btn" to={explorerHref}>
             {t('curationSeeInExplorer')}
           </Link>
         )}
+        {grouping ? (
+          <AddToDomainDialog
+            spaceId={spaceId}
+            branchId={branchId}
+            assets={[{ source: summary.source, path: summary.path }]}
+            withReferences
+            onClose={() => setGrouping(false)}
+          />
+        ) : null}
       </div>
       <div className="tabs" role="tablist">
         {tabs.map((key) => (

@@ -21,6 +21,7 @@ from ossie_studio.api.credentials import router as api_credentials_router
 from ossie_studio.api.curation import router as api_curation_router
 from ossie_studio.api.curation_assets import router as api_curation_assets_router
 from ossie_studio.api.db_connections import router as api_db_connections_router
+from ossie_studio.api.domains import router as api_domains_router
 from ossie_studio.api.drafts import router as api_drafts_router
 from ossie_studio.api.governance import certifications_router as api_certifications_router
 from ossie_studio.api.governance import router as api_governance_router
@@ -173,6 +174,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_certifications_router)
     app.include_router(api_classifications_router)
     app.include_router(api_audit_router)
+    app.include_router(api_domains_router)
     app.include_router(api_profiles_router)
     app.include_router(api_users_router)
     app.include_router(api_teams_router)

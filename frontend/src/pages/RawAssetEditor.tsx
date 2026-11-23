@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api, sessionCapabilities } from '../apiClient'
-import type { RawObjectDetail } from '../apiClient'
+import type { DomainAssetRef, RawObjectDetail } from '../apiClient'
+import { AddToDomainDialog } from '../components/AddToDomainDialog'
 import { errorMessages } from '../errors'
 import { EnrichPanel } from '../components/EnrichPanel'
 import { ErrorList } from '../components/ErrorList'
@@ -57,6 +58,8 @@ export function AssetEditorProvider({
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
   const [confirming, setConfirming] = useState<'asset' | 'lastField' | null>(null)
+  const [family, setFamily] = useState<DomainAssetRef[] | null>(null)
+  const [grouping, setGrouping] = useState(false)
   const refresh = async () => {
     setMessages([])
     await Promise.all(
@@ -95,6 +98,12 @@ export function AssetEditorProvider({
       }
     },
     onSuccess: async () => {
+      // Ticket 36d35a88 : la famille retenue se regroupe ensuite d'un clic
+      // dans un domaine (« Regrouper ces N assets dans un domaine »).
+      setFamily([
+        { source: slug, path: detail.file },
+        ...pendingChildren.map((c) => ({ source: c.slug, path: c.file })),
+      ])
       await queryClient.invalidateQueries({ queryKey: ['rawDescendants'] })
       await refresh()
     },
@@ -138,6 +147,28 @@ export function AssetEditorProvider({
   return (
     <AssetEditorContext.Provider value={editor}>
       <ErrorList messages={messages} />
+      {family ? (
+        <div className="banner row" role="status">
+          <span>{t('domainAddIntro', { count: family.length })}</span>
+          <button type="button" className="btn btn-sm btn-primary" onClick={() => setGrouping(true)}>
+            {t('domainGroupFamily')}
+          </button>
+          <button type="button" className="btn btn-sm" onClick={() => setFamily(null)}>
+            {t('close')}
+          </button>
+        </div>
+      ) : null}
+      {family && grouping ? (
+        <AddToDomainDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          assets={family}
+          onClose={() => {
+            setGrouping(false)
+            setFamily(null)
+          }}
+        />
+      ) : null}
       {children}
     </AssetEditorContext.Provider>
   )

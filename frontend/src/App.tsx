@@ -23,6 +23,7 @@ import { GovernanceInvalidValuesPage } from './pages/GovernanceInvalidValuesPage
 import { SourcesPage } from './pages/SourcesPage'
 import { CurationPage } from './pages/CurationPage'
 import { HistoryPage } from './pages/HistoryPage'
+import { DomainPage, DomainsPage } from './pages/DomainsPage'
 import { SourceDetailPage } from './pages/SourceDetailPage'
 import { ParsingPluginsPage } from './pages/ParsingPluginsPage'
 import { WorkspaceProvider } from './workspace'
@@ -126,6 +127,8 @@ function AppRoutes() {
         <Route path="/sources/:slug" element={gate('sources:read', <SourceDetailPage />)} />
         <Route path="/curation" element={gate('curation:read', <CurationPage />)} />
         <Route path="/historique" element={gate('audit:read', <HistoryPage />)} />
+        <Route path="/domaines" element={gate('curation:read', <DomainsPage />)} />
+        <Route path="/domaines/:name" element={gate('curation:read', <DomainPage />)} />
         <Route path="/secrets" element={gate('secrets:read', <SecretsPage />)} />
         <Route path="/oidc/connectors" element={gate('oidc:read', <ConnectorsPage />)} />
         <Route path="/forges" element={gate('connections:read', <ForgesPage />)} />

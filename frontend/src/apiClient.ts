@@ -1116,6 +1116,79 @@ export type FoundContract = {
   error: string
 }
 
+// Domaines (tickets a7baaaa3, 36d35a88) : un domaine = un modèle Ossie.
+export interface DomainAssetRef {
+  source: string
+  path: string
+}
+export interface DomainField {
+  name: string
+  expression: string
+  description: string
+  label: string
+  datatype: string
+  property: string
+}
+export interface DomainDataset {
+  name: string
+  source: string
+  consultable: boolean
+  derived: boolean
+  asset: DomainAssetRef | null
+  description: string
+  fields: DomainField[]
+  primary_key: string[]
+}
+export interface DomainSummary {
+  name: string
+  description: string
+  consultable: number
+  virtual: number
+  assets: DomainAssetRef[]
+  warnings: string[]
+}
+export interface DomainRelationship {
+  name: string
+  from_dataset: string
+  to_dataset: string
+  from_columns: string[]
+  to_columns: string[]
+}
+export interface DomainReference {
+  name: string
+  from_dataset: string
+  field: string
+  to_dataset: string
+  kind: string
+  cardinality: string
+}
+export interface DomainDetail extends DomainSummary {
+  datasets: DomainDataset[]
+  relationships: DomainRelationship[]
+  references: DomainReference[]
+}
+export interface DomainLink {
+  id: string
+  kind: 'relationship' | 'reference'
+  from_dataset: string
+  to_dataset: string
+  field: string
+  ref_kind: string
+  cardinality: string
+  to_column: string
+}
+export interface DomainPlan {
+  added: DomainDataset[]
+  already: string[]
+  links: DomainLink[]
+  ignored: { source: string; path: string; title: string }[]
+}
+export interface DomainAddBody {
+  assets: DomainAssetRef[]
+  with_references: boolean
+  links?: string[] | null
+}
+
 // Journal d'audit (ticket cf4434da).
 export interface AuditEvent {
   at: string
@@ -1550,6 +1623,36 @@ export const api = {
     apiFetch<{ contracts: FoundContract[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${encodeURIComponent(slug)}/openapi-search`,
       { method: 'POST' },
+    ),
+  listDomains: (spaceId: string, branchId: string) =>
+    apiFetch<{ domains: DomainSummary[] }>(`/api/spaces/${spaceId}/branches/${branchId}/domains`),
+  getDomain: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}`,
+    ),
+  createDomain: (spaceId: string, branchId: string, body: { name: string; description: string }) =>
+    apiFetch<DomainSummary>(`/api/spaces/${spaceId}/branches/${branchId}/domains`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deleteDomain: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<void>(`/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
+  removeDomainDataset: (spaceId: string, branchId: string, name: string, dataset: string) =>
+    apiFetch<void>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/datasets/${encodeURIComponent(dataset)}`,
+      { method: 'DELETE' },
+    ),
+  previewDomainAssets: (spaceId: string, branchId: string, name: string, body: DomainAddBody) =>
+    apiFetch<DomainPlan>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/preview`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  addDomainAssets: (spaceId: string, branchId: string, name: string, body: DomainAddBody) =>
+    apiFetch<DomainPlan & { commit: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/assets`,
+      { method: 'POST', body: JSON.stringify(body) },
     ),
   listAudit: (params: Record<string, string>) =>
     apiFetch<AuditPage>(`/api/audit?${new URLSearchParams(params).toString()}`),
