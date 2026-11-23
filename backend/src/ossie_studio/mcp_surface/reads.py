@@ -41,6 +41,7 @@ from ossie_studio.mcp_surface.branch import (
 from ossie_studio.mcp_surface.core import NoArgs, PrimitiveContext, PrimitiveError
 from ossie_studio.models import SpaceBranch, User
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
+from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
     CurationObject,
@@ -269,6 +270,13 @@ async def read_raw_schema(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, 
 # --- Assets (curation) ----------------------------------------------------------------
 
 
+def _asset_unpublished(bv: BranchView, directory: str, path: str) -> bool:
+    """Un asset est non publié si son schéma **ou** son `.extend.yaml` (travail
+    humain, ticket 7a284e55) l'est."""
+    base = f"{directory}/{ASSETS_DIR}"
+    return bv.unpublished(f"{base}/{path}") or bv.unpublished(f"{base}/{extend_name(path)}")
+
+
 async def list_assets(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
     directory = source_dir(args.source)
     bv = await open_branch(ctx, args, args.view)
@@ -285,7 +293,7 @@ async def list_assets(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]
                 "retained": o.retained,
                 "orphan": o.orphan,
                 "excluded_by": o.excluded_by,
-                "unpublished": bv.unpublished(f"{directory}/{ASSETS_DIR}/{o.path}"),
+                "unpublished": _asset_unpublished(bv, directory, o.path),
             }
             for o in objects
             if o.retained != "none"
@@ -344,7 +352,7 @@ async def read_asset(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
         "path": args.path,
         "title": enrichment.title,
         "orphan": detail is None,
-        "unpublished": bv.unpublished(f"{directory}/{ASSETS_DIR}/{args.path}"),
+        "unpublished": _asset_unpublished(bv, directory, args.path),
         "object": _enrichment(enrichment.object),
         "fields": fields,
     }

@@ -15,11 +15,18 @@ Deux lectures :
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ossie_studio.sources.curation import _read_json_dir
+from ossie_studio.governance.classification_resolve import (
+    AssetClassification,
+    classify,
+    source_levels,
+)
+from ossie_studio.governance.repo import Scheme, read_schemes
+from ossie_studio.sources.asset_files import read_asset_dir
 from ossie_studio.sources.explorer import BADGE_MODIFIED, SchemaRef, list_source_slugs
 from ossie_studio.sources.explorer_graph import ReferenceGraph
 from ossie_studio.sources.paths import safe_assets_path
@@ -39,9 +46,16 @@ def read_assets(workdir: Path) -> dict[AssetKey, dict[str, Any]]:
             directory = safe_assets_path(workdir, slug)
         except ValueError:
             continue
-        for name, data in _read_json_dir(directory).items():
+        for name, data in read_asset_dir(directory).items():
             out[(slug, name)] = data
     return out
+
+
+def read_assets_and_schemes(
+    workdir: Path,
+) -> tuple[dict[AssetKey, dict[str, Any]], list[Scheme]]:
+    """Assets et schémas de classification de la même vue (une seule lecture)."""
+    return read_assets(workdir), read_schemes(workdir)
 
 
 def _described(node: dict[str, Any]) -> bool:
@@ -53,6 +67,17 @@ def _properties(asset: dict[str, Any]) -> dict[str, dict[str, Any]]:
     if not isinstance(props, dict):
         return {}
     return {k: v for k, v in props.items() if isinstance(v, dict)}
+
+
+@dataclass(frozen=True)
+class ClassBadge:
+    """Badge de classification effectif de l'asset pour un schéma (en-tête,
+    liste). Ticket 5e8680d7."""
+
+    scheme: str
+    values: tuple[str, ...]
+    declared: bool
+    extra: int
 
 
 @dataclass(frozen=True)
@@ -73,9 +98,33 @@ class AssetSummary:
     # Noms raw et métier des propriétés : la recherche de la page porte aussi
     # sur eux (maquette : « Rechercher un asset, une propriété »).
     property_names: tuple[str, ...] = ()
+    # Classification effective de l'asset (un badge par schéma ayant une valeur,
+    # dans l'ordre des schémas) et tous les niveaux effectifs, champs compris,
+    # sous la forme `schéma/niveau` : le filtre de la page s'appuie dessus
+    # (critère 8 : un asset apparaît si l'un de ses niveaux correspond).
+    classification: tuple[ClassBadge, ...] = ()
+    class_levels: tuple[str, ...] = ()
 
 
-def summarize(assets: dict[AssetKey, dict[str, Any]], graph: ReferenceGraph) -> list[AssetSummary]:
+def _class_fields(asset: dict[str, Any], schemes: Sequence[Scheme]) -> dict[str, Any]:
+    if not schemes:
+        return {}
+    c = classify(asset, schemes)
+    return {
+        "classification": tuple(
+            ClassBadge(scheme=v.scheme, values=v.values, declared=v.declared, extra=v.extra)
+            for v in c.object
+            if v.values
+        ),
+        "class_levels": tuple(sorted(f"{sc}/{lv}" for sc, lv in c.levels)),
+    }
+
+
+def summarize(
+    assets: dict[AssetKey, dict[str, Any]],
+    graph: ReferenceGraph,
+    schemes: Sequence[Scheme] = (),
+) -> list[AssetSummary]:
     out: list[AssetSummary] = []
     for (slug, name), asset in sorted(assets.items()):
         props = _properties(asset)
@@ -99,6 +148,7 @@ def summarize(assets: dict[AssetKey, dict[str, Any]], graph: ReferenceGraph) -> 
                 property_names=tuple(
                     sorted({n for k, p in props.items() for n in (k, p.get("x-businessName")) if n})
                 ),
+                **_class_fields(asset, schemes),
             )
         )
     return out
@@ -198,3 +248,56 @@ def asset_view(
         business_name=str(asset.get("x-businessName") or ""),
         properties=props,
     )
+
+
+@dataclass(frozen=True)
+class InvalidClassification:
+    """Une valeur de classification portée par un asset et qui ne correspond à
+    aucun niveau (ou schéma) : sans badge, listée dans Gouvernance (ticket
+    5e8680d7, critère 6)."""
+
+    source: str
+    path: str
+    title: str
+    field: str  # "" pour l'objet
+    scheme: str
+    value: str
+    reason: str  # unknown_scheme | unknown_level | not_single
+
+
+def invalid_classifications(workdir: Path) -> list[InvalidClassification]:
+    """Toutes les valeurs invalides de la vue, triées (source, asset, champ)."""
+    assets, schemes = read_assets_and_schemes(workdir)
+    out: list[InvalidClassification] = []
+    for (slug, name), asset in sorted(assets.items()):
+        title = str(asset.get("title") or asset.get("$id") or name)
+        for bad in classify(asset, schemes).invalid:
+            out.append(
+                InvalidClassification(
+                    source=slug,
+                    path=name,
+                    title=title,
+                    field=bad.field,
+                    scheme=bad.scheme,
+                    value=bad.value,
+                    reason=bad.reason,
+                )
+            )
+    return out
+
+
+def source_classifications(workdir: Path) -> dict[str, list[dict[str, object]]]:
+    """Niveau de chaque source par schéma : le plus sensible de ses assets
+    (l'union pour un multi-valeurs) — ticket 5e8680d7, critère 9. Schémas sans
+    valeur absents ; liste dans l'ordre des schémas."""
+    assets, schemes = read_assets_and_schemes(workdir)
+    by_source: dict[str, list[AssetClassification]] = {}
+    for (slug, _name), asset in assets.items():
+        by_source.setdefault(slug, []).append(classify(asset, schemes))
+    out: dict[str, list[dict[str, object]]] = {}
+    for slug, found in by_source.items():
+        levels = source_levels(found, schemes)
+        out[slug] = [
+            {"scheme": sc.id, "values": list(levels[sc.id])} for sc in schemes if sc.id in levels
+        ]
+    return out

@@ -18,13 +18,17 @@ from pathlib import Path
 from typing import Any
 
 from ossie_studio.drafts.workdir import DraftWorkdir
+from ossie_studio.governance.classification_resolve import check_declaration
+from ossie_studio.governance.repo import Scheme, read_schemes
 from ossie_studio.models import GitSpace
 from ossie_studio.parsers.conventions import load_schema
+from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
     ReviewDecisions,
     ReviewResult,
     apply_review_fn,
+    classify_asset_fn,
     enrich_asset_fn,
     refresh_assets_fn,
     refresh_targets,
@@ -113,6 +117,22 @@ def _result(revision: str | None, slug: str, paths: list[str]) -> WriteResult:
     return WriteResult(revision, [asset_repo_path(slug, p) for p in paths] if revision else [])
 
 
+def _touched_files(assets: Path, path: str, inner: Callable[[Path], None], root: Path) -> list[str]:
+    """Applique `inner` et rend, parmi l'asset et son `.extend.yaml` (ticket
+    7a284e55), les fichiers dont le contenu a changé : un enrichissement ne
+    touche d'ordinaire que le `.extend.yaml`, et les chemins annoncés (journal,
+    réponse MCP) doivent être exacts."""
+    names = [path, extend_name(path)]
+
+    def snapshot() -> list[bytes | None]:
+        return [(assets / n).read_bytes() if (assets / n).is_file() else None for n in names]
+
+    before = snapshot()
+    inner(root)
+    after = snapshot()
+    return [n for n, b, a in zip(names, before, after, strict=True) if b != a]
+
+
 def _properties(file: Path) -> set[str] | None:
     if not file.is_file():
         return None
@@ -170,8 +190,14 @@ async def retain_many(target: CurationTarget, slug: str, paths: list[str]) -> Wr
 
 async def remove(target: CurationTarget, slug: str, path: str) -> WriteResult:
     """Retirer un asset (sans effet s'il n'existe pas)."""
-    revision = await target.write(f"curation {slug} : retirer {path}", remove_asset_fn(slug, path))
-    return _result(revision, slug, [path])
+    inner = remove_asset_fn(slug, path)
+    touched: list[str] = []
+
+    def write(root: Path) -> None:
+        touched[:] = _touched_files(safe_assets_path(root, slug), path, inner, root)
+
+    revision = await target.write(f"curation {slug} : retirer {path}", write)
+    return _result(revision, slug, touched)
 
 
 async def enrich(
@@ -185,14 +211,74 @@ async def enrich(
     clés données changent (une valeur vide retire la clé). Lève
     AssetNotRetainedError si l'asset n'existe pas."""
     inner = enrich_asset_fn(slug, path, object_values, field_values)
+    touched: list[str] = []
 
     def write(root: Path) -> None:
         if target.strict:
             _check_fields(safe_assets_path(root, slug) / path, list(field_values))
-        inner(root)
+        touched[:] = _touched_files(safe_assets_path(root, slug), path, inner, root)
 
     revision = await target.write(f"curation {slug} : enrichir {path}", write)
-    return _result(revision, slug, [path])
+    return _result(revision, slug, touched)
+
+
+class ClassificationRefusedError(Exception):
+    """Déclaration refusée : schéma inconnu, niveau inconnu, ou plusieurs valeurs
+    pour un schéma à valeur unique."""
+
+    def __init__(self, scheme: str, reason: str, field: str = "") -> None:
+        super().__init__(reason)
+        self.scheme = scheme
+        self.reason = reason
+        self.field = field
+
+
+def _stored_values(
+    schemes: dict[str, Scheme], values: dict[str, list[str]], field: str
+) -> dict[str, Any]:
+    """Valide une déclaration et la met sous la forme stockée : un nom pour un
+    schéma à valeur unique, une liste pour un multi-valeurs, [] pour un retrait."""
+    out: dict[str, Any] = {}
+    for scheme_id, raw in values.items():
+        names = [n for n in dict.fromkeys(raw) if n.strip()]
+        scheme = schemes.get(scheme_id)
+        reason = check_declaration(scheme, names)
+        if reason is not None:
+            raise ClassificationRefusedError(scheme_id, reason, field)
+        if not names or scheme is None:
+            out[scheme_id] = []
+        else:
+            out[scheme_id] = names if scheme.multi_value else names[0]
+    return out
+
+
+async def classify(
+    target: CurationTarget,
+    slug: str,
+    path: str,
+    object_values: dict[str, list[str]] | None,
+    field_values: dict[str, dict[str, list[str]]],
+) -> WriteResult:
+    """Déclarer ou retirer la classification de l'asset et de ses champs (ticket
+    5e8680d7), dans son `.extend.yaml`. Les valeurs sont validées contre les
+    schémas de classification **de la vue écrite** (ceux que l'écran montre).
+    Lève AssetNotRetainedError, UnknownFieldsError (mode strict) ou
+    ClassificationRefusedError."""
+    touched: list[str] = []
+
+    def write(root: Path) -> None:
+        schemes = {s.id: s for s in read_schemes(root)}
+        obj = _stored_values(schemes, object_values, "") if object_values is not None else None
+        per_field = {
+            name: _stored_values(schemes, values, name) for name, values in field_values.items()
+        }
+        if target.strict:
+            _check_fields(safe_assets_path(root, slug) / path, list(field_values))
+        inner = classify_asset_fn(slug, path, obj, per_field)
+        touched[:] = _touched_files(safe_assets_path(root, slug), path, inner, root)
+
+    revision = await target.write(f"curation {slug} : classer {path}", write)
+    return _result(revision, slug, touched)
 
 
 async def refresh(target: CurationTarget, slug: str, paths: list[str] | None) -> WriteResult:

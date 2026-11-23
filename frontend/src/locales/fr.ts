@@ -1080,10 +1080,44 @@ export const fr = {
     multiValueNote:
       'Multi-valeurs : un badge par valeur, trois au plus puis « +N ». Ne peut pas être le schéma principal.',
     selectSchemeHint: 'Sélectionnez un schéma pour le modifier, ou ajoutez-en un.',
+    // Classification des assets (ticket 5e8680d7).
+    classDeclaredTip: 'valeur déclarée',
+    classDerivedTip: 'valeur dérivée des champs',
+    classAssetTitle: 'Classification de l’asset',
+    classFieldsTitle: 'Classification des champs',
+    classNoScheme: 'Aucun schéma de classification dans cet espace.',
+    classManageSchemes: 'Gérer les schémas',
+    classColScheme: 'Schéma',
+    classColEffective: 'Valeur effective',
+    classColDeclare: 'Déclarer sur l’asset',
+    classColField: 'Champ',
+    classNone: 'aucune',
+    classDeclared: 'déclarée',
+    classDerivedFrom: 'dérivée des champs ({{levels}})',
+    classDerivedOption: '— dérivée —',
+    classUnset: '— non classé —',
+    classInvalid: 'valeur invalide : {{value}} (aucun badge)',
+    classDeclareFor: 'Déclarer {{scheme}} sur l’asset',
+    classDeclareField: 'Classer {{field}} pour {{scheme}}',
+    classAdd: '+ classer',
+    classGap:
+      'Écart : l’asset est déclaré « {{declared}} » ({{scheme}}) alors que le champ {{field}} est « {{level}} ». La valeur déclarée l’emporte.',
+    classLegend:
+      'Trait plein : valeur déclarée. Pointillés : valeur dérivée (infobulle). Stocké dans le fichier .extend.yaml de l’asset, conservé au rafraîchissement depuis le brut.',
+    classFilterLabel: 'Filtrer par niveau de classification',
+    classFilterAll: 'Tous les niveaux',
+    invalidValuesNone: 'Aucune valeur invalide.',
+    invalidColAsset: 'Asset',
+    invalidColField: 'Champ',
+    invalidColScheme: 'Schéma',
+    invalidColValue: 'Valeur',
+    invalidColReason: 'Motif',
+    invalidObject: '(asset)',
+    invalidReason_unknown_level: 'niveau inconnu',
+    invalidReason_unknown_scheme: 'schéma inconnu',
+    invalidReason_not_single: 'plusieurs valeurs pour un schéma à valeur unique',
     invalidValuesIntro:
       'Les valeurs de classification portées par des assets dont le niveau a été supprimé ou renommé.',
-    invalidValuesPending:
-      'Aucune valeur invalide. Cet onglet se remplira quand les assets existeront (avec la Curation).',
 
     // Sources de données (epic Sources).
     sourcesSubtitle:
@@ -1659,6 +1693,9 @@ export const fr = {
       collect_branch_behind:
         'Collecte refusée : la branche porte des commits non publiés et la forge a avancé. Publiez d’abord la branche.',
       collect_failed: 'Collecte impossible ({{cause}}).',
+      classification_unknown_level: 'Niveau inconnu pour le schéma « {{scheme}} ».',
+      classification_unknown_scheme: 'Schéma de classification inconnu : {{scheme}}.',
+      classification_not_single: 'Le schéma « {{scheme}} » n’accepte qu’une valeur.',
       contract_not_openapi: 'Ce fichier n’est pas un contrat OpenAPI 3.x.',
       contract_yaml_invalid: 'Fichier illisible : ni YAML ni JSON valide.',
       contract_swagger_unsupported: 'Swagger 2.0 n’est pas pris en charge.',

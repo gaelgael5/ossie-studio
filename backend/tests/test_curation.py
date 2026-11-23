@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from ossie_studio.parsers.conventions import dump_schema, load_schema
+from ossie_studio.sources.asset_files import load_asset
 from ossie_studio.sources.curation import (
     AssetNotRetainedError,
     AssetOriginMissingError,
@@ -191,11 +192,19 @@ def test_enrich_writer_objet_et_champ(tmp_path: Path) -> None:
         {"business_name": "Utilisateur", "description": "", "concept": "", "tags": []},
         {"a": {"business_name": "", "description": "le nom", "concept": "", "tags": []}},
     )(tmp_path)
-    asset = load_schema(
-        (tmp_path / "sources" / "api" / "assets" / "app-user.schema.yaml").read_text()
-    )
+    assets = tmp_path / "sources" / "api" / "assets"
+    # Ticket 7a284e55 : le travail humain est dans le `.extend.yaml`, le schéma
+    # reste standard ; `load_asset` rend la vue réunie.
+    asset = load_asset(assets / "app-user.schema.yaml")
     assert asset["x-businessName"] == "Utilisateur"
     assert asset["properties"]["a"]["x-description"] == "le nom"
+    schema = load_schema((assets / "app-user.schema.yaml").read_text())
+    assert "x-businessName" not in schema
+    assert "x-description" not in schema["properties"]["a"]
+    assert load_schema((assets / "app-user.extend.yaml").read_text()) == {
+        "object": {"businessName": "Utilisateur"},
+        "fields": {"a": {"description": "le nom"}},
+    }
 
 
 def test_enrich_writer_refuse_non_retenu(tmp_path: Path) -> None:
@@ -343,7 +352,7 @@ def test_refresh_lot_un_commit_liste(tmp_path: Path) -> None:
     )  # déjà à jour
     assert refresh_targets(tmp_path, "api", None) == ["u.schema.yaml"]
     refresh_assets_fn("api", ["u.schema.yaml"])(tmp_path)
-    out = load_schema((tmp_path / "sources" / "api" / "assets" / "u.schema.yaml").read_text())
+    out = load_asset(tmp_path / "sources" / "api" / "assets" / "u.schema.yaml")
     assert out["properties"]["a"]["type"] == "integer"
     assert out["properties"]["a"]["x-businessName"] == "id"
 
@@ -548,7 +557,7 @@ def test_apply_review_applique_les_decisions(tmp_path: Path) -> None:
         retain_objects=[],
     )
     apply_review_fn("api", decisions)(tmp_path)
-    asset = load_schema((tmp_path / "sources" / "api" / "assets" / "u.schema.yaml").read_text())
+    asset = load_asset(tmp_path / "sources" / "api" / "assets" / "u.schema.yaml")
     assert asset["properties"]["a"]["type"] == "integer"  # champ changé appliqué
     assert asset["properties"]["a"]["x-businessName"] == "id"  # enrichissement conservé
     assert asset["properties"]["b"]["type"] == "string"  # champ apparu repris

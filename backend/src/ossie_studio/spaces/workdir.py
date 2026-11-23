@@ -462,11 +462,13 @@ class WorkdirManager:
         repo_url: str,
         username: str,
         token: str | None,
-        rel_path: str,
+        rel_path: str | list[str],
         limit: int = 50,
     ) -> list[UnpublishedCommit]:
         """Historique Git d'un fichier (du plus récent au plus ancien) : les
-        versions précédentes d'un schéma `raw`. Lecture seule."""
+        versions précédentes d'un schéma `raw`. Plusieurs chemins : les commits
+        qui touchent l'un d'eux (un asset et son `.extend.yaml`). Lecture seule."""
+        paths = [rel_path] if isinstance(rel_path, str) else list(rel_path)
         ref = slug  # la clé de branche EST sa référence git (space_branches.git_ref)
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
@@ -477,7 +479,7 @@ class WorkdirManager:
             await self._checkout_branch(workdir, ref, env)
             fmt = _UNIT_SEP.join(["%H", "%an", "%aI", "%s"])
             code, out, err = await run_git(
-                ["log", f"--pretty=format:{fmt}", f"--max-count={int(limit)}", "--", rel_path],
+                ["log", f"--pretty=format:{fmt}", f"--max-count={int(limit)}", "--", *paths],
                 workdir,
                 env,
             )

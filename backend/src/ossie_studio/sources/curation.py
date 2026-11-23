@@ -18,9 +18,16 @@ from typing import Any
 
 from ossie_studio.parsers.conventions import (
     SchemaReadError,
-    dump_schema,
     is_schema_name,
     load_schema,
+)
+from ossie_studio.sources.asset_files import (
+    HUMAN_KEYS,
+    dump_asset,
+    load_asset,
+    read_asset_dir,
+    remove_asset,
+    write_asset,
 )
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.manifest import ManifestError, dump_manifest, parse_manifest
@@ -158,7 +165,7 @@ def list_curation(
         return []
     rule_list = list(rules)
     raws = _read_json_dir(raw_dir)
-    assets = _read_json_dir(assets_dir)
+    assets = read_asset_dir(assets_dir)
     objects: list[CurationObject] = []
     for name, raw in sorted(raws.items()):
         retained = _retained_state(raw, assets.get(name))
@@ -226,7 +233,7 @@ def get_object_detail(
     asset_data: dict[str, Any] = {}
     if asset_file.is_file():
         try:
-            asset = load_schema(asset_file.read_text(encoding="utf-8"))
+            asset = load_asset(asset_file)
             asset_data = asset.get("properties") or {}
         except SchemaReadError:
             asset_data = {}
@@ -301,12 +308,9 @@ def retain_asset_fn(slug: str, path: str, fields: list[str] | None) -> Callable[
         raw = load_schema(raw_file.read_text(encoding="utf-8"))
         assets_dir = safe_assets_path(workdir, slug)
         asset_file = assets_dir / path
-        existing = (
-            load_schema(asset_file.read_text(encoding="utf-8")) if asset_file.is_file() else None
-        )
+        existing = load_asset(asset_file) if asset_file.is_file() else None
         asset = build_asset(raw, fields, existing, f"{RAW_DIR}/{path}")
-        assets_dir.mkdir(parents=True, exist_ok=True)
-        asset_file.write_text(dump_schema(asset), encoding="utf-8")
+        write_asset(asset_file, asset)
 
     return write
 
@@ -315,8 +319,7 @@ def remove_asset_fn(slug: str, path: str) -> Callable[[Path], None]:
     """Retire l'asset `assets/<path>` (récupérable dans l'historique Git)."""
 
     def write(workdir: Path) -> None:
-        asset_file = safe_assets_path(workdir, slug) / path
-        asset_file.unlink(missing_ok=True)
+        remove_asset(safe_assets_path(workdir, slug) / path)
 
     return write
 
@@ -343,8 +346,7 @@ def _scope_view(name: str, node: dict[str, Any]) -> EnrichScope:
     readonly = {
         k: v
         for k, v in sorted(node.items())
-        if k != ORIGIN_KEY
-        and (k == "description" or (k.startswith("x-") and k not in _ENRICHMENT_X))
+        if k != ORIGIN_KEY and (k == "description" or (k.startswith("x-") and k not in HUMAN_KEYS))
     }
     return EnrichScope(
         name=name,
@@ -365,7 +367,7 @@ def read_enrichment(workdir: Path, slug: str, path: str) -> EnrichView | None:
         return None
     if not asset_file.is_file():
         return None
-    asset = load_schema(asset_file.read_text(encoding="utf-8"))
+    asset = load_asset(asset_file)
     fields = [
         _scope_view(name, prop)
         for name, prop in (asset.get("properties") or {}).items()
@@ -394,14 +396,64 @@ def enrich_asset_fn(
         asset_file = safe_assets_path(workdir, slug) / path
         if not asset_file.is_file():
             raise AssetNotRetainedError(path)
-        asset = load_schema(asset_file.read_text(encoding="utf-8"))
+        asset = load_asset(asset_file)
         if object_values is not None:
             apply_enrichment(asset, object_values)
         props = asset.get("properties") or {}
         for field, values in field_values.items():
             if field in props and isinstance(props[field], dict):
                 apply_enrichment(props[field], values)
-        asset_file.write_text(dump_schema(asset), encoding="utf-8")
+        write_asset(asset_file, asset)
+
+    return write
+
+
+# --- Classification (ticket 5e8680d7) ----------------------------------------
+
+CLASSIFICATION_X = "x-classification"
+
+
+def _apply_classification(node: dict[str, Any], values: dict[str, list[str]]) -> None:
+    """Pose ou retire, schéma par schéma, la classification déclarée d'un nœud.
+    Une liste vide retire la déclaration (retour à « dérivée »). Un schéma à
+    valeur unique est stocké comme un nom, un schéma multi-valeurs comme une
+    liste : `values` porte déjà la forme voulue (voir `classify_asset_fn`)."""
+    current = node.get(CLASSIFICATION_X)
+    declared: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
+    for scheme_id, names in values.items():
+        if names:
+            declared[scheme_id] = names
+        else:
+            declared.pop(scheme_id, None)
+    if declared:
+        node[CLASSIFICATION_X] = declared
+    else:
+        node.pop(CLASSIFICATION_X, None)
+
+
+def classify_asset_fn(
+    slug: str,
+    path: str,
+    object_values: dict[str, Any] | None,
+    field_values: dict[str, dict[str, Any]],
+) -> Callable[[Path], None]:
+    """Écrit la classification déclarée de l'asset et de ses champs (dans son
+    `.extend.yaml`), en un commit. Les valeurs sont celles à stocker (nom, ou
+    liste pour un schéma multi-valeurs ; vide = retrait) et ont été validées
+    contre les schémas. Lève AssetNotRetainedError si l'asset n'existe pas."""
+
+    def write(workdir: Path) -> None:
+        asset_file = safe_assets_path(workdir, slug) / path
+        if not asset_file.is_file():
+            raise AssetNotRetainedError(path)
+        asset = load_asset(asset_file)
+        if object_values is not None:
+            _apply_classification(asset, object_values)
+        props = asset.get("properties") or {}
+        for name, values in field_values.items():
+            if isinstance(props.get(name), dict):
+                _apply_classification(props[name], values)
+        write_asset(asset_file, asset)
 
     return write
 
@@ -462,7 +514,7 @@ def _refresh_pairs(
         assets_dir = safe_assets_path(workdir, slug)
     except ValueError:
         return []
-    assets = _read_json_dir(assets_dir)
+    assets = read_asset_dir(assets_dir)
     raws = _read_json_dir(raw_dir)
     wanted = set(assets) if paths is None else {p for p in paths if p in assets}
     return [(name, raws[name], assets[name]) for name in sorted(wanted) if name in raws]
@@ -474,7 +526,7 @@ def refresh_targets(workdir: Path, slug: str, paths: list[str] | None) -> list[s
     assets modifiés dans le message. Lecture seule."""
     changed: list[str] = []
     for name, raw, asset in _refresh_pairs(workdir, slug, paths):
-        if dump_schema(refresh_asset(raw, asset)) != dump_schema(asset):
+        if dump_asset(refresh_asset(raw, asset)) != dump_asset(asset):
             changed.append(name)
     return changed
 
@@ -488,7 +540,7 @@ def refresh_assets_fn(slug: str, paths: list[str] | None) -> Callable[[Path], No
     def write(workdir: Path) -> None:
         assets_dir = safe_assets_path(workdir, slug)
         for name, raw, asset in _refresh_pairs(workdir, slug, paths):
-            (assets_dir / name).write_text(dump_schema(refresh_asset(raw, asset)), encoding="utf-8")
+            write_asset(assets_dir / name, refresh_asset(raw, asset))
 
     return write
 
@@ -559,7 +611,7 @@ def read_source_trees(
         assets_dir = safe_assets_path(workdir, slug)
     except ValueError:
         return {}, {}
-    return _read_json_dir(raw_dir), _read_json_dir(assets_dir)
+    return _read_json_dir(raw_dir), read_asset_dir(assets_dir)
 
 
 def parse_schema_texts(text_map: dict[str, str]) -> dict[str, dict[str, Any]]:
@@ -579,7 +631,8 @@ def parse_schema_texts(text_map: dict[str, str]) -> dict[str, dict[str, Any]]:
 
 
 def _lost_enrichment(node: dict[str, Any]) -> list[str]:
-    return sorted(k for k in node if k in _ENRICHMENT_X)
+    # Tout travail humain (classification comprise) est perdu avec le champ.
+    return sorted(k for k in node if k in HUMAN_KEYS)
 
 
 def _review_fields(
@@ -694,7 +747,7 @@ def apply_review_fn(slug: str, decisions: ReviewDecisions) -> Callable[[Path], N
             asset_file = assets_dir / path
             if not asset_file.is_file():
                 continue
-            asset = load_schema(asset_file.read_text(encoding="utf-8"))
+            asset = load_asset(asset_file)
             raw = raws.get(path) or {}
             rprops = raw.get("properties") or {}
             props: dict[str, Any] = asset.setdefault("properties", {})
@@ -713,16 +766,16 @@ def apply_review_fn(slug: str, decisions: ReviewDecisions) -> Callable[[Path], N
                 asset["required"] = required
             else:
                 asset.pop("required", None)
-            asset_file.write_text(dump_schema(asset), encoding="utf-8")
+            write_asset(asset_file, asset)
         for path in decisions.remove_objects:
-            (assets_dir / path).unlink(missing_ok=True)
+            remove_asset(assets_dir / path)
         for path in decisions.retain_objects:
             new_raw = raws.get(path)
             if new_raw is None:
                 continue
             assets_dir.mkdir(parents=True, exist_ok=True)
             asset = build_asset(new_raw, None, None, f"{RAW_DIR}/{path}")
-            (assets_dir / path).write_text(dump_schema(asset), encoding="utf-8")
+            write_asset(assets_dir / path, asset)
 
     return write
 

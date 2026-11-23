@@ -300,6 +300,8 @@ export interface SourceItem {
   error?: string
   /** Nombre de règles de tri de la source (manifeste). */
   triage_count?: number
+  /** Niveau de classification de la source, dérivé de ses assets (ticket 5e8680d7). */
+  classification?: { scheme: string; values: string[] }[]
 }
 export interface SourceInput {
   slug: string
@@ -703,6 +705,53 @@ export interface CurationAssetSummary {
   modified: boolean
   orphan: boolean
   property_names: string[]
+  /** Badges de classification effectifs de l'asset (un par schéma ayant une valeur). */
+  classification: ClassBadgeValue[]
+  /** Tous les niveaux effectifs, champs compris, en « schéma/niveau » (filtre). */
+  class_levels: string[]
+}
+
+// Classification (ticket 5e8680d7).
+export interface ClassLevel {
+  name: string
+  label: string
+  short_name: string
+  rank: number
+  color: string
+}
+export interface ClassScheme {
+  id: string
+  name: string
+  badge_prefix: string
+  multi_value: boolean
+  levels: ClassLevel[]
+}
+export interface ClassBadgeValue {
+  scheme: string
+  values: string[]
+  declared: boolean
+  extra: number
+}
+export interface AssetSchemeValue extends ClassBadgeValue {
+  declared_value: string[]
+  derived_from: string[]
+  gap: { field: string; level: string } | null
+  invalid: boolean
+}
+export interface AssetGovernance {
+  schemes: ClassScheme[]
+  object: AssetSchemeValue[]
+  fields: { name: string; values: Record<string, string[]> }[]
+  invalid: { field: string; scheme: string; value: string; reason: string }[]
+}
+export interface InvalidClassification {
+  source: string
+  path: string
+  title: string
+  field: string
+  scheme: string
+  value: string
+  reason: string
 }
 
 export interface CurationAssetProperty {
@@ -721,6 +770,7 @@ export interface CurationAssetDetail extends CurationAssetSummary {
   description: string
   business_name: string
   properties: CurationAssetProperty[]
+  governance: AssetGovernance
 }
 
 export interface EnrichValues {
@@ -1368,9 +1418,25 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/object?path=${encodeURIComponent(path)}`,
     ),
   listCurationAssets: (spaceId: string, branchId: string) =>
-    apiFetch<{ sources: { slug: string; label: string }[]; assets: CurationAssetSummary[] }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/curation-assets`,
+    apiFetch<{
+      sources: { slug: string; label: string }[]
+      assets: CurationAssetSummary[]
+      schemes: ClassScheme[]
+    }>(`/api/spaces/${spaceId}/branches/${branchId}/curation-assets`),
+  /** Déclare (ou retire, liste vide) la classification de l'asset et de ses champs. */
+  classifyAsset: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    body: { path: string; obj?: Record<string, string[]>; fields?: Record<string, Record<string, string[]>> },
+  ) =>
+    apiFetch<{ ok: boolean; commit: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/classify`,
+      { method: 'PUT', body: JSON.stringify(body) },
     ),
+  // Gouvernance : espace et branche de l'en-tête (préfixe /api/governance/).
+  listInvalidClassifications: () =>
+    apiFetch<{ values: InvalidClassification[] }>('/api/governance/classifications/invalid-values'),
   getCurationAsset: (spaceId: string, branchId: string, source: string, path: string) =>
     apiFetch<CurationAssetDetail>(
       `/api/spaces/${spaceId}/branches/${branchId}/curation-assets/asset?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,

@@ -57,6 +57,7 @@ from ossie_studio.sources.contracts import (
     read_contracts_view,
     remove_contract_fn,
 )
+from ossie_studio.sources.curation_assets import source_classifications
 from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.sources.jobs import DONE, FAILED, CollectJobs, JobKey
 from ossie_studio.sources.manifest import (
@@ -278,6 +279,11 @@ async def list_branch_sources(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         entries = await list_sources(workdir, space, slug, username, token)
+        # Niveau de classification de chaque source, dérivé de ses assets
+        # (ticket 5e8680d7, critère 9).
+        levels = await workdir.read_branch(
+            space.id, slug, space.repo_url, username, token, source_classifications
+        )
     except WorkdirError as exc:
         raise _workdir_http_error(exc) from None
     sources: list[dict[str, object]] = []
@@ -287,7 +293,9 @@ async def list_branch_sources(
             if entry.manifest is not None
             else None
         )
-        sources.append(_entry_payload(entry, connection))
+        sources.append(
+            {**_entry_payload(entry, connection), "classification": levels.get(entry.slug, [])}
+        )
     return {"sources": sources}
 
 

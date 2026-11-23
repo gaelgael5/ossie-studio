@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import asdict
 
 import structlog
 from fastapi import APIRouter
@@ -19,6 +20,7 @@ from ossie_studio.governance.yaml_io import (
     export_scheme_yaml,
     parse_scheme_yaml,
 )
+from ossie_studio.sources.curation_assets import invalid_classifications
 
 log = structlog.get_logger(__name__)
 
@@ -107,6 +109,23 @@ async def list_schemes(
 ) -> dict[str, object]:
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
     return {"schemes": [_scheme_payload(s) for s in await ctx.read(read_schemes)]}
+
+
+@router.get("/invalid-values")
+async def list_invalid_values(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: GovernanceRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    """Valeurs de classification portées par des assets et qui ne désignent
+    aucun niveau existant (niveau supprimé ou renommé, schéma supprimé, saisie à
+    la main) — ticket 5e8680d7, critère 6. Elles n'affichent aucun badge."""
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    found = await ctx.read(invalid_classifications)
+    return {"values": [asdict(v) for v in found]}
 
 
 @router.post("", status_code=201)

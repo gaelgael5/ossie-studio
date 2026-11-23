@@ -114,20 +114,37 @@ module TypeScript ou Python ; absent pour une table ou un contrat),
 `@Column`, `Field(...)`…). Ces annotations serviront à relier une classe à sa
 table.
 
-## Enrichissement humain (assets)
+## Enrichissement humain (assets) : `<clé>.extend.yaml`
 
-Dans un **asset** curé, le travail humain vit sous une **liste fermée** de clés
-`x-`, posées au niveau de l'objet et de chaque champ ; le rafraîchissement depuis
-le brut ne les touche jamais :
+Le travail humain d'un asset curé **n'est pas écrit dans son schéma** : il vit
+dans le fichier voisin `sources/<slug>/assets/<clé>.extend.yaml` (ticket
+7a284e55). Raison (Gael, 23/11/2026) : « garder les standards non altérés » — le
+`<clé>.schema.yaml` reste un JSON Schema relisible par n'importe quel outil, et le
+rafraîchissement depuis le brut ne touche jamais au `.extend.yaml`.
 
-- `x-businessName` : nom métier ;
-- `x-description` : description métier (distincte de la `description` du code/catalogue) ;
-- `x-concept` : concept métier rattaché (texte libre ; l'ontologie viendra) ;
-- `x-tags` : étiquettes libres (liste).
+```yaml
+object:
+  businessName: Commande client   # nom métier
+  description: |                  # description métier (≠ `description` du code)
+    …
+  concept: Vente                  # concept métier rattaché (texte libre)
+  tags: [rgpd]                    # étiquettes (liste)
+fields:
+  montant:
+    businessName: Montant TTC
+```
 
-Toute autre clé (standard, ou `x-` venue du parseur comme `x-source`,
-`x-annotations`) est en lecture seule côté curation. `x-origin` donne le chemin du
-schéma brut d'origine.
+- liste **fermée** de clés ; une entrée vide n'est pas écrite, un fichier sans
+  entrée est supprimé ; écriture déterministe (clés triées) ;
+- la classification et la certification s'y ajouteront sous `object` /
+  `fields.<nom>` ;
+- un asset écrit avant ce ticket peut encore porter `x-businessName`,
+  `x-description`, `x-concept`, `x-tags` dans son schéma : ces clés sont lues, puis
+  déplacées dans `.extend.yaml` à la prochaine écriture de l'asset.
+
+Dans le schéma de l'asset, toute clé (standard, ou `x-` venue du parseur comme
+`x-source`, `x-annotations`) est en lecture seule côté curation. `x-origin` donne
+le chemin du schéma brut d'origine.
 
 ## Exception : `raw/docs/`
 

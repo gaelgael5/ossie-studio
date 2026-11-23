@@ -356,7 +356,7 @@ class DraftWorkdir:
         repo_url: str,
         username: str,
         token: str | None,
-        rel_path: str,
+        rel_path: str | list[str],
         limit: int = 50,
     ) -> list[UnpublishedCommit]:
         # L'historique est celui du travail publié : un brouillon n'a pas d'histoire.

@@ -125,6 +125,18 @@ class EnrichBody(BaseModel):
     fields: dict[str, EnrichValues] = {}
 
 
+class ClassifyBody(BaseModel):
+    """Déclarations de classification (ticket 5e8680d7) : par schéma, la liste
+    des niveaux déclarés ; une liste vide retire la déclaration (« — dérivée — »
+    pour l'asset, « + classer » pour un champ). Seuls les schémas envoyés
+    changent."""
+
+    model_config = ConfigDict(extra="forbid")
+    path: str = ""
+    obj: dict[str, list[str]] | None = None
+    fields: dict[str, dict[str, list[str]]] = {}
+
+
 def _object_payload(obj: CurationObject) -> dict[str, object]:
     return {
         "path": obj.path,
@@ -324,6 +336,43 @@ async def enrich_source_asset(
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     log.info("curation_enrich", author=user.email, slug=slug, path=body.path)
+    return {"ok": True, "commit": result.revision}
+
+
+@router.put("/classify")
+async def classify_source_asset(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: ClassifyBody,
+) -> dict[str, object]:
+    """Classer l'asset et ses champs : écrit dans son `.extend.yaml` (clé
+    `classification`), un commit dans le brouillon. Capacité « Curation :
+    modifier », comme l'enrichissement."""
+    _check(slug, body.path)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        result = await curation_actions.classify(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug,
+            body.path,
+            body.obj,
+            body.fields,
+        )
+    except AssetNotRetainedError as exc:
+        raise ApiError("asset_not_retained", status_code=404, path=exc.path) from None
+    except curation_actions.ClassificationRefusedError as exc:
+        raise ApiError(
+            f"classification_{exc.reason}", status_code=400, scheme=exc.scheme, field=exc.field
+        ) from None
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    log.info("curation_classify", author=user.email, slug=slug, path=body.path)
     return {"ok": True, "commit": result.revision}
 
 

@@ -1078,10 +1078,44 @@ export const en = {
     multiValueNote:
       'Multi-value: one badge per value, three at most then "+N". Cannot be the primary scheme.',
     selectSchemeHint: 'Select a scheme to edit it, or add one.',
+    // Asset classification (ticket 5e8680d7).
+    classDeclaredTip: 'declared value',
+    classDerivedTip: 'value derived from the fields',
+    classAssetTitle: 'Asset classification',
+    classFieldsTitle: 'Field classification',
+    classNoScheme: 'No classification scheme in this space.',
+    classManageSchemes: 'Manage schemes',
+    classColScheme: 'Scheme',
+    classColEffective: 'Effective value',
+    classColDeclare: 'Declare on the asset',
+    classColField: 'Field',
+    classNone: 'none',
+    classDeclared: 'declared',
+    classDerivedFrom: 'derived from the fields ({{levels}})',
+    classDerivedOption: '— derived —',
+    classUnset: '— not classified —',
+    classInvalid: 'invalid value: {{value}} (no badge)',
+    classDeclareFor: 'Declare {{scheme}} on the asset',
+    classDeclareField: 'Classify {{field}} for {{scheme}}',
+    classAdd: '+ classify',
+    classGap:
+      'Gap: the asset is declared “{{declared}}” ({{scheme}}) while field {{field}} is “{{level}}”. The declared value wins.',
+    classLegend:
+      'Solid line: declared value. Dashed: derived value (tooltip). Stored in the asset’s .extend.yaml file, kept when refreshing from raw.',
+    classFilterLabel: 'Filter by classification level',
+    classFilterAll: 'All levels',
+    invalidValuesNone: 'No invalid value.',
+    invalidColAsset: 'Asset',
+    invalidColField: 'Field',
+    invalidColScheme: 'Scheme',
+    invalidColValue: 'Value',
+    invalidColReason: 'Reason',
+    invalidObject: '(asset)',
+    invalidReason_unknown_level: 'unknown level',
+    invalidReason_unknown_scheme: 'unknown scheme',
+    invalidReason_not_single: 'several values for a single-value scheme',
     invalidValuesIntro:
       'Classification values carried by assets whose level was deleted or renamed.',
-    invalidValuesPending:
-      'No invalid values. This tab will fill once assets exist (with Curation).',
 
     // Data sources (Sources epic).
     sourcesSubtitle:
@@ -1655,6 +1689,9 @@ export const en = {
       collect_branch_behind:
         'Collection refused: the branch has unpublished commits and the forge has moved ahead. Publish the branch first.',
       collect_failed: 'Collection failed ({{cause}}).',
+      classification_unknown_level: 'Unknown level for scheme “{{scheme}}”.',
+      classification_unknown_scheme: 'Unknown classification scheme: {{scheme}}.',
+      classification_not_single: 'Scheme “{{scheme}}” accepts a single value.',
       contract_not_openapi: 'This file is not an OpenAPI 3.x contract.',
       contract_yaml_invalid: 'Unreadable file: neither valid YAML nor JSON.',
       contract_swagger_unsupported: 'Swagger 2.0 is not supported.',

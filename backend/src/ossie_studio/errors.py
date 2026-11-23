@@ -120,6 +120,10 @@ ERROR_CODES: tuple[str, ...] = (
     "raw_explorer_folder_not_found",
     "raw_explorer_object_not_found",
     "asset_not_retained",
+    # Classification d'un asset refusée (ticket 5e8680d7).
+    "classification_unknown_level",
+    "classification_unknown_scheme",
+    "classification_not_single",
     "review_branch_behind",
     "review_stale",
     "draft_path_invalid",

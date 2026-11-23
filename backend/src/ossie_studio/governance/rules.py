@@ -30,7 +30,8 @@ from ossie_studio.governance.repo import (
 )
 from ossie_studio.governance.tag_rules import TAG_REMOVALS_FILE, read_tag_rules, removal_errors
 from ossie_studio.governance.tags import validate_tag_fields
-from ossie_studio.parsers.conventions import SCHEMA_SUFFIX, load_schema
+from ossie_studio.parsers.conventions import SCHEMA_SUFFIX
+from ossie_studio.sources.asset_files import load_asset
 
 
 class GovernanceRule:
@@ -128,7 +129,9 @@ class GovernanceAssetsRule:
         out: dict[str, set[str]] = {}
         for file in (view / "sources").glob(f"*/assets/*{SCHEMA_SUFFIX}"):
             try:
-                data = load_schema(file.read_text(encoding="utf-8"))
+                # Les tags d'un asset sont dans son `.extend.yaml` (ticket
+                # 7a284e55) : lecture par la frontière commune des assets.
+                data = load_asset(file)
             except (OSError, ValueError):
                 continue
             used = set(_tags_in(data)) & set(changed_tags)

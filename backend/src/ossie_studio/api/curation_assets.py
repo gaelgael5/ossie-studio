@@ -21,11 +21,14 @@ from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
+from ossie_studio.governance.classification_resolve import classify, scheme_payload
+from ossie_studio.governance.repo import Scheme
+from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.curation_assets import (
     AssetSummary,
     asset_view,
-    read_assets,
+    read_assets_and_schemes,
     summarize,
 )
 from ossie_studio.sources.explorer import DEFAULT_MODE
@@ -54,8 +57,9 @@ async def _load(
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
-) -> tuple[dict[tuple[str, str], dict[str, Any]], ReferenceGraph]:
-    """Assets du brouillon de la personne et graphe de l'explorateur (même vue)."""
+) -> tuple[dict[tuple[str, str], dict[str, Any]], ReferenceGraph, list[Scheme]]:
+    """Assets du brouillon de la personne, graphe de l'explorateur et schémas de
+    classification (même vue)."""
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
@@ -64,13 +68,13 @@ async def _load(
         key, signature = await ensure_index(
             conn, workdir, space, branch_id, branch.git_ref, username, token
         )
-        assets = await workdir.read_branch(
-            space.id, branch.git_ref, space.repo_url, username, token, read_assets
+        assets, schemes = await workdir.read_branch(
+            space.id, branch.git_ref, space.repo_url, username, token, read_assets_and_schemes
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     graph = await reference_graph(conn, key, DEFAULT_MODE, signature)
-    return assets, graph
+    return assets, graph, schemes
 
 
 def _summary_payload(summary: AssetSummary) -> dict[str, object]:
@@ -86,13 +90,15 @@ async def list_curation_assets(
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
-    assets, graph = await _load(conn, crypto, workdir, space_id, branch_id)
+    assets, graph, schemes = await _load(conn, crypto, workdir, space_id, branch_id)
     labels = {s.slug: s.label for s in graph.sources}
-    summaries = summarize(assets, graph)
+    summaries = summarize(assets, graph, schemes)
     sources = sorted({s.source for s in summaries})
     return {
         "sources": [{"slug": slug, "label": labels.get(slug) or slug} for slug in sources],
         "assets": [_summary_payload(s) for s in summaries],
+        # Schémas de classification, pour les badges et le filtre par niveau.
+        "schemes": [scheme_payload(sc) for sc in schemes],
     }
 
 
@@ -113,16 +119,47 @@ async def get_curation_asset(
     path: str,
 ) -> dict[str, object]:
     _check(source, path)
-    assets, graph = await _load(conn, crypto, workdir, space_id, branch_id)
+    assets, graph, schemes = await _load(conn, crypto, workdir, space_id, branch_id)
     asset = assets.get((source, path))
     if asset is None:
         raise ApiError("asset_not_retained", status_code=404, path=path)
     view = asset_view((source, path), asset, assets, graph)
     return {
-        **_summary_payload(view.summary),
+        **_summary_payload(summarize({(source, path): asset}, graph, schemes)[0]),
         "description": view.description,
         "business_name": view.business_name,
         "properties": [asdict(p) for p in view.properties],
+        "governance": _classification_payload(asset, schemes),
+    }
+
+
+def _classification_payload(asset: dict[str, Any], schemes: list[Scheme]) -> dict[str, object]:
+    """Onglet « Gouvernance » de l'asset (ticket 5e8680d7) : par schéma, la
+    valeur effective de l'asset (déclarée ou dérivée, « +N », écart) et les
+    valeurs déclarées de chaque champ."""
+    c = classify(asset, schemes)
+    props = asset.get("properties")
+    names = [n for n, p in props.items() if isinstance(p, dict)] if isinstance(props, dict) else []
+    return {
+        "schemes": [scheme_payload(sc) for sc in schemes],
+        "object": [
+            {
+                "scheme": v.scheme,
+                "values": list(v.values),
+                "declared": v.declared,
+                "declared_value": list(v.declared_value),
+                "extra": v.extra,
+                "derived_from": list(v.derived_from),
+                "gap": asdict(v.gap) if v.gap else None,
+                "invalid": v.invalid,
+            }
+            for v in c.object
+        ],
+        "fields": [
+            {"name": n, "values": {sc: list(vals) for sc, vals in c.fields.get(n, {}).items()}}
+            for n in names
+        ],
+        "invalid": [asdict(i) for i in c.invalid],
     }
 
 
@@ -145,9 +182,12 @@ async def get_curation_asset_history(
         raise ApiError("branch_not_found", status_code=404)
     space, username, token = await space_credentials(conn, crypto, space_id)
     rel = str(Path(source_rel_dir(source)) / ASSETS_DIR / path)
+    # Le travail humain est dans le `.extend.yaml` voisin (ticket 7a284e55) :
+    # l'histoire de l'asset est celle des deux fichiers.
+    rels = [rel, str(Path(source_rel_dir(source)) / ASSETS_DIR / extend_name(path))]
     try:
         commits = await workdir.file_history(
-            space.id, branch.git_ref, space.repo_url, username, token, rel, HISTORY_LIMIT
+            space.id, branch.git_ref, space.repo_url, username, token, rels, HISTORY_LIMIT
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None

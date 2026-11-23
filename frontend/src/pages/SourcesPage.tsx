@@ -13,6 +13,7 @@ import { useWorkspace } from '../workspace'
 import { RawExplorer } from './RawExplorer'
 import { exclusionsOf, parseExclusionInput } from '../sourceExclusions'
 import { TriRulesEditor, useTriRules } from '../components/TriRulesEditor'
+import { ClassBadges } from '../components/ClassBadges'
 
 function asList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
@@ -67,6 +68,15 @@ export function SourcesPage() {
     retry: false,
   })
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['sources'] })
+  // Schémas de classification, pour colorer le niveau de chaque source (ticket
+  // 5e8680d7). Sans droit de lecture de la gouvernance, le niveau s'affiche en texte.
+  const hasClassification = (sources.data?.sources ?? []).some((s) => (s.classification ?? []).length > 0)
+  const schemes = useQuery({
+    queryKey: ['schemes'],
+    queryFn: api.listSchemes,
+    enabled: hasClassification,
+    retry: false,
+  })
 
   const remove = useMutation({
     mutationFn: (slug: string) =>
@@ -211,6 +221,16 @@ export function SourcesPage() {
                             <div className="muted mono small">
                               {source.slug}
                             </div>
+                            {(source.classification ?? []).map((c) => {
+                              const scheme = schemes.data?.schemes.find((sc) => sc.id === c.scheme)
+                              return scheme ? (
+                                <ClassBadges key={c.scheme} scheme={scheme} values={c.values} declared={false} />
+                              ) : (
+                                <span key={c.scheme} className="pill">
+                                  {c.values.join(', ')}
+                                </span>
+                              )
+                            })}
                           </>
                         ) : (
                           <span className="mono">{source.slug}</span>

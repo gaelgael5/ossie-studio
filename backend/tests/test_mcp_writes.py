@@ -171,6 +171,8 @@ async def test_l_agent_cure_dans_le_brouillon_sans_rien_publier(
     )
     assert {o["path"] for o in draft["objects"]} == {
         "sources/ventes/assets/order.schema.yaml",
+        # Travail humain de l'asset, à côté du schéma (ticket 7a284e55).
+        "sources/ventes/assets/order.extend.yaml",
         "sources/ventes/assets/customer.schema.yaml",
     }
 
@@ -379,7 +381,8 @@ async def test_ecriture_journalisee_sans_le_contenu(
     entries = [json.loads(line) for line in out.splitlines() if line.startswith("{")]
     call = next(e for e in entries if e.get("event") == "mcp_call")
     assert call["primitive"] == "enrich_asset" and call["outcome"] == "ok"
-    assert call["changed_paths"] == ["sources/ventes/assets/order.schema.yaml"]
+    # Seul le `.extend.yaml` change : le schéma de l'asset reste standard.
+    assert call["changed_paths"] == ["sources/ventes/assets/order.extend.yaml"]
     assert call["client_id"] == "claude" and call["user_id"]
     write = next(e for e in entries if e.get("event") == "draft_write")
     assert "via l'agent claude" in write["intent"]

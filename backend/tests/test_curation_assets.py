@@ -49,7 +49,7 @@ async def test_seuls_les_assets_retenus_avec_compteurs_et_proprietes(sp: ApiSpac
     api = f"{sp.base}/curation-assets"
     empty = await sp.client.get(api)
     assert empty.status_code == 200, empty.text
-    assert empty.json() == {"sources": [], "assets": []}
+    assert empty.json() == {"sources": [], "assets": [], "schemes": []}
 
     cur = f"{sp.base}/sources/app/curation"
     r = await sp.client.post(
@@ -133,3 +133,78 @@ async def test_asset_absent_et_historique(sp: ApiSpace) -> None:
     )
     assert h.status_code == 200, h.text
     assert h.json() == {"commits": []}
+
+
+_SCHEME = """id: classification
+name: Classification
+is_primary: true
+multi_value: false
+display_order: 0
+levels:
+  - {id: l1, name: Interne, rank: 1}
+  - {id: l2, name: Confidentiel, rank: 2}
+  - {id: l3, name: Restreint, rank: 3}
+"""
+
+
+async def test_classer_un_asset_et_ses_champs(sp: ApiSpace) -> None:
+    # Ticket 5e8680d7 : classification déclarée / dérivée, écart, refus, invalides.
+    forge_edit(sp, {**_files(), "governance/classifications/classification.yaml": _SCHEME})
+    cur = f"{sp.base}/sources/app/curation"
+    r = await sp.client.post(f"{cur}/retain", json={"path": "order.schema.yaml"})
+    assert r.status_code == 200, r.text
+    r = await sp.client.put(
+        f"{cur}/classify",
+        json={
+            "path": "order.schema.yaml",
+            "fields": {
+                "numero": {"classification": ["Restreint"]},
+                "id": {"classification": ["Interne"]},
+            },
+        },
+    )
+    assert r.status_code == 200, r.text
+    asset_url = f"{sp.base}/curation-assets/asset"
+    params = {"source": "app", "path": "order.schema.yaml"}
+    gov = (await sp.client.get(asset_url, params=params)).json()["governance"]
+    [obj] = gov["object"]
+    assert (obj["values"], obj["declared"], obj["extra"]) == (["Restreint"], False, 1)
+    fields = {f["name"]: f["values"] for f in gov["fields"]}
+    assert fields["numero"] == {"classification": ["Restreint"]} and fields["lines"] == {}
+
+    # Déclarer moins sensible qu'un champ : la déclaration l'emporte, l'écart est signalé.
+    r = await sp.client.put(
+        f"{cur}/classify",
+        json={"path": "order.schema.yaml", "obj": {"classification": ["Interne"]}},
+    )
+    assert r.status_code == 200, r.text
+    detail = (await sp.client.get(asset_url, params=params)).json()
+    [obj] = detail["governance"]["object"]
+    assert obj["values"] == ["Interne"] and obj["declared"] is True
+    assert obj["gap"] == {"field": "numero", "level": "Restreint"}
+    assert [(b["values"], b["declared"]) for b in detail["classification"]] == [(["Interne"], True)]
+    listing = (await sp.client.get(f"{sp.base}/curation-assets")).json()
+    assert "classification/Restreint" in listing["assets"][0]["class_levels"]
+    assert [s["id"] for s in listing["schemes"]] == ["classification"]
+
+    # Niveau inconnu : refusé, rien n'est écrit.
+    r = await sp.client.put(
+        f"{cur}/classify",
+        json={"path": "order.schema.yaml", "obj": {"classification": ["Secret"]}},
+    )
+    assert r.status_code == 400 and r.json()["error"] == "classification_unknown_level"
+    r = await sp.client.put(
+        f"{cur}/classify",
+        json={"path": "order.schema.yaml", "obj": {"classification": ["Interne", "Restreint"]}},
+    )
+    assert r.status_code == 400 and r.json()["error"] == "classification_not_single"
+
+    # La source porte le niveau de ses assets.
+    sources = (await sp.client.get(f"{sp.base}/sources")).json()["sources"]
+    app_source = next(s for s in sources if s["slug"] == "app")
+    assert app_source["classification"] == [{"scheme": "classification", "values": ["Interne"]}]
+
+    # Aucune valeur invalide tant que les niveaux existent.
+    invalid = await sp.client.get(f"{sp.base}/governance/classifications/invalid-values")
+    assert invalid.status_code == 200, invalid.text
+    assert invalid.json() == {"values": []}

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ossie_studio.parsers.conventions import is_schema_name
+from ossie_studio.sources.asset_files import asset_name_of, is_extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.explorer import list_source_slugs
 from ossie_studio.sources.explorer_graph import ReferenceGraph
@@ -68,6 +69,15 @@ def _direct_child(rest: str, directory: str) -> str | None:
     return name if is_schema_name(name) else None
 
 
+def _extend_child(rest: str) -> str | None:
+    """Nom du schéma d'asset dont `rest` est le `.extend.yaml`, sinon None."""
+    prefix = f"{ASSETS_DIR}/"
+    if not rest.startswith(prefix):
+        return None
+    name = rest[len(prefix) :]
+    return asset_name_of(name) if is_extend_name(name) else None
+
+
 def group_changes(
     objects: list[tuple[str, str]],
     graph: ReferenceGraph,
@@ -93,6 +103,7 @@ def group_changes(
         )
 
     outside: list[ChangedFile] = []
+    seen_assets: set[tuple[str, str]] = set()
     for path, state in objects:
         parts = path.split("/", 2)
         if len(parts) < 3 or parts[0] != SOURCES_DIR:
@@ -102,7 +113,15 @@ def group_changes(
         if (name := _direct_child(rest, RAW_DIR)) is not None:
             source(slug).raw.append(changed(slug, name, state))
         elif (name := _direct_child(rest, ASSETS_DIR)) is not None:
-            source(slug).assets.append(changed(slug, name, state))
+            if (slug, name) not in seen_assets:
+                seen_assets.add((slug, name))
+                source(slug).assets.append(changed(slug, name, state))
+        elif (name := _extend_child(rest)) is not None:
+            # Le travail humain d'un asset (`.extend.yaml`, ticket 7a284e55) est
+            # une modification de cet asset, pas un fichier à part.
+            if (slug, name) not in seen_assets:
+                seen_assets.add((slug, name))
+                source(slug).assets.append(changed(slug, name, "modified"))
         else:
             source(slug).other.append(ChangedFile(path=path, state=state))
     for slug, names in sorted(assets.items()):

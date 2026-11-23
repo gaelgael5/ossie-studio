@@ -713,6 +713,23 @@ input[type='radio'] {
   font-size: 0.75rem;
   margin-right: 4px;
 }
+/* Classification (ticket 5e8680d7) : trait plein = valeur déclarée,
+   pointillés = valeur dérivée des champs. */
+.class-badges {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.class-derived {
+  outline: 2px dashed rgba(255, 255, 255, 0.85);
+  outline-offset: -4px;
+}
+.class-gap {
+  background: var(--warn-bg, #fff4e0);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
 .pill {
   display: inline-block;
   background: var(--bg);
@@ -2371,4 +2388,18 @@ td .raw-ref-menu {
 /* Exclusions par défaut d'une source : rappel, non retirables. */
 .exclusion-default {
   margin-right: 6px;
+}
+
+/* Onglet « Gouvernance » d'un asset (maquette 5e8680d7) : tags à gauche,
+   classification à droite ; une colonne sur écran étroit. */
+.curation-gov {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .curation-gov {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

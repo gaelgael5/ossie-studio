@@ -51,8 +51,51 @@ const SUMMARY = {
   modified: false,
   orphan: false,
   property_names: ['Client', 'CreeLe', 'Numero', 'numeroCommande'],
+  classification: [{ scheme: 'classification', values: ['Restreint'], declared: false, extra: 1 }],
+  class_levels: ['classification/Interne', 'classification/Restreint'],
 }
-const CLIENT = { ...SUMMARY, path: 'client.schema.yaml', title: 'Client', undescribed: 0, modified: true, property_names: ['Email'] }
+const CLIENT = {
+  ...SUMMARY,
+  path: 'client.schema.yaml',
+  title: 'Client',
+  undescribed: 0,
+  modified: true,
+  property_names: ['Email'],
+  classification: [],
+  class_levels: [],
+}
+// Schéma de classification (ticket 5e8680d7).
+const SCHEME = {
+  id: 'classification',
+  name: 'Classification',
+  badge_prefix: '',
+  multi_value: false,
+  levels: [
+    { name: 'Interne', label: 'Interne', short_name: '', rank: 1, color: '#3b5bdb' },
+    { name: 'Restreint', label: 'Restreint', short_name: '', rank: 3, color: '#c92a2a' },
+  ],
+}
+const GOVERNANCE = {
+  schemes: [SCHEME],
+  object: [
+    {
+      scheme: 'classification',
+      values: ['Restreint'],
+      declared: false,
+      declared_value: [],
+      extra: 1,
+      derived_from: ['Restreint', 'Interne'],
+      gap: null,
+      invalid: false,
+    },
+  ],
+  fields: [
+    { name: 'Numero', values: { classification: ['Restreint'] } },
+    { name: 'Client', values: { classification: ['Interne'] } },
+    { name: 'CreeLe', values: {} },
+  ],
+  invalid: [],
+}
 const MERMAID = 'Articles commandés.\n\n```mermaid\ngraph TD; A-->B\n```\n'
 const DETAIL = {
   ...SUMMARY,
@@ -93,6 +136,7 @@ const DETAIL = {
       missing: false,
     },
   ],
+  governance: GOVERNANCE,
 }
 
 function mockApi(capabilities: string[] = ['curation:read', 'curation:write'], assets = [SUMMARY, CLIENT]) {
@@ -105,13 +149,20 @@ function mockApi(capabilities: string[] = ['curation:read', 'curation:write'], a
       let body: unknown = {}
       if (path === '/api/session') body = { authenticated: true, capabilities }
       else if (path === `${BASE}/curation-assets`)
-        body = { sources: assets.length ? [{ slug: 'api-boutique', label: 'api-boutique' }] : [], assets }
+        body = {
+          sources: assets.length ? [{ slug: 'api-boutique', label: 'api-boutique' }] : [],
+          assets,
+          schemes: [SCHEME],
+        }
       else if (path.startsWith(`${BASE}/curation-assets/asset/history`)) body = { commits: [] }
       else if (path.startsWith(`${BASE}/curation-assets/asset`)) {
         body = path.includes('client.schema.yaml')
           ? { ...DETAIL, ...CLIENT, properties: [] }
           : DETAIL
       } else if (method === 'PUT' && path.endsWith('/curation/enrich')) body = { ok: true, commit: 'draft:2' }
+      else if (method === 'PUT' && path.endsWith('/curation/classify')) body = { ok: true, commit: 'draft:3' }
+      else if (path.includes('/curation/enrichment'))
+        body = { path: '', title: '', object: { name: '', tags: [] }, fields: [] }
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -238,5 +289,37 @@ describe('CurationPage', () => {
     renderPage('/curation?source=api-boutique&path=commande.schema.yaml')
     const write = await screen.findByRole('button', { name: 'Rédiger la description de CreeLe' })
     expect(write).toBeDisabled()
+  })
+
+  it('classification : badges, valeur dérivée avec +N, déclarer sur l’asset et classer un champ', async () => {
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml&tab=governance')
+    expect(await screen.findByText('dérivée des champs (Restreint, Interne)')).toBeInTheDocument()
+    expect(screen.getAllByText('+1').length).toBeGreaterThan(0)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Déclarer Classification sur l’asset' }), 'Interne')
+    await waitFor(() => expect(calls.some((c) => c.path.endsWith('/curation/classify'))).toBe(true))
+    expect(JSON.parse(calls.find((c) => c.path.endsWith('/curation/classify'))!.body!)).toEqual({
+      path: 'commande.schema.yaml',
+      obj: { classification: ['Interne'] },
+    })
+    await user.click(screen.getByRole('button', { name: 'Classer CreeLe pour Classification' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Classer CreeLe pour Classification' }), 'Restreint')
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path.endsWith('/curation/classify')).map((c) => JSON.parse(c.body!))).toContainEqual({
+        path: 'commande.schema.yaml',
+        fields: { CreeLe: { classification: ['Restreint'] } },
+      }),
+    )
+  })
+
+  it('filtre par niveau : un asset apparaît si l’un de ses niveaux (champs compris) correspond', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderPage()
+    expect(await screen.findByText('Client')).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filtrer par niveau de classification' }), 'classification/Interne')
+    expect(screen.getByText('Commande')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^C?Client/ })).not.toBeInTheDocument()
   })
 })

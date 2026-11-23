@@ -4,7 +4,14 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
-import type { CurationAssetDetail, CurationAssetProperty, CurationAssetSummary } from '../apiClient'
+import type {
+  AssetGovernance,
+  ClassScheme,
+  CurationAssetDetail,
+  CurationAssetProperty,
+  CurationAssetSummary,
+} from '../apiClient'
+import { ClassBadges } from '../components/ClassBadges'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { NoBranchNote } from '../components/NoBranchNote'
@@ -105,7 +112,11 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
     queryFn: () => api.listCurationAssets(spaceId, branchId),
   })
   const assets = listing.data?.assets ?? []
+  const schemes = listing.data?.schemes ?? []
   const labels = new Map((listing.data?.sources ?? []).map((s) => [s.slug, s.label]))
+  // Filtre par niveau de classification (`schéma/niveau`) : un asset apparaît si
+  // l'un de ses niveaux effectifs, champs compris, correspond (ticket 5e8680d7).
+  const level = params.get('level') ?? ''
 
   const update = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(params)
@@ -122,6 +133,7 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
   const visible = assets.filter(
     (a) =>
       matches(a, filter) &&
+      (!level || a.class_levels.includes(level)) &&
       (!q ||
         a.title.toLowerCase().includes(q) ||
         a.path.toLowerCase().includes(q) ||
@@ -163,6 +175,25 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
             </button>
           ))}
         </div>
+        {schemes.length > 0 ? (
+          <select
+            className="select"
+            aria-label={t('classFilterLabel')}
+            value={level}
+            onChange={(e) => update({ level: e.target.value || null })}
+          >
+            <option value="">{t('classFilterAll')}</option>
+            {schemes.map((sc) => (
+              <optgroup key={sc.id} label={sc.name}>
+                {sc.levels.map((lv) => (
+                  <option key={lv.name} value={`${sc.id}/${lv.name}`}>
+                    {lv.label || lv.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        ) : null}
         <ErrorList messages={listing.error ? errorMessages(t, listing.error) : []} />
         {listing.isLoading ? <p className="muted">{t('loading')}</p> : null}
         {!listing.isLoading && assets.length === 0 ? (
@@ -194,6 +225,15 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
                         {glyph(a)}
                       </span>
                       <span className="curation-item-title">{a.title}</span>
+                      {a.classification.slice(0, 1).map((b) => (
+                        <ClassBadges
+                          key={b.scheme}
+                          scheme={schemes.find((sc) => sc.id === b.scheme)}
+                          values={b.values}
+                          declared={b.declared}
+                          extra={b.extra}
+                        />
+                      ))}
                       {a.undescribed > 0 ? (
                         <span className="curation-todo">
                           {t('curationToDescribe', { count: a.undescribed })}
@@ -230,6 +270,7 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
             tab={(params.get('tab') as Tab | null) ?? 'properties'}
             onTab={(tab) => update({ tab: tab === 'properties' ? null : tab })}
             onOpen={(s, p) => update({ source: s, path: p, tab: null })}
+            schemes={schemes}
           />
         ) : assets.length > 0 ? (
           <p className="muted">{t('curationPick')}</p>
@@ -247,6 +288,7 @@ function AssetPanel({
   tab,
   onTab,
   onOpen,
+  schemes,
 }: {
   spaceId: string
   branchId: string
@@ -255,6 +297,7 @@ function AssetPanel({
   tab: Tab
   onTab: (tab: Tab) => void
   onOpen: (source: string, path: string) => void
+  schemes: ClassScheme[]
 }) {
   const { t } = useTranslation()
   const session = useSession()
@@ -284,7 +327,18 @@ function AssetPanel({
           {glyph(summary)}
         </span>
         <div className="curation-head-text">
-          <h1 className="page-title">{data?.business_name || summary.title}</h1>
+          <div className="row">
+            <h1 className="page-title">{data?.business_name || summary.title}</h1>
+            {summary.classification.map((b) => (
+              <ClassBadges
+                key={b.scheme}
+                scheme={schemes.find((sc) => sc.id === b.scheme)}
+                values={b.values}
+                declared={b.declared}
+                extra={b.extra}
+              />
+            ))}
+          </div>
           <p className="muted small">
             {t('curationAssetMeta', {
               dir: `sources/${summary.source}/assets/`,
@@ -333,11 +387,13 @@ function AssetPanel({
           onWrite={() => setWriting({ field: null, label: data.business_name || data.title })}
         />
       ) : null}
-      {tab === 'governance' ? (
+      {data && tab === 'governance' ? (
         <GovernanceTab
           spaceId={spaceId}
           branchId={branchId}
           summary={summary}
+          detail={data}
+          canWrite={canWrite}
           explorerHref={explorerHref}
         />
       ) : null}
@@ -499,11 +555,15 @@ function GovernanceTab({
   spaceId,
   branchId,
   summary,
+  detail,
+  canWrite,
   explorerHref,
 }: {
   spaceId: string
   branchId: string
   summary: CurationAssetSummary
+  detail: CurationAssetDetail
+  canWrite: boolean
   explorerHref: string
 }) {
   const { t } = useTranslation()
@@ -514,44 +574,287 @@ function GovernanceTab({
   const fields = (view.data?.fields ?? []).filter((f) => f.tags.length > 0)
   const objectTags = view.data?.object.tags ?? []
   return (
+    <div className="curation-gov">
+      <div className="panel stack">
+        <ErrorList messages={view.error ? errorMessages(t, view.error) : []} />
+        <div>
+          <h3>{t('curationGovAsset')}</h3>
+          {objectTags.length ? (
+            <div className="row">
+              {objectTags.map((tag) => (
+                <span key={tag} className="badge">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="muted">{t('curationGovNone')}</p>
+          )}
+        </div>
+        <div>
+          <h3>{t('curationGovFields')}</h3>
+          {fields.length ? (
+            <ul className="curation-plain">
+              {fields.map((f) => (
+                <li key={f.name}>
+                  <code>{f.name}</code>{' '}
+                  {f.tags.map((tag) => (
+                    <span key={tag} className="badge">
+                      {tag}
+                    </span>
+                  ))}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">{t('curationGovNone')}</p>
+          )}
+        </div>
+        <p className="small muted">
+          {t('curationGovEdit')} <Link to={`${explorerHref}`}>{t('curationSeeInExplorer')}</Link>
+        </p>
+      </div>
+      <ClassificationPanel
+        spaceId={spaceId}
+        branchId={branchId}
+        summary={summary}
+        governance={detail.governance}
+        canWrite={canWrite}
+      />
+    </div>
+  )
+}
+
+/** Choix de niveaux d'un schéma : sélecteur (valeur unique) ou cases (multi). */
+function LevelPicker({
+  scheme,
+  value,
+  emptyLabel,
+  disabled,
+  label,
+  onChange,
+}: {
+  scheme: ClassScheme
+  value: string[]
+  emptyLabel: string
+  disabled: boolean
+  label: string
+  onChange: (names: string[]) => void
+}) {
+  if (scheme.multi_value) {
+    return (
+      <div className="stack stack-tight" role="group" aria-label={label}>
+        {scheme.levels.map((lv) => (
+          <label key={lv.name} className="row small">
+            <input
+              type="checkbox"
+              disabled={disabled}
+              checked={value.includes(lv.name)}
+              onChange={() =>
+                onChange(
+                  value.includes(lv.name) ? value.filter((v) => v !== lv.name) : [...value, lv.name],
+                )
+              }
+            />
+            {lv.label || lv.name}
+          </label>
+        ))}
+      </div>
+    )
+  }
+  return (
+    <select
+      className="select"
+      aria-label={label}
+      disabled={disabled}
+      value={value[0] ?? ''}
+      onChange={(e) => onChange(e.target.value ? [e.target.value] : [])}
+    >
+      <option value="">{emptyLabel}</option>
+      {scheme.levels.map((lv) => (
+        <option key={lv.name} value={lv.name}>
+          {lv.label || lv.name}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+// Classification de l'asset et de ses champs (ticket docflow 5e8680d7, maquette
+// « Curation — gouvernance d'un asset »). Chaque choix est enregistré tout de
+// suite (un commit dans le brouillon), dans le `.extend.yaml` de l'asset.
+function ClassificationPanel({
+  spaceId,
+  branchId,
+  summary,
+  governance,
+  canWrite,
+}: {
+  spaceId: string
+  branchId: string
+  summary: CurationAssetSummary
+  governance: AssetGovernance
+  canWrite: boolean
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [messages, setMessages] = useState<string[]>([])
+  const [editing, setEditing] = useState<string | null>(null) // « champ/schéma »
+  const schemes = governance.schemes
+  const save = useMutation({
+    mutationFn: (body: { obj?: Record<string, string[]>; fields?: Record<string, Record<string, string[]>> }) =>
+      api.classifyAsset(spaceId, branchId, summary.source, { path: summary.path, ...body }),
+    onSuccess: async () => {
+      setMessages([])
+      setEditing(null)
+      await Promise.all(
+        ['curationAsset', 'curationAssets', 'draft', 'draftChanges'].map((key) =>
+          queryClient.invalidateQueries({ queryKey: [key] }),
+        ),
+      )
+    },
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
+  if (schemes.length === 0) {
+    return (
+      <div className="panel stack">
+        <h3>{t('classAssetTitle')}</h3>
+        <p className="muted">
+          {t('classNoScheme')} <Link to="/governance/classifications">{t('classManageSchemes')}</Link>
+        </p>
+      </div>
+    )
+  }
+  const byScheme = new Map(schemes.map((sc) => [sc.id, sc]))
+  const gaps = governance.object.filter((v) => v.gap)
+  return (
     <div className="panel stack">
-      <ErrorList messages={view.error ? errorMessages(t, view.error) : []} />
-      <div>
-        <h3>{t('curationGovAsset')}</h3>
-        {objectTags.length ? (
-          <div className="row">
-            {objectTags.map((tag) => (
-              <span key={tag} className="badge">
-                {tag}
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p className="muted">{t('curationGovNone')}</p>
-        )}
+      <h3>{t('classAssetTitle')}</h3>
+      <ErrorList messages={messages} />
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>{t('classColScheme')}</th>
+              <th>{t('classColEffective')}</th>
+              <th>{t('classColDeclare')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {governance.object.map((v) => {
+              const scheme = byScheme.get(v.scheme)!
+              return (
+                <tr key={v.scheme}>
+                  <td>{scheme.name}</td>
+                  <td>
+                    {v.invalid ? (
+                      <span className="text-danger small">
+                        {t('classInvalid', { value: v.declared_value.join(', ') })}
+                      </span>
+                    ) : v.values.length === 0 ? (
+                      <span className="muted">{t('classNone')}</span>
+                    ) : (
+                      <div className="stack stack-tight">
+                        <ClassBadges scheme={scheme} values={v.values} declared={v.declared} extra={v.extra} />
+                        <span className="muted small">
+                          {v.declared
+                            ? t('classDeclared')
+                            : t('classDerivedFrom', { levels: v.derived_from.join(', ') })}
+                        </span>
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    <LevelPicker
+                      scheme={scheme}
+                      value={v.declared_value}
+                      emptyLabel={t('classDerivedOption')}
+                      disabled={!canWrite || save.isPending}
+                      label={t('classDeclareFor', { scheme: scheme.name })}
+                      onChange={(names) => save.mutate({ obj: { [scheme.id]: names } })}
+                    />
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
       </div>
-      <div>
-        <h3>{t('curationGovFields')}</h3>
-        {fields.length ? (
-          <ul className="curation-plain">
-            {fields.map((f) => (
-              <li key={f.name}>
-                <code>{f.name}</code>{' '}
-                {f.tags.map((tag) => (
-                  <span key={tag} className="badge">
-                    {tag}
-                  </span>
-                ))}
-              </li>
+      {gaps.map((v) => (
+        <p key={v.scheme} className="class-gap small" role="note">
+          {t('classGap', {
+            scheme: byScheme.get(v.scheme)?.name ?? v.scheme,
+            declared: v.values[0],
+            field: v.gap!.field,
+            level: v.gap!.level,
+          })}
+        </p>
+      ))}
+      <h3>{t('classFieldsTitle')}</h3>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>{t('classColField')}</th>
+              {schemes.map((sc) => (
+                <th key={sc.id}>{sc.name}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {governance.fields.map((f) => (
+              <tr key={f.name}>
+                <td className="mono">{f.name}</td>
+                {schemes.map((sc) => {
+                  const values = f.values[sc.id] ?? []
+                  const key = `${f.name}/${sc.id}`
+                  if (editing === key) {
+                    return (
+                      <td key={sc.id}>
+                        <LevelPicker
+                          scheme={sc}
+                          value={values}
+                          emptyLabel={t('classUnset')}
+                          disabled={save.isPending}
+                          label={t('classDeclareField', { field: f.name, scheme: sc.name })}
+                          onChange={(names) => save.mutate({ fields: { [f.name]: { [sc.id]: names } } })}
+                        />
+                      </td>
+                    )
+                  }
+                  return (
+                    <td key={sc.id}>
+                      {values.length > 0 ? (
+                        <button
+                          type="button"
+                          className="btn-link"
+                          disabled={!canWrite}
+                          aria-label={t('classDeclareField', { field: f.name, scheme: sc.name })}
+                          onClick={() => setEditing(key)}
+                        >
+                          <ClassBadges scheme={sc} values={values} declared />
+                        </button>
+                      ) : canWrite ? (
+                        <button
+                          type="button"
+                          className="btn-link"
+                          aria-label={t('classDeclareField', { field: f.name, scheme: sc.name })}
+                          onClick={() => setEditing(key)}
+                        >
+                          {t('classAdd')}
+                        </button>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
             ))}
-          </ul>
-        ) : (
-          <p className="muted">{t('curationGovNone')}</p>
-        )}
+          </tbody>
+        </table>
       </div>
-      <p className="small muted">
-        {t('curationGovEdit')} <Link to={`${explorerHref}`}>{t('curationSeeInExplorer')}</Link>
-      </p>
+      <p className="small muted">{t('classLegend')}</p>
     </div>
   )
 }
