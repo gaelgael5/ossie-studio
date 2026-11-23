@@ -57,6 +57,15 @@ class ReferenceGraph:
                 if target is not None:
                     self._incoming.setdefault(target, []).append((key, ref))
 
+    def resolve(self, ref: SchemaRef) -> NodeKey | None:
+        """Objet de l'espace visé par une référence (None : externe ou introuvable)."""
+        return self._resolve(ref)
+
+    def located(self, key: NodeKey) -> tuple[SourceEntries, ExplorerObject] | None:
+        """Source et entrée d'index d'un objet de l'espace."""
+        found = self._objects.get(key)
+        return (found.entries, found.obj) if found else None
+
     def _resolve(self, ref: SchemaRef) -> NodeKey | None:
         if ref.external:
             return None

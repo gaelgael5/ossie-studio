@@ -18,12 +18,11 @@ interface NavItem {
   prefix: string
 }
 
-// Menu principal, calqué sur les maquettes. Sources et Curation n'ont pas
-// encore d'écran : ils restent visibles mais désactivés (honnête).
+// Menu principal, calqué sur les maquettes.
 const MAIN_NAV: NavItem[] = [
   { key: 'navSpaces', to: '/spaces', capability: 'spaces:read', prefix: '/spaces' },
   { key: 'navSources', to: '/sources', capability: 'sources:read', prefix: '/sources' },
-  { key: 'navCuration', prefix: '/curation' },
+  { key: 'navCuration', to: '/curation', capability: 'curation:read', prefix: '/curation' },
   { key: 'navGovernance', to: '/governance/tags', capability: 'governance:read', prefix: '/governance' },
 ]
 

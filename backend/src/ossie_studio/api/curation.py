@@ -104,11 +104,11 @@ class ReviewFieldRef(BaseModel):
 class ReviewApplyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     head_sha: str
-    apply_fields: list[ReviewFieldRef] = []    # champs retenus changés à rafraîchir
-    take_fields: list[ReviewFieldRef] = []     # champs apparus à reprendre
-    remove_fields: list[ReviewFieldRef] = []   # champs disparus à retirer
-    remove_objects: list[str] = []             # objets disparus : retirer l'asset
-    retain_objects: list[str] = []             # objets nouveaux : retenir en entier
+    apply_fields: list[ReviewFieldRef] = []  # champs retenus changés à rafraîchir
+    take_fields: list[ReviewFieldRef] = []  # champs apparus à reprendre
+    remove_fields: list[ReviewFieldRef] = []  # champs disparus à retirer
+    remove_objects: list[str] = []  # objets disparus : retirer l'asset
+    retain_objects: list[str] = []  # objets nouveaux : retenir en entier
     # False : décisions d'un seul objet, prises depuis l'aperçu de l'explorateur
     # raw — le point de reprise de la source n'avance pas (la revue de la source
     # le fait, une fois tout revu).
@@ -176,7 +176,11 @@ async def list_source_curation(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         objects = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             lambda wc: list_curation(wc, slug, read_tri_rules(wc, slug), show_excluded),
         )
     except WorkdirError as exc:
@@ -190,8 +194,11 @@ def _detail_payload(detail: CurationDetail) -> dict[str, object]:
         "title": detail.title,
         "fields": [
             {
-                "name": f.name, "type": f.type, "retained": f.retained,
-                "ref": f.ref, "missing": f.missing,
+                "name": f.name,
+                "type": f.type,
+                "retained": f.retained,
+                "ref": f.ref,
+                "missing": f.missing,
             }
             for f in detail.fields
         ],
@@ -214,7 +221,11 @@ async def get_source_curation_object(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         detail = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             lambda wc: get_object_detail(wc, slug, path, read_tri_rules(wc, slug)),
         )
     except WorkdirError as exc:
@@ -260,7 +271,11 @@ async def get_source_enrichment(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         view = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             lambda wc: read_enrichment(wc, slug, path),
         )
     except WorkdirError as exc:
@@ -271,7 +286,11 @@ async def get_source_enrichment(
 
 
 def _target(
-    workdir: DraftWorkdir, space: GitSpace, branch_slug: str, username: str, token: str | None,
+    workdir: DraftWorkdir,
+    space: GitSpace,
+    branch_slug: str,
+    username: str,
+    token: str | None,
     user: User,
 ) -> CurationTarget:
     return CurationTarget(workdir, space, branch_slug, username, token, user.email)
@@ -291,12 +310,19 @@ async def enrich_source_asset(
     _check(slug, body.path)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    object_values = body.obj.model_dump() if body.obj is not None else None
-    field_values = {name: values.model_dump() for name, values in body.fields.items()}
+    # Seules les clés envoyées changent : la fenêtre de rédaction de la page
+    # Curation n'envoie que la description, sans effacer nom métier ni tags.
+    object_values = body.obj.model_dump(exclude_unset=True) if body.obj is not None else None
+    field_values = {
+        name: values.model_dump(exclude_unset=True) for name, values in body.fields.items()
+    }
     try:
         result = await curation_actions.enrich(
             _target(workdir, space, branch_slug, username, token, user),
-            slug, body.path, object_values, field_values,
+            slug,
+            body.path,
+            object_values,
+            field_values,
         )
     except AssetNotRetainedError as exc:
         raise ApiError("asset_not_retained", status_code=404, path=exc.path) from None
@@ -323,14 +349,19 @@ async def retain_source_asset(
     try:
         result = await curation_actions.retain(
             _target(workdir, space, branch_slug, username, token, user),
-            slug, body.path, body.fields,
+            slug,
+            body.path,
+            body.fields,
         )
     except AssetOriginMissingError as exc:
         raise ApiError("asset_origin_missing", status_code=404, path=exc.path) from None
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     log.info(
-        "curation_retain", author=user.email, slug=slug, path=body.path,
+        "curation_retain",
+        author=user.email,
+        slug=slug,
+        path=body.path,
         fields=("all" if body.fields is None else len(body.fields)),
     )
     return {"ok": True, "commit": result.revision}
@@ -439,7 +470,11 @@ async def get_source_rules(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         rules = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             lambda wc: read_tri_rules_raw(wc, slug),
         )
     except WorkdirError as exc:
@@ -465,7 +500,8 @@ async def set_source_rules(
     try:
         result, cleaned = await curation_actions.set_tri_rules(
             _target(workdir, space, branch_slug, username, token, user),
-            slug, [rule.model_dump() for rule in body.rules],
+            slug,
+            [rule.model_dump() for rule in body.rules],
         )
     except curation_actions.RulesInvalidError as exc:
         # Motif / cible / genre invalide → refus nommant la règle (triage[i]:...).
@@ -491,7 +527,9 @@ def _review_object_payload(obj: ReviewObject) -> dict[str, object]:
         "status": obj.status,
         "fields": [
             {
-                "name": f.name, "change": f.change, "type": f.type,
+                "name": f.name,
+                "change": f.change,
+                "type": f.type,
                 "lost_enrichment": f.lost_enrichment,
             }
             for f in obj.fields
@@ -516,7 +554,11 @@ async def get_source_review(
     raw_rel = f"{source_rel_dir(slug)}/{RAW_DIR}"
     try:
         head_sha, base_sha, raw_base_text, bundle = await workdir.review_inputs(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             raw_rel,
             lambda wc: read_review_point(wc, slug),
             lambda wc: (read_source_trees(wc, slug), read_tri_rules(wc, slug)),
@@ -569,7 +611,10 @@ async def apply_source_review(
     try:
         result = await curation_actions.apply_review(
             _target(workdir, space, branch_slug, username, token, user),
-            slug, body.head_sha, decisions, advance=body.advance,
+            slug,
+            body.head_sha,
+            decisions,
+            advance=body.advance,
         )
         commit = result.revision
     except WorkdirError as exc:
@@ -578,10 +623,16 @@ async def apply_source_review(
         raise _workdir_error(exc) from None
     # Journalisation de la revue validée : auteur, source, volume des décisions.
     log.info(
-        "curation_review_apply", author=user.email, slug=slug, commit=commit,
-        apply=len(body.apply_fields), take=len(body.take_fields),
-        remove=len(body.remove_fields), remove_objects=len(body.remove_objects),
-        retain=len(body.retain_objects), advance=body.advance,
+        "curation_review_apply",
+        author=user.email,
+        slug=slug,
+        commit=commit,
+        apply=len(body.apply_fields),
+        take=len(body.take_fields),
+        remove=len(body.remove_fields),
+        remove_objects=len(body.remove_objects),
+        retain=len(body.retain_objects),
+        advance=body.advance,
     )
     return {"ok": True, "commit": commit}
 

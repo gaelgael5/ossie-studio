@@ -660,6 +660,41 @@ export interface CurationObjectDetail {
   fields: CurationField[]
 }
 
+export interface CurationAssetSummary {
+  source: string
+  path: string
+  title: string
+  kind: string
+  parser: string
+  origin: string
+  folder: string
+  property_count: number
+  raw_fields: number
+  undescribed: number
+  described: boolean
+  modified: boolean
+  orphan: boolean
+  property_names: string[]
+}
+
+export interface CurationAssetProperty {
+  name: string
+  business_name: string
+  type: string
+  format: string
+  max_length: number | null
+  ref: { source: string; path: string; title: string; kind: string; retained: boolean } | null
+  external: string
+  description: string
+  missing: boolean
+}
+
+export interface CurationAssetDetail extends CurationAssetSummary {
+  description: string
+  business_name: string
+  properties: CurationAssetProperty[]
+}
+
 export interface EnrichValues {
   business_name: string
   description: string
@@ -1258,6 +1293,33 @@ export const api = {
   getCurationObject: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<CurationObjectDetail>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/object?path=${encodeURIComponent(path)}`,
+    ),
+  listCurationAssets: (spaceId: string, branchId: string) =>
+    apiFetch<{ sources: { slug: string; label: string }[]; assets: CurationAssetSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/curation-assets`,
+    ),
+  getCurationAsset: (spaceId: string, branchId: string, source: string, path: string) =>
+    apiFetch<CurationAssetDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/curation-assets/asset?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+    ),
+  getCurationAssetHistory: (spaceId: string, branchId: string, source: string, path: string) =>
+    apiFetch<{ commits: { sha: string; author: string; date: string; message: string }[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/curation-assets/asset/history?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+    ),
+  /** Écrit les seules clés données (les autres restent telles quelles). */
+  describeAsset: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    body: {
+      path: string
+      obj?: Partial<EnrichValues>
+      fields?: Record<string, Partial<EnrichValues>>
+    },
+  ) =>
+    apiFetch<{ ok: boolean; commit: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/enrich`,
+      { method: 'PUT', body: JSON.stringify(body) },
     ),
   getEnrichment: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<EnrichView>(

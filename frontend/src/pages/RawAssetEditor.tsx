@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api, sessionCapabilities } from '../apiClient'
@@ -14,7 +15,9 @@ import { EyeIcon } from './RawPreview'
 // sur l'œil — sans passer par la page Curation. Mêmes appels que la curation
 // (retain / remove) : l'asset s'écrit dans le brouillon, capacité curation:write.
 // Créer un asset retient TOUS les champs (comme « Retenir tout ») : on masque
-// ensuite ceux qu'on ne veut pas, d'un clic sur l'œil.
+// ensuite ceux qu'on ne veut pas, d'un clic sur l'œil. Sur un objet pas encore
+// retenu, un clic sur l'œil crée l'asset avec ce seul champ (ticket 71dc6859) ;
+// masquer le dernier champ exposé retire l'asset, donc demande confirmation.
 
 interface AssetEditor {
   canWrite: boolean
@@ -26,6 +29,11 @@ interface AssetEditor {
   createWithChildren: () => void
   remove: () => void
   toggle: (field: string) => void
+  /** Confirmation du retrait en cours (bouton « Retirer » ou dernier œil masqué). */
+  confirming: 'asset' | 'lastField' | null
+  setConfirming: (value: 'asset' | 'lastField' | null) => void
+  /** Page Curation de l'asset (assets retenus et rédaction de leurs descriptions). */
+  curationHref: string
 }
 
 const AssetEditorContext = createContext<AssetEditor | null>(null)
@@ -48,6 +56,7 @@ export function AssetEditorProvider({
   const canWrite = sessionCapabilities(session.data).includes('curation:write')
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
+  const [confirming, setConfirming] = useState<'asset' | 'lastField' | null>(null)
   const refresh = async () => {
     setMessages([])
     await Promise.all(
@@ -104,11 +113,27 @@ export function AssetEditorProvider({
     create: () => retain.mutate(null),
     children: pendingChildren,
     createWithChildren: () => retainFamily.mutate(),
-    remove: () => drop.mutate(),
-    toggle: (field) =>
-      retain.mutate(
-        exposed.includes(field) ? exposed.filter((f) => f !== field) : [...exposed, field],
-      ),
+    remove: () => {
+      setConfirming(null)
+      drop.mutate()
+    },
+    toggle: (field) => {
+      if (!detail.exposure.retained) {
+        retain.mutate([field])
+        return
+      }
+      if (exposed.includes(field)) {
+        // Un asset sans aucun champ n'a pas de sens : masquer le dernier champ
+        // revient à retirer l'asset, ce qui fait perdre son enrichissement.
+        if (exposed.length === 1) setConfirming('lastField')
+        else retain.mutate(exposed.filter((f) => f !== field))
+        return
+      }
+      retain.mutate([...exposed, field])
+    },
+    confirming,
+    setConfirming,
+    curationHref: `/curation?${new URLSearchParams({ source: slug, path: detail.file }).toString()}`,
   }
   return (
     <AssetEditorContext.Provider value={editor}>
@@ -118,11 +143,11 @@ export function AssetEditorProvider({
   )
 }
 
-/** Œil d'un champ : un bouton quand l'asset existe et qu'on peut l'écrire, un indicateur sinon. */
+/** Œil d'un champ : un bouton quand on peut écrire l'asset (le premier clic le crée), un indicateur sinon. */
 export function EyeCell({ name, exposed }: { name: string; exposed: boolean }) {
   const { t } = useTranslation()
   const editor = useContext(AssetEditorContext)
-  if (!editor?.canWrite || !editor.retained) return <EyeIcon exposed={exposed} />
+  if (!editor?.canWrite) return <EyeIcon exposed={exposed} />
   return (
     <button
       type="button"
@@ -142,7 +167,6 @@ export function EyeCell({ name, exposed }: { name: string; exposed: boolean }) {
 export function AssetButton() {
   const { t } = useTranslation()
   const editor = useContext(AssetEditorContext)
-  const [confirming, setConfirming] = useState(false)
   const [choosing, setChoosing] = useState(false)
   if (!editor?.canWrite) return null
   if (!editor.retained) {
@@ -210,28 +234,33 @@ export function AssetButton() {
       </span>
     )
   }
-  if (!confirming) {
+  if (!editor.confirming) {
     return (
-      <button type="button" className="btn btn-sm" onClick={() => setConfirming(true)}>
-        {t('rawRemoveAsset')}
-      </button>
+      <span className="raw-asset-actions">
+        <Link className="btn btn-sm" to={editor.curationHref}>
+          {t('rawOpenInCuration')}
+        </Link>{' '}
+        <button type="button" className="btn btn-sm" onClick={() => editor.setConfirming('asset')}>
+          {t('rawRemoveAsset')}
+        </button>
+      </span>
     )
   }
   return (
     <span className="raw-asset-confirm" role="alertdialog" aria-label={t('rawRemoveAsset')}>
-      <span className="small">{t('rawRemoveAssetConfirm')}</span>{' '}
+      <span className="small">
+        {editor.confirming === 'lastField' ? `${t('rawRemoveLastField')} ` : ''}
+        {t('rawRemoveAssetConfirm')}
+      </span>{' '}
       <button
         type="button"
         className="btn btn-sm btn-danger"
         disabled={editor.pending}
-        onClick={() => {
-          setConfirming(false)
-          editor.remove()
-        }}
+        onClick={editor.remove}
       >
         {t('rawRemoveAssetYes')}
       </button>{' '}
-      <button type="button" className="btn btn-sm" onClick={() => setConfirming(false)}>
+      <button type="button" className="btn btn-sm" onClick={() => editor.setConfirming(null)}>
         {t('cancelEdit')}
       </button>
     </span>

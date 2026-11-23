@@ -582,15 +582,36 @@ describe('RawExplorer', () => {
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
     const retain = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
     expect(JSON.parse(retain.body!)).toEqual({ path: 'order.json', fields: ['id', 'customer'] })
-    await user.click(screen.getByRole('button', { name: 'Masquer le champ id' }))
-    await waitFor(() =>
-      expect(calls.bodies.filter((b) => b.url.endsWith('/curation/retain')).length).toBe(2),
+    // Lien vers la page Curation de l'asset.
+    expect(screen.getByRole('link', { name: 'Ouvrir dans la Curation' })).toHaveAttribute(
+      'href',
+      '/curation?source=app&path=order.json',
     )
-    const hide = calls.bodies.filter((b) => b.url.endsWith('/curation/retain'))[1]
-    expect(JSON.parse(hide.body!).fields).toEqual([])
+    // id est le dernier champ exposé : le masquer retire l'asset, après confirmation.
+    await user.click(screen.getByRole('button', { name: 'Masquer le champ id' }))
+    const confirm = screen.getByRole('alertdialog', { name: 'Retirer l’asset' })
+    expect(confirm).toHaveTextContent('C’est le dernier champ exposé')
+    expect(confirm).toHaveTextContent('gouvernance (tags)')
+    expect(calls.bodies.filter((b) => b.url.endsWith('/curation/retain')).length).toBe(1)
+    await user.click(within(confirm).getByRole('button', { name: 'Annuler' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(calls.bodies.some((b) => b.url.endsWith('/curation/remove'))).toBe(false)
     await user.click(screen.getByRole('button', { name: 'Retirer l’asset' }))
     await user.click(screen.getByRole('button', { name: 'Retirer' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/remove'))).toBe(true))
+  })
+
+  it('objet non retenu : un clic sur l’œil crée l’asset avec ce seul champ', async () => {
+    SESSION_CAPS.value = ['curation:write']
+    DETAIL_OVERRIDE.value = { exposure: { retained: false, exposed: 0, hidden: 3, missing: [] } }
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
+    await screen.findByText('Une commande du client.')
+    await user.click(screen.getByRole('button', { name: 'Exposer le champ customer' }))
+    await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
+    const sent = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
+    expect(JSON.parse(sent.body!)).toEqual({ path: 'order.json', fields: ['customer'] })
   })
 
   it('objet non retenu : « Créer un asset » retient tous les champs', async () => {
@@ -600,7 +621,6 @@ describe('RawExplorer', () => {
     const user = userEvent.setup()
     renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.json')
     await screen.findByText('Une commande du client.')
-    expect(screen.queryByRole('button', { name: /Exposer le champ/ })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Créer un asset' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/curation/retain'))).toBe(true))
     const sent = calls.bodies.find((b) => b.url.endsWith('/curation/retain'))!
