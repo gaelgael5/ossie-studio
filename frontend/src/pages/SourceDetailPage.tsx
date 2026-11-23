@@ -13,6 +13,7 @@ import { CollectChecklist } from '../components/CollectChecklist'
 import { CollectErrorCause, splitScanMessage } from '../components/CollectErrorCause'
 import { useWorkspace } from '../workspace'
 import { exclusionsOf } from '../sourceExclusions'
+import { SourceExclusions } from '../components/SourceExclusions'
 
 const LINKABLE_TABS: string[] = ['overview', 'contrats', 'collectes', 'scan', 'manifeste']
 
@@ -192,6 +193,17 @@ export function SourceDetailPage() {
             <p className="muted">{t('sourceInError')}</p>
           )}
         </div>
+      ) : null}
+      {effectiveTab === 'overview' && source?.ok && source.type === 'git' ? (
+        <SourceExclusions
+          spaceId={ws.spaceId as string}
+          branchId={ws.branchId as string}
+          source={source}
+          onRecollect={() => {
+            setTab('collectes')
+            collect.start(false)
+          }}
+        />
       ) : null}
 
       {effectiveTab === 'contrats' ? (

@@ -9,7 +9,9 @@ import structlog
 
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.models import GitSpace
+from ossie_studio.sources.exclusion_prune import prune_excluded_raw
 from ossie_studio.sources.manifest import (
+    GIT_TYPE,
     ManifestError,
     SourceManifest,
     dump_manifest,
@@ -84,8 +86,17 @@ def _write_manifest_fn(manifest: SourceManifest, *, must_be_new: bool) -> Callab
             raise SourceNotFoundError(manifest.slug)
         target.mkdir(parents=True, exist_ok=True)
         (target / MANIFEST_FILENAME).write_text(dump_manifest(manifest), encoding="utf-8")
+        if manifest.type == GIT_TYPE:
+            # Dans la même écriture : un objet venu d'un répertoire exclu sort
+            # aussitôt du brouillon (ticket docflow 64e7b42f).
+            prune_excluded_raw(workdir, manifest.slug, _exclusions(manifest))
 
     return write
+
+
+def _exclusions(manifest: SourceManifest) -> list[str]:
+    value = manifest.parameters.get("exclusions")
+    return [str(v) for v in value] if isinstance(value, list) else []
 
 
 def _remove_source_fn(slug: str) -> Callable[[Path], None]:

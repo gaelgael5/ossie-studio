@@ -9,7 +9,14 @@ from fastapi import FastAPI
 from ossie_studio.models import GitSpace
 from ossie_studio.parsers.demo import _key_from_path
 from ossie_studio.sources.collect import SourceCollector
+from ossie_studio.sources.collect_core import (
+    TechEntry,
+    TechManifest,
+    dump_tech_manifest,
+    parse_tech_manifest,
+)
 from ossie_studio.sources.download import SourceDownloader
+from ossie_studio.sources.exclusion_prune import prune_excluded_raw
 from tests.draft_helpers import DraftCollector, draft_workdir, view_dir
 
 
@@ -295,6 +302,80 @@ async def test_collect_sql_signale_les_schemas_inaccessibles(
     engine = _FakeEngine([], errors=[("prive", "insufficient_privilege")])
     report = await _collect_sql(collector, space, engine)
     assert any(e.source == "prive" for e in report.errors)
+
+
+async def test_exclusion_retire_tout_de_suite_coherente_avec_la_collecte(
+    setup: tuple[DraftCollector, GitSpace, Path, Path],
+) -> None:
+    """Ticket 64e7b42f : exclure retire aussitôt du brouillon schémas et documents
+    du répertoire ; la collecte suivante (avec l'exclusion) n'a plus rien à faire."""
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    src, _ = _make_bare_with(
+        tmp_path,
+        "src",
+        {
+            "a.schema.json": _schema("A"),
+            "tests/t.schema.json": _schema("T"),
+            "tests/README.md": "# Tests\n",
+            "README.md": "# Racine\n",
+        },
+    )
+    await _collect(collector, space, src)
+    raw = _raw(tmp_path, space)
+    tests_schema = f"{_key_from_path('tests/t.schema.json')}.json"
+    assert (raw / tests_schema).is_file() and (raw / "docs" / "tests" / "README.md").is_file()
+
+    removed: list[str] = []
+
+    def exclude(wc: Path) -> None:
+        removed.extend(prune_excluded_raw(wc, "api", ["tests"]))
+
+    async def write() -> None:
+        await collector.dw.commit_to_branch(
+            space.id, "work/principale", space.repo_url, "x", None, "a@a", "a@a", "exclut", exclude
+        )
+
+    await write()
+    assert sorted(removed) == sorted([tests_schema, "docs/tests/README.md"])
+    raw = _raw(tmp_path, space)
+    assert not (raw / tests_schema).exists()
+    assert not (raw / "docs" / "tests" / "README.md").exists()
+    assert (raw / "a.json").is_file() and (raw / "docs" / "README.md").is_file()
+    assert "tests/README.md" not in (raw / "docs-index.yaml").read_text()
+    # Idempotent : rien de plus à retirer.
+    removed.clear()
+    await write()
+    assert removed == []
+    # La collecte suivante, exclusion comprise, n'a plus rien à retirer.
+    report = await _collect(collector, space, src, exclusions=["tests"])
+    assert report.deleted == 0 and report.local_commit is None
+
+
+def test_exclusion_garde_un_schema_partage_et_suit_la_regle_de_la_collecte(
+    tmp_path: Path,
+) -> None:
+    raw = tmp_path / "sources" / "api" / "raw"
+    raw.mkdir(parents=True)
+    for name in ("a.json", "t.json", "g.json", "s.json"):
+        (raw / name).write_text("{}")
+    manifest = TechManifest(
+        entries={
+            "src/A.cs": TechEntry("x", ["a.json"], "main", "csharp"),
+            "tests/A.Part.cs": TechEntry("x", ["a.json"], "main", "csharp"),  # classe partielle
+            "tests/T.cs": TechEntry("x", ["t.json"], "main", "csharp"),
+            "src/Gen/G.g.cs": TechEntry("x", ["g.json"], "main", "csharp"),
+            "src/Lib/S.cs": TechEntry("x", ["s.json"], "main", "csharp"),
+        }
+    )
+    (raw / "manifest-csharp.yaml").write_text(dump_tech_manifest(manifest))
+    removed = prune_excluded_raw(tmp_path, "api", ["tests", "src/Lib", "**/*.g.cs"])
+    assert sorted(removed) == ["g.json", "s.json", "t.json"]
+    assert (raw / "a.json").is_file()  # encore produit par src/A.cs
+    left = parse_tech_manifest((raw / "manifest-csharp.yaml").read_text())
+    assert sorted(left.entries) == ["src/A.cs"]
+    assert prune_excluded_raw(tmp_path, "api", ["tests"]) == []
+    assert prune_excluded_raw(tmp_path, "absente", ["tests"]) == []
 
 
 async def test_repertoire_exclu_retire_a_la_collecte_suivante(

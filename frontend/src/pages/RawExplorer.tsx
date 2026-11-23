@@ -26,6 +26,7 @@ import { errorMessages } from '../errors'
 import { ApiRequestError } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { BusyButton } from '../components/BusyButton'
+import { refreshRawQueries } from '../components/SourceExclusions'
 import { RawPreview, TagBadges, VisibilityBadge, isObjectSelection } from './RawPreview'
 import { RefMenu } from './RawRefMenu'
 import { RawGraph } from './RawGraph'
@@ -1074,7 +1075,9 @@ function ExclusionBar({
     onSuccess: async () => {
       setConfirming(false)
       setMessages([])
-      await queryClient.invalidateQueries({ queryKey: ['sources'] })
+      // Exclure retire aussitôt les objets du répertoire de mon brouillon
+      // (ticket docflow 64e7b42f) : arbre, compteurs et barre du brouillon suivent.
+      await refreshRawQueries(queryClient)
     },
     onError: (err) => setMessages(errorMessages(t, err)),
   })

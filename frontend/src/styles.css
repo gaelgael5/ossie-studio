@@ -2367,3 +2367,8 @@ td .raw-ref-menu {
   font-family: var(--mono);
   font-size: 0.8rem;
 }
+
+/* Exclusions par défaut d'une source : rappel, non retirables. */
+.exclusion-default {
+  margin-right: 6px;
+}
