@@ -1413,7 +1413,8 @@ input[type='radio'] {
    étiquettes du plan : pas de pictogrammes à maintenir. */
 /* L'explorateur prend toute la largeur de la fenêtre (la page reste bornée à
    1200px ailleurs) : un dépôt se lit mieux avec de la place. */
-.page:has(.raw-explorer) {
+.page:has(.raw-explorer),
+.page:has(.oas) {
   max-width: none;
 }
 .raw-explorer {
@@ -3140,4 +3141,36 @@ td.cell-error {
 .oas-node-response.oas-tone-bad rect {
   fill: var(--ko-bg);
   stroke: var(--ko);
+}
+/* Liens du graphe d'une action : libellé abrégé, complet au survol / clic. */
+.oas-edge {
+  cursor: pointer;
+}
+.oas-edge .oas-edge-hit {
+  stroke: transparent;
+  stroke-width: 12;
+}
+.oas-edge text {
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+}
+.oas-edge.hot path:not(.oas-edge-hit) {
+  stroke: var(--primary);
+  stroke-width: 2.5;
+}
+.oas-edge.hot text {
+  fill: var(--text);
+  font-weight: 600;
+}
+/* Nœud de la méthode cliquable : ouvre le graphe du corps (ticket c62f94e9). */
+.oas-node-op.oas-node-clickable {
+  cursor: pointer;
+}
+.oas-node-op.oas-node-clickable:hover rect {
+  stroke-width: 3;
+}
+.oas-node-mark {
+  font-size: 12px;
+  fill: var(--primary);
 }

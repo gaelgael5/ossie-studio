@@ -516,6 +516,8 @@ export type RawContractSchema =
 export interface RawContractContent {
   media?: string
   schema?: RawContractSchema | null
+  /** Objet décrit en ligne : sa clé dans `schemas` (« ~body:0 ») et sa cardinalité. */
+  inline?: { key: string; card: string } | null
 }
 
 export interface RawContractOperation {
@@ -545,6 +547,9 @@ export interface RawContractObject {
   shape: RawContractSchema
   extends: string[]
   properties: { name: string; required: boolean; description: string; schema: RawContractSchema }[]
+  /** Corps ou réponse décrit en ligne dans une action (ticket c62f94e9). */
+  inline?: 'body' | 'response'
+  code?: string
 }
 
 export interface RawContractDetail extends RawContractItem {

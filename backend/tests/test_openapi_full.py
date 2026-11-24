@@ -301,14 +301,83 @@ components:
             poids: {type: number}
             suivant: {$ref: '#/components/schemas/Colis'}
             etat: {type: string, enum: [OK, KO]}
+            depot:
+              allOf:
+                - $ref: '#/components/schemas/Base'
+                - description: Le dépôt.
 """
     )
     detail = readable_contract(doc, {"Colis": "c.schema.yaml"})["schemas"]["Colis"]
     assert detail["description"] == "Un colis." and detail["file"] == "c.schema.yaml"
     assert detail["extends"] == ["Base"]
     props = {p["name"]: p for p in detail["properties"]}
-    assert set(props) == {"id", "poids", "suivant", "etat"}
+    assert set(props) == {"id", "poids", "suivant", "etat", "depot"}
+    # Une référence décrite (`allOf` d'une référence et d'une description) se lit
+    # comme la référence seule.
+    assert props["depot"]["schema"] == {"kind": "ref", "name": "Base", "file": ""}
     assert props["id"]["required"] is True and props["id"]["description"] == "Identifiant"
     assert props["suivant"]["schema"] == {"kind": "ref", "name": "Colis", "file": "c.schema.yaml"}
     assert props["etat"]["schema"]["enum"] == ["OK", "KO"]
     assert detail["shape"]["kind"] == "object"
+
+
+def test_corps_et_reponse_en_ligne_deviennent_des_objets_consultables() -> None:
+    doc = yaml.safe_load(
+        """openapi: 3.0.3
+info: {title: AMS, version: '1.2'}
+paths:
+  /event:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transactions]
+              properties:
+                transactions:
+                  type: array
+                  items: {$ref: '#/components/schemas/Transaction'}
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: {type: string, description: Numéro}
+        '400':
+          description: ko
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Transaction'}
+components:
+  schemas:
+    Transaction:
+      type: object
+      properties:
+        code: {type: string}
+"""
+    )
+    view = readable_contract(doc, {})
+    (op,) = view["operations"]
+    assert op["body"]["inline"] == {"key": "~body:0", "card": "1"}
+    body = view["schemas"]["~body:0"]
+    assert body["inline"] == "body"
+    (prop,) = body["properties"]
+    assert prop["name"] == "transactions" and prop["required"] is True
+    assert prop["schema"] == {
+        "kind": "list",
+        "of": {"kind": "ref", "name": "Transaction", "file": ""},
+    }
+    ok, ko = op["responses"]
+    assert ok["inline"] == {"key": "~resp:0:200", "card": "n"}
+    assert view["schemas"]["~resp:0:200"]["code"] == "200"
+    assert view["schemas"]["~resp:0:200"]["properties"][0]["description"] == "Numéro"
+    # Une référence nommée reste une référence : pas d'objet en ligne.
+    assert ko["inline"] is None
+    assert [o["name"] for o in view["objects"]] == ["Transaction"]
