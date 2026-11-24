@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -65,6 +65,13 @@ export function LoginPage() {
   // la déduire de `leaving` relançait le fondu à la fin du travelling (le
   // formulaire disparaissait puis réapparaissait — retour de Gael du 24/11).
   const [arrival, setArrival] = useState<'login-fade' | 'login-entering'>('login-fade')
+  // Focus du mot de passe une fois le travelling fini, sans défilement : donné
+  // à l'arrivée (autoFocus), il faisait défiler la scène vers le champ encore
+  // hors écran (mesuré au navigateur headless).
+  const passwordRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!leaving) passwordRef.current?.focus({ preventScroll: true })
+  }, [leaving, step])
   // Où revenir une fois connecté (ex. l'écran de consentement d'un client MCP).
   const next = safeNext(searchParams.get('next'))
 
@@ -215,7 +222,7 @@ export function LoginPage() {
               type="password"
               className="input"
               autoComplete="current-password"
-              autoFocus
+              ref={passwordRef}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

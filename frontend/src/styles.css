@@ -1077,7 +1077,11 @@ input[type='radio'] {
   grid-template-columns: minmax(0, 1fr);
   justify-items: center;
   align-content: center;
+  /* « clip » et non « hidden » : un conteneur « hidden » peut défiler, et le
+     focus donné au formulaire encore hors écran le faisait défiler (les deux
+     cartes décalées pendant le travelling). « hidden » reste en repli. */
   overflow-x: hidden;
+  overflow-x: clip;
   /* 56 px de barre haute + 2 × 24 px de marge de .page : pas de défilement. */
   min-height: calc(100dvh - 104px);
   box-sizing: border-box;
