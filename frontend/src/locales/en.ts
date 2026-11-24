@@ -1532,7 +1532,7 @@ export const en = {
     rawContractTileSub: '{{count}} operation(s)',
     rawKindContract: 'Full OpenAPI contract',
     rawContract: {
-      modelOf: 'The model of {{name}}',
+      modelOf: 'Model: {{name}}',
       showBody: 'See the body of this action',
       bodyTitle: 'The body of the method',
       bodyClose: 'Back to the list of objects',

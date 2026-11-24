@@ -1534,7 +1534,7 @@ export const fr = {
     rawContractTileSub: '{{count}} opération(s)',
     rawKindContract: 'Contrat OpenAPI complet',
     rawContract: {
-      modelOf: 'Le modèle de {{name}}',
+      modelOf: 'Modèle : {{name}}',
       showBody: 'Voir le corps de cette action',
       bodyTitle: 'Le corps de la méthode',
       bodyClose: 'Revenir à la liste des objets',

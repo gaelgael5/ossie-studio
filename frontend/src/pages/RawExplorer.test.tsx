@@ -1130,11 +1130,11 @@ describe('RawExplorer', () => {
     // Un élément du graphe porte son modèle ; un autre le met à jour ; une
     // réponse sans objet efface le bloc.
     await user.click(screen.getByRole('button', { name: 'Ça a marché' }))
-    expect(screen.getByText('Le modèle de Ça a marché (200)')).toBeInTheDocument()
+    expect(screen.getByText('Modèle : Ça a marché (200)')).toBeInTheDocument()
     await user.click(screen.getAllByRole('button', { name: 'Pet' })[0])
-    expect(screen.getByText('Le modèle de Pet')).toBeInTheDocument()
+    expect(screen.getByText('Modèle : Pet')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Introuvable' }))
-    expect(screen.queryByText(/^Le modèle de/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Modèle :/)).not.toBeInTheDocument()
     expect(screen.getByText('Les objets de ce contrat')).toBeInTheDocument()
     // Clic sur une autre action : son détail remplace le précédent, l'adresse ne change pas.
     const before = screen.getByTestId('loc').textContent
