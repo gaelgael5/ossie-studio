@@ -34,4 +34,45 @@ self.MonacoEnvironment = {
 
 loader.config({ monaco })
 
+/**
+ * Le thème de **tous** les éditeurs Monaco de l'application (ticket 46cf70a6) :
+ * sombre, aux couleurs de la maquette, déclaré ici seulement. Un éditeur le prend
+ * par `theme={MONACO_THEME}` et ne passe jamais ses propres couleurs (un réglage
+ * éditeur par éditeur finirait par donner des écrans qui ne se ressemblent plus).
+ * Les jetons non listés suivent le thème sombre standard de Monaco.
+ */
+export const MONACO_THEME = 'ossie-dark'
+
+export const MONACO_THEME_COLORS = {
+  background: '#1e1e1e',
+  lineNumber: '#6e7681',
+  key: '#9cdcfe',
+  string: '#ce9178',
+  number: '#b5cea8',
+  keyword: '#569cd6',
+  comment: '#6a9955',
+}
+
+const hex = (color: string) => color.slice(1)
+const c = MONACO_THEME_COLORS
+monaco.editor.defineTheme(MONACO_THEME, {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [
+    // Jetons de la coloration YAML de Monaco : clé = `type`, booléens et `null` = `keyword` ;
+    // `number` couvre aussi `number.float`, `number.date`…
+    { token: 'type', foreground: hex(c.key) },
+    { token: 'string', foreground: hex(c.string) },
+    { token: 'number', foreground: hex(c.number) },
+    { token: 'keyword', foreground: hex(c.keyword) },
+    { token: 'comment', foreground: hex(c.comment), fontStyle: 'italic' },
+  ],
+  colors: {
+    'editor.background': c.background,
+    'editorGutter.background': c.background,
+    'editorLineNumber.foreground': c.lineNumber,
+    'editorLineNumber.activeForeground': '#c6c6c6',
+  },
+})
+
 export { monaco }

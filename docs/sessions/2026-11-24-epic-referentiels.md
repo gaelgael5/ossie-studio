@@ -30,6 +30,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | cda9c43a — Onglet Imports | En review |
 | a909dc66 — Importer des valeurs depuis un fichier (écran et web API) | En dev — écran et route faits ; import par **clé d'API de service** en attente de Gael (voir plus bas) |
 | e65b590b — Service MCP de lecture des référentiels publiés | En review (fait avec l'API) |
+| 46cf70a6 — Thème sombre pour tous les éditeurs Monaco | En review |
 | e80f0cad — Clôture | avec Gael |
 
 ## Notes techniques (format)
@@ -77,3 +78,9 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - Journal : `referentiels/import_journal.py`, une ligne du journal d'audit par import (type `referentiel_import`, objet `<branche>/<référentiel>/<import>`, détail : `outcome` imported | unchanged | refused, `mode`, `file`, nombres du compte rendu, `revision`). La **date du dernier import** (et son auteur) se lit dans ce journal : rien n'est écrit dans les fichiers, donc un même fichier importé deux fois ne crée pas de second changement.
 - Frontend : `referentiels/ImportRunPanel.tsx` (pied du sous-onglet Template : mode, fichier d'exemple ou autre fichier, « Importer », confirmation avant remplacement, compte rendu, mention de la web API ; attend que le template affiché soit enregistré), `referentiels/ImportReport.tsx` (compte rendu partagé par l'essai et l'import).
 - **En attente de Gael** : une clé d'API de service n'a pas de personne derrière, donc pas de brouillon où écrire (règle du MCP en écriture : `draft_requires_person`). Écrire directement dans la version publiée est le cas « s'arrêter et demander » du ticket. La route marche aujourd'hui pour une personne connectée.
+
+## Notes techniques (thème sombre Monaco, 46cf70a6)
+
+- Thème `ossie-dark` (base `vs-dark`) déclaré **une seule fois** dans `frontend/src/monaco/setup.ts` (`MONACO_THEME`, couleurs de la maquette : fond `#1e1e1e`, numéros `#6e7681`, clés `#9cdcfe`, chaînes `#ce9178`, nombres `#b5cea8`, booléens et `null` `#569cd6`, commentaires `#6a9955`). Jetons de la coloration YAML de Monaco : clé = `type`, booléens / `null` = `keyword`.
+- Appliqué à **tous** les éditeurs Monaco : YAML du modèle et visionneuse de code du raw (arrivée de `dev`, auparavant en thème clair `vs`). Un test vérifie qu'aucun éditeur ne passe ses propres couleurs.
+- Cadre de l'éditeur YAML : rayon `var(--radius)` du design.

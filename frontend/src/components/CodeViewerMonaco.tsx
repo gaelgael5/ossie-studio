@@ -1,7 +1,7 @@
 import Editor from '@monaco-editor/react'
 // Monaco embarqué dans le bundle, jamais tiré d'un CDN (ticket a29fd1ec) : réglage
 // commun à toute l'application (coloration YAML comprise), voir `monaco/setup`.
-import '../monaco/setup'
+import { MONACO_THEME } from '../monaco/setup'
 
 const LINE_PX = 19
 
@@ -24,7 +24,7 @@ export default function CodeViewerMonaco({
         height={height}
         language="yaml"
         value={value}
-        theme="vs"
+        theme={MONACO_THEME}
         options={{
           // Lecture seule : le raw est régénéré par la collecte.
           readOnly: true,

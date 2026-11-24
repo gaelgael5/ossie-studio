@@ -1,6 +1,7 @@
 import Editor from '@monaco-editor/react'
 import { useTranslation } from 'react-i18next'
 
+import { MONACO_THEME } from '../monaco/setup'
 import { MODEL_URI_SUFFIX } from './monaco'
 
 /** Monaco pour le YAML du modèle, complété et vérifié à la frappe par monaco-yaml
@@ -22,6 +23,7 @@ export default function YamlEditor({
       <Editor
         height="560px"
         language="yaml"
+        theme={MONACO_THEME}
         // Le motif du fichier rattache le méta-schéma (voir monaco.ts).
         path={path.endsWith(MODEL_URI_SUFFIX) ? path : `${path}${MODEL_URI_SUFFIX}`}
         value={value}
