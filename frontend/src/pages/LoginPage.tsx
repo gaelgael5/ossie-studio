@@ -27,7 +27,7 @@ type Step = { kind: 'email' } | { kind: 'password' | 'choose'; connectors: Login
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 // Durée du travelling (doit suivre .login-leaving / .login-entering).
-const TRAVEL_MS = 1100
+const TRAVEL_MS = 1800
 
 function oidcHref(id: string, email: string, next: string | null): string {
   const params = new URLSearchParams({ login_hint: email })
@@ -61,11 +61,16 @@ export function LoginPage() {
   const [step, setStep] = useState<Step>({ kind: 'email' })
   // Écran de l'email qui sort pendant le travelling (null hors transition).
   const [leaving, setLeaving] = useState<ReactNode>(null)
+  // Animation d'arrivée de l'écran courant, figée jusqu'au changement d'écran :
+  // la déduire de `leaving` relançait le fondu à la fin du travelling (le
+  // formulaire disparaissait puis réapparaissait — retour de Gael du 24/11).
+  const [arrival, setArrival] = useState<'login-fade' | 'login-entering'>('login-fade')
   // Où revenir une fois connecté (ex. l'écran de consentement d'un client MCP).
   const next = safeNext(searchParams.get('next'))
 
   const goTo = (target: Step, outgoing: ReactNode) => {
     setLeaving(outgoing)
+    setArrival('login-entering')
     setStep(target)
     window.setTimeout(() => setLeaving(null), TRAVEL_MS)
   }
@@ -165,6 +170,7 @@ export function LoginPage() {
       onClick={() => {
         setMessages([])
         setPassword('')
+        setArrival('login-fade')
         setStep({ kind: 'email' })
       }}
     >
@@ -240,7 +246,7 @@ export function LoginPage() {
           page, travelling depuis la droite au passage au second écran. */}
       <main
         key={step.kind}
-        className={`panel auth-card stack ${leaving ? 'login-entering' : 'login-fade'}`}
+        className={`panel auth-card stack ${arrival}`}
       >
         <h1 className="page-title">{t('loginTitle')}</h1>
         <ErrorList messages={[...messages, ...oidcMessages]} />

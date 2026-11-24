@@ -95,6 +95,17 @@ describe('LoginPage — connexion en deux temps (ticket 145b1414)', () => {
     expect(await screen.findByLabelText('Adresse email')).toHaveValue('jean@pickup-services.com')
   })
 
+  it('après le travelling, le second écran ne refait pas de fondu', async () => {
+    setup({ next: 'password', connectors: [] })
+    await typeEmail('jean@ailleurs.org')
+    const card = (await screen.findByLabelText('Mot de passe')).closest('main')!
+    expect(card).toHaveClass('login-entering')
+    // L'écran de l'email sort, puis est retiré (fin du travelling, 1,8 s).
+    await waitFor(() => expect(document.querySelector('.login-leaving')).toBeNull(), { timeout: 3000 })
+    expect(card).toHaveClass('login-entering')
+    expect(card).not.toHaveClass('login-fade')
+  })
+
   it("affiche l'erreur rapportée par le retour OIDC", () => {
     setup({ next: 'password', connectors: [] }, '/login?error=oidc_email_unverified')
     expect(screen.getByRole('alert')).toBeInTheDocument()

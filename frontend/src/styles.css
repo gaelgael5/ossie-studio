@@ -1063,7 +1063,7 @@ input[type='radio'] {
  * puis repart vers la gauche ; pendant ce travelling vers la gauche […] arrive
  * sur la droite le deuxième formulaire. » Les deux cartes partagent la même
  * cellule de grille ; la scène coupe ce qui déborde à l'horizontale.
- * Durée totale du travelling : 1,1 s (TRAVEL_MS dans LoginPage.tsx).
+ * Durée totale du travelling : 1,8 s (TRAVEL_MS dans LoginPage.tsx).
  */
 .login-stage {
   display: grid;
@@ -1080,25 +1080,28 @@ input[type='radio'] {
 }
 .login-leaving {
   pointer-events: none;
-  animation: login-leave 1.1s ease-in-out both;
+  animation: login-leave 1.8s both;
 }
 .login-entering {
-  animation: login-enter 1.1s ease-in-out both;
+  animation: login-enter 1.8s both;
 }
 @keyframes login-fade {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-/* 0 → 30 % : 3 cm vers la droite ; 30 → 100 % : sortie par la gauche. */
+/* Gael (24/11) : « on doit voir l'écran aller sur environ 3 centimètres sur la
+   droite ». 0 → 35 % (0,6 s) : recul visible de 3 cm vers la droite, freiné en
+   fin de course ; 35 → 100 % (1,2 s) : départ vers la gauche, en s'effaçant. */
 @keyframes login-leave {
-  0% { transform: translateX(0); }
-  30% { transform: translateX(3cm); }
-  100% { transform: translateX(-100vw); }
+  0% { transform: translateX(0); opacity: 1; animation-timing-function: ease-out; }
+  35% { transform: translateX(3cm); opacity: 1; animation-timing-function: ease-in-out; }
+  100% { transform: translateX(-60vw); opacity: 0; }
 }
-/* Attend la fin du recul (30 %), puis entre par la droite pendant la sortie. */
+/* Le second écran attend la fin du recul, puis glisse depuis la droite
+   pendant que le premier part vers la gauche. */
 @keyframes login-enter {
-  0%, 30% { transform: translateX(100vw); }
-  100% { transform: translateX(0); }
+  0%, 35% { transform: translateX(60vw); opacity: 0; animation-timing-function: ease-out; }
+  100% { transform: translateX(0); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .login-fade, .login-leaving, .login-entering { animation: none; }
