@@ -400,6 +400,8 @@ const G_PAD = 20
 // Au-delà de ce nombre de liens, libellés abrégés (complets au survol ou au clic).
 const SHORT_LABELS_FROM = 8
 const SHORT_LABEL_CHARS = 9
+// Caractères qui tiennent dans l'écart entre deux colonnes (police mono 10 px).
+const FIT_LABEL_CHARS = 11
 
 type GNode = {
   id: string
@@ -610,8 +612,13 @@ function GraphCanvas({
     return { edges, pos, width, height, labelAtSource, short }
   }, [nodes, rawEdges])
   const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
+  // Abrégé quand les liens sont nombreux, et toujours quand le libellé ne tient
+  // pas dans l'écart entre deux colonnes (il passerait sous le nœud suivant) ;
+  // complet au survol ou au clic.
   const labelOf = (key: string, text: string) =>
-    !layout.short || key === hovered || pinned.has(key) ? text : cut(text, SHORT_LABEL_CHARS)
+    key === hovered || pinned.has(key)
+      ? text
+      : cut(text, layout.short ? SHORT_LABEL_CHARS : FIT_LABEL_CHARS)
   const togglePin = (key: string) =>
     setPinned((prev) => {
       const next = new Set(prev)
