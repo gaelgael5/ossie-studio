@@ -2824,3 +2824,10 @@ td .raw-ref-menu {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* Visionneuse de code (Monaco, ticket a29fd1ec). */
+.code-viewer {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}

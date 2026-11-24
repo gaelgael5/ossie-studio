@@ -26,6 +26,7 @@ import type {
 } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { CodeViewer } from '../components/CodeViewer'
 import { FieldRuleClasses } from '../components/FieldRuleClasses'
 
 // Panneau d'aperçu de l'explorateur raw : l'essentiel de l'élément sélectionné
@@ -329,7 +330,7 @@ function ObjectPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Prev
       {tab === 'enrichment' ? (
         <EnrichTab spaceId={spaceId} branchId={branchId} slug={slug} file={d.file} />
       ) : null}
-      {tab === 'json' ? <pre className="raw-json">{d.json}</pre> : null}
+      {tab === 'json' ? <CodeViewer value={d.json} label={d.file} maxHeight={480} /> : null}
       {tab === 'documents' ? (
         d.documents.length === 0 ? (
           <p className="muted">{t('rawNoCitingDocument')}</p>
