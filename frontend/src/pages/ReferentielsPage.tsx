@@ -13,6 +13,7 @@ import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
 import SchemaEditor from '../referentiels/SchemaEditor'
 import { ValuesTab } from '../referentiels/ValuesTab'
+import { ImportsTab } from '../referentiels/ImportsTab'
 import {
   type KeyViolation,
   type RefModel,
@@ -242,7 +243,9 @@ function ReferentielView({
           />
         </div>
       ) : null}
-      {data && tab === 'imports' ? <p className="empty-note">{t('refTabSoon')}</p> : null}
+      {data && tab === 'imports' ? (
+        <ImportsTab spaceId={spaceId} branchId={branchId} name={name} readOnly={data.readonly || !canWrite} />
+      ) : null}
       {tab === 'history' ? <HistoryTab spaceId={spaceId} branchId={branchId} name={name} /> : null}
     </div>
   )

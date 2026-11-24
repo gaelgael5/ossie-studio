@@ -15,6 +15,8 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - **Droits** (« oui vas-y ») : capacités **« Référentiels : consulter / modifier »** (`referentiels:read` / `referentiels:write`, par espace) ; l'API de lecture publiée et les primitives MCP utilisent `referentiels:read`.
 - **Éditeur de Miles et React 19** (« B, vas-y ») : `jsonjoy-builder` exige React 19 (ossie-studio est en 18.3) ; on embarque une **copie corrigée** (`frontend/vendor/jsonjoy-builder-1.0.4-89529b6-react18.tgz`, deux `Context.Provider`) et le passage en React 19 est un ticket à part : **c3e24590** (socle technique, à planifier avec Gael et l'autre agent).
 - **Supprimer une valeur** (« oui, vas-y ») : bouton « Supprimer » dans le panneau ; la ligne est marquée « supprimée » jusqu'à « Enregistrer » ; « Annuler les modifications » la fait revenir.
+- **Imports** (« 1. oui 2. oui, vas-y ») : une ligne du CSV (ou un élément d'un JSON tableau) = une valeur ; un JSON objet = une ligne. « Date du dernier import » : « jamais » jusqu'au ticket d'import.
+- **Méthode** (Gael, 24 novembre) : « traite tous les sujets sur lesquels tu es autonome d'une traite ; à chaque passe récupère la branche dev sur ta branche ».
 - On commence par la base : le format (enabler e9a87d3c), avec ce que prévoit le ticket (modèle YAML, fichiers d'import `imports/<slug>.yaml|.jslt|.exemple.<csv|json>`). Les deux modes d'import (fusion par clé, remplacement) se traiteront avec le ticket d'import.
 
 ## Tickets
@@ -25,7 +27,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | 2c321d50 — API de lecture des référentiels publiés | En review (fait avec le MCP) |
 | 829a86a7 — Page Référentiels et onglet Modèle | En review |
 | fbe04555 — Onglet Valeurs | En review |
-| cda9c43a — Onglet Imports | Prêt pour dev |
+| cda9c43a — Onglet Imports | En review |
 | a909dc66 — Importer des valeurs depuis un fichier (écran et web API) | Prêt pour dev |
 | e65b590b — Service MCP de lecture des référentiels publiés | En review (fait avec l'API) |
 | e80f0cad — Clôture | avec Gael |
@@ -59,3 +61,11 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - Backend : `GET …/referentiels/{nom}/valeurs`, `POST …/valeurs/verification` (sans écrire), `PUT …/valeurs` (liste complète, brouillon, brique « format »). Un problème de valeur porte `index` (rang dans la liste vérifiée) et `field` (« paliers[1] › delai_jours ») pour désigner ligne et cellule.
 - Frontend : `referentiels/ValuesTab.tsx` (toutes les valeurs chargées ; recherche, filtre, tri par clé, pagination par 50 ; marques nouvelle / modifiée / supprimée / erreur ; vérification par le serveur à chaque modification, 300 ms ; compteur d'erreurs sur l'onglet), `referentiels/ValuePanel.tsx` (formulaire construit sur le modèle : objets en sections, tableaux d'objets en sous-tableaux réordonnables, élément ouvert dans le panneau avec fil d'Ariane, listes simples ; clé figée sur une valeur existante), `referentiels/valueRules.ts`.
 - L'onglet Valeurs reste monté une fois ouvert : changer d'onglet ne perd pas les modifications non enregistrées.
+
+## Notes techniques (onglet Imports)
+
+- Paquets : `urban-json==0.2.1`, `urban-json-editor==0.3.0` (versions de Miles). Le composant `<jslt-editor>` est servi sous `/api/jslt-editor` (`urban_json_editor.mount`), son catalogue sous `/api/jslt-functions` (`api/jslt_editor.py`).
+- Moteur : `referentiels/jslt_engine.py` et `jslt_profile.py`, **repris du socle de Miles** (`miles_socle/transform/engine.py`, `profile.py`, commit `aa88631`) — toute correction est à reporter des deux côtés. Syntaxe : chemins `$.Colonne`, conversions `$.x#integer` ou `convert($.x, "integer")`.
+- `referentiels/importing.py` : lecture CSV (séparateur, encodage, en-tête) et JSON, chemins détectés (forme de Miles : path, kind, description), essai (`run_template`) : erreurs rattachées à « ligne N » / « élément [i] », comparaison par la clé aux valeurs actuelles.
+- Routes `…/referentiels/{nom}/imports` (`api/referentiel_imports.py`) : liste, création, renommage, suppression, `exemple` (multipart, 5 Mo), `lecture`, `apercu` (réglages non enregistrés possibles), `essai`, `template`.
+- Frontend : `referentiels/ImportsTab.tsx` ; `JsltEditor.tsx`, `TemplateEditor.tsx`, `editorMetrics.ts`, `jsltKeys.ts` **repris de Miles** (avec leurs tests) ; `apiUpload` dans `apiClient.ts` pour l'envoi multipart.

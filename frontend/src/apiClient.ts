@@ -43,6 +43,16 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+/** Envoi d'un fichier (multipart) : le navigateur pose lui-même l'en-tête et sa
+ * frontière, jamais `application/json`. */
+async function apiUpload<T>(path: string, form: FormData, method = 'PUT'): Promise<T> {
+  const response = await fetch(withDraftView(governancePath(path), method), { method, body: form })
+  const text = await response.text()
+  const body = text ? JSON.parse(text) : {}
+  if (!response.ok) throw new ApiRequestError(body as ApiErrorBody, response.status)
+  return body as T
+}
+
 export interface SessionUser {
   email: string
   role: string
@@ -1366,6 +1376,74 @@ export interface ReferentielModelPreview {
   duplicates: string[]
 }
 
+export interface ReferentielImportSummary {
+  slug: string
+  label: string
+  format: 'csv' | 'json'
+  separator: string
+  encoding: string
+  header: boolean
+  last_import: string | null
+}
+
+export interface ReferentielImportDetail extends ReferentielImportSummary {
+  template: string
+  example_name: string
+  example_size: number
+  paths: string[]
+  template_problems?: TemplateProblem[]
+}
+
+export interface ImportReading {
+  separator: string
+  encoding: string
+  header: boolean
+}
+
+export interface ImportPreview {
+  columns: string[]
+  rows: Record<string, unknown>[]
+  count: number
+  paths: { path: string; kind: string; description: string }[]
+}
+
+export interface TemplateProblem {
+  code: string
+  message: string
+  line: number | null
+  column: number | null
+}
+
+export interface ImportTrialError {
+  where: string
+  code: string
+  message: string
+  path: string | null
+  expected: string | null
+  field: string
+  key?: string
+}
+
+export interface ImportTrialDifference {
+  key: string
+  kind: 'new' | 'modified'
+  where: string
+  value?: Record<string, unknown>
+  changes?: { property: string; before: unknown; after: unknown }[]
+}
+
+export interface ImportTrial {
+  ok: boolean
+  template_problems: TemplateProblem[]
+  lines?: number
+  new?: number
+  modified?: number
+  unchanged?: number
+  errors?: number
+  error_details?: ImportTrialError[]
+  differences?: ImportTrialDifference[]
+}
+
 export interface ReferentielCommit {
   sha: string
   author: string
@@ -1838,6 +1916,62 @@ export const api = {
     apiFetch<{ values: Record<string, unknown>[]; count: number; revision: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/valeurs`,
       { method: 'PUT', body: JSON.stringify({ values }) },
+    ),
+  listReferentielImports: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<{ imports: ReferentielImportSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`,
+    ),
+  getReferentielImport: (spaceId: string, branchId: string, name: string, slug: string) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
+    ),
+  createReferentielImport: (
+    spaceId: string,
+    branchId: string,
+    name: string,
+    body: { label: string; slug: string; format: 'csv' | 'json' },
+  ) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  renameReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, label: string) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
+      { method: 'PATCH', body: JSON.stringify({ label }) },
+    ),
+  deleteReferentielImport: (spaceId: string, branchId: string, name: string, slug: string) =>
+    apiFetch<void>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
+      { method: 'DELETE' },
+    ),
+  uploadReferentielImportExample: (spaceId: string, branchId: string, name: string, slug: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return apiUpload<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/exemple`,
+      form,
+    )
+  },
+  setReferentielImportReading: (spaceId: string, branchId: string, name: string, slug: string, reading: ImportReading) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/lecture`,
+      { method: 'PUT', body: JSON.stringify(reading) },
+    ),
+  previewReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, reading?: ImportReading) =>
+    apiFetch<ImportPreview>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/apercu`,
+      { method: 'POST', body: reading ? JSON.stringify(reading) : undefined },
+    ),
+  tryReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, template: string) =>
+    apiFetch<ImportTrial>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/essai`,
+      { method: 'POST', body: JSON.stringify({ template }) },
+    ),
+  saveReferentielImportTemplate: (spaceId: string, branchId: string, name: string, slug: string, template: string) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/template`,
+      { method: 'PUT', body: JSON.stringify({ template }) },
     ),
   referentielHistory: (spaceId: string, branchId: string, name: string) =>
     apiFetch<{ commits: ReferentielCommit[] }>(
