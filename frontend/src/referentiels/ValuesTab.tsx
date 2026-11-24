@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useUnsaved } from './unsaved'
 import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
 import type { ReferentielProblem } from '../apiClient'
@@ -139,6 +140,11 @@ export function ValuesTab({
       )
     },
   })
+  useUnsaved(
+    'values',
+    { label: t('refTab_values'), dirty: !readOnly && dirty, saveable: problemCount === 0 && panel === null },
+    () => save.mutateAsync(),
+  )
 
   const visible = useMemo(() => {
     const filtered = rows.filter(

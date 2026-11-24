@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useUnsaved } from './unsaved'
 import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
 import type { ImportMode, ImportPreview, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
@@ -319,6 +320,28 @@ function ImportView({
       onDeleted()
     },
   })
+  const readingDirty =
+    !!data &&
+    !!reading &&
+    (reading.separator !== data.separator || reading.encoding !== data.encoding || reading.header !== data.header)
+  const templateDirty = !!data && template !== null && template !== data.template
+  useUnsaved(
+    `import:${slug}`,
+    {
+      label: `${t('refTab_imports')} · ${data?.label ?? slug}`,
+      dirty: !readOnly && (readingDirty || templateDirty),
+      saveable: true,
+    },
+    async () => {
+      // Réglages de lecture : enregistrés par l'onglet « Exemple » d'ordinaire ;
+      // ici, l'appel direct (l'onglet peut ne pas être affiché).
+      if (readingDirty && reading) {
+        await api.setReferentielImportReading(spaceId, branchId, name, slug, reading)
+        await refresh()
+      }
+      if (templateDirty) await saveTemplate.mutateAsync()
+    },
+  )
   if (!data || !effective) {
     return detail.isLoading ? <p className="muted">{t('loading')}</p> : <ErrorList messages={detail.error ? errorMessages(t, detail.error) : []} />
   }

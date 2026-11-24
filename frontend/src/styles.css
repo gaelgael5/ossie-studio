@@ -3182,3 +3182,9 @@ td.cell-error {
   stroke-dasharray: 5 3;
   fill: var(--surface-muted);
 }
+/* Onglet avec des modifications non enregistrées (bug 5a6b0213). */
+.tab-dirty {
+  margin-left: 6px;
+  color: var(--warn-fg);
+  font-size: 0.7rem;
+}

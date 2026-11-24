@@ -11,6 +11,7 @@ import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
+import { UnsavedProvider, useDirty, useUnsaved } from '../referentiels/unsaved'
 import SchemaEditor from '../referentiels/SchemaEditor'
 import { ValuesTab } from '../referentiels/ValuesTab'
 import { ImportsTab } from '../referentiels/ImportsTab'
@@ -65,6 +66,7 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const items = list.data?.referentiels ?? []
   const readonly = list.data?.readonly ?? false
   return (
+    <UnsavedProvider>
     <main className="ref-layout">
       <aside className="panel ref-list" aria-label={t('refTitle')}>
         <div className="row ref-list-head">
@@ -98,12 +100,13 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           <CreateDialog spaceId={spaceId} branchId={branchId} onClose={() => setCreating(false)} />
         ) : null}
         {name ? (
-          <ReferentielView spaceId={spaceId} branchId={branchId} name={name} canWrite={canWrite} />
+          <ReferentielView key={name} spaceId={spaceId} branchId={branchId} name={name} canWrite={canWrite} />
         ) : (
           <div className="empty-note">{t('refSelect')}</div>
         )}
       </section>
     </main>
+    </UnsavedProvider>
   )
 }
 
@@ -174,9 +177,16 @@ function ReferentielView({
 }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('model')
-  // L'onglet Valeurs reste monté une fois ouvert : ses modifications non
-  // enregistrées survivent à un changement d'onglet.
-  const [valuesOpened, setValuesOpened] = useState(false)
+  // Les onglets modifiables restent montés une fois ouverts : leurs
+  // modifications non enregistrées survivent à un changement d'onglet (bug
+  // 5a6b0213 ; seul l'onglet Valeurs le faisait).
+  const [opened, setOpened] = useState<Set<Tab>>(() => new Set(['model']))
+  const dirtyTab = {
+    model: useDirty('model').length > 0,
+    values: useDirty('values').length > 0,
+    imports: useDirty('import:').length > 0,
+    history: false,
+  }
   const [valueErrors, setValueErrors] = useState(0)
   const detail = useQuery({
     queryKey: ['referentiel', spaceId, branchId, name],
@@ -208,10 +218,15 @@ function ReferentielView({
             className={`tab${tab === key ? ' active' : ''}`}
             onClick={() => {
               setTab(key)
-              if (key === 'values') setValuesOpened(true)
+              setOpened((prev) => new Set(prev).add(key))
             }}
           >
             {t(`refTab_${key}`)}
+            {dirtyTab[key] ? (
+              <span className="tab-dirty" title={t('unsavedTabHint')} aria-label={t('unsavedTabHint')}>
+                {'●'}
+              </span>
+            ) : null}
             {key === 'values' && valueErrors > 0 ? (
               <span className="tab-count badge-danger" aria-label={t('refValuesErrors', { count: valueErrors })}>
                 {valueErrors}
@@ -222,16 +237,18 @@ function ReferentielView({
       </div>
       <ErrorList messages={detail.error ? errorMessages(t, detail.error) : []} />
       {detail.isLoading ? <p className="muted">{t('loading')}</p> : null}
-      {data && tab === 'model' ? (
-        <ModelTab
-          key={`${name}:${data.model_yaml}`}
-          spaceId={spaceId}
-          branchId={branchId}
-          detail={data}
-          readOnly={data.readonly || !canWrite}
-        />
+      {data && opened.has('model') ? (
+        <div hidden={tab !== 'model'}>
+          <ModelTab
+            key={`${name}:${data.model_yaml}`}
+            spaceId={spaceId}
+            branchId={branchId}
+            detail={data}
+            readOnly={data.readonly || !canWrite}
+          />
+        </div>
       ) : null}
-      {data && valuesOpened ? (
+      {data && opened.has('values') ? (
         <div hidden={tab !== 'values'}>
           <ValuesTab
             spaceId={spaceId}
@@ -243,8 +260,10 @@ function ReferentielView({
           />
         </div>
       ) : null}
-      {data && tab === 'imports' ? (
-        <ImportsTab spaceId={spaceId} branchId={branchId} name={name} readOnly={data.readonly || !canWrite} />
+      {data && opened.has('imports') ? (
+        <div hidden={tab !== 'imports'}>
+          <ImportsTab spaceId={spaceId} branchId={branchId} name={name} readOnly={data.readonly || !canWrite} />
+        </div>
       ) : null}
       {tab === 'history' ? <HistoryTab spaceId={spaceId} branchId={branchId} name={name} /> : null}
     </div>
@@ -447,6 +466,11 @@ function ModelTab({
     },
   })
   const model = parsed.ok ? parsed.model : saved
+  useUnsaved(
+    'model',
+    { label: t('refTab_model'), dirty: !readOnly && dirty, saveable: parsed.ok && !violation },
+    () => (parsed.ok ? save.mutateAsync(parsed.model) : Promise.reject(new Error('unreadable'))),
+  )
   return (
     <div className="stack">
       <KeyBar model={model} readOnly={readOnly || !parsed.ok} onKey={(key) => apply(withKey(model, key), key)} />
