@@ -112,7 +112,8 @@ def test_cle_composee_en_double_refusee(tmp_path: Path) -> None:
     with pytest.raises(ReferentielError) as caught:
         write_referentiel(tmp_path, "delais", MODEL, [FR_SITE, BE_DOMICILE, twin], create=True)
     assert caught.value.code == "values_invalid"
-    assert Problem("FR+site", "key_duplicate", "FR+site") in caught.value.problems
+    # Désigne la troisième valeur (rang 2), la valeur entière (pas de champ).
+    assert Problem("FR+site", "key_duplicate", "FR+site", 2, "") in caught.value.problems
     assert "FR+site" in str(caught.value)
     assert not (tmp_path / values_path("delais")).exists()
 

@@ -94,41 +94,53 @@ def key_label(value: Any, key: list[str], index: int) -> str:
     return "+".join(_shown(p) for p in parts)
 
 
-def _path(label: str, parts: Iterable[str | int]) -> str:
-    out = label
+def field_path(parts: Iterable[str | int]) -> str:
+    """Le chemin d'un champ dans une valeur, séparé par `SEPARATOR` (« paliers[2] » puis
+    « delai_jours »)."""
+    out = ""
     for part in parts:
         if isinstance(part, int):
             out += f"[{part}]"
         else:
-            out += f"{SEPARATOR}{part}"
+            out += f"{SEPARATOR}{part}" if out else str(part)
     return out
 
 
-def _problems(label: str, error: ValidationError) -> list[Problem]:
-    where = _path(label, error.absolute_path)
+def _join(label: str, field: str) -> str:
+    return f"{label}{SEPARATOR}{field}" if field else label
+
+
+def _child(field: str, name: str) -> str:
+    return f"{field}{SEPARATOR}{name}" if field else name
+
+
+def _problems(label: str, index: int, error: ValidationError) -> list[Problem]:
+    field = field_path(error.absolute_path)
     validator = error.validator
     instance = error.instance
+
+    def at(where: str, code: str, detail: str = "") -> Problem:
+        return Problem(_join(label, where), code, detail, index, where)
+
     if validator == "required" and isinstance(instance, dict):
         required = error.validator_value if isinstance(error.validator_value, list) else []
         return [
-            Problem(f"{where}{SEPARATOR}{name}", "value_required")
-            for name in required
-            if name not in instance
+            at(_child(field, name), "value_required") for name in required if name not in instance
         ]
     if validator == "additionalProperties" and isinstance(instance, dict):
         declared = error.schema.get("properties", {}) if isinstance(error.schema, dict) else {}
         return [
-            Problem(f"{where}{SEPARATOR}{name}", "value_unknown_property")
+            at(_child(field, name), "value_unknown_property")
             for name in sorted(instance)
             if name not in declared
         ]
     if validator == "type":
-        return [Problem(where, "value_type", str(error.validator_value))]
+        return [at(field, "value_type", str(error.validator_value))]
     if validator == "enum":
-        return [Problem(where, "value_enum", _shown(instance))]
+        return [at(field, "value_enum", _shown(instance))]
     if validator == "format":
-        return [Problem(where, "value_format", str(error.validator_value))]
-    return [Problem(where, f"value_{validator}")]
+        return [at(field, "value_format", str(error.validator_value))]
+    return [at(field, f"value_{validator}")]
 
 
 def check_values(model: dict[str, Any], values: Any) -> list[Problem]:
@@ -143,12 +155,12 @@ def check_values(model: dict[str, Any], values: Any) -> list[Problem]:
     for index, value in enumerate(values):
         label = key_label(value, key, index)
         for error in validator.iter_errors(value):
-            problems.extend(_problems(label, error))
+            problems.extend(_problems(label, index, error))
         parts = key_of(value, key)
         if parts is None:
             continue
         if parts in seen:
-            problems.append(Problem(label, "key_duplicate", label))
+            problems.append(Problem(label, "key_duplicate", label, index))
         else:
             seen[parts] = label
     return sorted(set(problems))

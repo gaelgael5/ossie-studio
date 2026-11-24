@@ -187,7 +187,13 @@ async def test_nouvelle_cle_non_unique_doublons_listes(space: ApiSpace) -> None:
     refused = await space.client.put(_url(space, "/delais/modele"), json={"model": by_country})
     assert refused.status_code == 400
     problems = refused.json()["error_args"]["problems"]
-    assert {"path": "FR", "code": "key_duplicate", "detail": "FR"} in problems
+    assert {
+        "path": "FR",
+        "code": "key_duplicate",
+        "detail": "FR",
+        "index": 2,
+        "field": "",
+    } in problems
 
 
 # --- Critère 7 : racine du dépôt en lecture seule -----------------------------------------------

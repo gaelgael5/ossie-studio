@@ -40,6 +40,7 @@ from ossie_studio.referentiels.repo import (
     write_referentiel,
 )
 from ossie_studio.referentiels.service import ReferentielTarget
+from ossie_studio.referentiels.values import check_values, sorted_values
 from ossie_studio.slugs import is_valid_slug
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
@@ -61,6 +62,11 @@ class CreateBody(BaseModel):
 class ModelBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     model: dict[str, Any]
+
+
+class ValuesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    values: list[Any]
 
 
 def _api_error(exc: ReferentielError) -> ApiError:
@@ -246,6 +252,65 @@ async def save_model(
     ref: Referentiel
     ref, revision = await _write(target, f"modèle de {name}", write)
     return {**_detail(ref, True, False), "revision": revision}
+
+
+@router.get("/{name}/valeurs")
+async def get_values(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: ReferentielsRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+) -> dict[str, object]:
+    """Les valeurs (vue de la personne), triées par clé."""
+    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
+    ref: Referentiel = await _read(target, lambda root: read_referentiel(root, name))
+    return {"values": sorted_values(ref.model, ref.values), "count": len(ref.values)}
+
+
+@router.post("/{name}/valeurs/verification")
+async def verify_values(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: ReferentielsRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    body: ValuesBody,
+) -> dict[str, object]:
+    """Les problèmes d'une liste de valeurs pour le modèle actuel, sans rien
+    écrire : chacun désigne la valeur (`index`) et le champ (`field`)."""
+    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
+    ref: Referentiel = await _read(target, lambda root: read_referentiel(root, name))
+    problems = check_values(ref.model, body.values)
+    return {"ok": not problems, "problems": [p.payload() for p in problems]}
+
+
+@router.put("/{name}/valeurs")
+async def save_values(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: ReferentielsWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    body: ValuesBody,
+) -> dict[str, object]:
+    """Enregistre la liste complète des valeurs dans le brouillon, triée par clé ;
+    refus (« values_invalid ») si elle n'est pas valide pour le modèle."""
+    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
+
+    def write(root: Path) -> Referentiel:
+        current = read_referentiel(root, name)
+        return write_referentiel(root, name, current.model, body.values, create=False)
+
+    ref: Referentiel
+    ref, revision = await _write(target, f"valeurs de {name}", write)
+    return {"values": ref.values, "count": len(ref.values), "revision": revision}
 
 
 @router.get("/{name}/historique")

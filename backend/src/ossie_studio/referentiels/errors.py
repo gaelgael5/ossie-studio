@@ -15,13 +15,22 @@ class Problem:
     path: str
     code: str
     detail: str = ""
+    # Problème d'une valeur : son rang dans la liste vérifiée (-1 : sans objet) et
+    # le chemin du champ dans la valeur (« paliers[2] », puis « delai_jours » ; vide : la
+    # valeur entière, par exemple une clé en double). L'écran s'en sert pour
+    # désigner la ligne et la cellule.
+    index: int = -1
+    field: str = ""
 
     def __str__(self) -> str:
         where = f"{self.path} : " if self.path else ""
         return f"{where}{self.code}" + (f" ({self.detail})" if self.detail else "")
 
-    def payload(self) -> dict[str, str]:
-        return {"path": self.path, "code": self.code, "detail": self.detail}
+    def payload(self) -> dict[str, object]:
+        out: dict[str, object] = {"path": self.path, "code": self.code, "detail": self.detail}
+        if self.index >= 0:
+            out.update({"index": self.index, "field": self.field})
+        return out
 
 
 class ReferentielError(Exception):
