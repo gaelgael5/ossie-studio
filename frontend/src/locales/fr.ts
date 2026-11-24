@@ -1047,6 +1047,10 @@ export const fr = {
     tagsUnmanaged: 'Tags non gérés',
     treePrefixNote:
       'Le préfixe crée la hiérarchie : filtrer sur « gouvernance » ramène aussi « gouvernance/donnees-personnelles ». Les niveaux parents n’ont pas besoin d’exister.',
+    tagFromRulesPill: 'posé par règle',
+    tagFromRulesTitle: 'Posé par une règle active, pas encore enregistré dans le vocabulaire',
+    tagPostedByRules: 'Posé par les règles : {{rules}}.',
+    tagNotStoredYet: 'Pas encore enregistré dans le vocabulaire : le modifier l’y enregistre.',
     tagManagedPill: 'tag géré',
     tagOwnerDisplay: 'propriétaire : {{owner}} (affichage)',
     tagLinksTitle: 'Liens',

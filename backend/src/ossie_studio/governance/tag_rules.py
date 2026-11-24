@@ -404,3 +404,20 @@ def field_matches(name: str, patterns: tuple[str, ...]) -> str | None:
         if fnmatch.fnmatchcase(folded, pattern.casefold()):
             return pattern
     return None
+
+
+def rule_tag_sources(root: Path) -> dict[str, list[str]]:
+    """Tags cités par les règles ACTIVES (fournies par Ossie et de l'espace) →
+    noms des règles qui les posent. Sert à montrer dans l'onglet Tags les tags
+    que les règles posent sans qu'ils soient encore enregistrés dans le
+    vocabulaire (bug 44931826) : une lecture n'écrit jamais."""
+    from ossie_studio.governance.builtin_tag_rules import builtin_rules
+
+    disabled = read_builtin_disabled(root)
+    rules = [r for r in builtin_rules() if r.id not in disabled]
+    rules += [f.rule for f in read_tag_rules(root) if f.rule is not None and f.rule.enabled]
+    sources: dict[str, list[str]] = {}
+    for rule in rules:
+        for tag in rule.tags:
+            sources.setdefault(tag, []).append(rule.name)
+    return sources

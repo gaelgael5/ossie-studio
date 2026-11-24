@@ -961,6 +961,10 @@ export interface GovernedTag {
   properties: Record<string, string | number | boolean>
   created_at: string
   updated_at: string
+  // Faux : tag posé par une règle active, pas encore enregistré dans le
+  // vocabulaire (bug 44931826). `rules` : noms des règles actives qui le posent.
+  stored?: boolean
+  rules?: string[]
 }
 export interface GovernedTagInput {
   id?: string

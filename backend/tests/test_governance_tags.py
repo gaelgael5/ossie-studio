@@ -78,6 +78,29 @@ async def admin(client: AsyncClient, app: FastAPI, tmp_path: Path) -> Rebased:
     return Rebased(client, await make_api_space(client, app, tmp_path))
 
 
+def _stored(listing: dict[str, list[dict[str, object]]]) -> list[object]:
+    """Tags enregistrés dans le vocabulaire (sans ceux posés par les règles
+    fournies et pas encore enregistrés, bug 44931826)."""
+    return [t["id"] for t in listing["tags"] if t["stored"]]
+
+
+async def test_tags_des_regles_fournies_visibles_sans_ecriture(admin: Rebased) -> None:
+    """Bug 44931826 : espace neuf, aucune règle enregistrée — les tags posés par
+    les règles fournies actives apparaissent, avec leurs règles."""
+    tags = {t["id"]: t for t in (await admin.get("/api/governance/tags")).json()["tags"]}
+    service = tags["technique/service"]
+    assert service["stored"] is False
+    assert "C# — contrôleurs ASP.NET" in service["rules"]
+    # Le modifier l'enregistre dans le vocabulaire.
+    r = await admin.put("/api/governance/tags/technique/service", json={"description": "API"})
+    assert r.status_code == 200, r.text
+    tags = {t["id"]: t for t in (await admin.get("/api/governance/tags")).json()["tags"]}
+    assert tags["technique/service"]["stored"] is True
+    assert tags["technique/service"]["description"] == "API"
+    # Un tag inconnu des règles reste introuvable.
+    assert (await admin.put("/api/governance/tags/inconnu/x", json={})).status_code == 404
+
+
 async def test_creer_et_lister_un_tag(admin: Rebased) -> None:
     created = await admin.post(
         "/api/governance/tags",
@@ -95,7 +118,7 @@ async def test_creer_et_lister_un_tag(admin: Rebased) -> None:
     assert body["properties"]["conservationJours"] == 90
 
     listing = await admin.get("/api/governance/tags")
-    assert [t["id"] for t in listing.json()["tags"]] == ["gouvernance/donnees-personnelles"]
+    assert _stored(listing.json()) == ["gouvernance/donnees-personnelles"]
 
 
 async def test_casse_designe_le_meme_tag(admin: Rebased) -> None:
@@ -121,7 +144,7 @@ async def test_modifier_et_supprimer(admin: Rebased) -> None:
 
     deleted = await admin.delete("/api/governance/tags/gouvernance/pii")
     assert deleted.status_code == 204
-    assert (await admin.get("/api/governance/tags")).json()["tags"] == []
+    assert _stored((await admin.get("/api/governance/tags")).json()) == []
     # Supprimer un tag absent → 404.
     assert (await admin.delete("/api/governance/tags/gouvernance/pii")).status_code == 404
 
@@ -141,9 +164,7 @@ async def test_export_puis_import(admin: Rebased) -> None:
     imported = await admin.post("/api/governance/tags/import", json={"yaml": text})
     assert imported.status_code == 200
     assert imported.json()["imported"] == 1
-    assert [t["id"] for t in (await admin.get("/api/governance/tags")).json()["tags"]] == [
-        "gouvernance/pii"
-    ]
+    assert _stored((await admin.get("/api/governance/tags")).json()) == ["gouvernance/pii"]
 
 
 async def test_import_invalide_refuse(admin: Rebased) -> None:

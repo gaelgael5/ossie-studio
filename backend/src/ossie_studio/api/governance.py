@@ -26,6 +26,7 @@ from ossie_studio.governance.repo import (
     write_cert,
     write_tag,
 )
+from ossie_studio.governance.tag_rules import rule_tag_sources
 from ossie_studio.governance.tags import normalize_tag_id
 from ossie_studio.governance.yaml_io import TagImportError, export_tags_yaml, parse_tags_yaml
 from ossie_studio.slugs import slugify
@@ -79,7 +80,18 @@ async def list_tags(
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    return {"tags": [_payload(t) for t in await ctx.read(read_tags)]}
+    tags, sources = await ctx.read(lambda root: (read_tags(root), rule_tag_sources(root)))
+    known = {t.id for t in tags}
+    # Tags posés par les règles actives sans être enregistrés (bug 44931826) :
+    # montrés avec leurs règles ; « stored » faux tant qu'on ne les a pas modifiés.
+    rows = [{**_payload(t), "stored": True, "rules": sources.get(t.id, [])} for t in tags]
+    rows += [
+        {**_payload(Tag(tag_id)), "stored": False, "rules": names}
+        for tag_id, names in sorted(sources.items())
+        if tag_id not in known
+    ]
+    rows.sort(key=lambda r: str(r["id"]))
+    return {"tags": rows}
 
 
 @router.post("", status_code=201)
@@ -157,7 +169,7 @@ async def update_tag(
     tag = await ctx.write(
         user.email,
         f"tag {normalize_tag_id(tag_id)}",
-        lambda root: actions.update_tag(root, tag_id, changes),
+        lambda root: actions.update_tag(root, tag_id, changes, frozenset(rule_tag_sources(root))),
     )
     return _payload(tag)
 

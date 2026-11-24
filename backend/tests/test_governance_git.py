@@ -60,7 +60,8 @@ async def test_deux_espaces_gouvernances_independantes(
     )
     other = ApiSpace(client, str(other_id), base.json()["id"], other_url, gov.space.tmp)
     listing = (await Rebased(client, other).get("/api/governance/tags")).json()
-    assert listing["tags"] == []
+    # Seuls les tags des règles fournies apparaissent, non enregistrés.
+    assert [t for t in listing["tags"] if t["stored"]] == []
 
 
 async def test_nom_court_en_double_erreur_bloquante(gov: Rebased) -> None:
@@ -142,7 +143,9 @@ async def test_espace_sans_gouvernance_pages_vides(gov: Rebased) -> None:
     ):
         response = await gov.get(url)
         assert response.status_code == 200
-        assert next(iter(response.json().values())) == []
+        rows = next(iter(response.json().values()))
+        # Tags : seuls ceux des règles fournies, non enregistrés (bug 44931826).
+        assert [r for r in rows if r.get("stored", True)] == []
     assert uuid.UUID(gov.space.space_id)
 
 

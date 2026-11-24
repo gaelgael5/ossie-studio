@@ -115,12 +115,21 @@ def create_tag(root: Path, raw_id: str, values: Values) -> Tag:
     return tag
 
 
-def update_tag(root: Path, raw_id: str, changes: Values) -> Tag:
+def update_tag(
+    root: Path, raw_id: str, changes: Values, rule_tags: frozenset[str] = frozenset()
+) -> Tag:
+    """`rule_tags` : tags posés par une règle active sans être encore dans le
+    vocabulaire (bug 44931826) ; les modifier les y enregistre."""
     tag_id = normalize_tag_id(raw_id)
     errors = validate_tag_fields(tag_id, {}, {})
     if errors:
         _invalid(errors)
-    tag = _tag(tag_id, _merged(_find_tag(root, tag_id), TAG_FIELDS, changes))
+    current = next((t for t in repo.read_tags(root) if t.id == tag_id), None)
+    if current is None and tag_id in rule_tags:
+        current = Tag(tag_id)
+    if current is None:
+        raise GovernanceRefused("tag_not_found", 404, tag_id=tag_id)
+    tag = _tag(tag_id, _merged(current, TAG_FIELDS, changes))
     repo.write_tag(root, tag)
     return tag
 

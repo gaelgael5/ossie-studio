@@ -250,6 +250,11 @@ export function GovernanceTagsPage() {
                         }}
                       >
                         <span className="mono">{row.path.split('/').pop()}</span>
+                        {row.tag.stored === false ? (
+                          <span className="pill small" title={t('tagFromRulesTitle')}>
+                            {t('tagFromRulesPill')}
+                          </span>
+                        ) : null}
                       </button>
                     </li>
                   ) : (
@@ -305,7 +310,9 @@ export function GovernanceTagsPage() {
                 <div className="row" style={{ justifyContent: 'space-between' }}>
                   <div className="row">
                     <span className="tag-chip">{selected.id}</span>
-                    <span className="pill">{t('tagManagedPill')}</span>
+                    <span className="pill">
+                      {selected.stored === false ? t('tagFromRulesPill') : t('tagManagedPill')}
+                    </span>
                     {selected.owner ? (
                       <span className="muted">{t('tagOwnerDisplay', { owner: selected.owner })}</span>
                     ) : null}
@@ -314,17 +321,27 @@ export function GovernanceTagsPage() {
                     <button type="button" className="btn btn-sm" onClick={() => startEdit(selected)}>
                       {t('editTag')}
                     </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-danger"
-                      onClick={() => {
-                        if (window.confirm(t('deleteTagConfirm'))) remove.mutate(selected.id)
-                      }}
-                    >
-                      {t('delete')}
-                    </button>
+                    {/* Un tag pas encore enregistré n'a pas de fichier à supprimer :
+                        il disparaît quand plus aucune règle active ne le pose. */}
+                    {selected.stored !== false ? (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-danger"
+                        onClick={() => {
+                          if (window.confirm(t('deleteTagConfirm'))) remove.mutate(selected.id)
+                        }}
+                      >
+                        {t('delete')}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
+                {selected.rules && selected.rules.length > 0 ? (
+                  <p className="small muted">
+                    {t('tagPostedByRules', { rules: selected.rules.join(', ') })}
+                    {selected.stored === false ? ` ${t('tagNotStoredYet')}` : ''}
+                  </p>
+                ) : null}
                 <p>{selected.description || <span className="muted">{t('noDescription')}</span>}</p>
                 <div className="form-grid">
                   <div>

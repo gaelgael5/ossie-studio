@@ -1045,6 +1045,10 @@ export const en = {
     tagsUnmanaged: 'Unmanaged tags',
     treePrefixNote:
       'The prefix builds the hierarchy: filtering on "governance" also returns "governance/personal-data". Parent levels need not exist.',
+    tagFromRulesPill: 'set by rule',
+    tagFromRulesTitle: 'Set by an active rule, not yet stored in the vocabulary',
+    tagPostedByRules: 'Set by the rules: {{rules}}.',
+    tagNotStoredYet: 'Not yet stored in the vocabulary: editing it stores it.',
     tagManagedPill: 'managed tag',
     tagOwnerDisplay: 'owner: {{owner}} (display)',
     tagLinksTitle: 'Links',

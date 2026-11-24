@@ -482,6 +482,8 @@ test('gouvernance tags : liste, filtre et création', async () => {
       body: {
         tags: [
           { id: 'gouvernance/pii', owner: 'equipe-data', description: 'PII', links: {}, properties: {}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+          // Bug 44931826 : tag posé par une règle fournie, pas encore enregistré.
+          { id: 'technique/service', owner: '', description: '', links: {}, properties: {}, created_at: '', updated_at: '', stored: false, rules: ['C# — contrôleurs ASP.NET'] },
         ],
       },
     },
@@ -494,6 +496,10 @@ test('gouvernance tags : liste, filtre et création', async () => {
   await screen.findByText('Gouvernance › Tags')
   // L'arbre liste le tag géré (feuille « pii » sous le groupe « gouvernance »).
   await waitFor(() => expect(screen.getByText('pii')).toBeInTheDocument())
+  // Le tag posé par une règle apparaît aussi, marqué, sans bouton Supprimer.
+  await userEvent.click(screen.getByText('service'))
+  expect(screen.getByText(/Posé par les règles : C# — contrôleurs ASP.NET/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Supprimer' })).not.toBeInTheDocument()
   // Filtre par préfixe : un préfixe qui ne matche pas vide la liste.
   await userEvent.type(screen.getByLabelText('Filtrer par préfixe'), 'reseau')
   await waitFor(() => expect(screen.getByText('Aucun tag géré.')).toBeInTheDocument())
