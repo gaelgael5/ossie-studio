@@ -375,9 +375,9 @@ function refsOf(schema: RawContractSchema | null | undefined, card = '1'): { nam
 // liens courbes libellés. À gauche ce qu'on donne, au centre la méthode, à
 // droite les réponses puis ce qu'elles renvoient ; chaque objet n'apparaît
 // qu'une fois (première place gagnée), ce qui coupe les références circulaires.
-const G_NODE_W = 180
+const G_NODE_W = 165
 const G_NODE_H = 44
-const G_COL_GAP = 80
+const G_COL_GAP = 70
 const G_ROW_GAP = 18
 const G_PAD = 20
 
@@ -479,7 +479,16 @@ function ContractGraph({
       )
     })
     const width = G_PAD * 2 + levels.length * (G_NODE_W + G_COL_GAP) - G_COL_GAP
-    return { nodes, edges, pos, width, height }
+    // Libellé d'un lien posé du côté où il est seul : quand vingt liens
+    // convergent vers un objet, leurs libellés au milieu se superposaient.
+    const outCount = new Map<string, number>()
+    const inCount = new Map<string, number>()
+    for (const e of edges) {
+      outCount.set(e.from, (outCount.get(e.from) ?? 0) + 1)
+      inCount.set(e.to, (inCount.get(e.to) ?? 0) + 1)
+    }
+    const labelAtSource = (e: GEdge) => (outCount.get(e.from) ?? 0) <= (inCount.get(e.to) ?? 0)
+    return { nodes, edges, pos, width, height, labelAtSource }
   }, [op, schemas, depth, t])
   const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
   return (
@@ -537,10 +546,17 @@ function ContractGraph({
                   markerEnd="url(#oas-arrow)"
                 />
                 {e.label ? (
-                  <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6} textAnchor="middle">
-                    {cut(e.label, 28)}
-                  </text>
+                  layout.labelAtSource(e) ? (
+                    <text x={x1 + 6} y={y1 - 5} textAnchor="start">
+                      {cut(e.label, 22)}
+                    </text>
+                  ) : (
+                    <text x={x2 - 8} y={y2 - 5} textAnchor="end">
+                      {cut(e.label, 22)}
+                    </text>
+                  )
                 ) : null}
+                <title>{e.label}</title>
               </g>
             )
           })}
