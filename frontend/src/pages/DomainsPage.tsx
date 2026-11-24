@@ -139,7 +139,16 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
             </thead>
             <tbody>
               {domains.map((d) => (
-                <tr key={d.name}>
+                // Toute la ligne ouvre le domaine (convention des listes, demande
+                // de Gael du 24/11) ; le lien reste pour le clavier et le clic milieu.
+                <tr
+                  key={d.name}
+                  className="row-clickable"
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest('a')) return
+                    navigate(`/domaines/${encodeURIComponent(d.name)}`)
+                  }}
+                >
                   <td>
                     <Link className="link-strong" to={`/domaines/${encodeURIComponent(d.name)}`}>
                       {d.label}

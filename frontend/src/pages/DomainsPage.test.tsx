@@ -24,7 +24,7 @@ const DETAIL = {
   references: [{ name: 'Order_customer', from_dataset: 'Order', field: 'customer', to_dataset: 'Customer', kind: 'field', cardinality: 'n:1' }],
 }
 
-function setup(url: string) {
+function setup(url: string, domains: unknown[] = []) {
   const calls: { method: string; path: string; body?: string }[] = []
   vi.stubGlobal(
     'fetch',
@@ -33,7 +33,7 @@ function setup(url: string) {
       calls.push({ method, path, body: init?.body as string | undefined })
       let body: unknown = {}
       if (path === '/api/session') body = { authenticated: true, capabilities: ['curation:read', 'curation:write'] }
-      else if (path === BASE && method === 'GET') body = { domains: [] }
+      else if (path === BASE && method === 'GET') body = { domains }
       else if (path === BASE) body = { ...DETAIL, datasets: undefined }
       else if (path === `${BASE}/expedition`) body = DETAIL
       return Promise.resolve({ ok: true, status: method === 'DELETE' ? 204 : 200, text: () => Promise.resolve(method === 'DELETE' ? '' : JSON.stringify(body)) })
@@ -69,6 +69,13 @@ describe('Domaines (tickets a7baaaa3, 36d35a88)', () => {
       label: 'Point relais PUDO',
       description: '',
     })
+  })
+
+  it('toute la ligne de la liste ouvre le domaine', async () => {
+    setup('/domaines', [{ ...DETAIL, datasets: undefined }])
+    const user = userEvent.setup()
+    await user.click(await screen.findByText('Colis'))
+    expect((await screen.findAllByText('Order')).length).toBeGreaterThan(0)
   })
 
   it('écran du domaine : datasets virtuels, liens, retrait d’un dataset', async () => {
