@@ -808,6 +808,8 @@ test('sources : liste les sources déclarées de la branche regardée', async ()
   await waitFor(() => expect(screen.getByText('API boutique')).toBeInTheDocument())
   // Ce qui est lu vient des paramètres (clés anglaises du manifeste version 2).
   expect(screen.getByText('org/api @ main · src')).toBeInTheDocument()
+  // Toute la ligne ouvre la source ; « Modifier » garde sa propre action (plus bas).
+  expect(screen.getByText('API boutique').closest('tr')).toHaveClass('row-clickable')
   // Le sélecteur d'espace de l'en-tête est fonctionnel.
   expect(screen.getByRole('option', { name: 'Espace : modele' })).toBeInTheDocument()
   // L'aperçu du manifeste montre la version 2 et uniquement des clés anglaises.

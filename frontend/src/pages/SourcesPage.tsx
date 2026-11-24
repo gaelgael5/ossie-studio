@@ -211,7 +211,16 @@ export function SourcesPage() {
                 </thead>
                 <tbody>
                   {list.map((source) => (
-                    <tr key={source.slug}>
+                    // Toute la ligne ouvre la source (demande de Gael du 24/11) ; les
+                    // liens et boutons de la ligne gardent leur propre action.
+                    <tr
+                      key={source.slug}
+                      className={source.ok ? 'row-clickable' : undefined}
+                      onClick={(e) => {
+                        if (!source.ok || (e.target as HTMLElement).closest('a, button, input, select')) return
+                        navigate(`/sources/${source.slug}`)
+                      }}
+                    >
                       <td>
                         {source.ok ? (
                           <>
