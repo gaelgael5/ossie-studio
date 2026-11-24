@@ -2656,3 +2656,53 @@ td .raw-ref-menu {
     grid-template-columns: 1fr;
   }
 }
+.ref-values-tools {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ref-values-layout.with-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 46%);
+  gap: 16px;
+  align-items: start;
+}
+.ref-panel .ref-panel-crumbs .link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--link);
+  cursor: pointer;
+  font: inherit;
+  text-transform: inherit;
+}
+.ref-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.ref-subtable .input {
+  min-width: 6rem;
+}
+.row-deleted td {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.row-error td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.cell-error .input,
+td.cell-error {
+  outline: 1px solid var(--danger);
+}
+.field-error {
+  display: block;
+}
+.badge-danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+@media (max-width: 1100px) {
+  .ref-values-layout.with-panel {
+    grid-template-columns: 1fr;
+  }
+}

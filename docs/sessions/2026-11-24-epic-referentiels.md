@@ -14,6 +14,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - **Un seul droit pour l'API et le MCP** (« 1. oui ») : une clé d'API lit les référentiels si son profil agent contient les primitives de lecture ; les tickets API (2c321d50) et MCP (e65b590b) sont faits ensemble.
 - **Droits** (« oui vas-y ») : capacités **« Référentiels : consulter / modifier »** (`referentiels:read` / `referentiels:write`, par espace) ; l'API de lecture publiée et les primitives MCP utilisent `referentiels:read`.
 - **Éditeur de Miles et React 19** (« B, vas-y ») : `jsonjoy-builder` exige React 19 (ossie-studio est en 18.3) ; on embarque une **copie corrigée** (`frontend/vendor/jsonjoy-builder-1.0.4-89529b6-react18.tgz`, deux `Context.Provider`) et le passage en React 19 est un ticket à part : **c3e24590** (socle technique, à planifier avec Gael et l'autre agent).
+- **Supprimer une valeur** (« oui, vas-y ») : bouton « Supprimer » dans le panneau ; la ligne est marquée « supprimée » jusqu'à « Enregistrer » ; « Annuler les modifications » la fait revenir.
 - On commence par la base : le format (enabler e9a87d3c), avec ce que prévoit le ticket (modèle YAML, fichiers d'import `imports/<slug>.yaml|.jslt|.exemple.<csv|json>`). Les deux modes d'import (fusion par clé, remplacement) se traiteront avec le ticket d'import.
 
 ## Tickets
@@ -23,7 +24,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | e9a87d3c — Format d'un référentiel dans l'espace Git (enabler) | En review |
 | 2c321d50 — API de lecture des référentiels publiés | En review (fait avec le MCP) |
 | 829a86a7 — Page Référentiels et onglet Modèle | En review |
-| fbe04555 — Onglet Valeurs | Prêt pour dev |
+| fbe04555 — Onglet Valeurs | En review |
 | cda9c43a — Onglet Imports | Prêt pour dev |
 | a909dc66 — Importer des valeurs depuis un fichier (écran et web API) | Prêt pour dev |
 | e65b590b — Service MCP de lecture des référentiels publiés | En review (fait avec l'API) |
@@ -52,3 +53,9 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - Journal d'audit : `audit/git_history.referentiel_events` (type `referentiel`, depuis les commits publiés qui touchent `referentiels/`), comme la gouvernance.
 - Frontend : `pages/ReferentielsPage.tsx` ; `referentiels/` = éditeur repris de Miles (`SchemaEditor.tsx`, `YamlEditor.tsx`, `monaco.ts`, `yaml.worker.ts`) + `modelRules.ts` (lecture YAML, clé, garde). Monaco tenu en `~0.52.2` (0.53 casse monaco-yaml 5.5), chargé à la demande ; Vite `worker.format = 'es'`.
 - Écart assumé avec le ticket : JSONJoy ne permet pas de marquer « CLÉ » ni de verrouiller « requis » par propriété ; la mention est dans le bandeau de la clé et une garde refuse de rendre facultative ou de supprimer une propriété de la clé (le serveur revérifie).
+
+## Notes techniques (onglet Valeurs)
+
+- Backend : `GET …/referentiels/{nom}/valeurs`, `POST …/valeurs/verification` (sans écrire), `PUT …/valeurs` (liste complète, brouillon, brique « format »). Un problème de valeur porte `index` (rang dans la liste vérifiée) et `field` (« paliers[1] › delai_jours ») pour désigner ligne et cellule.
+- Frontend : `referentiels/ValuesTab.tsx` (toutes les valeurs chargées ; recherche, filtre, tri par clé, pagination par 50 ; marques nouvelle / modifiée / supprimée / erreur ; vérification par le serveur à chaque modification, 300 ms ; compteur d'erreurs sur l'onglet), `referentiels/ValuePanel.tsx` (formulaire construit sur le modèle : objets en sections, tableaux d'objets en sous-tableaux réordonnables, élément ouvert dans le panneau avec fil d'Ariane, listes simples ; clé figée sur une valeur existante), `referentiels/valueRules.ts`.
+- L'onglet Valeurs reste monté une fois ouvert : changer d'onglet ne perd pas les modifications non enregistrées.

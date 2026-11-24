@@ -12,6 +12,7 @@ import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
 import SchemaEditor from '../referentiels/SchemaEditor'
+import { ValuesTab } from '../referentiels/ValuesTab'
 import {
   type KeyViolation,
   type RefModel,
@@ -172,6 +173,10 @@ function ReferentielView({
 }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('model')
+  // L'onglet Valeurs reste monté une fois ouvert : ses modifications non
+  // enregistrées survivent à un changement d'onglet.
+  const [valuesOpened, setValuesOpened] = useState(false)
+  const [valueErrors, setValueErrors] = useState(0)
   const detail = useQuery({
     queryKey: ['referentiel', spaceId, branchId, name],
     queryFn: () => api.getReferentiel(spaceId, branchId, name),
@@ -200,9 +205,17 @@ function ReferentielView({
             role="tab"
             aria-selected={tab === key}
             className={`tab${tab === key ? ' active' : ''}`}
-            onClick={() => setTab(key)}
+            onClick={() => {
+              setTab(key)
+              if (key === 'values') setValuesOpened(true)
+            }}
           >
             {t(`refTab_${key}`)}
+            {key === 'values' && valueErrors > 0 ? (
+              <span className="tab-count badge-danger" aria-label={t('refValuesErrors', { count: valueErrors })}>
+                {valueErrors}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -217,7 +230,19 @@ function ReferentielView({
           readOnly={data.readonly || !canWrite}
         />
       ) : null}
-      {data && (tab === 'values' || tab === 'imports') ? <p className="empty-note">{t('refTabSoon')}</p> : null}
+      {data && valuesOpened ? (
+        <div hidden={tab !== 'values'}>
+          <ValuesTab
+            spaceId={spaceId}
+            branchId={branchId}
+            name={name}
+            model={data.model as RefModel}
+            readOnly={data.readonly || !canWrite}
+            onErrorCount={setValueErrors}
+          />
+        </div>
+      ) : null}
+      {data && tab === 'imports' ? <p className="empty-note">{t('refTabSoon')}</p> : null}
       {tab === 'history' ? <HistoryTab spaceId={spaceId} branchId={branchId} name={name} /> : null}
     </div>
   )

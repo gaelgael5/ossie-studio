@@ -93,6 +93,9 @@ function setup(url: string, options: { readonly?: boolean; capabilities?: string
       else if (path === BASE) body = { ...DETAIL, name: 'tarifs', title: 'Tarifs' }
       else if (path === `${BASE}/delais/modele/apercu`) body = PREVIEW
       else if (path === `${BASE}/delais/modele`) body = { ...DETAIL, model: JSON.parse(String(init?.body)).model }
+      else if (path === `${BASE}/delais/valeurs`) body = { values: [{ pays: 'FR', mode: 'site' }], count: 1 }
+      else if (path === `${BASE}/delais/valeurs/verification`)
+        body = { ok: false, problems: [{ path: 'FR+site \u203a libelle', code: 'value_required', detail: '', index: 0, field: 'libelle' }] }
       else if (path === `${BASE}/delais/historique`)
         body = { commits: [{ sha: 'abcdef1234567890', author: 'Gael', date: '2026-11-24T08:00:00+00:00', message: 'référentiel : crée delais' }] }
       else if (path === `${BASE}/delais`) body = { ...DETAIL, readonly: options.readonly ?? false }
@@ -212,4 +215,13 @@ describe('Référentiels — page et onglet Modèle (ticket 829a86a7)', () => {
     expect(await screen.findByText('référentiel : crée delais')).toBeInTheDocument()
     expect(screen.getByText('abcdef123456')).toBeInTheDocument()
   })
+
+  it('onglet Valeurs : compteur d’erreurs sur l’onglet', async () => {
+    setup('/referentiels/delais')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Valeurs' }))
+    expect(await screen.findByLabelText('1 erreur')).toHaveTextContent('1')
+    expect(await screen.findByText('erreur')).toBeInTheDocument()
+  })
 })
+

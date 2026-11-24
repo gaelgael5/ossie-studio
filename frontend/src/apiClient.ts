@@ -1294,6 +1294,9 @@ export interface ReferentielProblem {
   path: string
   code: string
   detail: string
+  // Problème d'une valeur : son rang dans la liste vérifiée, et le chemin du champ.
+  index?: number
+  field?: string
 }
 
 export interface ReferentielModelPreview {
@@ -1760,6 +1763,21 @@ export const api = {
     apiFetch<ReferentielDetail>(
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/modele`,
       { method: 'PUT', body: JSON.stringify({ model }) },
+    ),
+  getReferentielValues: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<{ values: Record<string, unknown>[]; count: number }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/valeurs`,
+    ),
+  verifyReferentielValues: (spaceId: string, branchId: string, name: string, values: Record<string, unknown>[]) =>
+    apiFetch<{ ok: boolean; problems: ReferentielProblem[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/valeurs/verification`,
+      { method: 'POST', body: JSON.stringify({ values }) },
+    ),
+  // La liste complète : écrite dans le brouillon, triée par clé, par la brique « format ».
+  saveReferentielValues: (spaceId: string, branchId: string, name: string, values: Record<string, unknown>[]) =>
+    apiFetch<{ values: Record<string, unknown>[]; count: number; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/valeurs`,
+      { method: 'PUT', body: JSON.stringify({ values }) },
     ),
   referentielHistory: (spaceId: string, branchId: string, name: string) =>
     apiFetch<{ commits: ReferentielCommit[] }>(
