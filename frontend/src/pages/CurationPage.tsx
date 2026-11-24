@@ -1,4 +1,4 @@
-import { Suspense, lazy, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
@@ -19,6 +19,7 @@ import { NoBranchNote } from '../components/NoBranchNote'
 import type { MarkdownEditorHandle } from '../components/MarkdownEditor'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
+import { LinkReferentielDialog, ReferentielLinkCell, useLinkTargets } from '../curation/ReferentielLink'
 
 // Page « Curation » (ticket docflow aeb2e429) : les assets RETENUS de toutes les
 // sources, pour les consulter et rédiger leurs descriptions. Rien à voir avec
@@ -395,6 +396,11 @@ function AssetPanel({
   })
   // Fenêtre de rédaction : `null` = la description de l'objet, sinon un champ.
   const [writing, setWriting] = useState<{ field: string | null; label: string } | null>(null)
+  // Popup « Lier à un référentiel » (ticket 8269c642) : la propriété à lier.
+  const [linking, setLinking] = useState<string | null>(null)
+  // Liens en lecture seule sur la branche racine du dépôt.
+  const linkTargets = useLinkTargets(spaceId, branchId)
+  const canLink = canWrite && linkTargets.data?.readonly === false
   const explorerHref = `/sources?${new URLSearchParams({
     tab: 'raw',
     source: summary.source,
@@ -435,6 +441,9 @@ function AssetPanel({
             {t('curationAssetCount', { count: summary.property_count, raw: summary.raw_fields })}
             {summary.orphan ? ` · ${t('curationOrphan')}` : ''}
             {summary.modified ? ` · ${t('curationModified')}` : ''}
+            {summary.referentiel_issues ? (
+              <span className="text-warn"> · {t('linkIssues', { count: summary.referentiel_issues })}</span>
+            ) : null}
           </p>
           {domains.length > 0 ? (
             <p className="small">
@@ -490,6 +499,17 @@ function AssetPanel({
           canWrite={canWrite}
           onWrite={(p) => setWriting({ field: p.name, label: p.business_name || p.name })}
           onOpen={onOpen}
+          linkCell={(p) => (
+            <ReferentielLinkCell
+              spaceId={spaceId}
+              branchId={branchId}
+              source={summary.source}
+              path={summary.path}
+              property={p}
+              canWrite={canLink}
+              onLink={(prop) => setLinking(prop.name)}
+            />
+          )}
         />
       ) : null}
       {data && tab === 'description' ? (
@@ -511,6 +531,17 @@ function AssetPanel({
       ) : null}
       {tab === 'history' ? (
         <HistoryTab spaceId={spaceId} branchId={branchId} summary={summary} />
+      ) : null}
+      {linking && data ? (
+        <LinkReferentielDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          source={summary.source}
+          path={summary.path}
+          property={data.properties.find((p) => p.name === linking)!}
+          properties={data.properties}
+          onClose={() => setLinking(null)}
+        />
       ) : null}
       {writing && data ? (
         <RedactionDialog
@@ -538,11 +569,14 @@ function PropertiesTable({
   canWrite,
   onWrite,
   onOpen,
+  linkCell,
 }: {
   properties: CurationAssetProperty[]
   canWrite: boolean
   onWrite: (p: CurationAssetProperty) => void
   onOpen: (source: string, path: string) => void
+  /** Colonne « Référentiel » (ticket 8269c642). */
+  linkCell: (p: CurationAssetProperty) => ReactNode
 }) {
   const { t } = useTranslation()
   if (properties.length === 0) return <p className="muted">{t('curationNoProperty')}</p>
@@ -554,6 +588,7 @@ function PropertiesTable({
             <th>{t('curationColProperty')}</th>
             <th>{t('curationColType')}</th>
             <th>{t('curationColDescription')}</th>
+            <th>{t('curationColReferentiel')}</th>
             <th aria-label={t('curationColActions')} />
           </tr>
         </thead>
@@ -603,6 +638,7 @@ function PropertiesTable({
                   <span className="curation-todo">{t('curationToDescribeOne')}</span>
                 )}
               </td>
+              <td>{linkCell(p)}</td>
               <td>
                 <button
                   type="button"

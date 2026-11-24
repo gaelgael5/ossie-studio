@@ -26,6 +26,15 @@ wheels = [
 ]
 
 [[package]]
+name = "antlr4-python3-runtime"
+version = "4.13.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/5f/2cdf6f7aca3b20d3f316e9f505292e1f256a32089bd702034c29ebde6242/antlr4_python3_runtime-4.13.2.tar.gz", hash = "sha256:909b647e1d2fc2b70180ac586df3933e38919c85f98ccc656a96cd3f25ef3916", size = 117467, upload-time = "2024-08-03T19:00:12.757Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/03/a851e84fcbb85214dc637b6378121ef9a0dd61b4c65264675d8a5c9b1ae7/antlr4_python3_runtime-4.13.2-py3-none-any.whl", hash = "sha256:fe3835eb8d33daece0e799090eda89719dbccee7aa39ef94eed3818cafa5a7e8", size = 144462, upload-time = "2024-08-03T19:00:11.134Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1058,6 +1067,8 @@ dependencies = [
     { name = "tree-sitter-kotlin" },
     { name = "tree-sitter-python" },
     { name = "tree-sitter-typescript" },
+    { name = "urban-json" },
+    { name = "urban-json-editor" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -1100,6 +1111,8 @@ requires-dist = [
     { name = "tree-sitter-kotlin", specifier = ">=1.1.0" },
     { name = "tree-sitter-python", specifier = ">=0.25.0" },
     { name = "tree-sitter-typescript", specifier = ">=0.23.2" },
+    { name = "urban-json", specifier = "==0.2.1" },
+    { name = "urban-json-editor", specifier = "==0.3.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
 
@@ -1799,6 +1812,30 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ff/50/0195198eb1d75bab716bb0a813abea4cc394bfa17a92a189f021a34859af/typing_inspection-0.4.5.tar.gz", hash = "sha256:7f16c411e7930dc79596d42ab44672a3fe5f60eb34b781a1647e7872363120c7", size = 81194, upload-time = "2026-11-04T14:13:23.774Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/de/0c/ea2544850a7c135e15033a5c7a8e7211136184b7ae63e2239d557c2b3019/typing_inspection-0.4.5-py3-none-any.whl", hash = "sha256:bc210535442b39e1bf2805e0c7a17dfd6a4ace760c84c7f7d16245d23a6b1c39", size = 14874, upload-time = "2026-11-04T14:13:22.616Z" },
+]
+
+[[package]]
+name = "urban-json"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "antlr4-python3-runtime" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ff/7c/e0e7998daa3258c1b2657e097e345b0357b5b15a4684731aa3d9b281c440/urban_json-0.2.1.tar.gz", hash = "sha256:a396ed9a0047a46b3e599d5e98e5bffbcf2954a543a9e2e7ad23a1784ab8ed46", size = 114764, upload-time = "2026-11-01T06:24:00.681Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/56/e9/7396613738bc2d5454409c58d40a0db44fe0fa08864290547d1c5f74de9b/urban_json-0.2.1-py3-none-any.whl", hash = "sha256:eb5c8a5a5f44623393097b83e51f3fe925e8c1a94a38104889644cdc2b408dcd", size = 106624, upload-time = "2026-11-01T06:23:59.155Z" },
+]
+
+[[package]]
+name = "urban-json-editor"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "urban-json" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b0/67/e44af529b5ea92d57d736da9f99991e614f78b34e1464b0d468129e18d5f/urban_json_editor-0.3.0.tar.gz", hash = "sha256:03f9217fb2e665b1fd7ec68797ef7051421d131bb691d51da1ced2a5fb585f63", size = 26819, upload-time = "2026-10-31T12:48:16.213Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/42/ae/d66f0349ed6bcea90ba7ad909f96e50cd9b005dd00574b69c3ce906717b0/urban_json_editor-0.3.0-py3-none-any.whl", hash = "sha256:a5118c64400af851eb6d1046043cefe9b75d18f1dc3f6dd2135a972f9e03da5f", size = 23749, upload-time = "2026-10-31T12:48:14.948Z" },
 ]
 
 [[package]]

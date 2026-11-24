@@ -32,6 +32,8 @@ CATALOG: tuple[Domain, ...] = (
         "spaces",
         ("spaces:read", "spaces:create", "spaces:branch", "spaces:publish", "spaces:version"),
     ),
+    # Référentiels : données de référence tenues dans l'espace (epic « Référentiels »).
+    Domain("referentiels", ("referentiels:read", "referentiels:write")),
     Domain("governance", ("governance:read", "governance:write", "governance:certify")),
     Domain("sources", ("sources:read", "sources:declare", "sources:collect")),
     Domain("parsing", ("parsing:read", "parsing:manage")),
@@ -54,7 +56,7 @@ ALL_CAPABILITIES: frozenset[str] = frozenset(
 # Capacités « déclinables par espace » : une équipe rattachée à un espace peut
 # les donner sur cet espace seulement. Ce sont les gestes faits DANS un espace
 # (sa lecture, ses branches, sa publication, ses versions, et le travail qu'il
-# porte : sources, curation, gouvernance). Toutes les autres sont globales :
+# porte : référentiels, sources, curation, gouvernance). Toutes les autres sont globales :
 # administration (secrets, connexions, OIDC, profils, utilisateurs, parseurs,
 # profils agents, clés d'API, connexions d'agents) et création d'un espace, qui
 # ne se fait pas depuis l'intérieur d'un espace.
@@ -64,7 +66,7 @@ SPACE_SCOPED: frozenset[str] = frozenset(
     | {
         cap
         for domain in CATALOG
-        if domain.key in ("sources", "curation", "governance")
+        if domain.key in ("referentiels", "sources", "curation", "governance")
         for cap in domain.capabilities
     }
 )

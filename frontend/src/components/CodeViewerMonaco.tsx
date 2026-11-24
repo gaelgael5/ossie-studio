@@ -1,14 +1,7 @@
-import Editor, { loader } from '@monaco-editor/react'
-// Monaco embarqué dans le bundle, jamais tiré d'un CDN (ticket a29fd1ec) :
-// l'instance doit marcher sans Internet et le raw affiché ne sort pas vers un
-// tiers. Seuls le cœur de l'éditeur et la coloration YAML sont importés (le
-// paquet complet, avec ses langages et leurs workers, pèse plusieurs fois plus).
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
-import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
-import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-
-self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
-loader.config({ monaco })
+import Editor from '@monaco-editor/react'
+// Monaco embarqué dans le bundle, jamais tiré d'un CDN (ticket a29fd1ec) : réglage
+// commun à toute l'application (coloration YAML comprise), voir `monaco/setup`.
+import { MONACO_THEME } from '../monaco/setup'
 
 const LINE_PX = 19
 
@@ -31,7 +24,7 @@ export default function CodeViewerMonaco({
         height={height}
         language="yaml"
         value={value}
-        theme="vs"
+        theme={MONACO_THEME}
         options={{
           // Lecture seule : le raw est régénéré par la collecte.
           readOnly: true,

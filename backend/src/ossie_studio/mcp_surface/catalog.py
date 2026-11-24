@@ -426,6 +426,50 @@ CATALOG: tuple[Primitive, ...] = (
         person_only=True,
         destructive=True,
     ),
+    # --- Référentiels (lecture de la version publiée, jamais d'un brouillon)
+    Primitive(
+        id="list_referentiels",
+        domain="referentiels",
+        access="read",
+        capability="referentiels:read",
+        description=(
+            "List the reference data sets (référentiels) of a space: lists of business keys and "
+            "values maintained in Ossie-studio (countries, delivery modes, codes...), as "
+            "published. Each has a key of one or more properties (a composite key needs all of "
+            "them). Returns name, title, key properties, value count and the published commit."
+        ),
+    ),
+    Primitive(
+        id="read_referentiel_model",
+        domain="referentiels",
+        access="read",
+        capability="referentiels:read",
+        description=(
+            "Read the model of a published reference data set: a JSON Schema whose properties "
+            "may be nested objects or arrays of objects, with its key under 'x-key'."
+        ),
+    ),
+    Primitive(
+        id="search_referentiel_values",
+        domain="referentiels",
+        access="read",
+        capability="referentiels:read",
+        description=(
+            "Search the values of a published reference data set, sorted by key, with equality "
+            "filters on simple top-level properties. The result is bounded: 'has_more' tells "
+            "whether more values remain (use offset for the next page)."
+        ),
+    ),
+    Primitive(
+        id="get_referentiel_value",
+        domain="referentiels",
+        access="read",
+        capability="referentiels:read",
+        description=(
+            "Get one value of a published reference data set by its key; for a composite key, "
+            "give every key property."
+        ),
+    ),
     # --- Gouvernance
     Primitive(
         id="list_tags",

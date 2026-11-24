@@ -28,13 +28,14 @@ from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.curation_assets import (
     AssetSummary,
     asset_view,
-    read_assets_and_schemes,
+    read_curation_view,
     summarize,
 )
 from ossie_studio.sources.explorer import DEFAULT_MODE
 from ossie_studio.sources.explorer_graph import ReferenceGraph
 from ossie_studio.sources.explorer_service import ensure_index, reference_graph
 from ossie_studio.sources.paths import ASSETS_DIR, is_valid_source_slug, source_rel_dir
+from ossie_studio.sources.referentiel_links import LinkTarget, read_targets
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
 
@@ -57,9 +58,11 @@ async def _load(
     workdir: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
-) -> tuple[dict[tuple[str, str], dict[str, Any]], ReferenceGraph, list[Scheme]]:
-    """Assets du brouillon de la personne, graphe de l'explorateur et schémas de
-    classification (même vue)."""
+) -> tuple[
+    dict[tuple[str, str], dict[str, Any]], ReferenceGraph, list[Scheme], dict[str, LinkTarget]
+]:
+    """Assets du brouillon de la personne, graphe de l'explorateur, schémas de
+    classification et référentiels (même vue)."""
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
@@ -68,13 +71,13 @@ async def _load(
         key, signature = await ensure_index(
             conn, workdir, space, branch_id, branch.git_ref, username, token
         )
-        assets, schemes = await workdir.read_branch(
-            space.id, branch.git_ref, space.repo_url, username, token, read_assets_and_schemes
+        assets, schemes, targets = await workdir.read_branch(
+            space.id, branch.git_ref, space.repo_url, username, token, read_curation_view
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     graph = await reference_graph(conn, key, DEFAULT_MODE, signature)
-    return assets, graph, schemes
+    return assets, graph, schemes, targets
 
 
 def _summary_payload(summary: AssetSummary) -> dict[str, object]:
@@ -90,15 +93,46 @@ async def list_curation_assets(
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
-    assets, graph, schemes = await _load(conn, crypto, workdir, space_id, branch_id)
+    assets, graph, schemes, targets = await _load(conn, crypto, workdir, space_id, branch_id)
     labels = {s.slug: s.label for s in graph.sources}
-    summaries = summarize(assets, graph, schemes)
+    summaries = summarize(assets, graph, schemes, targets)
     sources = sorted({s.source for s in summaries})
     return {
         "sources": [{"slug": slug, "label": labels.get(slug) or slug} for slug in sources],
         "assets": [_summary_payload(s) for s in summaries],
         # Schémas de classification, pour les badges et le filtre par niveau.
         "schemes": [scheme_payload(sc) for sc in schemes],
+    }
+
+
+@router.get("/referentiels")
+async def list_link_targets(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: CurationRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    """Les référentiels de la branche auxquels lier une propriété (ticket
+    8269c642) : chemin du fichier de schéma, clé, propriétés simples ; et
+    `readonly` si la branche est la racine du dépôt (liens en lecture seule)."""
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        targets = await workdir.read_branch(
+            space.id, branch.git_ref, space.repo_url, username, token, read_targets
+        )
+        _heads, root = await workdir.manager.remote_branches(
+            space.id, space.repo_url, username, token
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    return {
+        "referentiels": [t.payload() for t in targets.values()],
+        "readonly": bool(root) and branch.git_ref == root,
     }
 
 
@@ -119,13 +153,13 @@ async def get_curation_asset(
     path: str,
 ) -> dict[str, object]:
     _check(source, path)
-    assets, graph, schemes = await _load(conn, crypto, workdir, space_id, branch_id)
+    assets, graph, schemes, targets = await _load(conn, crypto, workdir, space_id, branch_id)
     asset = assets.get((source, path))
     if asset is None:
         raise ApiError("asset_not_retained", status_code=404, path=path)
-    view = asset_view((source, path), asset, assets, graph)
+    view = asset_view((source, path), asset, assets, graph, targets)
     return {
-        **_summary_payload(summarize({(source, path): asset}, graph, schemes)[0]),
+        **_summary_payload(summarize({(source, path): asset}, graph, schemes, targets)[0]),
         "description": view.description,
         "business_name": view.business_name,
         "properties": [asdict(p) for p in view.properties],

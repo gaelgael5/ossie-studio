@@ -21,6 +21,8 @@ interface NavItem {
 // Menu principal, calqué sur les maquettes.
 const MAIN_NAV: NavItem[] = [
   { key: 'navSpaces', to: '/spaces', capability: 'spaces:read', prefix: '/spaces' },
+  // Juste après « Espaces » (Gael, epic « Référentiels »).
+  { key: 'navReferentiels', to: '/referentiels', capability: 'referentiels:read', prefix: '/referentiels' },
   { key: 'navSources', to: '/sources', capability: 'sources:read', prefix: '/sources' },
   { key: 'navCuration', to: '/curation', capability: 'curation:read', prefix: '/curation' },
   { key: 'navDomains', to: '/domaines', capability: 'curation:read', prefix: '/domaines' },

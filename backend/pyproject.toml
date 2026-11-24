@@ -28,6 +28,8 @@ dependencies = [
     "defusedxml==0.7.1",
     "mcp>=2.3.0,<3",
     "jsonschema>=4.23",
+    "urban-json==0.2.1",
+    "urban-json-editor==0.3.0",
 ]
 
 [dependency-groups]

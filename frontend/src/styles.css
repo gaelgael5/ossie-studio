@@ -2826,6 +2826,199 @@ td .raw-ref-menu {
   overflow-wrap: anywhere;
 }
 
+/* --- Référentiels (epic « Référentiels ») ------------------------------------ */
+.ref-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.ref-list .plain-list {
+  margin-top: 8px;
+}
+.ref-item {
+  padding: 8px 6px;
+  border-radius: 6px;
+}
+.ref-item.active {
+  background: var(--muted-bg);
+}
+.ref-main {
+  min-width: 0;
+}
+.ref-key-bar .row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ref-key-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.model-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.yaml-editor {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+@media (max-width: 1100px) {
+  .ref-layout,
+  .model-editor {
+    grid-template-columns: 1fr;
+  }
+}
+.ref-values-tools {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ref-values-layout.with-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 46%);
+  gap: 16px;
+  align-items: start;
+}
+.ref-panel .ref-panel-crumbs .link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--link);
+  cursor: pointer;
+  font: inherit;
+  text-transform: inherit;
+}
+.ref-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+.ref-subtable .input {
+  min-width: 6rem;
+}
+.row-deleted td {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.row-error td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.cell-error .input,
+td.cell-error {
+  outline: 1px solid var(--danger);
+}
+.field-error {
+  display: block;
+}
+.badge-danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+@media (max-width: 1100px) {
+  .ref-values-layout.with-panel {
+    grid-template-columns: 1fr;
+  }
+}
+/* Éditeur de template JSLT, repris de Miles : gouttière et ligne fautive. */
+.template-editor {
+  display: flex;
+  align-items: stretch;
+  margin-top: 6px;
+}
+.template-frame .jslt-editor-host {
+  margin-top: 0;
+}
+.template-gutter {
+  flex: 0 0 auto;
+  overflow: hidden;
+  user-select: none;
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  background: var(--muted-bg);
+  color: var(--muted);
+  text-align: right;
+  font-family: var(--mono);
+  padding: 0 8px;
+  min-width: 40px;
+  box-sizing: content-box;
+}
+.template-gutter-lines {
+  will-change: transform;
+}
+.gutter-line {
+  white-space: pre;
+}
+.gutter-error {
+  color: var(--danger);
+  font-weight: 700;
+  background: var(--danger-bg);
+}
+.template-frame {
+  flex: 1 1 auto;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+.template-frame jslt-editor .jslt-editor {
+  border-radius: 0 8px 8px 0;
+}
+.template-error-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: var(--danger-bg);
+  opacity: 0.6;
+}
+/* Onglet Imports. */
+.ref-imports-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.ref-import-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.ref-counters {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ref-import-run-controls {
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 16px;
+}
+.ref-import-run code {
+  overflow-wrap: anywhere;
+}
+/* Lien d'une propriété d'asset vers un référentiel (ticket 8269c642). */
+.link-cell {
+  gap: 4px;
+}
+.link-badge {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+.link-composite {
+  border-color: var(--warn-fg);
+  background: var(--warn-bg);
+}
+@media (max-width: 1100px) {
+  .ref-imports-layout,
+  .ref-import-result {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Visionneuse de code (Monaco, ticket a29fd1ec). */
 .code-viewer {
   border: 1px solid var(--border);

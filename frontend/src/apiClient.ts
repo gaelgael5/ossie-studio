@@ -43,6 +43,16 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+/** Envoi d'un fichier (multipart) : le navigateur pose lui-même l'en-tête et sa
+ * frontière, jamais `application/json`. */
+async function apiUpload<T>(path: string, form: FormData, method = 'PUT'): Promise<T> {
+  const response = await fetch(withDraftView(governancePath(path), method), { method, body: form })
+  const text = await response.text()
+  const body = text ? JSON.parse(text) : {}
+  if (!response.ok) throw new ApiRequestError(body as ApiErrorBody, response.status)
+  return body as T
+}
+
 export interface SessionUser {
   email: string
   role: string
@@ -813,6 +823,8 @@ export interface CurationAssetSummary {
   classification: ClassBadgeValue[]
   /** Tous les niveaux effectifs, champs compris, en « schéma/niveau » (filtre). */
   class_levels: string[]
+  /** Liens de référentiel partiels ou cassés (ticket 8269c642). */
+  referentiel_issues?: number
 }
 
 // Classification (ticket 5e8680d7).
@@ -868,6 +880,31 @@ export interface CurationAssetProperty {
   external: string
   description: string
   missing: boolean
+  referentiel?: ReferentielLink | null
+}
+
+/** Lien d'une propriété d'asset vers une propriété de référentiel (ticket 8269c642). */
+export interface ReferentielLink {
+  referentiel: string
+  title: string
+  schema: string
+  property: string
+  group: string
+  /** Rang dans la clé (1…), 0 hors clé. */
+  key_index: number
+  key_size: number
+  linked_keys: number
+  status: 'ok' | 'partial' | 'broken'
+  missing: string[]
+  members: string[]
+}
+
+export interface LinkTarget {
+  name: string
+  title: string
+  schema: string
+  key: string[]
+  properties: { name: string; type: string }[]
 }
 
 export interface CurationAssetDetail extends CurationAssetSummary {
@@ -1356,6 +1393,138 @@ export interface AuditPage {
   types: string[]
 }
 
+// --- Référentiels (epic « Référentiels », ticket 829a86a7) ---------------------------------
+
+export interface ReferentielSummary {
+  name: string
+  title?: string
+  description?: string
+  key?: string[]
+  count?: number
+  unpublished: boolean
+  error?: string
+}
+
+export interface ReferentielDetail {
+  name: string
+  title: string
+  model: Record<string, unknown>
+  model_yaml: string
+  model_path: string
+  count: number
+  unpublished: boolean
+  readonly: boolean
+  revision?: string | null
+}
+
+export interface ReferentielProblem {
+  path: string
+  code: string
+  detail: string
+  // Problème d'une valeur : son rang dans la liste vérifiée, et le chemin du champ.
+  index?: number
+  field?: string
+}
+
+export interface ReferentielModelPreview {
+  ok: boolean
+  model_problems: ReferentielProblem[]
+  values: number
+  valid: number
+  removed: { property: string; values: number }[]
+  problems: ReferentielProblem[]
+  problem_count: number
+  duplicates: string[]
+}
+
+export interface ReferentielImportSummary {
+  slug: string
+  label: string
+  format: 'csv' | 'json'
+  separator: string
+  encoding: string
+  header: boolean
+  last_import: string | null
+  last_import_by?: string | null
+}
+
+export interface ReferentielImportDetail extends ReferentielImportSummary {
+  template: string
+  example_name: string
+  example_size: number
+  paths: string[]
+  template_problems?: TemplateProblem[]
+}
+
+export interface ImportReading {
+  separator: string
+  encoding: string
+  header: boolean
+}
+
+export interface ImportPreview {
+  columns: string[]
+  rows: Record<string, unknown>[]
+  count: number
+  paths: { path: string; kind: string; description: string }[]
+}
+
+export interface TemplateProblem {
+  code: string
+  message: string
+  line: number | null
+  column: number | null
+}
+
+export interface ImportTrialError {
+  where: string
+  code: string
+  message: string
+  path: string | null
+  expected: string | null
+  field: string
+  key?: string
+}
+
+export interface ImportTrialDifference {
+  key: string
+  kind: 'new' | 'modified' | 'deleted'
+  where: string
+  value?: Record<string, unknown>
+  changes?: { property: string; before: unknown; after: unknown }[]
+}
+
+export interface ImportTrial {
+  ok: boolean
+  template_problems: TemplateProblem[]
+  lines?: number
+  new?: number
+  modified?: number
+  unchanged?: number
+  deleted?: number
+  errors?: number
+  error_details?: ImportTrialError[]
+  differences?: ImportTrialDifference[]
+}
+
+export type ImportMode = 'merge' | 'replace'
+
+/** Compte rendu d'un import abouti (refusé : erreur `import_refused`, compte rendu
+ * dans `error_args.report`). `revision` nulle : aucun changement. */
+export interface ImportRunResult extends ImportTrial {
+  mode: ImportMode
+  file: string
+  revision: string | null
+  last_import: string | null
+}
+
+export interface ReferentielCommit {
+  sha: string
+  author: string
+  date: string
+  message: string
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setLanguage: (language: string) =>
@@ -1714,6 +1883,27 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/enrich`,
       { method: 'PUT', body: JSON.stringify(body) },
     ),
+  listLinkTargets: (spaceId: string, branchId: string) =>
+    apiFetch<{ referentiels: LinkTarget[]; readonly: boolean }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/curation-assets/referentiels`,
+    ),
+  /** Lie en une fois une propriété et, pour une clé composée, les autres propriétés de la clé. */
+  linkReferentiel: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    body: { path: string; referentiel: string; links: Record<string, string>; replace?: string | null },
+  ) =>
+    apiFetch<{ ok: boolean; commit: string | null; fields: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/referentiel-link`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  /** Délie la propriété et tout son groupe. */
+  unlinkReferentiel: (spaceId: string, branchId: string, slug: string, path: string, field: string) =>
+    apiFetch<{ ok: boolean; commit: string | null; fields: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/referentiel-link?path=${encodeURIComponent(path)}&field=${encodeURIComponent(field)}`,
+      { method: 'DELETE' },
+    ),
   getEnrichment: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<EnrichView>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/enrichment?path=${encodeURIComponent(path)}`,
@@ -1784,6 +1974,123 @@ export const api = {
     apiFetch<{ contracts: FoundContract[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${encodeURIComponent(slug)}/openapi-search`,
       { method: 'POST' },
+    ),
+  listReferentiels: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; referentiels: ReferentielSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels`,
+    ),
+  getReferentiel: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<ReferentielDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}`,
+    ),
+  // Libellé et slug ; le slug ne change plus ensuite (il nomme le dossier du référentiel).
+  createReferentiel: (spaceId: string, branchId: string, body: { label: string; slug: string }) =>
+    apiFetch<ReferentielDetail>(`/api/spaces/${spaceId}/branches/${branchId}/referentiels`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  previewReferentielModel: (spaceId: string, branchId: string, name: string, model: Record<string, unknown>) =>
+    apiFetch<ReferentielModelPreview>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/modele/apercu`,
+      { method: 'POST', body: JSON.stringify({ model }) },
+    ),
+  saveReferentielModel: (spaceId: string, branchId: string, name: string, model: Record<string, unknown>) =>
+    apiFetch<ReferentielDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/modele`,
+      { method: 'PUT', body: JSON.stringify({ model }) },
+    ),
+  getReferentielValues: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<{ values: Record<string, unknown>[]; count: number }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/valeurs`,
+    ),
+  verifyReferentielValues: (spaceId: string, branchId: string, name: string, values: Record<string, unknown>[]) =>
+    apiFetch<{ ok: boolean; problems: ReferentielProblem[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/valeurs/verification`,
+      { method: 'POST', body: JSON.stringify({ values }) },
+    ),
+  // La liste complète : écrite dans le brouillon, triée par clé, par la brique « format ».
+  saveReferentielValues: (spaceId: string, branchId: string, name: string, values: Record<string, unknown>[]) =>
+    apiFetch<{ values: Record<string, unknown>[]; count: number; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/valeurs`,
+      { method: 'PUT', body: JSON.stringify({ values }) },
+    ),
+  listReferentielImports: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<{ imports: ReferentielImportSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`,
+    ),
+  getReferentielImport: (spaceId: string, branchId: string, name: string, slug: string) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
+    ),
+  createReferentielImport: (
+    spaceId: string,
+    branchId: string,
+    name: string,
+    body: { label: string; slug: string; format: 'csv' | 'json' },
+  ) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  renameReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, label: string) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
+      { method: 'PATCH', body: JSON.stringify({ label }) },
+    ),
+  deleteReferentielImport: (spaceId: string, branchId: string, name: string, slug: string) =>
+    apiFetch<void>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
+      { method: 'DELETE' },
+    ),
+  uploadReferentielImportExample: (spaceId: string, branchId: string, name: string, slug: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return apiUpload<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/exemple`,
+      form,
+    )
+  },
+  setReferentielImportReading: (spaceId: string, branchId: string, name: string, slug: string, reading: ImportReading) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/lecture`,
+      { method: 'PUT', body: JSON.stringify(reading) },
+    ),
+  previewReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, reading?: ImportReading) =>
+    apiFetch<ImportPreview>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/apercu`,
+      { method: 'POST', body: reading ? JSON.stringify(reading) : undefined },
+    ),
+  tryReferentielImport: (
+    spaceId: string,
+    branchId: string,
+    name: string,
+    slug: string,
+    template: string,
+    mode: ImportMode = 'merge',
+  ) =>
+    apiFetch<ImportTrial>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/essai`,
+      { method: 'POST', body: JSON.stringify({ template, mode }) },
+    ),
+  /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */
+  runReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, mode: ImportMode, file?: File) => {
+    const form = new FormData()
+    form.append('mode', mode)
+    if (file) form.append('file', file)
+    return apiUpload<ImportRunResult>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/import`,
+      form,
+      'POST',
+    )
+  },
+  saveReferentielImportTemplate: (spaceId: string, branchId: string, name: string, slug: string, template: string) =>
+    apiFetch<ReferentielImportDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/template`,
+      { method: 'PUT', body: JSON.stringify({ template }) },
+    ),
+  referentielHistory: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<{ commits: ReferentielCommit[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/historique`,
     ),
   listDomains: (spaceId: string, branchId: string) =>
     apiFetch<{ domains: DomainSummary[] }>(`/api/spaces/${spaceId}/branches/${branchId}/domains`),
