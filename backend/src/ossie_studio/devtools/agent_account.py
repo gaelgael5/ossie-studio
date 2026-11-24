@@ -22,6 +22,7 @@ import asyncpg
 
 from ossie_studio.audit.service import CREATED, UPDATED, AuditEntry, record
 from ossie_studio.config import Settings
+from ossie_studio.db import create_pool
 from ossie_studio.models import ROLE_ADMIN
 from ossie_studio.security import hash_password
 from ossie_studio.users.service import search_key
@@ -73,11 +74,14 @@ async def _main() -> int:
     if len(password) < MIN_LENGTH:
         print("mot de passe absent ou trop court sur l'entrée standard", file=sys.stderr)
         return 2
-    conn = await asyncpg.connect(Settings().asyncpg_dsn())  # type: ignore[call-arg]
+    # Même initialisation de connexion que l'application (codec jsonb du
+    # journal d'audit) : une connexion nue refuse le détail en dict.
+    pool = await create_pool(Settings().asyncpg_dsn())  # type: ignore[call-arg]
     try:
-        created = await ensure_agent_account(conn, password)
+        async with pool.acquire() as conn:
+            created = await ensure_agent_account(conn, password)
     finally:
-        await conn.close()
+        await pool.close()
     print(f"compte {AGENT_EMAIL} {'créé' if created else 'remis à jour'}")
     return 0
 
