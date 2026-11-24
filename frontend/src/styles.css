@@ -2949,3 +2949,24 @@ td .raw-ref-menu {
   fill: var(--ko-bg);
   stroke: var(--ko);
 }
+/* Liens du graphe d'une action : libellé abrégé, complet au survol / clic. */
+.oas-edge {
+  cursor: pointer;
+}
+.oas-edge .oas-edge-hit {
+  stroke: transparent;
+  stroke-width: 12;
+}
+.oas-edge text {
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+}
+.oas-edge.hot path:not(.oas-edge-hit) {
+  stroke: var(--primary);
+  stroke-width: 2.5;
+}
+.oas-edge.hot text {
+  fill: var(--text);
+  font-weight: 600;
+}

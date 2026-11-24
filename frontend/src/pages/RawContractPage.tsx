@@ -380,6 +380,9 @@ const G_NODE_H = 44
 const G_COL_GAP = 70
 const G_ROW_GAP = 18
 const G_PAD = 20
+// Au-delà de ce nombre de liens, libellés abrégés (complets au survol ou au clic).
+const SHORT_LABELS_FROM = 8
+const SHORT_LABEL_CHARS = 9
 
 type GNode = { id: string; level: number; kind: 'op' | 'response' | 'object'; title: string; sub: string; tone: string }
 type GEdge = { from: string; to: string; label: string }
@@ -458,12 +461,25 @@ function ContractGraph({
 }) {
   const { t } = useTranslation()
   const [depth, setDepth] = useState(1)
+  // Gael : « quand il y a beaucoup de liens, afficher juste le début et le
+  // reste au clic ou au survol ». Survol : temporaire ; clic : épinglé.
+  const [hovered, setHovered] = useState<string | null>(null)
+  const [pinned, setPinned] = useState<Set<string>>(new Set())
   const layout = useMemo(() => {
-    const { nodes, edges } = buildOperationGraph(op, schemas, depth, {
+    const { nodes, edges: rawEdges } = buildOperationGraph(op, schemas, depth, {
       body: t('rawContract.graphBody'),
       response: (code) => responseWords(t, code),
       fields: (n) => t('rawFields', { count: n }),
     })
+    // Plusieurs liens entre les deux mêmes objets (sendingDepot, recipientDepot) :
+    // un seul trait, libellés réunis — comme le graphe des vignettes.
+    const merged = new Map<string, GEdge>()
+    for (const e of rawEdges) {
+      const key = `${e.from}→${e.to}`
+      const prev = merged.get(key)
+      merged.set(key, prev ? { ...prev, label: [prev.label, e.label].filter(Boolean).join(', ') } : e)
+    }
+    const edges = [...merged.values()]
     const levels = [...new Set(nodes.map((n) => n.level))].sort((a, b) => a - b)
     const columns = new Map<number, GNode[]>()
     for (const n of nodes) columns.set(n.level, [...(columns.get(n.level) ?? []), n])
@@ -488,9 +504,20 @@ function ContractGraph({
       inCount.set(e.to, (inCount.get(e.to) ?? 0) + 1)
     }
     const labelAtSource = (e: GEdge) => (outCount.get(e.from) ?? 0) <= (inCount.get(e.to) ?? 0)
-    return { nodes, edges, pos, width, height, labelAtSource }
+    // Au-delà de quelques liens, les libellés sont abrégés (début seulement).
+    const short = edges.length > SHORT_LABELS_FROM
+    return { nodes, edges, pos, width, height, labelAtSource, short }
   }, [op, schemas, depth, t])
   const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
+  const labelOf = (key: string, label: string) =>
+    !layout.short || key === hovered || pinned.has(key) ? label : cut(label, SHORT_LABEL_CHARS)
+  const togglePin = (key: string) =>
+    setPinned((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   return (
     <section className="oas-graph raw-graph">
       <div className="raw-graph-controls">
@@ -529,7 +556,9 @@ function ContractGraph({
               <path d="M0,0 L10,5 L0,10 z" className="raw-graph-arrow" />
             </marker>
           </defs>
-          {layout.edges.map((e, i) => {
+          {layout.edges.map((e) => {
+            const key = `${e.from}→${e.to}`
+            const hot = key === hovered || pinned.has(key)
             const a = layout.pos.get(e.from)
             const b = layout.pos.get(e.to)
             if (!a || !b) return null
@@ -539,20 +568,26 @@ function ContractGraph({
             const y1 = a.y + G_NODE_H / 2
             const y2 = b.y + G_NODE_H / 2
             const bend = Math.max(30, Math.abs(x2 - x1) / 2) * (forward ? 1 : -1)
+            const d = `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`
             return (
-              <g key={`${e.from}-${e.to}-${i}`} className="raw-graph-edge">
-                <path
-                  d={`M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`}
-                  markerEnd="url(#oas-arrow)"
-                />
+              <g
+                key={key}
+                className={`raw-graph-edge oas-edge${hot ? ' hot' : ''}`}
+                onMouseEnter={() => setHovered(key)}
+                onMouseLeave={() => setHovered(null)}
+                onClick={() => e.label && togglePin(key)}
+              >
+                {/* Trait invisible et large : un lien fin se survole difficilement. */}
+                <path d={d} className="oas-edge-hit" />
+                <path d={d} markerEnd="url(#oas-arrow)" />
                 {e.label ? (
                   layout.labelAtSource(e) ? (
                     <text x={x1 + 6} y={y1 - 5} textAnchor="start">
-                      {cut(e.label, 22)}
+                      {labelOf(key, e.label)}
                     </text>
                   ) : (
                     <text x={x2 - 8} y={y2 - 5} textAnchor="end">
-                      {cut(e.label, 22)}
+                      {labelOf(key, e.label)}
                     </text>
                   )
                 ) : null}
