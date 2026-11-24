@@ -355,8 +355,10 @@ export function RawExplorer({
   }, [sources.data, sourceSlug])
 
   const tree = useQuery({
-    queryKey: ['rawTree', spaceId, branchId, sourceSlug, mode],
-    queryFn: () => api.getRawExplorerTree(spaceId, branchId, sourceSlug, mode),
+    queryKey: ['rawTree', spaceId, branchId, sourceSlug, mode, familyFilter],
+    queryFn: () => api.getRawExplorerTree(spaceId, branchId, sourceSlug, mode, familyFilter),
+    // L'arbre reste affiché pendant qu'il se recalcule pour un autre type.
+    placeholderData: (previous) => previous,
     enabled: !!current && current.collected,
     staleTime: STALE_MS,
     retry: false,
@@ -501,14 +503,16 @@ export function RawExplorer({
   // l'arbre dit où aller.
   const treeCounts = searching ? results.data?.tree_counts : undefined
   const sourceCounts = treeCounts?.[sourceSlug]
+  // Filtre « Type » (bug d307159a) : le serveur compte le seul type choisi ;
+  // les dossiers qui n'en contiennent pas disparaissent (la racine reste).
   const treeFolders = useMemo(
     () =>
       sourceCounts
         ? (tree.data?.folders ?? [])
             .filter((f) => (sourceCounts[f.path] ?? 0) > 0)
             .map((f) => ({ ...f, files: sourceCounts[f.path] }))
-        : (tree.data?.folders ?? []),
-    [tree.data, sourceCounts],
+        : (tree.data?.folders ?? []).filter((f) => !familyFilter || f.path === '' || f.files > 0),
+    [tree.data, sourceCounts, familyFilter],
   )
   // Valeurs proposées par les filtres : celles de la portée (sources, dossier et
   // sous-dossiers), rendues par le serveur. Un filtre sans valeur ne s'affiche

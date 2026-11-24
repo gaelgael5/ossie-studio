@@ -313,7 +313,12 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
       else if (u.pathname.includes('/curation/')) body = { ok: true, commit: 'abc' }
       else if (u.pathname.endsWith('/sources')) body = declared
       else if (u.pathname.endsWith('/raw-explorer')) body = sources
-      else if (u.pathname.endsWith('/tree')) body = { ...TREE, mode: u.searchParams.get('mode') }
+      else if (u.pathname.endsWith('/tree'))
+        body =
+          u.searchParams.get('family') === 'markdown'
+            ? // Compteurs du seul type demandé : aucun document sous src.
+              { ...TREE, mode: u.searchParams.get('mode'), folders: [{ path: '', items: 1, files: 1 }, { path: 'src', items: 1, files: 0 }, { path: 'src/Domain', items: 2, files: 0 }, { path: 'docs', items: 1, files: 1 }] }
+            : { ...TREE, mode: u.searchParams.get('mode') }
       else if (u.pathname.endsWith('/folder')) body = folderBody(u.searchParams.get('path') ?? '')
       else if (u.pathname.endsWith('/graph')) body = GRAPH
       else if (u.pathname.endsWith('/incoming')) body = { incoming: DETAIL.incoming }
@@ -1024,6 +1029,10 @@ describe('RawExplorer', () => {
     expect(screen.queryByText('Guide')).not.toBeInTheDocument()
     await user.selectOptions(select, 'markdown')
     expect(screen.getByText('Guide')).toBeInTheDocument()
+    // L'arbre suit le filtre (bug d307159a) : seuls les dossiers qui ont des documents.
+    const tree = screen.getByRole('tree')
+    await waitFor(() => expect(within(tree).queryByText('Domain')).not.toBeInTheDocument())
+    expect(within(tree).getByText('docs')).toBeInTheDocument()
     expect(screen.queryByText('Pet')).not.toBeInTheDocument()
     await user.selectOptions(select, 'schema')
     expect(screen.getByText('Order')).toBeInTheDocument()

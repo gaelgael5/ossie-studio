@@ -39,6 +39,7 @@ from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.draft_changes import asset_names, group_changes
 from ossie_studio.sources.explorer import (
     DEFAULT_MODE,
+    FAMILIES,
     GIT_SOURCE_TYPE,
     MODES,
     SEARCH_LIMIT,
@@ -268,12 +269,14 @@ async def get_explorer_tree(
     branch_id: uuid.UUID,
     slug: str,
     mode: str = DEFAULT_MODE,
+    family: str = "",
 ) -> dict[str, object]:
-    """Les dossiers d'une source pour un mode d'affichage (sans leur contenu)."""
+    """Les dossiers d'une source pour un mode d'affichage (sans leur contenu).
+    `family` : compteurs restreints à un type (filtre « Type » de l'écran)."""
     index, scan, _key = await _read_index(
         conn, crypto, workdir, space_id, branch_id, slug, _check_mode(mode)
     )
-    counts = subtree_file_counts(index)
+    counts = subtree_file_counts(index, family if family in FAMILIES else "")
     return {
         "slug": index.slug,
         "label": index.label,
@@ -370,7 +373,7 @@ async def search_explorer(
         badge=badge,
         hide_excluded=hide_excluded,
         changed=changed,
-        family=family if family in ("schema", "openapi", "markdown") else "",
+        family=family if family in FAMILIES else "",
     )
     graph = await _reference_graph(conn, key, mode)
     facets = SearchFacets()

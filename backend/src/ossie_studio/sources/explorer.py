@@ -859,12 +859,19 @@ def folder_item_count(folder: _Folder) -> int:
     return len(folder.folders) + len(folder.objects) + len(folder.documents)
 
 
-def subtree_file_counts(index: SourceIndex) -> dict[str, int]:
+def subtree_file_counts(index: SourceIndex, family: str = "") -> dict[str, int]:
     """Fichiers (objets + documents) de chaque dossier, sous-arbre compris, en
-    une passe : chaque dossier ajoute les siens à tous ses ancêtres."""
+    une passe : chaque dossier ajoute les siens à tous ses ancêtres. `family`
+    (schema | openapi | markdown) : ne compte que ce type,
+    pour que l'arbre suive le filtre « Type »."""
     counts = dict.fromkeys(index.folders, 0)
     for path, folder in index.folders.items():
-        own = len(folder.objects) + len(folder.documents)
+        if not family:
+            own = len(folder.objects) + len(folder.documents)
+        elif family == FAMILY_MARKDOWN:
+            own = len(folder.documents)
+        else:
+            own = sum(1 for o in folder.objects if object_family(o) == family)
         if not own:
             continue
         current: str | None = path
@@ -910,6 +917,7 @@ class SearchCriteria:
 FAMILY_SCHEMA = "schema"
 FAMILY_OPENAPI = "openapi"
 FAMILY_MARKDOWN = "markdown"  # les documents : aucun objet n'en est
+FAMILIES = (FAMILY_SCHEMA, FAMILY_OPENAPI, FAMILY_MARKDOWN)
 
 
 def object_family(obj: ExplorerObject) -> str:

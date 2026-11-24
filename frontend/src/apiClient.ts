@@ -1487,9 +1487,10 @@ export const api = {
     apiFetch<{ sources: RawExplorerSource[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer`,
     ),
-  getRawExplorerTree: (spaceId: string, branchId: string, slug: string, mode: RawExplorerMode) =>
+  // `family` : compteurs du seul type choisi dans le filtre « Type » (bug d307159a).
+  getRawExplorerTree: (spaceId: string, branchId: string, slug: string, mode: RawExplorerMode, family = '') =>
     apiFetch<RawExplorerTree>(
-      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/tree?mode=${mode}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/tree?mode=${mode}${family ? `&family=${family}` : ''}`,
     ),
   getRawExplorerFolder: (
     spaceId: string,
