@@ -57,6 +57,39 @@ describe('règles du modèle d’un référentiel (ticket 829a86a7)', () => {
     expect(keyViolation(asObject, key)).toEqual({ kind: 'not_simple', property: 'pays' })
   })
 
+  it('renommer une propriété de la clé : la clé et required suivent (bug 38bc8dc0)', () => {
+    const model = {
+      type: 'object',
+      'x-key': ['code'],
+      required: ['code'],
+      properties: { code: { type: 'string', title: 'Code' } },
+    }
+    const visual = { type: 'object', required: ['_id'], properties: { _id: { type: 'string', title: 'Code' } } }
+    const next = fromVisual(model, visual)
+    expect(next['x-key']).toEqual(['_id'])
+    expect(next.required).toEqual(['_id'])
+    expect(keyViolation(next, modelKey(next))).toBeNull()
+    // L'éditeur ne rend pas `required` : il suit quand même.
+    expect(fromVisual(model, { type: 'object', properties: visual.properties }).required).toEqual(['_id'])
+  })
+
+  it('supprimer une propriété de la clé reste refusé ; renommer hors clé ne touche pas la clé', () => {
+    const model = {
+      type: 'object',
+      'x-key': ['code'],
+      required: ['code'],
+      properties: { code: { type: 'string' }, nom: { type: 'string' } },
+    }
+    const removed = fromVisual(model, { type: 'object', required: [], properties: { nom: { type: 'string' } } })
+    expect(keyViolation(removed, modelKey(removed))).toEqual({ kind: 'removed', property: 'code' })
+    const other = fromVisual(model, {
+      type: 'object',
+      required: ['code'],
+      properties: { code: { type: 'string' }, libelle: { type: 'string' } },
+    })
+    expect(other['x-key']).toEqual(['code'])
+  })
+
   it('l’éditeur visuel ne perd ni la clé ni le titre', () => {
     const visual = { type: 'object', properties: MODEL.properties, required: MODEL.required }
     const next = fromVisual(MODEL, visual)

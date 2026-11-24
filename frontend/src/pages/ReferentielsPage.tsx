@@ -446,7 +446,8 @@ function ModelTab({
   const onVisual = (schema: Record<string, unknown>) => {
     if (!parsed.ok) return
     const next = fromVisual(parsed.model, schema)
-    apply(next, modelKey(parsed.model))
+    // La clé de `next` suit un renommage (fromVisual) : c'est elle que l'on garde.
+    apply(next, modelKey(next))
   }
   const onYaml = (next: string) => {
     // La saisie n'est jamais perdue : un YAML illisible ou une clé violée est

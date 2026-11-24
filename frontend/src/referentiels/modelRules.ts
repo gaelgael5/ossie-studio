@@ -74,10 +74,35 @@ export function keyViolation(next: RefModel, key: string[]): KeyViolation | null
 export function fromVisual(current: RefModel, visual: Record<string, unknown>): RefModel {
   const next: RefModel = { ...visual }
   if (current['x-key'] !== undefined) next['x-key'] = current['x-key']
+  // Renommage (bug 38bc8dc0) : une seule propriété disparaît et une seule
+  // apparaît. Sans cela, renommer `code` (dans la clé) se lisait comme sa
+  // suppression, la garde refusait et l'éditeur revenait à l'ancien nom. La clé
+  // et `required` suivent le nouveau nom, à la même place.
+  const rename = renamedProperty(current, next)
+  if (rename) {
+    const [from, to] = rename
+    const swap = (names: string[]) => names.map((n) => (n === from ? to : n))
+    if (Array.isArray(next['x-key'])) next['x-key'] = swap(next['x-key'])
+    if (Array.isArray(next.required)) {
+      next.required = [...new Set(swap(next.required))]
+    } else if (current.required?.includes(from)) {
+      next.required = swap(current.required)
+    }
+  }
   for (const annotation of ['title', 'description'] as const) {
     if (next[annotation] === undefined && current[annotation] !== undefined) {
       next[annotation] = current[annotation]
     }
   }
   return next
+}
+
+/** (ancien nom, nouveau nom) si une seule propriété de premier niveau a changé
+ * de nom entre deux versions du modèle, sinon null. */
+export function renamedProperty(before: RefModel, after: RefModel): [string, string] | null {
+  const old = Object.keys(before.properties ?? {})
+  const now = Object.keys(after.properties ?? {})
+  const gone = old.filter((n) => !now.includes(n))
+  const added = now.filter((n) => !old.includes(n))
+  return gone.length === 1 && added.length === 1 ? [gone[0], added[0]] : null
 }
