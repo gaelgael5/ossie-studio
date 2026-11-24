@@ -11,6 +11,11 @@
 #                                        journal fichier (CI, débogage)
 #   ./dev-deploy.sh --exposer-seulement  stack supposée en place : contrôles
 #                                        de santé puis déclaration à l'annuaire
+#   ./dev-deploy.sh --compte-test ...    après la santé, crée (ou remet) le
+#                                        compte local de l'agent de test
+#                                        (agent-test@ossie.local, admin) ; mot
+#                                        de passe dans .deploy-state/agent-test,
+#                                        lisible par root seul
 #
 # Déclaration à l'annuaire du portail : active seulement si PORTAL_TOKEN est
 # dans l'environnement — code TOTP « <login>:<code> » de l'outil MCP
@@ -25,13 +30,15 @@ set -euo pipefail
 FOREGROUND=0
 RESET_DB=0
 EXPOSE_ONLY=0
+AGENT_ACCOUNT=0
 BRANCH="dev"
 for arg in "$@"; do
   case "${arg}" in
     --foreground) FOREGROUND=1 ;;
     --reset-db) RESET_DB=1 ;;
     --exposer-seulement) EXPOSE_ONLY=1 ;;
-    -h|--help) sed -n '2,22p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    --compte-test) AGENT_ACCOUNT=1 ;;
+    -h|--help) sed -n '2,27p' "${BASH_SOURCE[0]}"; exit 0 ;;
     -*) echo "Option inconnue : ${arg}" >&2; exit 2 ;;
     *) BRANCH="${arg}" ;;
   esac
@@ -259,6 +266,22 @@ step 9 "frontend sur le port ${FRONTEND_DEV_PORT}"
 curl -fsS "http://localhost:${FRONTEND_DEV_PORT}/api/health" >/dev/null \
   || die "le frontend ne relaie pas /api/health (port ${FRONTEND_DEV_PORT}). Diagnostic : docker compose -p ${COMPOSE_PROJECT_NAME} logs frontend"
 echo "[dev-deploy] OK : instance en ligne — frontend :${FRONTEND_DEV_PORT}, backend :${BACKEND_DEV_PORT}"
+
+# Compte de l'agent de test (choix de Gael du 24/11/2026 : l'agent teste les
+# pages avec le navigateur headless de la machine, sous un compte à lui, posé
+# par ce script et jamais à la main). Mot de passe généré ICI, gardé dans un
+# fichier root 600 et réutilisé ensuite (idempotent : pas de rotation à chaque
+# passage) ; transmis au conteneur par l'entrée standard, jamais en argument
+# ni dans le journal.
+if [ "${AGENT_ACCOUNT}" -eq 1 ]; then
+  AGENT_FILE="${STATE_DIR}/agent-test"
+  if [ ! -s "${AGENT_FILE}" ]; then
+    ( umask 077; openssl rand -base64 33 | tr -d '\n' > "${AGENT_FILE}" )
+  fi
+  chmod 600 "${AGENT_FILE}"
+  compose exec -T backend python -m ossie_studio.devtools.agent_account < "${AGENT_FILE}" \
+    || die "compte de l'agent de test non posé. Diagnostic : docker compose -p ${COMPOSE_PROJECT_NAME} logs backend"
+fi
 
 # --- 10. Déclaration à l'annuaire du portail (best-effort) --------------------
 # Après la santé : on ne publie pas une stack qui ne répond pas. On déclare le
