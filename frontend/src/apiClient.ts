@@ -560,6 +560,21 @@ export interface RawContractDetail extends RawContractItem {
   } | null
 }
 
+/** Plugin installé, vu depuis un espace (ticket a30b4bd8). */
+export interface SpacePluginItem {
+  id: string
+  label: string
+  version: string
+  /** « native » ; les plugins importés viendront avec leur cadrage. */
+  origin: string
+}
+
+export interface SpacePlugins {
+  sources: number
+  used: (SpacePluginItem & { sources: { slug: string; label: string }[] })[]
+  unused: SpacePluginItem[]
+}
+
 export interface RawFolderContent {
   path: string
   folders: RawFolderItem[]
@@ -1585,6 +1600,8 @@ export const api = {
     apiFetch<{ commits: RawHistoryCommit[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/object/history?file=${encodeURIComponent(file)}`,
     ),
+  listSpacePlugins: (spaceId: string, branchId: string) =>
+    apiFetch<SpacePlugins>(`/api/spaces/${spaceId}/branches/${branchId}/plugins`),
   getRawContract: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<RawContractDetail>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/contract?path=${encodeURIComponent(path)}`,

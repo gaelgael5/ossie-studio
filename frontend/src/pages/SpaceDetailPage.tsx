@@ -13,6 +13,7 @@ import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { BaseBranchPicker } from '../components/BaseBranchPicker'
 import { BusyButton } from '../components/BusyButton'
 import { CredentialBlock } from '../components/CredentialBlock'
+import { SpacePlugins } from './SpacePlugins'
 
 export function SpaceDetailPage() {
   const { t, i18n } = useTranslation()
@@ -114,9 +115,15 @@ export function SpaceDetailPage() {
   const hasBranches = (branches.data?.branches.length ?? 0) > 0
   // Onglet dans l'URL (?onglet=historique) : un lien ou un rechargement y ramène.
   const [params, setParams] = useSearchParams()
-  const tab: 'branches' | 'history' = params.get('onglet') === 'historique' ? 'history' : 'branches'
-  const setTab = (next: 'branches' | 'history') =>
-    setParams(next === 'history' ? { onglet: 'historique' } : {}, { replace: true })
+  // « plugins » : ticket a30b4bd8, plugins utilisés sur la branche regardée.
+  const onglet = params.get('onglet')
+  const tab: 'branches' | 'history' | 'plugins' =
+    onglet === 'historique' ? 'history' : onglet === 'plugins' ? 'plugins' : 'branches'
+  const setTab = (next: 'branches' | 'history' | 'plugins') =>
+    setParams(
+      next === 'history' ? { onglet: 'historique' } : next === 'plugins' ? { onglet: 'plugins' } : {},
+      { replace: true },
+    )
   const railmap = useQuery({
     queryKey: ['railmap', spaceId, railLimit],
     queryFn: () => api.getRailmap(spaceId, railLimit),
@@ -221,8 +228,21 @@ export function SpaceDetailPage() {
             >
               {t('tabHistory')}
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'plugins'}
+              className={`tab${tab === 'plugins' ? ' active' : ''}`}
+              onClick={() => setTab('plugins')}
+            >
+              {t('tabPlugins')}
+            </button>
           </div>
-          {tab === 'branches' ? (
+          {tab === 'plugins' ? (
+            viewedId ? (
+              <SpacePlugins spaceId={spaceId} branchId={viewedId} />
+            ) : null
+          ) : tab === 'branches' ? (
           <>
           <div className="page-body stack">
             <div className="field measure">
