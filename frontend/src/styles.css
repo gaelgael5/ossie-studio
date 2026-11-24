@@ -2459,6 +2459,39 @@ td .raw-ref-menu {
   padding: 8px 0;
   background: #fff;
 }
+/*
+ * Fenêtre de rédaction d'une description (bug 156b4e53). Gael a choisi de
+ * garder ces proportions (fenêtre haute) mais que la zone de saisie remplisse
+ * la fenêtre, texte en haut : l'éditeur prend la place entre le titre et les
+ * boutons, défile au-delà ; les boutons restent visibles.
+ */
+.modal-editor {
+  display: flex;
+  flex-direction: column;
+  height: min(80vh, 900px);
+}
+.modal-editor > * {
+  flex: 0 0 auto;
+}
+.modal-editor > .md-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.md-editor-fill {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow-y: auto;
+  cursor: text;
+}
+.md-editor-fill > .bn-container {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.md-editor-fill .bn-editor {
+  flex: 1 0 auto;
+}
 .md-mermaid-preview {
   padding: 8px;
   overflow-x: auto;

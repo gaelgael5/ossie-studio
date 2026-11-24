@@ -1052,7 +1052,7 @@ function RedactionDialog({
       : t('curationWriteFieldTitle', { name: label, asset: detail.business_name || detail.title })
   return (
     <div className="modal-backdrop">
-      <div role="dialog" aria-modal="true" aria-label={title} className="panel modal-panel">
+      <div role="dialog" aria-modal="true" aria-label={title} className="panel modal-panel modal-editor">
         <div className="row modal-head">
           <h2>{title}</h2>
           <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
@@ -1064,6 +1064,7 @@ function RedactionDialog({
           <MarkdownEditor
             initial={initial}
             label={title}
+            fill
             onReady={(h) => {
               handle.current = h
             }}

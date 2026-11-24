@@ -76,9 +76,13 @@ export default function MarkdownEditor({
   editable = true,
   onReady,
   label,
+  fill = false,
 }: {
   initial: string
   editable?: boolean
+  // Remplit son conteneur (fenêtre de rédaction, bug 156b4e53) : un clic dans
+  // le vide sous le texte place le curseur à la fin, comme dans Confluence.
+  fill?: boolean
   onReady: (handle: MarkdownEditorHandle) => void
   label: string
 }) {
@@ -100,7 +104,17 @@ export default function MarkdownEditor({
   }, [editor])
 
   return (
-    <div className="md-editor" aria-label={label}>
+    <div
+      className={fill ? 'md-editor md-editor-fill' : 'md-editor'}
+      aria-label={label}
+      onMouseDown={(e) => {
+        if (!fill || !editable || e.target !== e.currentTarget) return
+        e.preventDefault()
+        const last = editor.document[editor.document.length - 1]
+        editor.focus()
+        if (last) editor.setTextCursorPosition(last, 'end')
+      }}
+    >
       <BlockNoteView editor={editor} editable={editable} theme="light" />
     </div>
   )
