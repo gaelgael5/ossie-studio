@@ -2610,3 +2610,49 @@ td .raw-ref-menu {
   flex: 1;
   min-width: 0;
 }
+
+/* --- Référentiels (epic « Référentiels ») ------------------------------------ */
+.ref-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.ref-list .plain-list {
+  margin-top: 8px;
+}
+.ref-item {
+  padding: 8px 6px;
+  border-radius: 6px;
+}
+.ref-item.active {
+  background: var(--muted-bg);
+}
+.ref-main {
+  min-width: 0;
+}
+.ref-key-bar .row {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ref-key-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.model-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+.yaml-editor {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+@media (max-width: 1100px) {
+  .ref-layout,
+  .model-editor {
+    grid-template-columns: 1fr;
+  }
+}

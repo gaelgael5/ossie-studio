@@ -1016,3 +1016,26 @@ test('plugins de parsing : liste et réglage d’un paramètre', async () => {
   await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
   await waitFor(() => expect(screen.getByText('Paramètre enregistré.')).toBeInTheDocument())
 })
+
+test('menu : « Référentiels » juste après « Espaces » (epic Référentiels)', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: [...ADMIN_CAPS, 'referentiels:read', 'curation:read'],
+      },
+    },
+  })
+  renderAt('/')
+  const nav = await screen.findByRole('navigation', { name: 'Ossie Studio' })
+  await waitFor(() => expect(within(nav).getByRole('link', { name: 'Référentiels' })).toBeInTheDocument())
+  const labels = within(nav)
+    .getAllByRole('link')
+    .map((a) => a.textContent ?? '')
+    .filter((text) => ['Espaces', 'Référentiels', 'Sources', 'Curation', 'Gouvernance'].includes(text))
+  expect(labels.slice(0, 3)).toEqual(['Espaces', 'Référentiels', 'Sources'])
+  expect(labels).toContain('Gouvernance')
+})

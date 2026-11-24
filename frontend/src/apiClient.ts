@@ -1266,6 +1266,54 @@ export interface AuditPage {
   types: string[]
 }
 
+// --- Référentiels (epic « Référentiels », ticket 829a86a7) ---------------------------------
+
+export interface ReferentielSummary {
+  name: string
+  title?: string
+  description?: string
+  key?: string[]
+  count?: number
+  unpublished: boolean
+  error?: string
+}
+
+export interface ReferentielDetail {
+  name: string
+  title: string
+  model: Record<string, unknown>
+  model_yaml: string
+  model_path: string
+  count: number
+  unpublished: boolean
+  readonly: boolean
+  revision?: string | null
+}
+
+export interface ReferentielProblem {
+  path: string
+  code: string
+  detail: string
+}
+
+export interface ReferentielModelPreview {
+  ok: boolean
+  model_problems: ReferentielProblem[]
+  values: number
+  valid: number
+  removed: { property: string; values: number }[]
+  problems: ReferentielProblem[]
+  problem_count: number
+  duplicates: string[]
+}
+
+export interface ReferentielCommit {
+  sha: string
+  author: string
+  date: string
+  message: string
+}
+
 export const api = {
   session: () => apiFetch<SessionState>('/api/session'),
   setLanguage: (language: string) =>
@@ -1688,6 +1736,34 @@ export const api = {
     apiFetch<{ contracts: FoundContract[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${encodeURIComponent(slug)}/openapi-search`,
       { method: 'POST' },
+    ),
+  listReferentiels: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; referentiels: ReferentielSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels`,
+    ),
+  getReferentiel: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<ReferentielDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}`,
+    ),
+  // Libellé et slug ; le slug ne change plus ensuite (il nomme le dossier du référentiel).
+  createReferentiel: (spaceId: string, branchId: string, body: { label: string; slug: string }) =>
+    apiFetch<ReferentielDetail>(`/api/spaces/${spaceId}/branches/${branchId}/referentiels`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  previewReferentielModel: (spaceId: string, branchId: string, name: string, model: Record<string, unknown>) =>
+    apiFetch<ReferentielModelPreview>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/modele/apercu`,
+      { method: 'POST', body: JSON.stringify({ model }) },
+    ),
+  saveReferentielModel: (spaceId: string, branchId: string, name: string, model: Record<string, unknown>) =>
+    apiFetch<ReferentielDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/modele`,
+      { method: 'PUT', body: JSON.stringify({ model }) },
+    ),
+  referentielHistory: (spaceId: string, branchId: string, name: string) =>
+    apiFetch<{ commits: ReferentielCommit[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/historique`,
     ),
   listDomains: (spaceId: string, branchId: string) =>
     apiFetch<{ domains: DomainSummary[] }>(`/api/spaces/${spaceId}/branches/${branchId}/domains`),
