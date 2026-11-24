@@ -381,3 +381,73 @@ components:
     # Une référence nommée reste une référence : pas d'objet en ligne.
     assert ko["inline"] is None
     assert [o["name"] for o in view["objects"]] == ["Transaction"]
+
+
+def test_liste_sans_nom_devient_une_liste_avec_un_item_consultable() -> None:
+    doc = yaml.safe_load(
+        """openapi: 3.0.3
+info: {title: Get All Parcel, version: '1.1.0'}
+paths: {}
+components:
+  schemas:
+    ResponseBodyV1:
+      type: object
+      properties:
+        parcels:
+          type: array
+          description: Les colis.
+          items:
+            type: object
+            required: [parcelNumber]
+            properties:
+              parcelNumber: {type: string, description: Numéro du colis}
+              events:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    code: {type: string}
+              carrier:
+                type: object
+                properties:
+                  name: {type: string}
+        tags: {type: array, items: {type: string}}
+        refs: {type: array, items: {$ref: '#/components/schemas/ResponseBodyV1'}}
+"""
+    )
+    schemas = readable_contract(doc, {})["schemas"]
+    props = {p["name"]: p for p in schemas["ResponseBodyV1"]["properties"]}
+    # La liste sans nom devient un nœud liste…
+    assert props["parcels"]["schema"] == {
+        "kind": "ref",
+        "name": "~ResponseBodyV1/parcels",
+        "file": "",
+    }
+    liste = schemas["~ResponseBodyV1/parcels"]
+    assert (liste["inline"], liste["title"], liste["description"]) == (
+        "list",
+        "parcels",
+        "Les colis.",
+    )
+    (item_prop,) = liste["properties"]
+    assert item_prop["name"] == "item"
+    assert item_prop["schema"] == {
+        "kind": "list",
+        "of": {"kind": "ref", "name": "~ResponseBodyV1/parcels/item", "file": ""},
+    }
+    # … qui contient « item », consultable comme un objet.
+    item = schemas["~ResponseBodyV1/parcels/item"]
+    assert (item["inline"], item["title"]) == ("object", "item")
+    item_props = {p["name"]: p for p in item["properties"]}
+    assert item_props["parcelNumber"]["required"] is True
+    assert item_props["parcelNumber"]["description"] == "Numéro du colis"
+    # Imbriqués, à toute profondeur.
+    assert schemas["~ResponseBodyV1/parcels/item/events"]["inline"] == "list"
+    assert schemas["~ResponseBodyV1/parcels/item/events/item"]["properties"][0]["name"] == "code"
+    assert schemas["~ResponseBodyV1/parcels/item/carrier"]["inline"] == "object"
+    # Inchangés : liste de valeurs simples, liste d'objets nommés.
+    assert props["tags"]["schema"]["kind"] == "list"
+    assert props["refs"]["schema"] == {
+        "kind": "list",
+        "of": {"kind": "ref", "name": "ResponseBodyV1", "file": ""},
+    }

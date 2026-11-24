@@ -1694,6 +1694,7 @@ export const fr = {
     rawContractTileSub: '{{count}} opération(s)',
     rawKindContract: 'Contrat OpenAPI complet',
     rawContract: {
+      listNode: 'liste',
       modelOf: 'Modèle : {{name}}',
       showBody: 'Voir le corps de cette action',
       bodyTitle: 'Le corps de la méthode',
@@ -1787,6 +1788,7 @@ export const fr = {
       objectsHint: 'Clique sur un objet pour voir ses propriétés à droite.',
       schema: {
         objectNamed: 'l’objet',
+        listNamed: 'une liste —',
         listOf: 'une liste de',
         object: 'un objet',
         objectFields: 'un objet avec : {{fields}}',

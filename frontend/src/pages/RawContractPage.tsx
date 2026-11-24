@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, createContext, useContext, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
@@ -13,6 +13,9 @@ import { ErrorList } from '../components/ErrorList'
 import { CodeViewer } from '../components/CodeViewer'
 
 const STALE_MS = 30_000
+
+/** Objets du contrat, pour dire une référence en mots (liste ou objet, nom affiché). */
+const SchemasContext = createContext<Record<string, RawContractObject>>({})
 
 /** Nom en dur de la copie intégrale d'un contrat (ticket e79d008f). */
 export const FULL_CONTRACT_NAME = 'contrat.full.openapi.yaml'
@@ -182,129 +185,131 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
       )
   }
   return (
-    <div className="oas-body">
-      <div className="oas-intro">
-        <p className="oas-lead">
-          {view.operations.length > 0
-            ? t('rawContract.lead', { count: view.operations.length })
-            : t('rawContract.noOperation')}
-        </p>
-        {view.description ? <p className="oas-desc">{view.description}</p> : null}
-        <dl className="oas-facts">
-          {view.version ? (
-            <>
-              <dt>{t('rawContract.version')}</dt>
-              <dd>{view.version}</dd>
-            </>
-          ) : null}
-          {view.servers.length > 0 ? (
-            <>
-              <dt>{t('rawContract.servers', { count: view.servers.length })}</dt>
-              <dd className="mono">{view.servers.join(' · ')}</dd>
-            </>
-          ) : null}
-          <dt>{t('rawContract.objectsCount')}</dt>
-          <dd>{view.objects.length}</dd>
-        </dl>
-        {verbsUsed.length > 0 ? (
-          <div className="oas-legend" aria-label={t('rawContract.legend')}>
-            {verbsUsed.map((v) => (
-              <span key={v} className={`oas-verb oas-verb-${verbKey(v)}`}>
-                {t(`rawContract.verb.${verbKey(v)}`)} <span className="oas-verb-http">{v}</span>
-              </span>
-            ))}
-            <span className="small muted">{t('rawContract.legendHint')}</span>
-          </div>
-        ) : null}
-      </div>
-
-      <div className="oas-explore">
-        {view.operations.length > 0 ? (
-          <nav className="oas-op-list" aria-label={t('rawContract.operationsLabel')}>
-            {[...groups.entries()].map(([tag, ops]) => (
-              <div key={tag || '-'} className="oas-group">
-                {groups.size > 1 || tag ? (
-                  <h3 className="panel-label">{tag || t('rawContract.otherGroup')}</h3>
-                ) : null}
-                {ops.map(({ op: o, index }) => (
-                  <button
-                    key={`${o.method} ${o.path}`}
-                    type="button"
-                    className={`oas-op-item oas-op-${verbKey(o.method)}${index === opIndex ? ' selected' : ''}`}
-                    aria-pressed={index === opIndex}
-                    onClick={() => {
-                      setOpIndex(index)
-                      setObjectName(null)
-                      setModel(null)
-                    }}
-                  >
-                    <span className={`oas-verb oas-verb-${verbKey(o.method)}`}>
-                      {t(`rawContract.verb.${verbKey(o.method)}`)}{' '}
-                      <span className="oas-verb-http">{o.method}</span>
-                    </span>
-                    <span className="mono oas-path">{o.path}</span>
-                    {o.summary ? <span className="oas-summary small">{o.summary}</span> : null}
-                    {o.deprecated ? <span className="pill">{t('rawContract.deprecated')}</span> : null}
-                  </button>
-                ))}
-              </div>
-            ))}
-          </nav>
-        ) : null}
-
-        <div className="oas-main">
-          {op ? (
-            <>
-              {/* Le graphe d'abord : c'est la vue de l'action (Gael) ; le détail en mots suit. */}
-              <ContractGraph
-                op={op}
-                schemas={view.schemas}
-                selected={objectName}
-                onPick={graphObject}
-                onOpClick={graphOp}
-                onResponseClick={graphResponse}
-              />
-              <Operation op={op} onPick={pick} />
-            </>
-          ) : null}
-          {op && model ? (
-            <ModelGraph
-              key={`${opIndex}:${model.key}`}
-              model={model}
-              schemas={view.schemas}
-              selected={objectName}
-              onPick={pick}
-              onClose={() => setModel(null)}
-            />
-          ) : view.objects.length > 0 ? (
-            <section className="oas-group">
-              <h3 className="panel-label">{t('rawContract.objectsTitle')}</h3>
-              <p className="small muted">{t('rawContract.objectsHint')}</p>
-              <div className="oas-objects">
-                {view.objects.map((o) => (
-                  <button
-                    key={o.name}
-                    type="button"
-                    className={`btn btn-sm${o.name === objectName ? ' btn-primary' : ''}`}
-                    onClick={() => pick(o.name)}
-                  >
-                    {o.name}
-                  </button>
-                ))}
-              </div>
-            </section>
+    <SchemasContext.Provider value={view.schemas}>
+      <div className="oas-body">
+        <div className="oas-intro">
+          <p className="oas-lead">
+            {view.operations.length > 0
+              ? t('rawContract.lead', { count: view.operations.length })
+              : t('rawContract.noOperation')}
+          </p>
+          {view.description ? <p className="oas-desc">{view.description}</p> : null}
+          <dl className="oas-facts">
+            {view.version ? (
+              <>
+                <dt>{t('rawContract.version')}</dt>
+                <dd>{view.version}</dd>
+              </>
+            ) : null}
+            {view.servers.length > 0 ? (
+              <>
+                <dt>{t('rawContract.servers', { count: view.servers.length })}</dt>
+                <dd className="mono">{view.servers.join(' · ')}</dd>
+              </>
+            ) : null}
+            <dt>{t('rawContract.objectsCount')}</dt>
+            <dd>{view.objects.length}</dd>
+          </dl>
+          {verbsUsed.length > 0 ? (
+            <div className="oas-legend" aria-label={t('rawContract.legend')}>
+              {verbsUsed.map((v) => (
+                <span key={v} className={`oas-verb oas-verb-${verbKey(v)}`}>
+                  {t(`rawContract.verb.${verbKey(v)}`)} <span className="oas-verb-http">{v}</span>
+                </span>
+              ))}
+              <span className="small muted">{t('rawContract.legendHint')}</span>
+            </div>
           ) : null}
         </div>
 
-        <aside className="panel oas-props" aria-label={t('rawContract.propsLabel')}>
-          {detail ? (
-            <ObjectPanel detail={detail} onPick={pick} onOpenObject={onOpenObject} />
-          ) : (
-            <p className="muted">{t('rawContract.propsHint')}</p>
-          )}
-        </aside>
+        <div className="oas-explore">
+          {view.operations.length > 0 ? (
+            <nav className="oas-op-list" aria-label={t('rawContract.operationsLabel')}>
+              {[...groups.entries()].map(([tag, ops]) => (
+                <div key={tag || '-'} className="oas-group">
+                  {groups.size > 1 || tag ? (
+                    <h3 className="panel-label">{tag || t('rawContract.otherGroup')}</h3>
+                  ) : null}
+                  {ops.map(({ op: o, index }) => (
+                    <button
+                      key={`${o.method} ${o.path}`}
+                      type="button"
+                      className={`oas-op-item oas-op-${verbKey(o.method)}${index === opIndex ? ' selected' : ''}`}
+                      aria-pressed={index === opIndex}
+                      onClick={() => {
+                        setOpIndex(index)
+                        setObjectName(null)
+                        setModel(null)
+                      }}
+                    >
+                      <span className={`oas-verb oas-verb-${verbKey(o.method)}`}>
+                        {t(`rawContract.verb.${verbKey(o.method)}`)}{' '}
+                        <span className="oas-verb-http">{o.method}</span>
+                      </span>
+                      <span className="mono oas-path">{o.path}</span>
+                      {o.summary ? <span className="oas-summary small">{o.summary}</span> : null}
+                      {o.deprecated ? <span className="pill">{t('rawContract.deprecated')}</span> : null}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </nav>
+          ) : null}
+
+          <div className="oas-main">
+            {op ? (
+              <>
+                {/* Le graphe d'abord : c'est la vue de l'action (Gael) ; le détail en mots suit. */}
+                <ContractGraph
+                  op={op}
+                  schemas={view.schemas}
+                  selected={objectName}
+                  onPick={graphObject}
+                  onOpClick={graphOp}
+                  onResponseClick={graphResponse}
+                />
+                <Operation op={op} onPick={pick} />
+              </>
+            ) : null}
+            {op && model ? (
+              <ModelGraph
+                key={`${opIndex}:${model.key}`}
+                model={model}
+                schemas={view.schemas}
+                selected={objectName}
+                onPick={pick}
+                onClose={() => setModel(null)}
+              />
+            ) : view.objects.length > 0 ? (
+              <section className="oas-group">
+                <h3 className="panel-label">{t('rawContract.objectsTitle')}</h3>
+                <p className="small muted">{t('rawContract.objectsHint')}</p>
+                <div className="oas-objects">
+                  {view.objects.map((o) => (
+                    <button
+                      key={o.name}
+                      type="button"
+                      className={`btn btn-sm${o.name === objectName ? ' btn-primary' : ''}`}
+                      onClick={() => pick(o.name)}
+                    >
+                      {o.name}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+
+          <aside className="panel oas-props" aria-label={t('rawContract.propsLabel')}>
+            {detail ? (
+              <ObjectPanel detail={detail} onPick={pick} onOpenObject={onOpenObject} />
+            ) : (
+              <p className="muted">{t('rawContract.propsHint')}</p>
+            )}
+          </aside>
+        </div>
       </div>
-    </div>
+    </SchemasContext.Provider>
   )
 }
 
@@ -453,6 +458,8 @@ export interface GraphLabels {
   fields: (n: number) => string
   /** Nom affiché d'un objet : les objets en ligne (« ~body:0 ») ont un libellé. */
   title: (name: string) => string
+  /** Sous-titre d'un nœud liste. */
+  list?: string
 }
 
 /** Objets que transporte un corps ou une réponse : l'objet en ligne s'il y en a un. */
@@ -507,8 +514,10 @@ function objectAdder(
       level,
       kind: 'object',
       title: labels.title(name),
-      sub: labels.fields(props),
-      tone: '',
+      // Une liste décrite sur place (ticket 21566af3) se signale comme telle :
+      // elle ne porte pas de champs, elle contient « item ».
+      sub: schemas[name]?.inline === 'list' ? (labels.list ?? labels.fields(props)) : labels.fields(props),
+      tone: schemas[name]?.inline === 'list' ? 'list' : '',
     })
     return true
   }
@@ -801,6 +810,7 @@ function useGraphLabels(schemas: Record<string, RawContractObject>): GraphLabels
       response: (code: string) => responseWords(t, code),
       fields: (n: number) => t('rawFields', { count: n }),
       title: (name: string) => objectTitle(t, schemas[name], name),
+      list: t('rawContract.listNode'),
     }),
     [t, schemas],
   )
@@ -813,6 +823,8 @@ function objectTitle(
   detail: RawContractObject | undefined,
   name: string,
 ): string {
+  // Liste ou objet décrits sur place : le nom de leur propriété, ou « item ».
+  if (detail?.title) return detail.title
   if (detail?.inline === 'body') return t('rawContract.body')
   if (detail?.inline === 'response') return t('rawContract.responseObject', { code: detail.code ?? '' })
   return name
@@ -1011,16 +1023,21 @@ function SchemaWords({
   onPick: (name: string) => void
 }): ReactNode {
   const { t } = useTranslation()
+  const contractSchemas = useContext(SchemasContext)
   switch (schema.kind) {
-    case 'ref':
+    case 'ref': {
+      const target = contractSchemas[schema.name]
       return (
         <>
-          {t('rawContract.schema.objectNamed')}{' '}
+          {target?.inline === 'list'
+            ? t('rawContract.schema.listNamed')
+            : t('rawContract.schema.objectNamed')}{' '}
           <button type="button" className="link-button" onClick={() => onPick(schema.name)}>
-            {schema.name}
+            {objectTitle(t, target, schema.name)}
           </button>
         </>
       )
+    }
     case 'list':
       return (
         <>

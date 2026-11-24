@@ -547,9 +547,12 @@ export interface RawContractObject {
   shape: RawContractSchema
   extends: string[]
   properties: { name: string; required: boolean; description: string; schema: RawContractSchema }[]
-  /** Corps ou réponse décrit en ligne dans une action (ticket c62f94e9). */
-  inline?: 'body' | 'response'
+  /** Décrit sur place : corps ou réponse d'une action (ticket c62f94e9), liste
+   * ou objet dans une propriété (ticket 21566af3). */
+  inline?: 'body' | 'response' | 'list' | 'object'
   code?: string
+  /** Nom affiché d'une liste ou d'un objet décrits sur place (propriété, « item »). */
+  title?: string
 }
 
 export interface RawContractDetail extends RawContractItem {
