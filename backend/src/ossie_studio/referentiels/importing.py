@@ -18,7 +18,7 @@ import csv
 import io
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Final
 
 from ossie_studio.referentiels.errors import Problem
 from ossie_studio.referentiels.imports import ImportDeclaration
@@ -42,6 +42,11 @@ DIFF_MAX = 200
 # document énorme ferait tourner un template sans fin visible (comme Miles).
 BUDGET = 100_000
 ROOT = "$"
+
+# Modes d'import (fusion par défaut).
+MERGE: Final = "merge"
+REPLACE: Final = "replace"
+MODES = (MERGE, REPLACE)
 
 
 class ExampleError(Exception):
@@ -206,16 +211,33 @@ def _changes(old: dict[str, Any], new: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def run_template(
-    model: dict[str, Any], current: list[dict[str, Any]], source: str, example: Example
-) -> dict[str, Any]:
-    """Applique le template à chaque ligne de l'exemple et compare aux valeurs
-    actuelles. Rien n'est écrit."""
+@dataclass(frozen=True)
+class Transformed:
+    """Le fichier passé dans le template, ligne à ligne, et validé contre le
+    modèle (clé unique comprise parmi les valeurs produites). Ne dépend pas des
+    valeurs actuelles : le calcul, coûteux, se fait hors de l'écriture."""
+
+    template_problems: list[TemplateProblem]
+    lines: int = 0
+    produced: list[Any] = field(default_factory=list)
+    origins: list[str] = field(default_factory=list)
+    errors: list[dict[str, Any]] = field(default_factory=list)
+    invalid: frozenset[int] = frozenset()
+
+    @property
+    def ok(self) -> bool:
+        return not self.template_problems and not self.errors
+
+    def valid(self) -> list[tuple[int, Any]]:
+        return [(i, v) for i, v in enumerate(self.produced) if i not in self.invalid]
+
+
+def transform(model: dict[str, Any], source: str, example: Example) -> Transformed:
+    """Applique le template à chaque ligne du fichier et valide ce qu'il rend."""
     problems = check_template(source)
     if problems:
-        return {"ok": False, "template_problems": [p.payload() for p in problems]}
+        return Transformed(problems)
     template = compile_template(source)
-    key = model_key(model)
     produced: list[Any] = []
     origins: list[str] = []
     errors: list[dict[str, Any]] = []
@@ -236,9 +258,7 @@ def run_template(
             continue
         produced.append(value)
         origins.append(record.where)
-    # Validées contre le modèle, clé unique comprise parmi les valeurs produites.
     value_problems: list[Problem] = check_values(model, produced)
-    invalid = {p.index for p in value_problems}
     for p in value_problems:
         errors.append(
             {
@@ -251,20 +271,39 @@ def run_template(
                 "key": p.path.split(SEPARATOR)[0],
             }
         )
+    return Transformed(
+        [],
+        len(example.records),
+        produced,
+        origins,
+        errors,
+        frozenset(p.index for p in value_problems),
+    )
+
+
+def report(
+    model: dict[str, Any],
+    current: list[dict[str, Any]],
+    done: Transformed,
+    mode: str = MERGE,
+) -> dict[str, Any]:
+    """Compte rendu par rapport aux valeurs actuelles (comparées par la clé) :
+    nouvelles, modifiées, inchangées, supprimées (remplacement seulement), en
+    erreur, et les différences."""
+    if done.template_problems:
+        return {"ok": False, "template_problems": [p.payload() for p in done.template_problems]}
+    key = model_key(model)
     by_key = {key_of(v, key): v for v in current if key_of(v, key) is not None}
     new = modified = unchanged = 0
     differences: list[dict[str, Any]] = []
-    for index, value in enumerate(produced):
-        if index in invalid:
-            continue
-        parts = key_of(value, key)
+    for index, value in done.valid():
         label = key_label(value, key, index)
-        before = by_key.get(parts)
+        before = by_key.get(key_of(value, key))
         if before is None:
             new += 1
             if len(differences) < DIFF_MAX:
                 differences.append(
-                    {"key": label, "kind": "new", "where": origins[index], "value": value}
+                    {"key": label, "kind": "new", "where": done.origins[index], "value": value}
                 )
         elif before == value:
             unchanged += 1
@@ -275,18 +314,73 @@ def run_template(
                     {
                         "key": label,
                         "kind": "modified",
-                        "where": origins[index],
+                        "where": done.origins[index],
                         "changes": _changes(before, value),
                     }
                 )
+    deleted = 0
+    if mode == REPLACE:
+        kept = {key_of(v, key) for _i, v in done.valid()}
+        for index, before in enumerate(current):
+            if key_of(before, key) in kept:
+                continue
+            deleted += 1
+            if len(differences) < DIFF_MAX:
+                differences.append(
+                    {
+                        "key": key_label(before, key, index),
+                        "kind": "deleted",
+                        "where": "",
+                        "value": before,
+                    }
+                )
     return {
-        "ok": not errors,
+        "ok": done.ok,
         "template_problems": [],
-        "lines": len(example.records),
+        "lines": done.lines,
         "new": new,
         "modified": modified,
         "unchanged": unchanged,
-        "errors": len({e["where"] for e in errors}),
-        "error_details": errors[:DIFF_MAX],
+        "deleted": deleted,
+        "errors": len({e["where"] for e in done.errors}),
+        "error_details": done.errors[:DIFF_MAX],
         "differences": differences,
     }
+
+
+def run_template(
+    model: dict[str, Any],
+    current: list[dict[str, Any]],
+    source: str,
+    example: Example,
+    mode: str = MERGE,
+) -> dict[str, Any]:
+    """L'essai : applique le template au fichier et compare aux valeurs
+    actuelles. Rien n'est écrit."""
+    return report(model, current, transform(model, source, example), mode)
+
+
+def imported_values(
+    model: dict[str, Any], current: list[dict[str, Any]], done: Transformed, mode: str
+) -> list[dict[str, Any]] | None:
+    """Les valeurs du référentiel après l'import, ou None s'il est refusé
+    (**tout ou rien** : la moindre erreur bloque).
+
+    - fusion (`merge`) : les valeurs du fichier remplacent celles de même clé,
+      les nouvelles s'ajoutent, les autres restent ;
+    - remplacement (`replace`) : exactement les valeurs du fichier."""
+    if not done.ok:
+        return None
+    produced = [v for _i, v in done.valid()]
+    if mode == REPLACE:
+        return produced
+    key = model_key(model)
+    merged = list(current)
+    position = {key_of(v, key): i for i, v in enumerate(current) if key_of(v, key) is not None}
+    for value in produced:
+        index = position.get(key_of(value, key))
+        if index is None:
+            merged.append(value)
+        else:
+            merged[index] = value
+    return merged

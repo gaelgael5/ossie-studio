@@ -2,26 +2,24 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
-import type { ImportPreview, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
+import type { ImportMode, ImportPreview, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { ImportReport, shownCell, shownDate } from './ImportReport'
+import { ImportRunPanel } from './ImportRunPanel'
 import { TemplateEditor } from './TemplateEditor'
 
 // Onglet Imports (ticket cda9c43a). Gael : « mets la liste des fichiers d'import sous
 // forme de liste avec un bouton ajouter qui affiche une popup et une sélection dans la
 // liste déroulante. […] le premier pour pouvoir ajouter un fichier d'exemple, le
-// deuxième pour éditer le template. » Aucune valeur n'est écrite ici.
+// deuxième pour éditer le template. » L'essai n'écrit rien ; « Importer », au pied du
+// sous-onglet Template, écrit les valeurs dans les modifications (ticket a909dc66).
 
 type Sub = 'example' | 'template'
 const SEPARATORS = [';', ',', '\t', '|']
 const ENCODINGS = ['utf-8', 'latin-1', 'cp1252']
-
-function shownCell(value: unknown): string {
-  if (value === undefined || value === null) return ''
-  return typeof value === 'object' ? JSON.stringify(value) : String(value)
-}
 
 function AddImportDialog({
   spaceId,
@@ -249,59 +247,6 @@ function ExampleTab({
   )
 }
 
-function TrialResult({ trial }: { trial: ImportTrial }) {
-  const { t } = useTranslation()
-  if (trial.template_problems.length > 0) {
-    return (
-      <div className="stack" role="status">
-        {trial.template_problems.map((p, i) => (
-          <p key={i} className="text-danger">
-            {p.line ? t('refImportTemplateLine', { line: p.line }) : ''} {p.message}
-          </p>
-        ))}
-      </div>
-    )
-  }
-  return (
-    <div className="stack" role="status">
-      <div className="ref-counters">
-        <span>{t('refImportLines', { count: trial.lines ?? 0 })}</span>
-        <span className="badge">{t('refImportNew', { count: trial.new ?? 0 })}</span>
-        <span className="badge badge-warn">{t('refImportModified', { count: trial.modified ?? 0 })}</span>
-        <span className="badge badge-muted">{t('refImportUnchanged', { count: trial.unchanged ?? 0 })}</span>
-        <span className="badge badge-danger">{t('refImportErrors', { count: trial.errors ?? 0 })}</span>
-      </div>
-      {(trial.error_details ?? []).length > 0 ? (
-        <ul className="plain-list" aria-label={t('refImportErrorList')}>
-          {(trial.error_details ?? []).map((e, i) => (
-            <li key={i} className="text-danger small">
-              <strong>{e.where}</strong> — {t(`refValueError_${e.code}`, { defaultValue: e.code })}
-              {e.field ? ` (${e.field})` : ''}
-              {e.path ? ` ${e.path}` : ''}
-              {e.expected ? ` → ${e.expected}` : ''}
-              {e.message && e.code !== 'key_duplicate' ? ` : ${e.message}` : ''}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {(trial.differences ?? []).length > 0 ? (
-        <ul className="plain-list small" aria-label={t('refImportDifferences')}>
-          {(trial.differences ?? []).map((d, i) => (
-            <li key={i}>
-              <strong>{d.key}</strong> {t('refImportDiffWhere', { where: d.where })}{' '}
-              {d.kind === 'new'
-                ? t('refImportDiffNew')
-                : (d.changes ?? [])
-                    .map((c) => `${c.property} : ${shownCell(c.before)} → ${shownCell(c.after)}`)
-                    .join(' · ')}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </div>
-  )
-}
-
 function ImportView({
   spaceId,
   branchId,
@@ -317,7 +262,7 @@ function ImportView({
   readOnly: boolean
   onDeleted: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const queryClient = useQueryClient()
   const [sub, setSub] = useState<Sub>('example')
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -330,6 +275,8 @@ function ImportView({
   const [reading, setReading] = useState<ImportReading | null>(null)
   const [template, setTemplate] = useState<string | null>(null)
   const [trial, setTrial] = useState<ImportTrial | null>(null)
+  // Le mode de l'import : l'essai le suit (en remplacement, il compte les suppressions).
+  const [mode, setMode] = useState<ImportMode>('merge')
   useEffect(() => {
     if (data) {
       setReading({ separator: data.separator, encoding: data.encoding, header: data.header })
@@ -351,7 +298,7 @@ function ImportView({
       ),
     )
   const run = useMutation({
-    mutationFn: () => api.tryReferentielImport(spaceId, branchId, name, slug, template ?? ''),
+    mutationFn: () => api.tryReferentielImport(spaceId, branchId, name, slug, template ?? '', mode),
     onSuccess: setTrial,
   })
   const saveTemplate = useMutation({
@@ -382,6 +329,11 @@ function ImportView({
         <h3>{data.label}</h3>
         <span className="badge badge-muted">{data.format.toUpperCase()}</span>
         <span className="muted mono small">{data.slug}</span>
+        <span className="muted small">
+          {data.last_import
+            ? t('refImportLastBy', { date: shownDate(data.last_import, i18n.language), by: data.last_import_by ?? '' })
+            : t('refImportNever')}
+        </span>
         {!readOnly ? (
           <>
             <button type="button" className="btn btn-sm" onClick={() => setRenaming(data.label)}>
@@ -444,6 +396,7 @@ function ImportView({
           onReading={setReading}
         />
       ) : (
+        <>
         <div className="ref-import-result">
           <div className="stack">
             <TemplateEditor
@@ -478,9 +431,21 @@ function ImportView({
           <div className="stack">
             <h4>{t('refImportResult')}</h4>
             {data.example_size === 0 ? <p className="empty-note">{t('refImportExampleNone')}</p> : null}
-            {trial ? <TrialResult trial={trial} /> : <p className="muted">{t('refImportResultHint')}</p>}
+            {trial ? <ImportReport report={trial} /> : <p className="muted">{t('refImportResultHint')}</p>}
           </div>
         </div>
+        {!readOnly ? (
+          <ImportRunPanel
+            spaceId={spaceId}
+            branchId={branchId}
+            name={name}
+            detail={data}
+            mode={mode}
+            onMode={setMode}
+            templateSaved={template === data.template}
+          />
+        ) : null}
+        </>
       )}
     </div>
   )
@@ -497,7 +462,7 @@ export function ImportsTab({
   name: string
   readOnly: boolean
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [adding, setAdding] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const list = useQuery({
@@ -523,7 +488,8 @@ export function ImportsTab({
                 {imp.label}
               </button>
               <div className="muted small">
-                {imp.format.toUpperCase()} · {imp.last_import ? imp.last_import : t('refImportNever')}
+                {imp.format.toUpperCase()} ·{' '}
+                {imp.last_import ? t('refImportLast', { date: shownDate(imp.last_import, i18n.language) }) : t('refImportNever')}
               </div>
             </li>
           ))}

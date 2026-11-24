@@ -55,6 +55,9 @@ DB_TYPES = (
     "api_key",
     "team",
     "user",
+    # Les imports de valeurs d'un référentiel (ticket a909dc66) : les valeurs vivent
+    # dans Git, mais chaque import (refusé compris) est une ligne du journal.
+    "referentiel_import",
 )
 # Types d'objets tenus dans Git : leur historique est celui des commits publiés.
 GIT_TYPES = (*GOVERNANCE_TYPES, *REFERENTIEL_TYPES)

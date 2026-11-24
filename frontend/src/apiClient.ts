@@ -1395,6 +1395,7 @@ export interface ReferentielImportSummary {
   encoding: string
   header: boolean
   last_import: string | null
+  last_import_by?: string | null
 }
 
 export interface ReferentielImportDetail extends ReferentielImportSummary {
@@ -1437,7 +1438,7 @@ export interface ImportTrialError {
 
 export interface ImportTrialDifference {
   key: string
-  kind: 'new' | 'modified'
+  kind: 'new' | 'modified' | 'deleted'
   where: string
   value?: Record<string, unknown>
   changes?: { property: string; before: unknown; after: unknown }[]
@@ -1450,9 +1451,21 @@ export interface ImportTrial {
   new?: number
   modified?: number
   unchanged?: number
+  deleted?: number
   errors?: number
   error_details?: ImportTrialError[]
   differences?: ImportTrialDifference[]
+}
+
+export type ImportMode = 'merge' | 'replace'
+
+/** Compte rendu d'un import abouti (refusé : erreur `import_refused`, compte rendu
+ * dans `error_args.report`). `revision` nulle : aucun changement. */
+export interface ImportRunResult extends ImportTrial {
+  mode: ImportMode
+  file: string
+  revision: string | null
+  last_import: string | null
 }
 
 export interface ReferentielCommit {
@@ -1974,11 +1987,29 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/apercu`,
       { method: 'POST', body: reading ? JSON.stringify(reading) : undefined },
     ),
-  tryReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, template: string) =>
+  tryReferentielImport: (
+    spaceId: string,
+    branchId: string,
+    name: string,
+    slug: string,
+    template: string,
+    mode: ImportMode = 'merge',
+  ) =>
     apiFetch<ImportTrial>(
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/essai`,
-      { method: 'POST', body: JSON.stringify({ template }) },
+      { method: 'POST', body: JSON.stringify({ template, mode }) },
     ),
+  /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */
+  runReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, mode: ImportMode, file?: File) => {
+    const form = new FormData()
+    form.append('mode', mode)
+    if (file) form.append('file', file)
+    return apiUpload<ImportRunResult>(
+      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/import`,
+      form,
+      'POST',
+    )
+  },
   saveReferentielImportTemplate: (spaceId: string, branchId: string, name: string, slug: string, template: string) =>
     apiFetch<ReferentielImportDetail>(
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/template`,

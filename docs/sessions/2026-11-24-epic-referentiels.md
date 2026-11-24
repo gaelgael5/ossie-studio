@@ -28,7 +28,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | 829a86a7 — Page Référentiels et onglet Modèle | En review |
 | fbe04555 — Onglet Valeurs | En review |
 | cda9c43a — Onglet Imports | En review |
-| a909dc66 — Importer des valeurs depuis un fichier (écran et web API) | Prêt pour dev |
+| a909dc66 — Importer des valeurs depuis un fichier (écran et web API) | En dev — écran et route faits ; import par **clé d'API de service** en attente de Gael (voir plus bas) |
 | e65b590b — Service MCP de lecture des référentiels publiés | En review (fait avec l'API) |
 | e80f0cad — Clôture | avec Gael |
 
@@ -53,7 +53,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 - Backend : `api/referentiels.py` (`/api/spaces/{s}/branches/{b}/referentiels` : liste avec « non publié » et `readonly` sur la racine, création libellé + slug figé avec un modèle de départ à clé `code`, lecture, `modele/apercu`, `PUT modele`, `historique`) ; `referentiels/model_change.py` (propriétés retirées ôtées des valeurs, puis validation ; aperçu : valeurs restant valides, propriétés retirées et nombre de valeurs touchées, problèmes, doublons de clé).
 - Journal d'audit : `audit/git_history.referentiel_events` (type `referentiel`, depuis les commits publiés qui touchent `referentiels/`), comme la gouvernance.
-- Frontend : `pages/ReferentielsPage.tsx` ; `referentiels/` = éditeur repris de Miles (`SchemaEditor.tsx`, `YamlEditor.tsx`, `monaco.ts`, `yaml.worker.ts`) + `modelRules.ts` (lecture YAML, clé, garde). Monaco tenu en `~0.52.2` (0.53 casse monaco-yaml 5.5), chargé à la demande ; Vite `worker.format = 'es'`.
+- Frontend : `pages/ReferentielsPage.tsx` ; `referentiels/` = éditeur repris de Miles (`SchemaEditor.tsx`, `YamlEditor.tsx`, `monaco.ts`, `yaml.worker.ts`) + `modelRules.ts` (lecture YAML, clé, garde). Monaco tenu en `0.52.2` (0.53 casse monaco-yaml 5.5), chargé à la demande ; Vite `worker.format = 'es'`. **Un seul réglage de Monaco** pour toute l'application (`frontend/src/monaco/setup.ts`, avec `yaml.worker.ts`) : la visionneuse de code arrivée de `dev` (raw) et les éditeurs des référentiels le partagent (`MonacoEnvironment` et le chargeur sont globaux).
 - Écart assumé avec le ticket : JSONJoy ne permet pas de marquer « CLÉ » ni de verrouiller « requis » par propriété ; la mention est dans le bandeau de la clé et une garde refuse de rendre facultative ou de supprimer une propriété de la clé (le serveur revérifie).
 
 ## Notes techniques (onglet Valeurs)
@@ -69,3 +69,11 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - `referentiels/importing.py` : lecture CSV (séparateur, encodage, en-tête) et JSON, chemins détectés (forme de Miles : path, kind, description), essai (`run_template`) : erreurs rattachées à « ligne N » / « élément [i] », comparaison par la clé aux valeurs actuelles.
 - Routes `…/referentiels/{nom}/imports` (`api/referentiel_imports.py`) : liste, création, renommage, suppression, `exemple` (multipart, 5 Mo), `lecture`, `apercu` (réglages non enregistrés possibles), `essai`, `template`.
 - Frontend : `referentiels/ImportsTab.tsx` ; `JsltEditor.tsx`, `TemplateEditor.tsx`, `editorMetrics.ts`, `jsltKeys.ts` **repris de Miles** (avec leurs tests) ; `apiUpload` dans `apiClient.ts` pour l'envoi multipart.
+
+## Notes techniques (importer des valeurs, a909dc66)
+
+- `referentiels/importing.py` : `transform` (template appliqué ligne à ligne et valeurs validées, hors écriture et hors boucle d'événements via `asyncio.to_thread`), `report` (nouvelles, modifiées, inchangées, **supprimées** en remplacement, erreurs, différences), `imported_values` (fusion par clé ou remplacement ; `None` = refusé, **tout ou rien**). L'essai prend aussi le mode (en remplacement, il annonce les suppressions).
+- Route `POST …/referentiels/{nom}/imports/{slug}/import` (multipart : `file` facultatif — sans fichier, le fichier d'exemple —, `mode` = `merge` | `replace`, 10 Mo au plus). Écrit `valeurs.json` dans le **brouillon** de la personne (relu au moment d'écrire). Refus : `422 import_refused` avec le compte rendu dans `error_args.report` ; fichier sans ligne : `400 import_file_empty` ; racine : `409 branch_root_readonly`. Réponse : compte rendu, `mode`, `file`, `revision` (nulle = aucun changement, rien d'écrit), `last_import`.
+- Journal : `referentiels/import_journal.py`, une ligne du journal d'audit par import (type `referentiel_import`, objet `<branche>/<référentiel>/<import>`, détail : `outcome` imported | unchanged | refused, `mode`, `file`, nombres du compte rendu, `revision`). La **date du dernier import** (et son auteur) se lit dans ce journal : rien n'est écrit dans les fichiers, donc un même fichier importé deux fois ne crée pas de second changement.
+- Frontend : `referentiels/ImportRunPanel.tsx` (pied du sous-onglet Template : mode, fichier d'exemple ou autre fichier, « Importer », confirmation avant remplacement, compte rendu, mention de la web API ; attend que le template affiché soit enregistré), `referentiels/ImportReport.tsx` (compte rendu partagé par l'essai et l'import).
+- **En attente de Gael** : une clé d'API de service n'a pas de personne derrière, donc pas de brouillon où écrire (règle du MCP en écriture : `draft_requires_person`). Écrire directement dans la version publiée est le cas « s'arrêter et demander » du ticket. La route marche aujourd'hui pour une personne connectée.
