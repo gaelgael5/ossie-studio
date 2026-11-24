@@ -55,6 +55,7 @@ async def oidc_login(
     http_client_factory: HttpFactoryDep,
     connector_id: uuid.UUID,
     next: str = "",
+    login_hint: str = "",
 ) -> Response:
     connector = await db_get_connector(conn, connector_id)
     if connector is None:
@@ -84,6 +85,10 @@ async def oidc_login(
         state=state,
         nonce=nonce,
         code_challenge=challenge,
+        # L'email déjà saisi sur notre écran (connexion en deux temps) : le
+        # fournisseur le pré-remplit au lieu de le redemander. Paramètre standard
+        # OIDC, ignoré par un fournisseur qui ne le gère pas.
+        login_hint=login_hint.strip()[:254],
     )
     return RedirectResponse(url, status_code=303)
 

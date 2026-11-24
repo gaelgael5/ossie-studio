@@ -209,6 +209,16 @@ export interface OidcConnectorItem {
   mappings: RoleMapping[]
   team_claim: string
   teams: ConnectorTeam[]
+  // Orientation à la connexion : domaines sans « @ », phrase (vide = défaut).
+  email_domains: string[]
+  login_prompt: string
+}
+
+// Connecteur tel que l'écran de connexion le voit : jamais de secret.
+export interface LoginConnector {
+  id: string
+  label: string
+  prompt: string
 }
 
 export interface Connection {
@@ -1230,7 +1240,13 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   logout: () => apiFetch<{ ok: boolean }>('/api/logout', { method: 'POST' }),
-  publicConnectors: () => apiFetch<{ id: string; label: string }[]>('/api/auth/connectors'),
+  publicConnectors: () => apiFetch<LoginConnector[]>('/api/auth/connectors'),
+  // Premier temps de la connexion : quoi demander ensuite pour cet email.
+  analyzeLoginEmail: (email: string) =>
+    apiFetch<{ next: 'password' | 'oidc' | 'password_oidc'; connectors: LoginConnector[] }>(
+      '/api/auth/login/analyze',
+      { method: 'POST', body: JSON.stringify({ email }) },
+    ),
 
   listSecrets: (category?: string) =>
     apiFetch<{
@@ -1929,6 +1945,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ roles_claim: rolesClaim }),
     }),
+  setLoginRouting: (connectorId: string, emailDomains: string, loginPrompt: string) =>
+    apiFetch<{ email_domains: string[]; login_prompt: string }>(
+      `/api/oidc/connectors/${connectorId}/login-routing`,
+      { method: 'PUT', body: JSON.stringify({ email_domains: emailDomains, login_prompt: loginPrompt }) },
+    ),
   setTeamClaim: (connectorId: string, teamClaim: string) =>
     apiFetch(`/api/oidc/connectors/${connectorId}/team-claim`, {
       method: 'PUT',

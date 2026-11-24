@@ -61,6 +61,29 @@ async def db_create_connector(
     return OidcConnector.from_row(row)
 
 
+async def db_set_login_routing(
+    conn: asyncpg.Connection, connector_id: uuid.UUID, email_domains: list[str], login_prompt: str
+) -> None:
+    await conn.execute(
+        "UPDATE oidc_connectors SET email_domains = $2, login_prompt = $3 WHERE id = $1",
+        connector_id,
+        email_domains,
+        login_prompt,
+    )
+
+
+async def db_connectors_for_domain(conn: asyncpg.Connection, domain: str) -> list[OidcConnector]:
+    """Connecteurs qui déclarent ce domaine d'email. Plusieurs sont possibles
+    (deux annuaires pour une même société) : l'écran de connexion les propose
+    tous plutôt que d'en choisir un arbitrairement."""
+    if not domain:
+        return []
+    rows = await conn.fetch(
+        "SELECT * FROM oidc_connectors WHERE $1 = ANY(email_domains) ORDER BY label", domain
+    )
+    return [OidcConnector.from_row(row) for row in rows]
+
+
 async def db_delete_connector(conn: asyncpg.Connection, connector_id: uuid.UUID) -> None:
     await conn.execute("DELETE FROM oidc_connectors WHERE id = $1", connector_id)
 

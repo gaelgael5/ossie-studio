@@ -83,13 +83,15 @@ test('login : des identifiants faux affichent le message traduit', async () => {
   await i18n.changeLanguage('fr')
   mockFetch({
     '/api/session': { body: { bootstrap_required: false, authenticated: false, user: null } },
-    '/api/auth/connectors': { body: [] },
+    'POST /api/auth/login/analyze': { body: { next: 'password', connectors: [] } },
     'POST /api/login': { status: 401, body: { error: 'invalid_credentials' } },
   })
   renderAt('/login')
   await screen.findByText('Connexion')
+  // Connexion en deux temps (ticket 145b1414) : l'email, la flèche, puis le mot de passe.
   await userEvent.type(screen.getByLabelText('Adresse email'), 'x@example.org')
-  await userEvent.type(screen.getByLabelText('Mot de passe'), 'mauvais-mot-de-passe')
+  await userEvent.click(screen.getByRole('button', { name: 'Continuer' }))
+  await userEvent.type(await screen.findByLabelText('Mot de passe'), 'mauvais-mot-de-passe')
   await userEvent.click(screen.getByRole('button', { name: 'Se connecter' }))
   await waitFor(() =>
     expect(screen.getByText('Email ou mot de passe incorrect.')).toBeInTheDocument(),
@@ -691,6 +693,8 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
             mappings: [{ id: 'm1', role_value: 'ossie-admins', profile_id: 'p1', profile_name: 'Admins' }],
             team_claim: 'department',
             teams: [{ id: 't1', name: 'equipe-data', slug: 'equipe-data' }],
+            email_domains: ['pickup-services.com'],
+            login_prompt: 'Continuez avec Pickup',
           },
         ],
         default_scopes: 'openid email profile',
@@ -729,6 +733,10 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
   await screen.findByText('Équipe — IdP')
   expect(screen.getByText('affichage seulement, ne donne aucun droit')).toBeInTheDocument()
   expect(screen.getByText('equipe-data')).toBeInTheDocument()
+  // Connexion par domaine (ticket 145b1414) : domaines affichés avec « @ », phrase.
+  expect(screen.getByText('Connexion par domaine — IdP')).toBeInTheDocument()
+  expect(screen.getByLabelText("Domaines d'email attendus")).toHaveValue('@pickup-services.com')
+  expect(screen.getByLabelText('Phrase sur l’écran de connexion')).toHaveValue('Continuez avec Pickup')
   // Client secret par son slug + choix d'un secret oidc dans la liste.
   expect(screen.getByText(/Pour la remplacer/)).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: '+ Nouveau connecteur' }))

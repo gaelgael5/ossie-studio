@@ -30,6 +30,9 @@ export const en = {
     orLocalAccount: 'or with a local account',
     loginWith: 'Sign in with {{label}}',
 
+    loginContinue: 'Continue',
+    loginEmailInvalid: 'Enter a valid email address.',
+    loginChangeEmail: 'Change email',
     emailLabel: 'Email address',
     passwordLabel: 'Password',
     passwordHint: '12 characters minimum',
@@ -530,6 +533,13 @@ export const en = {
 
     teamBlockTitle: 'Team',
     teamDisplayOnlyBadge: 'display only, grants no rights',
+    loginRoutingTitle: 'Sign-in by domain',
+    loginRoutingHint:
+      'People whose email belongs to these domains are sent to this provider from the sign-in screen. The phrase is shown on the button leading there.',
+    emailDomainsLabel: 'Expected email domains',
+    emailDomainsHint: 'One or more, comma-separated (e.g. @pickup-services.com).',
+    loginPromptLabel: 'Phrase on the sign-in screen',
+    loginRoutingSaved: 'Saved.',
     teamClaimLabel: 'Team claim path (e.g. department, groups)',
     teamClaimRulesHint:
       'A person belongs to a single team: if the claim carries several values, the first one wins. An unknown value creates the team (OIDC origin). Missing claim: the current team is kept. A team pinned by hand is not replaced.',
@@ -705,6 +715,8 @@ export const en = {
       category_required: 'The category is required.',
       secret_category_unknown: 'The category is unknown.',
       secret_value_required: 'The value is required.',
+      email_domain_invalid: 'An email domain is not valid (e.g. @pickup-services.com).',
+      login_prompt_too_long: 'The phrase is at most 120 characters.',
       client_id_required: 'The client_id is required.',
       client_secret_required: 'The client_secret is required.',
       issuer_invalid: 'The issuer must be an http(s) URL.',

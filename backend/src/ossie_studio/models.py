@@ -101,6 +101,9 @@ class OidcConnector:
     roles_claim: str = ""
     team_claim: str = ""
     slug: str = ""
+    # Domaines d'email orientés vers ce connecteur, sans « @ », en minuscules.
+    email_domains: tuple[str, ...] = ()
+    login_prompt: str = ""
 
     @classmethod
     def from_row(cls, row: asyncpg.Record) -> OidcConnector:
@@ -115,6 +118,8 @@ class OidcConnector:
             roles_claim=row["roles_claim"] if "roles_claim" in row else "",
             team_claim=row["team_claim"] if "team_claim" in row else "",
             slug=row["slug"] if "slug" in row else "",
+            email_domains=tuple(row["email_domains"] or ()) if "email_domains" in row else (),
+            login_prompt=row["login_prompt"] if "login_prompt" in row else "",
         )
 
 

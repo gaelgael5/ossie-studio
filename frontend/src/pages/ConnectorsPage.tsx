@@ -183,6 +183,86 @@ function ConnectorMappings({
   )
 }
 
+// Orientation à la connexion (ticket 145b1414) : les emails de ces domaines sont
+// envoyés vers ce connecteur, et la phrase s'affiche sur l'écran de connexion.
+// Gael : « pour Pickup je mettrais "@pickup-services.com" et en phrase je
+// mettrais « Continuez avec Pickup » ».
+const showDomains = (domains: string[]) => domains.map((d) => `@${d}`).join(', ')
+
+function ConnectorLoginRouting({
+  connector,
+  invalidate,
+  onError,
+}: {
+  connector: OidcConnectorItem
+  invalidate: () => void
+  onError: (err: unknown) => void
+}) {
+  const { t } = useTranslation()
+  const [domains, setDomains] = useState(showDomains(connector.email_domains))
+  const [prompt, setPrompt] = useState(connector.login_prompt)
+  const [saved, setSaved] = useState(false)
+
+  const save = useMutation({
+    mutationFn: () => api.setLoginRouting(connector.id, domains, prompt),
+    onMutate: () => setSaved(false),
+    onSuccess: (r) => {
+      setDomains(showDomains(r.email_domains))
+      setPrompt(r.login_prompt)
+      setSaved(true)
+      invalidate()
+    },
+    onError,
+  })
+
+  return (
+    <section className="panel stack">
+      <h3 className="panel-title">{`${t('loginRoutingTitle')} — ${connector.label}`}</h3>
+      <p className="muted measure">{t('loginRoutingHint')}</p>
+      <form
+        className="stack measure"
+        onSubmit={(e) => {
+          e.preventDefault()
+          save.mutate()
+        }}
+      >
+        <div className="field">
+          <label className="field-label" htmlFor={`domains-${connector.id}`}>
+            {t('emailDomainsLabel')}
+          </label>
+          <input
+            id={`domains-${connector.id}`}
+            className="input"
+            placeholder="@pickup-services.com"
+            value={domains}
+            onChange={(e) => setDomains(e.target.value)}
+          />
+          <span className="field-hint">{t('emailDomainsHint')}</span>
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor={`prompt-${connector.id}`}>
+            {t('loginPromptLabel')}
+          </label>
+          <input
+            id={`prompt-${connector.id}`}
+            className="input"
+            placeholder={t('loginWith', { label: connector.label })}
+            maxLength={120}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+        </div>
+        <div className="row">
+          <button type="submit" className="btn" disabled={save.isPending}>
+            {t('save')}
+          </button>
+          {saved ? <span className="text-ok small">{t('loginRoutingSaved')}</span> : null}
+        </div>
+      </form>
+    </section>
+  )
+}
+
 function ConnectorTeam({
   connector,
   invalidate,
@@ -594,6 +674,9 @@ export function ConnectorsPage() {
                 </tbody>
               </table>
             </div>
+            {list.data.connectors.map((c) => (
+              <ConnectorLoginRouting key={c.id} connector={c} invalidate={invalidate} onError={onError} />
+            ))}
             {list.data.connectors.map((c) => (
               <ConnectorMappings
                 key={c.id}

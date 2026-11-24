@@ -81,6 +81,7 @@ def build_authorization_url(
     state: str,
     nonce: str,
     code_challenge: str,
+    login_hint: str = "",
 ) -> str:
     params = {
         "response_type": "code",
@@ -92,6 +93,8 @@ def build_authorization_url(
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
     }
+    if login_hint:
+        params["login_hint"] = login_hint
     return f"{metadata.authorization_endpoint}?{urlencode(params)}"
 
 

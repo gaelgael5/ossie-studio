@@ -30,6 +30,9 @@ export const fr = {
     orLocalAccount: 'ou avec un compte local',
     loginWith: 'Se connecter avec {{label}}',
 
+    loginContinue: 'Continuer',
+    loginEmailInvalid: 'Saisissez une adresse email valide.',
+    loginChangeEmail: "Changer d'email",
     emailLabel: 'Adresse email',
     passwordLabel: 'Mot de passe',
     passwordHint: '12 caractères minimum',
@@ -531,6 +534,13 @@ export const fr = {
 
     teamBlockTitle: 'Équipe',
     teamDisplayOnlyBadge: 'affichage seulement, ne donne aucun droit',
+    loginRoutingTitle: 'Connexion par domaine',
+    loginRoutingHint:
+      "Les personnes dont l'email appartient à ces domaines sont envoyées vers ce fournisseur depuis l'écran de connexion. La phrase s'affiche sur le bouton qui y mène.",
+    emailDomainsLabel: "Domaines d'email attendus",
+    emailDomainsHint: 'Un ou plusieurs, séparés par des virgules (ex. @pickup-services.com).',
+    loginPromptLabel: 'Phrase sur l’écran de connexion',
+    loginRoutingSaved: 'Enregistré.',
     teamClaimLabel: 'Chemin du claim de l’équipe (ex. department, groups)',
     teamClaimRulesHint:
       'Une personne appartient à une seule équipe : si le claim porte plusieurs valeurs, la première l’emporte. Une valeur inconnue crée l’équipe (origine OIDC). Claim absent : l’équipe actuelle est conservée. Une équipe fixée à la main n’est pas remplacée.',
@@ -706,6 +716,8 @@ export const fr = {
       category_required: 'La catégorie est obligatoire.',
       secret_category_unknown: 'La catégorie est inconnue.',
       secret_value_required: 'La valeur est obligatoire.',
+      email_domain_invalid: "Un domaine d'email n'est pas valide (ex. @pickup-services.com).",
+      login_prompt_too_long: 'La phrase ne dépasse pas 120 caractères.',
       client_id_required: 'Le client_id est obligatoire.',
       client_secret_required: 'Le client_secret est obligatoire.',
       issuer_invalid: "L'issuer doit être une URL http(s).",

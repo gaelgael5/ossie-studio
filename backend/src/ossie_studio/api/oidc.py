@@ -23,7 +23,7 @@ from ossie_studio.deps import ConnDep, get_http_client_factory
 from ossie_studio.errors import ApiError
 from ossie_studio.models import User
 from ossie_studio.oidc.discovery_cache import connector_discovery_status
-from ossie_studio.oidc.forms import DEFAULT_SCOPES, parse_connector
+from ossie_studio.oidc.forms import DEFAULT_SCOPES, parse_connector, parse_login_routing
 from ossie_studio.oidc.mapping import (
     MappingDuplicateError,
     db_create_mapping,
@@ -42,6 +42,7 @@ from ossie_studio.oidc.service import (
     db_delete_connector,
     db_get_connector,
     db_list_connectors,
+    db_set_login_routing,
 )
 from ossie_studio.profiles.service import db_get_profile, db_list_profiles
 from ossie_studio.secretstore.service import db_get_secret
@@ -68,6 +69,15 @@ class ConnectorCreate(BaseModel):
     client_id: str = ""
     client_secret_slug: str = ""
     scopes: str = DEFAULT_SCOPES
+    # Orientation à la connexion (ticket 145b1414), saisie libre : « @pickup-services.com ».
+    email_domains: str = ""
+    login_prompt: str = ""
+
+
+class LoginRoutingBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email_domains: str = ""
+    login_prompt: str = ""
 
 
 class RolesClaimBody(BaseModel):
@@ -109,6 +119,8 @@ async def list_connectors(request: Request, conn: ConnDep, _: OidcRead) -> dict[
                 "client_secret_slug": c.client_secret_slug,
                 "roles_claim": c.roles_claim,
                 "team_claim": c.team_claim,
+                "email_domains": list(c.email_domains),
+                "login_prompt": c.login_prompt,
                 "mappings": [
                     {
                         "id": str(m.id),
@@ -174,6 +186,8 @@ async def create_connector(
     body: ConnectorCreate,
 ) -> dict[str, str]:
     form = parse_connector(body.label, body.issuer, body.client_id, body.scopes)
+    routing = parse_login_routing(body.email_domains, body.login_prompt)
+    form.errors.extend(routing.errors)
     connector_slug = body.slug.strip()
     if connector_slug and not is_valid_slug(connector_slug):
         form.errors.append("connector_slug_invalid")
@@ -211,6 +225,10 @@ async def create_connector(
                 conn, form.label, form.issuer, form.client_id, slug, form.scopes, connector_slug
             )
             entry.target(connector.id, connector.label)
+            if routing.email_domains or routing.login_prompt:
+                await db_set_login_routing(
+                    conn, connector.id, routing.email_domains, routing.login_prompt
+                )
     except ConnectorSlugTakenError:
         raise ApiError("oidc_connector_slug_taken", status_code=409, slug=connector_slug) from None
     except IssuerAlreadyDeclaredError:
@@ -275,6 +293,25 @@ async def set_roles_claim(
         await db_set_roles_claim(conn, connector_id, body.roles_claim.strip())
     log.info("oidc_roles_claim_set", connector_id=str(connector_id))
     return {"ok": True}
+
+
+@router.put("/{connector_id}/login-routing")
+async def set_login_routing(
+    conn: ConnDep, user: OidcWrite, connector_id: uuid.UUID, body: LoginRoutingBody
+) -> dict[str, object]:
+    """Domaines d'email attendus et phrase de l'écran de connexion. Un même
+    domaine peut figurer sur deux connecteurs : l'écran de connexion propose
+    alors les deux (pas de refus ici)."""
+    label = await _require_connector(conn, connector_id)
+    routing = parse_login_routing(body.email_domains, body.login_prompt)
+    if routing.errors:
+        raise ApiError("invalid_request", status_code=400, fields=routing.errors)
+    async with _connector_changed(conn, user, connector_id, label, "login_routing"):
+        await db_set_login_routing(conn, connector_id, routing.email_domains, routing.login_prompt)
+    log.info(
+        "oidc_login_routing_set", connector_id=str(connector_id), domains=len(routing.email_domains)
+    )
+    return {"email_domains": routing.email_domains, "login_prompt": routing.login_prompt}
 
 
 @router.put("/{connector_id}/team-claim")

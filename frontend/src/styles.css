@@ -1056,6 +1056,90 @@ input[type='radio'] {
 .auth-card .page-title {
   font-size: 1.6rem;
 }
+/*
+ * Connexion en deux temps (ticket 145b1414). Gael : « L'affichage du formulaire
+ * arrive avec un effet de fondu de 2 secondes. Au passage sur le deuxième écran
+ * […] le formulaire fait un petit travelling vers la droite de 3 centimètres
+ * puis repart vers la gauche ; pendant ce travelling vers la gauche […] arrive
+ * sur la droite le deuxième formulaire. » Les deux cartes partagent la même
+ * cellule de grille ; la scène coupe ce qui déborde à l'horizontale.
+ * Durée totale du travelling : 1,1 s (TRAVEL_MS dans LoginPage.tsx).
+ */
+.login-stage {
+  display: grid;
+  overflow-x: hidden;
+  padding-bottom: 48px;
+}
+.login-stage > .auth-card {
+  grid-area: 1 / 1;
+  width: 100%;
+  box-sizing: border-box;
+}
+.login-fade {
+  animation: login-fade 2s ease both;
+}
+.login-leaving {
+  pointer-events: none;
+  animation: login-leave 1.1s ease-in-out both;
+}
+.login-entering {
+  animation: login-enter 1.1s ease-in-out both;
+}
+@keyframes login-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* 0 → 30 % : 3 cm vers la droite ; 30 → 100 % : sortie par la gauche. */
+@keyframes login-leave {
+  0% { transform: translateX(0); }
+  30% { transform: translateX(3cm); }
+  100% { transform: translateX(-100vw); }
+}
+/* Attend la fin du recul (30 %), puis entre par la droite pendant la sortie. */
+@keyframes login-enter {
+  0%, 30% { transform: translateX(100vw); }
+  100% { transform: translateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-fade, .login-leaving, .login-entering { animation: none; }
+  .login-leaving { display: none; }
+}
+/* La flèche « continuer » : verte sur fond blanc, sous le champ email. */
+.login-arrow-row {
+  display: flex;
+  justify-content: center;
+}
+.login-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #fff;
+  color: var(--success);
+  border: 2px solid var(--success);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.login-arrow:hover:not(:disabled),
+.login-arrow:focus-visible {
+  transform: translateX(3px);
+  box-shadow: 0 0 0 4px var(--success-bg);
+}
+.login-arrow:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.login-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font-weight: 600;
+}
 /* Séparateur « ou » entre deux façons de se connecter. */
 .auth-divider {
   display: flex;
