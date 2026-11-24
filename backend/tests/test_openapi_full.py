@@ -278,3 +278,37 @@ async def test_api_dossier_et_vue_lisible_du_contrat(sp: ApiSpace) -> None:
     assert r.status_code == 404
     r = await sp.client.get(f"{base}/app/contract", params={"path": "../x"})
     assert r.status_code == 404
+
+
+def test_detail_des_objets_proprietes_heritage_et_cycle() -> None:
+    doc = yaml.safe_load(
+        """openapi: 3.0.3
+info: {title: T, version: '1'}
+paths: {}
+components:
+  schemas:
+    Base:
+      type: object
+      required: [id]
+      properties:
+        id: {type: string, description: Identifiant}
+    Colis:
+      description: Un colis.
+      allOf:
+        - $ref: '#/components/schemas/Base'
+        - type: object
+          properties:
+            poids: {type: number}
+            suivant: {$ref: '#/components/schemas/Colis'}
+            etat: {type: string, enum: [OK, KO]}
+"""
+    )
+    detail = readable_contract(doc, {"Colis": "c.schema.yaml"})["schemas"]["Colis"]
+    assert detail["description"] == "Un colis." and detail["file"] == "c.schema.yaml"
+    assert detail["extends"] == ["Base"]
+    props = {p["name"]: p for p in detail["properties"]}
+    assert set(props) == {"id", "poids", "suivant", "etat"}
+    assert props["id"]["required"] is True and props["id"]["description"] == "Identifiant"
+    assert props["suivant"]["schema"] == {"kind": "ref", "name": "Colis", "file": "c.schema.yaml"}
+    assert props["etat"]["schema"]["enum"] == ["OK", "KO"]
+    assert detail["shape"]["kind"] == "object"

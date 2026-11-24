@@ -2996,3 +2996,127 @@ td.cell-error {
     grid-template-columns: 1fr;
   }
 }
+
+/* Visionneuse de code (Monaco, ticket a29fd1ec). */
+.code-viewer {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+/* Lecture facile : liste des actions, graphe de l'action, propriétés à droite
+   (ticket 82686dc0). Trois colonnes, qui s'empilent sur écran étroit. */
+.oas-explore {
+  display: grid;
+  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr) minmax(16rem, 22rem);
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .oas-explore {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.oas-op-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.oas-op-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--verb);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font: inherit;
+  cursor: pointer;
+}
+.oas-op-item:hover,
+.oas-op-item.selected {
+  background: var(--verb-bg);
+}
+.oas-op-item.selected {
+  outline: 2px solid var(--verb);
+}
+.oas-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.oas-op-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.oas-props {
+  position: sticky;
+  top: 12px;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+}
+.oas-props-body h3 {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+.oas-prop-list {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.oas-prop-list li {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.oas-node-op rect {
+  fill: var(--verb-bg);
+  stroke: var(--verb);
+  stroke-width: 2;
+}
+.oas-node-op.oas-tone-get {
+  --verb: #1d4ed8;
+  --verb-bg: #e0ecff;
+}
+.oas-node-op.oas-tone-post {
+  --verb: #15803d;
+  --verb-bg: #dcfce7;
+}
+.oas-node-op.oas-tone-put {
+  --verb: #c2410c;
+  --verb-bg: #ffedd5;
+}
+.oas-node-op.oas-tone-patch {
+  --verb: #a16207;
+  --verb-bg: #fef9c3;
+}
+.oas-node-op.oas-tone-delete {
+  --verb: #b91c1c;
+  --verb-bg: #fee2e2;
+}
+.oas-node-op,
+.oas-node-response {
+  cursor: default;
+}
+.oas-node-response.oas-tone-ok rect {
+  fill: var(--ok-bg);
+  stroke: var(--ok);
+}
+.oas-node-response.oas-tone-warn rect {
+  fill: var(--warn-bg);
+  stroke: var(--warn-fg);
+}
+.oas-node-response.oas-tone-bad rect {
+  fill: var(--ko-bg);
+  stroke: var(--ko);
+}

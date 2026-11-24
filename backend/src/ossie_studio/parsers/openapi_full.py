@@ -275,6 +275,61 @@ def _parameters(doc: dict[str, Any], *groups: Any) -> list[dict[str, Any]]:
     ]
 
 
+def _object_detail(schemas: dict[str, Any], name: str, files: dict[str, str]) -> dict[str, Any]:
+    """Un objet de `components/schemas` pour le panneau des propriétés (ticket
+    82686dc0) : description, propriétés (type en forme `describe_schema`,
+    obligatoire, description, valeurs possibles) et objets dont il hérite.
+    `allOf` : les membres nommés deviennent « hérite de », leurs propriétés et
+    celles des membres en ligne sont reprises (on montre tout ce que l'objet a)."""
+    node = _map(schemas.get(name))
+    extends: list[str] = []
+    props: dict[str, Any] = {}
+    required: set[str] = set()
+    seen: set[str] = {name}
+
+    def gather(current: dict[str, Any], depth: int = 0) -> None:
+        if depth > 6:
+            return
+        for member in current.get("allOf") or []:
+            member = _map(member)
+            ref = member.get("$ref")
+            if isinstance(ref, str) and ref.startswith(_SCHEMA_REF_PREFIX):
+                parent = ref[len(_SCHEMA_REF_PREFIX) :]
+                if parent not in extends:
+                    extends.append(parent)
+                if parent not in seen:
+                    seen.add(parent)
+                    gather(_map(schemas.get(parent)), depth + 1)
+            else:
+                gather(member, depth + 1)
+        for key, value in _map(current.get("properties")).items():
+            props.setdefault(str(key), value)
+        required.update(str(r) for r in current.get("required") or [])
+
+    gather(node)
+    return {
+        "name": name,
+        "file": files.get(name, ""),
+        "description": str(node.get("description") or ""),
+        # Un objet composé (`allOf`) se lit comme un objet : ses propriétés sont réunies.
+        "shape": (
+            {"kind": "object", "fields": sorted(props)[:30]}
+            if "allOf" in node
+            else describe_schema(node, files)
+        ),
+        "extends": extends,
+        "properties": [
+            {
+                "name": key,
+                "required": key in required,
+                "description": str(_map(value).get("description") or ""),
+                "schema": describe_schema(value, files),
+            }
+            for key, value in props.items()
+        ],
+    }
+
+
 def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict[str, Any]:
     """Vue lisible d'un contrat : présentation, adresses, une entrée par
     opération (ce qu'on donne, ce qu'on reçoit) et les objets qu'il décrit.
@@ -337,4 +392,7 @@ def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict
         "servers": servers,
         "operations": operations,
         "objects": [{"name": n, "file": schema_files.get(n, "")} for n in sorted(schemas)],
+        # Détail de chaque objet, pour le graphe d'une méthode et le panneau des
+        # propriétés (ticket 82686dc0) : tout vient du contrat, en un appel.
+        "schemas": {n: _object_detail(schemas, n, schema_files) for n in sorted(schemas)},
     }

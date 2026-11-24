@@ -14,6 +14,7 @@ import type {
 } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { CodeViewer } from '../components/CodeViewer'
 import { sectionsMentioning } from '../components/SafeMarkdown'
 import { MarkdownView } from '../components/MarkdownView'
 import { FieldRuleClasses } from '../components/FieldRuleClasses'
@@ -327,7 +328,7 @@ export function RawExclusive(props: ExclusiveProps) {
         </section>
       ) : null}
 
-      {tab === 'json' ? <pre className="raw-json raw-json-full">{d.json}</pre> : null}
+      {tab === 'json' ? <CodeViewer value={d.json} label={d.file} maxHeight={760} /> : null}
       {tab === 'technical' ? (
         <section className="panel">
           <Technical detail={d} />

@@ -537,6 +537,16 @@ export interface RawContractOperation {
   responses: (RawContractContent & { code: string; description: string })[]
 }
 
+/** Un objet du contrat (ticket 82686dc0) : panneau des propriétés, graphe. */
+export interface RawContractObject {
+  name: string
+  file: string
+  description: string
+  shape: RawContractSchema
+  extends: string[]
+  properties: { name: string; required: boolean; description: string; schema: RawContractSchema }[]
+}
+
 export interface RawContractDetail extends RawContractItem {
   yaml: string
   /** null : la copie n'est plus un contrat lisible (le YAML reste montré). */
@@ -548,6 +558,7 @@ export interface RawContractDetail extends RawContractItem {
     servers: string[]
     operations: RawContractOperation[]
     objects: { name: string; file: string }[]
+    schemas: Record<string, RawContractObject>
   } | null
 }
 
