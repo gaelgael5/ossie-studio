@@ -14,7 +14,9 @@ import type {
 } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
-import { SafeMarkdown, sectionsMentioning } from '../components/SafeMarkdown'
+import { sectionsMentioning } from '../components/SafeMarkdown'
+import { MarkdownView } from '../components/MarkdownView'
+import { FieldRuleClasses } from '../components/FieldRuleClasses'
 import {
   ExposureLegend,
   FieldType,
@@ -305,7 +307,7 @@ export function RawExclusive(props: ExclusiveProps) {
                     <span className="spinner spinner-sm" aria-hidden="true" /> {t('rawLoading')}
                   </p>
                 ) : content ? (
-                  <SafeMarkdown markdown={content.markdown} highlightTerm={d.title} />
+                  <MarkdownView markdown={content.markdown} label={doc.title} />
                 ) : (
                   <ErrorList messages={errorMessages(t, docs[i]?.error)} />
                 )}
@@ -385,7 +387,10 @@ function FieldsTable({
               <td>
                 <EyeCell name={f.name} exposed={f.exposed} />
               </td>
-              <td className="mono">{f.name}</td>
+              <td>
+                <span className="mono">{f.name}</span>
+                <FieldRuleClasses classes={f.classification} />
+              </td>
               <td>
                 <FieldType type={f.type} onOpen={onOpen} />
               </td>
@@ -563,7 +568,7 @@ export function RawDocumentPage({
         <section className="panel raw-doc">
           <h2>{doc.data.title}</h2>
           <div className="mono small muted">{doc.data.path}</div>
-          <SafeMarkdown markdown={doc.data.markdown} />
+          <MarkdownView markdown={doc.data.markdown} label={doc.data.title} />
         </section>
       ) : (
         <ErrorList messages={errorMessages(t, doc.error)} />

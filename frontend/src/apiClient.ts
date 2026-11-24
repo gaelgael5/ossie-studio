@@ -574,6 +574,8 @@ export interface RawObjectDetail {
     visibility_source: string
     /** Retenu dans l'asset (aujourd'hui) ; plus tard : exposé dans le dataset. */
     exposed: boolean
+    /** Classifications posées par les règles de classification (ticket cfc33d51). */
+    classification?: FieldClassification[]
   }[]
   exposure: { retained: boolean; exposed: number; hidden: number; missing: string[] }
   references: RawReference[]
@@ -651,6 +653,8 @@ export interface RawSearchCriteria {
   /** Nouveaux ou modifiés depuis la dernière revue de la source. */
   changed: boolean
   hideExcluded: boolean
+  /** schema | openapi | markdown (ticket 915c76d2) ; vide : toutes. */
+  family?: string
 }
 
 export interface RawSearchResponse {
@@ -996,6 +1000,40 @@ export interface CertificationInput {
   tag: string
   icon: string
   restricted: boolean
+}
+
+// Règles de classification (ticket cfc33d51) : classent les champs raw.
+export const CLASSIFICATION_RULE_CONDITIONS = ['field', 'type', 'tag', 'class'] as const
+export type ClassificationRuleCondition = (typeof CLASSIFICATION_RULE_CONDITIONS)[number]
+export interface ClassificationRuleInput {
+  name: string
+  description: string
+  enabled: boolean
+  files: string[]
+  match: 'any' | 'all'
+  when: Partial<Record<ClassificationRuleCondition, string[]>>
+  scheme: string
+  values: string[]
+}
+export interface ClassificationRuleFile {
+  id: string
+  path: string
+  rule: (ClassificationRuleInput & { id: string }) | null
+  errors: string[]
+}
+export interface ClassifiedObject {
+  source: string
+  file: string
+  title: string
+  origin: string
+  folder?: string
+  fields: string[]
+}
+export interface FieldClassification {
+  scheme: string
+  values: string[]
+  rule: string
+  rule_name: string
 }
 
 export interface ClassificationLevel {
@@ -1508,6 +1546,7 @@ export const api = {
       ['tag', c.tag],
       ['kind', c.kind],
       ['badge', c.badge],
+      ['family', c.family ?? ''],
     ]
     for (const [key, value] of optional) if (value) query.set(key, value)
     if (c.hideExcluded) query.set('hide_excluded', 'true')
@@ -1804,6 +1843,28 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
   deleteTagRule: (id: string) => apiFetch(`/api/governance/tag-rules/${id}`, { method: 'DELETE' }),
+  listClassificationRules: () =>
+    apiFetch<{ rules: ClassificationRuleFile[] }>('/api/governance/classification-rules'),
+  saveClassificationRule: (id: string, body: ClassificationRuleInput) =>
+    apiFetch<ClassificationRuleFile>(`/api/governance/classification-rules/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteClassificationRule: (id: string) =>
+    apiFetch(`/api/governance/classification-rules/${id}`, { method: 'DELETE' }),
+  classificationRulesUsage: (spaceId: string, branchId: string) =>
+    apiFetch<{ rules: Record<string, number> }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/classification-rules/usage`,
+    ),
+  classificationRuleFields: (spaceId: string, branchId: string, ruleId: string) =>
+    apiFetch<{ objects: ClassifiedObject[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/classification-rules/${ruleId}/fields`,
+    ),
+  previewClassificationRule: (spaceId: string, branchId: string, body: ClassificationRuleInput) =>
+    apiFetch<{ fields: number; object_count: number; objects: ClassifiedObject[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/classification-rules/preview`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
   tagRulesUsage: (spaceId: string, branchId: string) =>
     apiFetch<{ rules: Record<string, TagRuleHits> }>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/tag-rules/usage`,

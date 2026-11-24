@@ -26,6 +26,7 @@ import type {
 } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { FieldRuleClasses } from '../components/FieldRuleClasses'
 
 // Panneau d'aperçu de l'explorateur raw : l'essentiel de l'élément sélectionné
 // sans quitter le dossier. Lecture seule ; les raccourcis renvoient vers la
@@ -685,6 +686,7 @@ function Summary({
                     {f.annotations.length > 0 ? (
                       <div className="mono small muted">{f.annotations.join(' ')}</div>
                     ) : null}
+                    <FieldRuleClasses classes={f.classification} />
                   </td>
                   <td>
                     <FieldType type={f.type} onOpen={onOpen} />

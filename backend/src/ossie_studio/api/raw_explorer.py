@@ -21,6 +21,8 @@ import structlog
 from fastapi import APIRouter, Depends, Query
 
 from ossie_studio.api.branches import space_credentials
+from ossie_studio.api.classification_rules import ClassificationRuleBody
+from ossie_studio.api.classification_rules import parse_body as parse_classification_body
 from ossie_studio.api.common import SourcesRead
 from ossie_studio.api.tag_rules import TagRuleBody
 from ossie_studio.connections.service import db_get_connection_by_slug
@@ -55,6 +57,7 @@ from ossie_studio.sources.explorer import (
     sort_objects,
     subtree_file_counts,
 )
+from ossie_studio.sources.explorer_classes import classified_fields, field_counts, rule_usage
 from ossie_studio.sources.explorer_detail import SpaceObjects, document_detail, object_detail
 from ossie_studio.sources.explorer_graph import ReferenceGraph
 from ossie_studio.sources.explorer_history import schema_changes
@@ -342,6 +345,7 @@ async def search_explorer(
     badge: str = "",
     hide_excluded: bool = False,
     changed: bool = False,
+    family: str = "",
 ) -> dict[str, object]:
     """Recherche combinée de l'explorateur (ticket docflow be0f301c) : texte,
     sources, tag, visibilité, type et état, en ET, évalués avant la limite.
@@ -366,6 +370,7 @@ async def search_explorer(
         badge=badge,
         hide_excluded=hide_excluded,
         changed=changed,
+        family=family if family in ("schema", "openapi", "markdown") else "",
     )
     graph = await _reference_graph(conn, key, mode)
     facets = SearchFacets()
@@ -529,6 +534,78 @@ async def tag_rule_preview(
     tagged = apply_tag_rules(entries, [rule], index_removals(entries))
     count, inherited, examples = _rule_objects(tagged, preview_id)
     return {"objects": count, "inherited": inherited, "examples": examples}
+
+
+@router.get("/classification-rules/usage")
+async def classification_rules_usage(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    """Nombre de champs classés par chaque règle de classification (ticket cfc33d51)."""
+    key, _ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    return {"rules": field_counts(await db_all_source_entries(conn, key))}
+
+
+@router.get("/classification-rules/{rule_id}/fields")
+async def classification_rule_fields(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    rule_id: str,
+) -> dict[str, object]:
+    """Champs classés actuellement par une règle (après arbitrage entre règles)."""
+    key, _ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    entries = await db_all_source_entries(conn, key)
+
+    def folder(source: SourceEntries, obj: ExplorerObject) -> str:
+        return object_folder(DEFAULT_MODE, source, obj)
+
+    return {"objects": rule_usage(entries, rule_id, folder)}
+
+
+@router.post("/classification-rules/preview")
+async def classification_rule_preview(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: ClassificationRuleBody,
+) -> dict[str, object]:
+    """Ce qu'une règle classerait, avant de l'enregistrer : appliquée seule (et
+    active) aux objets de l'index, sans rien écrire ni regarder les autres règles."""
+    rule = parse_classification_body("preview", body.model_copy(update={"enabled": True}))
+    key, _ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    objects: list[dict[str, object]] = []
+    total = 0
+    for entries in await db_all_source_entries(conn, key):
+        for obj in entries.objects:
+            fields = classified_fields(rule, obj)
+            if fields:
+                total += len(fields)
+                objects.append(
+                    {
+                        "source": entries.slug,
+                        "file": obj.file,
+                        "title": obj.title,
+                        "origin": obj.origin,
+                        "folder": object_folder(DEFAULT_MODE, entries, obj),
+                        "fields": fields,
+                    }
+                )
+    return {"fields": total, "objects": objects[:PREVIEW_EXAMPLES], "object_count": len(objects)}
+
+
+# Nombre d'objets montrés dans l'aperçu d'une règle (le total est donné à part).
+PREVIEW_EXAMPLES = 50
 
 
 async def _reference_graph(conn: ConnDep, key: IndexKey, mode: str) -> ReferenceGraph:

@@ -165,6 +165,9 @@ export function RawExplorer({
   // qu'un lien filtré se partage et que le retour arrière les retrouve.
   const fText = params.get('q') ?? ''
   const kindFilter = params.get('fkind') ?? ''
+  // Famille (ticket 915c76d2) : schema | openapi | markdown. Pas un critère de
+  // recherche à elle seule : elle filtre aussi le dossier ouvert.
+  const familyFilter = params.get('ffamily') ?? ''
   const badgeFilter = params.get('fstate') ?? ''
   const tagFilter = params.get('ftag') ?? ''
   // « Objets modifiés » (ticket c8185c47) : nouveaux ou modifiés depuis la revue.
@@ -428,6 +431,7 @@ export function RawExplorer({
       kindFilter,
       badgeFilter,
       changedFilter,
+      familyFilter,
       criteriaActive && hideExcluded,
     ],
     queryFn: () =>
@@ -441,6 +445,7 @@ export function RawExplorer({
         kind: kindFilter,
         badge: badgeFilter,
         changed: changedFilter,
+        family: familyFilter,
         hideExcluded: criteriaActive && hideExcluded,
       }),
     enabled: !!current && current.collected && filterSources.length > 0,
@@ -522,11 +527,18 @@ export function RawExplorer({
   )
   const presentTags = withChosen(facets?.tags ?? [], [tagFilter]).sort()
   // Pendant une recherche, le serveur a déjà appliqué tous les critères.
+  // Un contrat OpenAPI vient d'un parseur openapi (comme côté serveur, object_family).
+  const familyOf = (o: RawObjectItem) => ((o.parser ?? '').startsWith('openapi') ? 'openapi' : 'schema')
   const shownObjects = searching
     ? objects
-    : objects.filter((o) => !(hideExcluded && o.badges.includes('excluded')))
+    : objects.filter(
+        (o) =>
+          !(hideExcluded && o.badges.includes('excluded')) &&
+          (!familyFilter || familyOf(o) === familyFilter),
+      )
   const shownFolders = searching ? [] : (folder.data?.folders ?? [])
-  const shownDocuments = searching ? [] : (folder.data?.documents ?? [])
+  const shownDocuments =
+    searching || (familyFilter && familyFilter !== 'markdown') ? [] : (folder.data?.documents ?? [])
   const hasContent = searching ? !!results.data : !!folder.data
 
   const messages = [sources.error, tree.error, results.error]
@@ -781,6 +793,17 @@ export function RawExplorer({
                   current={sourceSlug}
                   onChange={(next) => go({ fsrc: next }, true)}
                 />
+                <select
+                  className="select"
+                  aria-label={t('rawFilterFamily')}
+                  value={familyFilter}
+                  onChange={(e) => go({ ffamily: e.target.value || null }, true)}
+                >
+                  <option value="">{t('rawFilterFamilyAll')}</option>
+                  <option value="schema">{t('rawFamily.schema')}</option>
+                  <option value="markdown">{t('rawFamily.markdown')}</option>
+                  <option value="openapi">{t('rawFamily.openapi')}</option>
+                </select>
                 {kinds.length > 1 ? (
                   <select
                     className="select"
@@ -1346,8 +1369,9 @@ function Tiles({
                 type="button"
                 className={`raw-tile${selected === d.path ? ' selected' : ''}`}
                 aria-pressed={selected === d.path}
-                onClick={() => onSelect(d.path)}
-                onDoubleClick={() => onOpenItem?.(d.path)}
+                // Un clic ouvre le document (ticket 1bd5ae5b, Gael : « un seul
+                // clic suffit ») ; les objets gardent clic = aperçu, double-clic = vue.
+                onClick={() => (onOpenItem ? onOpenItem(d.path) : onSelect(d.path))}
               >
                 <span className="raw-glyph raw-glyph-doc">DOC</span>
                 <span className="raw-tile-name">{d.title}</span>
@@ -1470,8 +1494,7 @@ function ListView({
             <tr
               key={`doc:${d.path}`}
               className={`row-clickable${selected === d.path ? ' selected' : ''}`}
-              onClick={() => onSelect(d.path)}
-              onDoubleClick={() => onOpenItem?.(d.path)}
+              onClick={() => (onOpenItem ? onOpenItem(d.path) : onSelect(d.path))}
             >
               <td>
                 <span className="raw-glyph-sm raw-glyph-doc">DOC</span> {d.title}

@@ -22,6 +22,8 @@ import structlog
 
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.governance.builtin_tag_rules import BUILTIN_RULES_VERSION
+from ossie_studio.governance.classification_rules import read_classification_rules
+from ossie_studio.governance.repo import read_schemes
 from ossie_studio.governance.tag_rules import active_rules, read_tag_removals
 from ossie_studio.models import GitSpace
 from ossie_studio.sources.explorer import (
@@ -31,6 +33,7 @@ from ossie_studio.sources.explorer import (
     head_commit,
     list_source_slugs,
 )
+from ossie_studio.sources.explorer_classes import apply_classification_rules
 from ossie_studio.sources.explorer_graph import ReferenceGraph
 from ossie_studio.sources.explorer_store import (
     IndexKey,
@@ -65,7 +68,7 @@ def _read_sources(wc: Path) -> list[SourceEntries]:
     # Badges « nouveau » / « modifié » : écart avec la tête publiée, HEAD de la
     # copie (ticket docflow aad1d3c6). Dans la vue publiée, aucun écart.
     published = head_commit(wc)
-    return apply_tag_rules(
+    tagged = apply_tag_rules(
         [
             collect_source_entries(wc, slug, published_base=published)
             for slug in list_source_slugs(wc)
@@ -73,6 +76,11 @@ def _read_sources(wc: Path) -> list[SourceEntries]:
         active_rules(wc),
         {(r.object, r.tag) for r in read_tag_removals(wc)},
     )
+    # Classification des champs (ticket cfc33d51) : après les tags, que la
+    # condition « tag » regarde ; règles et schémas sont dans le dépôt, donc
+    # dans la signature de l'index.
+    rules = [f.rule for f in read_classification_rules(wc) if f.rule is not None]
+    return apply_classification_rules(tagged, rules, read_schemes(wc))
 
 
 async def ensure_index(

@@ -6,6 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RawExplorer } from './RawExplorer'
 import { setCurrentWorkspace } from '../apiClient'
 
+// BlockNote ne tourne pas dans jsdom : la doublure montre le Markdown reçu.
+vi.mock('../components/MarkdownEditor', () => ({
+  default: ({ initial, label }: { initial: string; label: string }) => (
+    <pre aria-label={`document ${label}`}>{initial}</pre>
+  ),
+}))
+
 const SOURCES = {
   sources: [
     {
@@ -51,6 +58,17 @@ const OBJ = {
 const SERVICE_TAG = { tag: 'technique/service', rule: 'ctrl', rule_name: 'Contrôleurs', reason: 'inherits', value: 'ControllerBase', via: '', via_title: '' }
 
 function folderBody(path: string) {
+  // Dossier mixte (tickets 1bd5ae5b, 915c76d2) : un schéma, un contrat, un document.
+  if (path === 'mixte')
+    return {
+      path,
+      folders: [],
+      objects: [
+        { ...OBJ, file: 'order.schema.yaml', title: 'Order', badges: [], visibility: 'public', visibility_source: '' },
+        { ...OBJ, file: 'pet.schema.yaml', title: 'Pet', parser: 'openapi', badges: [], visibility: '', visibility_source: '' },
+      ],
+      documents: [{ path: 'mixte/guide.md', title: 'Guide', sections: 2 }],
+    }
   if (path === '') return { path, folders: [{ path: 'src', items: 1, files: 2 }], objects: [], documents: [] }
   if (path === 'src')
     return { path, folders: [{ path: 'src/Domain', items: 2, files: 2 }], objects: [], documents: [] }
@@ -302,7 +320,7 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
       else if (u.pathname.endsWith('/descendants')) body = { descendants: DESCENDANTS.value }
       else if (u.pathname.endsWith('/curation/retain-many')) body = { ok: true, commit: 'abc', retained: [] }
       else if (u.pathname.endsWith('/document/content'))
-        body = { path: 'docs/guide.md', title: 'Guide', markdown: '# Guide\n\n## Commandes\n\nUne Order se crée.' }
+        body = { path: 'docs/guide.md', title: 'Guide', markdown: '# Guide\n\n<!-- note interne -->\n\n## Commandes\n\nUne Order se crée.' }
       else if (u.pathname.endsWith('/object/history'))
         body = {
           commits: [
@@ -971,7 +989,11 @@ describe('RawExplorer', () => {
     expect(screen.getByRole('button', { name: 'Objet suivant ›' })).toBeEnabled()
     await user.click(screen.getByRole('tab', { name: 'Documentation (1)' }))
     expect(await screen.findByText(/Cité dans : Commandes/)).toBeInTheDocument()
-    expect(document.querySelector('.md mark')?.textContent).toBe('Order')
+    // Rendu par l'éditeur visuel en lecture seule (ticket 1bd5ae5b), sans les
+    // commentaires HTML.
+    const shown = await screen.findByLabelText('document Guide')
+    expect(shown.textContent).toContain('Une Order se crée.')
+    expect(shown.textContent).not.toContain('note interne')
     await user.click(screen.getByRole('tab', { name: /Historique/ }))
     expect(await screen.findByText('type de total : decimal → Money')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '← Retour aux vignettes' }))
@@ -979,6 +1001,34 @@ describe('RawExplorer', () => {
     expect(loc).not.toContain('open=')
     expect(loc).toContain('sel=order.schema.yaml')
     expect(await screen.findByText('Objets')).toBeInTheDocument()
+  })
+
+  it('document : un seul clic l’ouvre (ticket 1bd5ae5b)', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=mixte')
+    await user.click(await screen.findByRole('button', { name: /^DOC\s*Guide/ }))
+    expect(screen.getByTestId('loc').textContent).toContain('open=mixte%2Fguide.md')
+  })
+
+  it('filtre Type : schémas, contrats OpenAPI, documents markdown (ticket 915c76d2)', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=mixte')
+    await screen.findByRole('button', { name: /^DOC\s*Guide/ })
+    const select = screen.getByRole('combobox', { name: 'Type' })
+    await user.selectOptions(select, 'openapi')
+    expect(screen.getByTestId('loc').textContent).toContain('ffamily=openapi')
+    expect(screen.getByText('Pet')).toBeInTheDocument()
+    expect(screen.queryByText('Order')).not.toBeInTheDocument()
+    expect(screen.queryByText('Guide')).not.toBeInTheDocument()
+    await user.selectOptions(select, 'markdown')
+    expect(screen.getByText('Guide')).toBeInTheDocument()
+    expect(screen.queryByText('Pet')).not.toBeInTheDocument()
+    await user.selectOptions(select, 'schema')
+    expect(screen.getByText('Order')).toBeInTheDocument()
+    expect(screen.queryByText('Pet')).not.toBeInTheDocument()
+    expect(screen.queryByText('Guide')).not.toBeInTheDocument()
   })
 
   it('vue exclusive : objet suivant dans l’ordre du dossier', async () => {

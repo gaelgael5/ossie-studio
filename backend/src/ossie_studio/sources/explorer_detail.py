@@ -249,6 +249,12 @@ def object_detail(
 ) -> dict[str, Any]:
     required = set(schema.get("required") or [])
     exposed = exposed_fields(asset) or set()
+    # Classifications posées par règle (ticket cfc33d51), par champ.
+    classes: dict[str, list[dict[str, Any]]] = {}
+    for c in obj.field_classes:
+        classes.setdefault(c.field, []).append(
+            {"scheme": c.scheme, "values": list(c.values), "rule": c.rule, "rule_name": c.rule_name}
+        )
     fields = []
     for name, prop in (schema.get("properties") or {}).items():
         if not isinstance(prop, dict):
@@ -265,6 +271,7 @@ def object_detail(
                 "visibility": visibility_of(prop) or (VISIBILITY_UNKNOWN if obj.visibility else ""),
                 "visibility_source": str(prop.get(VISIBILITY_SOURCE_KEY) or ""),
                 "exposed": name in exposed,
+                "classification": classes.get(name, []),
             }
         )
     cardinality = {(r.field, r.kind): r.cardinality for r in obj.refs}

@@ -56,7 +56,7 @@ GIT_SOURCE_TYPE = "git"
 # force la reconstruction des index existants à la livraison suivante.
 # 9 : badges « nouveau » / « modifié » par rapport à la tête publiée (aad1d3c6).
 # 10 : schémas en YAML, `<clé>.schema.yaml` (ticket 5cc1cb07).
-INDEX_FORMAT = "10"
+INDEX_FORMAT = "11"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -106,6 +106,8 @@ class SchemaSummary:
     annotations: tuple[str, ...] = ()  # attributs / annotations / décorateurs (règles de tags)
     field_names: tuple[str, ...] = ()  # tous les champs (règles de tags)
     namespace: str = ""  # x-namespace (détails d'une vignette au survol)
+    # Types de chaque champ, dans l'ordre de `field_names` (règles de classification).
+    field_types: tuple[tuple[str, ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -131,6 +133,21 @@ class ObjectFacts:
 
     annotations: tuple[str, ...] = ()
     field_names: tuple[str, ...] = ()
+    # Types de chaque champ (mêmes positions que `field_names`) : ce que la
+    # condition « type » des règles de classification compare.
+    field_types: tuple[tuple[str, ...], ...] = ()
+
+
+@dataclass(frozen=True)
+class FieldClass:
+    """Classification posée sur un champ par une règle de classification (voir
+    `governance/classification_rules`) : schéma, valeur(s), règle."""
+
+    field: str
+    scheme: str
+    values: tuple[str, ...]
+    rule: str
+    rule_name: str
 
 
 @dataclass(frozen=True)
@@ -157,6 +174,7 @@ class ExplorerObject:
     # que de lui ne les portent pas et n'apparaissent pas ici.
     removed_tags: tuple[ObjectTag, ...] = ()
     namespace: str = ""  # espace de noms d'origine (x-namespace) ; vide pour SQL, contrats
+    field_classes: tuple[FieldClass, ...] = ()
     facts: ObjectFacts = field(default=ObjectFacts(), compare=False, repr=False)
 
 
@@ -322,7 +340,35 @@ def _summarize(data: bytes) -> SchemaSummary:
         annotations=_annotation_names(schema),
         field_names=tuple(props) if isinstance(props, dict) else (),
         namespace=str(schema.get("x-namespace") or ""),
+        field_types=tuple(type_candidates(p) for p in props.values())
+        if isinstance(props, dict)
+        else (),
     )
+
+
+def type_candidates(prop: Any) -> tuple[str, ...]:
+    """Ce qu'une condition « type » peut reconnaître sur un champ : le type JSON
+    Schema (`string`, `integer`…), son format (`int32`, `date-time`), `enum`,
+    le type tel qu'écrit dans le code quand il n'est pas résolu, le nom court
+    de l'objet référencé, et pour une liste `array` et `<type>[]`."""
+    if not isinstance(prop, dict):
+        return ()
+    out: list[str] = []
+    kind = prop.get("type")
+    for k in kind if isinstance(kind, list) else [kind]:
+        if isinstance(k, str) and k != "null":
+            out.append(k)
+    for key in ("format", "x-unresolved-type"):
+        if isinstance(prop.get(key), str):
+            out.append(str(prop[key]))
+    if "enum" in prop:
+        out.append("enum")
+    if isinstance(prop.get("$ref"), str):
+        out.append(str(prop["$ref"]).rsplit("/", 1)[-1].rsplit(".", 1)[-1])
+    items = prop.get("items")
+    if isinstance(items, dict):
+        out += [f"{t}[]" for t in type_candidates(items)]
+    return tuple(dict.fromkeys(o for o in out if o))
 
 
 def _annotation_names(schema: dict[str, Any]) -> tuple[str, ...]:
@@ -595,12 +641,20 @@ class SourceEntries:
                         [t.tag, t.rule, t.rule_name, t.reason, t.value, t.via, t.via_title]
                         for t in o.tags
                     ],
-                    [list(o.facts.annotations), list(o.facts.field_names)],
+                    [
+                        list(o.facts.annotations),
+                        list(o.facts.field_names),
+                        [list(t) for t in o.facts.field_types],
+                    ],
                     [
                         [t.tag, t.rule, t.rule_name, t.reason, t.value, t.via, t.via_title]
                         for t in o.removed_tags
                     ],
                     o.namespace,
+                    [
+                        [c.field, c.scheme, list(c.values), c.rule, c.rule_name]
+                        for c in o.field_classes
+                    ],
                 ]
                 for o in self.objects
             ],
@@ -639,11 +693,20 @@ class SourceEntries:
                     description=o[14] if len(o) > 14 else "",
                     top_fields=tuple(o[15]) if len(o) > 15 else (),
                     tags=tuple(ObjectTag(*t) for t in o[16]) if len(o) > 16 else (),
-                    facts=ObjectFacts(tuple(o[17][0]), tuple(o[17][1]))
+                    facts=ObjectFacts(
+                        tuple(o[17][0]),
+                        tuple(o[17][1]),
+                        tuple(tuple(t) for t in o[17][2]) if len(o[17]) > 2 else (),
+                    )
                     if len(o) > 17
                     else ObjectFacts(),
                     removed_tags=tuple(ObjectTag(*t) for t in o[18]) if len(o) > 18 else (),
                     namespace=o[19] if len(o) > 19 else "",
+                    field_classes=tuple(
+                        FieldClass(c[0], c[1], tuple(c[2]), c[3], c[4]) for c in o[20]
+                    )
+                    if len(o) > 20
+                    else (),
                 )
                 for o in data.get("objects") or []
             ],
@@ -723,7 +786,7 @@ def collect_source_entries(
                 description=summary.description,
                 top_fields=summary.top_fields,
                 namespace=summary.namespace,
-                facts=ObjectFacts(summary.annotations, summary.field_names),
+                facts=ObjectFacts(summary.annotations, summary.field_names, summary.field_types),
             )
         )
     return SourceEntries(
@@ -827,6 +890,10 @@ class SearchCriteria:
     # « Objets modifiés » (ticket c8185c47) : nouveaux OU modifiés depuis la
     # revue ; le filtre État n'en prend qu'un à la fois.
     changed: bool = False
+    # Famille (ticket 915c76d2) : schema | openapi | markdown ; "" : toutes. Ne
+    # déclenche pas une recherche à elle seule (elle filtre aussi un dossier,
+    # côté écran) : absente de `active`.
+    family: str = ""
 
     def active(self) -> bool:
         return bool(
@@ -838,6 +905,17 @@ class SearchCriteria:
             or self.hide_excluded
             or self.changed
         )
+
+
+FAMILY_SCHEMA = "schema"
+FAMILY_OPENAPI = "openapi"
+FAMILY_MARKDOWN = "markdown"  # les documents : aucun objet n'en est
+
+
+def object_family(obj: ExplorerObject) -> str:
+    """« openapi » pour un objet issu d'un contrat OpenAPI (parseur openapi,
+    contrat déposé ou trouvé dans une source Git), « schema » pour tout autre."""
+    return FAMILY_OPENAPI if obj.parser.startswith("openapi") else FAMILY_SCHEMA
 
 
 def object_matches(obj: ExplorerObject, criteria: SearchCriteria) -> bool:
@@ -853,6 +931,8 @@ def object_matches(obj: ExplorerObject, criteria: SearchCriteria) -> bool:
     if criteria.badge and criteria.badge not in obj.badges:
         return False
     if criteria.changed and BADGE_NEW not in obj.badges and BADGE_MODIFIED not in obj.badges:
+        return False
+    if criteria.family and object_family(obj) != criteria.family:
         return False
     return not (criteria.hide_excluded and BADGE_EXCLUDED in obj.badges)
 
