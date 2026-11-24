@@ -1151,7 +1151,13 @@ describe('RawExplorer', () => {
     expect(screen.getByText('Modèle : Pet')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Introuvable' }))
     expect(screen.queryByText(/^Modèle :/)).not.toBeInTheDocument()
+    // Réponse sans objet (ticket 9690c95c) : le panneau la montre quand même.
+    const panel = screen.getByRole('complementary', { name: 'Propriétés de l’objet choisi' })
+    expect(within(panel).getByText('Introuvable')).toBeInTheDocument()
+    expect(within(panel).getByText(/Ne renvoie pas d’objet/)).toBeInTheDocument()
     expect(screen.getByText('Les autres objets du contrat')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Ça a marché' }))
+    expect(within(panel).getByText('Renvoie :')).toBeInTheDocument()
     // Clic sur une autre action : son détail remplace le précédent, l'adresse ne change pas.
     const before = screen.getByTestId('loc').textContent
     await user.click(screen.getByRole('button', { name: /Supprimer\s*DELETE/ }))

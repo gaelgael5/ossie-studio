@@ -1703,6 +1703,8 @@ export const en = {
     rawKindContract: 'Full OpenAPI contract',
     rawContract: {
       listNode: 'list',
+      responseCarries: 'Sends back:',
+      responseNothing: 'Sends back no object: only this code and its description.',
       modelOf: 'Model: {{name}}',
       showBody: 'See the body of this action',
       bodyTitle: 'The body of the method',

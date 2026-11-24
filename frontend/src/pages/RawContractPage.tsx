@@ -169,7 +169,13 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
     groups.set(key, [...(groups.get(key) ?? []), { op: o, index }])
   })
   const verbsUsed = VERBS.filter((v) => view.operations.some((o) => o.method === v))
-  const pick = (name: string) => setObjectName(view.schemas[name] ? name : null)
+  // Réponse cliquée dans le graphe (ticket 9690c95c) : le panneau la montre,
+  // même quand elle ne renvoie aucun objet (500), et son nœud est mis en avant.
+  const [responseCode, setResponseCode] = useState<string | null>(null)
+  const pick = (name: string) => {
+    setResponseCode(null)
+    setObjectName(view.schemas[name] ? name : null)
+  }
   const modelOf = (title: string, key: string, roots: { name: string; card: string }[], empty = '') =>
     setModel({ key, title, roots, empty })
   const graphObject = (name: string) => {
@@ -188,6 +194,8 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
     )
   }
   const graphResponse = (code: string) => {
+    setResponseCode(code)
+    setObjectName(null)
     const roots = carried(op?.responses.find((r) => r.code === code))
     if (roots.length === 0) setModel(null)
     else
@@ -252,6 +260,7 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
                       onClick={() => {
                         setOpIndex(index)
                         setObjectName(null)
+                        setResponseCode(null)
                         setModel(null)
                       }}
                     >
@@ -280,6 +289,7 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
                   onPick={graphObject}
                   onOpClick={graphOp}
                   onResponseClick={graphResponse}
+                  selectedResponse={responseCode}
                   depth={depth}
                   setDepth={setDepth}
                 />
@@ -316,7 +326,9 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
           </div>
 
           <aside className="panel oas-props" aria-label={t('rawContract.propsLabel')}>
-            {detail ? (
+            {op && responseCode ? (
+              <ResponsePanel op={op} code={responseCode} onPick={pick} />
+            ) : detail ? (
               <ObjectPanel detail={detail} onPick={pick} onOpenObject={onOpenObject} />
             ) : (
               <p className="muted">{t('rawContract.propsHint')}</p>
@@ -637,6 +649,7 @@ function GraphCanvas({
   onPick,
   onOpClick,
   onResponseClick,
+  selectedResponse,
 }: {
   nodes: GNode[]
   edges: GEdge[]
@@ -647,6 +660,8 @@ function GraphCanvas({
   onOpClick?: () => void
   /** Clic sur une réponse : le modèle de l'objet qu'elle renvoie. */
   onResponseClick?: (code: string) => void
+  /** Code de la réponse cliquée, mise en avant comme un objet choisi. */
+  selectedResponse?: string | null
 }) {
   const { t } = useTranslation()
   // Gael : « quand il y a beaucoup de liens, afficher juste le début et le
@@ -779,7 +794,9 @@ function GraphCanvas({
             <g
               key={n.id}
               className={`raw-graph-node oas-node oas-node-${n.kind} oas-tone-${n.tone}${
-                isObject && name === selected ? ' center' : ''
+                (isObject && name === selected) || (n.kind === 'response' && n.sub === selectedResponse)
+                  ? ' center'
+                  : ''
               }${clickable ? ' oas-node-clickable' : ''}`}
               transform={`translate(${p.x},${p.y})`}
               onClick={
@@ -870,6 +887,7 @@ function ContractGraph({
   onResponseClick,
   depth,
   setDepth,
+  selectedResponse,
 }: {
   op: RawContractOperation
   schemas: Record<string, RawContractObject>
@@ -880,6 +898,7 @@ function ContractGraph({
   /** Profondeur tenue par l'écran : la liste des autres objets en dépend. */
   depth: number
   setDepth: (d: number) => void
+  selectedResponse: string | null
 }) {
   const { t } = useTranslation()
   const labels = useGraphLabels(schemas)
@@ -902,6 +921,7 @@ function ContractGraph({
         onPick={onPick}
         onOpClick={onOpClick}
         onResponseClick={onResponseClick}
+        selectedResponse={selectedResponse}
       />
     </section>
   )
@@ -966,6 +986,55 @@ function ModelGraph({
         </>
       )}
     </section>
+  )
+}
+
+/** Panneau de droite pour une réponse (ticket 9690c95c) : ce que dit le code,
+ * la description du contrat et ce qu'elle renvoie, ou qu'elle ne renvoie rien. */
+function ResponsePanel({
+  op,
+  code,
+  onPick,
+}: {
+  op: RawContractOperation
+  code: string
+  onPick: (name: string) => void
+}) {
+  const { t } = useTranslation()
+  const schemas = useContext(SchemasContext)
+  const resp = op.responses.find((r) => r.code === code)
+  if (!resp) return null
+  const carriedObjects = carried(resp)
+  return (
+    <div className="oas-props-body">
+      <h3>
+        <span className={`oas-code oas-code-${responseTone(code)}`}>
+          {responseWords(t, code)}
+          <span className="oas-verb-http">{code}</span>
+        </span>
+      </h3>
+      <p className="oas-desc">{resp.description || t('rawNoDescription')}</p>
+      {carriedObjects.length > 0 ? (
+        <p className="small">
+          {t('rawContract.responseCarries')}{' '}
+          {carriedObjects.map((r, i) => (
+            <span key={r.name}>
+              {i > 0 ? ', ' : ''}
+              <button type="button" className="link-button" onClick={() => onPick(r.name)}>
+                {objectTitle(t, schemas[r.name], r.name)}
+              </button>
+              {r.card === 'n' ? ` (${t('rawContract.listNode')})` : ''}
+            </span>
+          ))}
+        </p>
+      ) : resp.schema ? (
+        <p className="small">
+          {t('rawContract.responseCarries')} <SchemaWords schema={resp.schema} onPick={onPick} />
+        </p>
+      ) : (
+        <p className="small muted">{t('rawContract.responseNothing')}</p>
+      )}
+    </div>
   )
 }
 

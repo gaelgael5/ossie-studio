@@ -1705,6 +1705,8 @@ export const fr = {
     rawKindContract: 'Contrat OpenAPI complet',
     rawContract: {
       listNode: 'liste',
+      responseCarries: 'Renvoie :',
+      responseNothing: 'Ne renvoie pas d’objet : seulement ce code et sa description.',
       modelOf: 'Modèle : {{name}}',
       showBody: 'Voir le corps de cette action',
       bodyTitle: 'Le corps de la méthode',
