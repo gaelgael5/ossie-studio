@@ -2977,3 +2977,7 @@ td .raw-ref-menu {
 .oas-node-op.oas-node-clickable:hover rect {
   stroke-width: 3;
 }
+.oas-node-mark {
+  font-size: 12px;
+  fill: var(--primary);
+}

@@ -238,6 +238,7 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
           ) : null}
           {op && showBody ? (
             <BodyGraph
+              key={opIndex}
               op={op}
               schemas={view.schemas}
               selected={objectName}
@@ -410,6 +411,8 @@ type GNode = {
   title: string
   sub: string
   tone: string
+  /** Graphe du corps : ▸ dépliable, ▾ déplié, vide sans objet cité. */
+  mark?: string
 }
 type GEdge = { from: string; to: string; label: string }
 
@@ -525,25 +528,37 @@ export function buildOperationGraph(
 }
 
 /** Graphe du corps d'une action (ticket c62f94e9) : le paquet envoyé à gauche,
- * puis les objets cités par ses propriétés, de gauche à droite. */
+ * puis, pour chaque objet DÉPLIÉ, les objets que citent ses propriétés. Gael :
+ * pas de profondeur ; un clic déplie les items de droite, un second les cache.
+ * Un objet replié masque ce qui n'était visible que par lui ; chaque objet
+ * n'apparaît qu'une fois (références circulaires coupées). */
 export function buildBodyGraph(
   op: RawContractOperation,
   schemas: Record<string, RawContractObject>,
-  depth: number,
+  expanded: ReadonlySet<string>,
   labels: GraphLabels,
 ): { nodes: GNode[]; edges: GEdge[] } {
   const nodes = new Map<string, GNode>()
   const edges: GEdge[] = []
   const addObject = objectAdder(nodes, schemas, labels)
-  const roots = carried(op.body)
-  for (const r of roots) addObject(r.name, 0)
-  expand(
-    roots.map((r) => ({ name: r.name, level: 0, dir: 1 })),
-    schemas,
-    depth,
-    addObject,
-    edges,
-  )
+  const childrenOf = (name: string) =>
+    (schemas[name]?.properties ?? []).flatMap((prop) =>
+      refsOf(prop.schema).map((r) => ({ ...r, field: prop.name })),
+    )
+  const queue = carried(op.body).map((r) => ({ name: r.name, level: 0 }))
+  for (const r of queue) addObject(r.name, 0)
+  for (let i = 0; i < queue.length; i += 1) {
+    const { name, level } = queue[i]
+    const children = childrenOf(name)
+    const node = nodes.get(`obj:${name}`)
+    if (node && children.length > 0) node.mark = expanded.has(name) ? '▾' : '▸'
+    if (!expanded.has(name)) continue
+    for (const c of children) {
+      if (c.name === name) continue
+      if (addObject(c.name, level + 1)) queue.push({ name: c.name, level: level + 1 })
+      edges.push({ from: `obj:${name}`, to: `obj:${c.name}`, label: `${c.field} · ${c.card}` })
+    }
+  }
   return { nodes: [...nodes.values()], edges }
 }
 
@@ -616,9 +631,7 @@ function GraphCanvas({
   // pas dans l'écart entre deux colonnes (il passerait sous le nœud suivant) ;
   // complet au survol ou au clic.
   const labelOf = (key: string, text: string) =>
-    key === hovered || pinned.has(key)
-      ? text
-      : cut(text, layout.short ? SHORT_LABEL_CHARS : FIT_LABEL_CHARS)
+    key === hovered || pinned.has(key) ? text : cut(text, layout.short ? SHORT_LABEL_CHARS : FIT_LABEL_CHARS)
   const togglePin = (key: string) =>
     setPinned((prev) => {
       const next = new Set(prev)
@@ -714,6 +727,11 @@ function GraphCanvas({
               <text x="10" y="35" className="raw-graph-node-sub">
                 {n.kind === 'op' ? t(`rawContract.verb.${n.tone}`) + ' · ' + n.sub : n.sub}
               </text>
+              {n.mark ? (
+                <text x={G_NODE_W - 18} y="28" className="oas-node-mark">
+                  {n.mark}
+                </text>
+              ) : null}
             </g>
           )
         })}
@@ -818,16 +836,26 @@ function BodyGraph({
   onClose: () => void
 }) {
   const { t } = useTranslation()
-  const [depth, setDepth] = useState(2)
   const labels = useGraphLabels(schemas)
-  const graph = useMemo(() => buildBodyGraph(op, schemas, depth, labels), [op, schemas, depth, labels])
+  // Au départ : le paquet envoyé déplié (ses objets directs visibles). Le bloc
+  // est remonté à chaque changement d'action (clé), il repart replié.
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(carried(op.body).map((r) => r.name)))
+  const graph = useMemo(() => buildBodyGraph(op, schemas, expanded, labels), [op, schemas, expanded, labels])
+  const clickObject = (name: string) => {
+    onPick(name)
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
   return (
     <section className="oas-graph raw-graph oas-body-graph">
       <div className="raw-graph-controls">
         <h3 className="panel-label">
           {t('rawContract.bodyTitle')} <span className="mono">{`${op.method} ${op.path}`}</span>
         </h3>
-        {graph.nodes.length > 0 ? <DepthSelect value={depth} onChange={setDepth} /> : null}
         <button type="button" className="btn btn-sm" onClick={onClose}>
           {t('rawContract.bodyClose')}
         </button>
@@ -842,7 +870,7 @@ function BodyGraph({
             edges={graph.edges}
             label={t('rawContract.bodyGraphLabel', { path: op.path })}
             selected={selected}
-            onPick={onPick}
+            onPick={clickObject}
           />
         </>
       )}

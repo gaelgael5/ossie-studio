@@ -1535,7 +1535,7 @@ export const en = {
       showBody: 'See the body of this action',
       bodyTitle: 'The body of the method',
       bodyClose: 'Back to the list of objects',
-      bodyHint: 'What the parcel sent contains. Click an item to see its properties on the right.',
+      bodyHint: 'What the parcel sent contains. Click an item: its properties show on the right and what it contains unfolds (▸); click again to fold it (▾).',
       bodyNone: 'This action sends no parcel: nothing to give in the body.',
       bodyNoObject: 'The parcel sent is not an object (text, number…): nothing to unfold.',
       bodyGraphLabel: 'Graph of the body of the action {{path}}',

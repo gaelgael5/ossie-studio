@@ -1537,7 +1537,7 @@ export const fr = {
       showBody: 'Voir le corps de cette action',
       bodyTitle: 'Le corps de la méthode',
       bodyClose: 'Revenir à la liste des objets',
-      bodyHint: 'Ce que contient le paquet envoyé. Clique sur un élément pour voir ses propriétés à droite.',
+      bodyHint: 'Ce que contient le paquet envoyé. Clique sur un élément : ses propriétés s’affichent à droite et ce qu’il contient se déplie (▸) ; reclique pour replier (▾).',
       bodyNone: 'Cette action n’envoie pas de paquet : rien à donner dans le corps.',
       bodyNoObject: 'Le paquet envoyé n’est pas un objet (texte, nombre…) : rien à déplier.',
       bodyGraphLabel: 'Graphe du corps de l’action {{path}}',

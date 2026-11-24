@@ -97,17 +97,23 @@ describe('corps décrit en ligne (ticket c62f94e9)', () => {
     expect(body?.title).toBe('Le paquet envoyé')
   })
 
-  it('le graphe du corps : paquet → T → A, chaque objet une fois, cardinalité n', () => {
-    const g = buildBodyGraph(inlineOp, schemas, 3, labels)
-    expect(g.nodes.map((n) => [n.id, n.level])).toEqual([
-      ['obj:~body:0', 0],
-      ['obj:T', 1],
-      ['obj:A', 2],
+  it('graphe du corps : seuls les objets dépliés montrent leurs items de droite', () => {
+    const replié = buildBodyGraph(inlineOp, schemas, new Set(['~body:0']), labels)
+    expect(replié.nodes.map((n) => [n.id, n.level, n.mark])).toEqual([
+      ['obj:~body:0', 0, '▾'],
+      ['obj:T', 1, '▸'],
     ])
-    expect(g.edges).toContainEqual({ from: 'obj:~body:0', to: 'obj:T', label: 'transactions · n' })
+    expect(replié.edges).toContainEqual({ from: 'obj:~body:0', to: 'obj:T', label: 'transactions · n' })
+    // T déplié : A apparaît ; A cite T (circulaire) : T n'est pas dupliqué.
+    const déplié = buildBodyGraph(inlineOp, schemas, new Set(['~body:0', 'T', 'A']), labels)
+    expect(déplié.nodes.map((n) => n.id)).toEqual(['obj:~body:0', 'obj:T', 'obj:A'])
+    // Le paquet replié masque tout ce qui n'était visible que par lui.
+    expect(buildBodyGraph(inlineOp, schemas, new Set(['T', 'A']), labels).nodes.map((n) => n.id)).toEqual([
+      'obj:~body:0',
+    ])
   })
 
   it('sans corps : graphe du corps vide', () => {
-    expect(buildBodyGraph(op(false), schemas, 2, labels).nodes).toEqual([])
+    expect(buildBodyGraph(op(false), schemas, new Set(), labels).nodes).toEqual([])
   })
 })
