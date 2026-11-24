@@ -160,9 +160,20 @@ export function GovernanceClassificationRulesPage() {
   const save = useMutation({
     mutationFn: ({ id, body }: { id: string; body: ClassificationRuleInput }) =>
       api.saveClassificationRule(id, body),
-    onSuccess: async (_res, { id }) => {
+    onSuccess: async (res, { id }) => {
       setMessages([])
       setNotice(t('classRuleSaved'))
+      // La règle enregistrée entre tout de suite dans la liste : relire le
+      // brouillon prend plusieurs secondes sur une grosse source, et pendant ce
+      // temps la liste montrait l'ancien état (vu au navigateur headless).
+      queryClient.setQueryData<{ rules: ClassificationRuleFile[] }>(
+        ['classification-rules', ws.spaceId, ws.branchId],
+        (old) => ({
+          rules: [...(old?.rules ?? []).filter((f) => f.id !== res.id), res].sort((a, b) =>
+            a.id.localeCompare(b.id),
+          ),
+        }),
+      )
       setSelectedId(id)
       setMode({ kind: 'view' })
       await invalidate()
@@ -171,9 +182,13 @@ export function GovernanceClassificationRulesPage() {
   })
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteClassificationRule(id),
-    onSuccess: async () => {
+    onSuccess: async (_res, id) => {
       setSelectedId(null)
       setNotice(t('classRuleDeleted'))
+      queryClient.setQueryData<{ rules: ClassificationRuleFile[] }>(
+        ['classification-rules', ws.spaceId, ws.branchId],
+        (old) => ({ rules: (old?.rules ?? []).filter((f) => f.id !== id) }),
+      )
       await invalidate()
     },
     onError,

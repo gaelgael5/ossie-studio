@@ -1478,6 +1478,10 @@ input[type='radio'] {
 }
 .raw-fields td {
   vertical-align: top;
+  /* Les attributs d'un champ s'écrivent sans espace ({'arguments': [], 'nom': …}) :
+     sans coupure, la colonne débordait sous le panneau Technique (vu au
+     navigateur headless). */
+  overflow-wrap: anywhere;
 }
 .raw-break {
   overflow-wrap: anywhere;
@@ -2430,7 +2434,10 @@ td .raw-ref-menu {
   flex-wrap: wrap;
 }
 .curation-head-text {
-  flex: 1;
+  /* Base de 22rem : quand le titre et les boutons ne tiennent plus sur une
+     ligne, les boutons passent dessous au lieu d'écraser le titre (vu au
+     navigateur headless : « ParcelInf… » recouvert, méta sur une colonne étroite). */
+  flex: 1 1 22rem;
   min-width: 0;
 }
 .curation-head-text .page-title {
