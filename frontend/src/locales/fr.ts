@@ -1253,7 +1253,7 @@ export const fr = {
       classification_scheme: 'Schéma de classification',
     },
     // Domaines (tickets a7baaaa3, 36d35a88).
-    navDomains: 'Domaines',
+    navDomains: 'Modèles',
     domainsTitle: 'Domaines',
     domainsSubtitle:
       'Un domaine regroupe des assets retenus : chaque asset devient un dataset d’un modèle sémantique Ossie, avec les liens entre eux. Fichiers domaines/<nom>.*, dans votre brouillon.',

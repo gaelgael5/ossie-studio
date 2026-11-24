@@ -1251,7 +1251,7 @@ export const en = {
       classification_scheme: 'Classification scheme',
     },
     // Domains (tickets a7baaaa3, 36d35a88).
-    navDomains: 'Domains',
+    navDomains: 'Models',
     domainsTitle: 'Domains',
     domainsSubtitle:
       'A domain groups retained assets: each asset becomes a dataset of an Ossie semantic model, with the links between them. Files domaines/<name>.*, in your draft.',
