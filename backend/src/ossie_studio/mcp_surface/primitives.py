@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
 from ossie_studio.mcp_surface import reads, references, source_writes, writes
+from ossie_studio.mcp_surface import referentiels as refs
 from ossie_studio.mcp_surface.branch import BranchArgs, ObjectArgs, SourceArgs, ViewArgs
 from ossie_studio.mcp_surface.core import (
     Implementation,
@@ -67,6 +68,13 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "remove_contract": Implementation(
         source_writes.ContractVersionArgs, source_writes.remove_contract
     ),
+    # Référentiels (version publiée, même lecture que l'API)
+    "list_referentiels": Implementation(refs.SpaceArgs, refs.list_referentiels),
+    "read_referentiel_model": Implementation(refs.ReferentielArgs, refs.read_referentiel_model),
+    "search_referentiel_values": Implementation(
+        refs.SearchValuesArgs, refs.search_referentiel_values
+    ),
+    "get_referentiel_value": Implementation(refs.ValueByKeyArgs, refs.get_referentiel_value),
     # Gouvernance
     "list_certifications": Implementation(ViewArgs, reads.list_certifications),
     "create_tag": Implementation(gov.CreateTagArgs, gov.create_tag),
