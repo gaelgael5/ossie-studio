@@ -138,6 +138,9 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
   // La sélection reste dans l'écran (pas dans l'adresse) : c'est une lecture.
   const [opIndex, setOpIndex] = useState(0)
   const [objectName, setObjectName] = useState<string | null>(null)
+  // Clic sur le nœud de la méthode : le graphe de son corps remplace la liste
+  // des objets (ticket c62f94e9).
+  const [showBody, setShowBody] = useState(false)
   const op = view.operations[opIndex] as RawContractOperation | undefined
   const detail = objectName ? view.schemas[objectName] : undefined
   // Rangées par premier tag : c'est ainsi que l'auteur du contrat a groupé ses
@@ -223,11 +226,25 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
           {op ? (
             <>
               {/* Le graphe d'abord : c'est la vue de l'action (Gael) ; le détail en mots suit. */}
-              <ContractGraph op={op} schemas={view.schemas} selected={objectName} onPick={pick} />
+              <ContractGraph
+                op={op}
+                schemas={view.schemas}
+                selected={objectName}
+                onPick={pick}
+                onOpClick={() => setShowBody(true)}
+              />
               <Operation op={op} onPick={pick} />
             </>
           ) : null}
-          {view.objects.length > 0 ? (
+          {op && showBody ? (
+            <BodyGraph
+              op={op}
+              schemas={view.schemas}
+              selected={objectName}
+              onPick={pick}
+              onClose={() => setShowBody(false)}
+            />
+          ) : view.objects.length > 0 ? (
             <section className="oas-group">
               <h3 className="panel-label">{t('rawContract.objectsTitle')}</h3>
               <p className="small muted">{t('rawContract.objectsHint')}</p>
@@ -384,31 +401,103 @@ const G_PAD = 20
 const SHORT_LABELS_FROM = 8
 const SHORT_LABEL_CHARS = 9
 
-type GNode = { id: string; level: number; kind: 'op' | 'response' | 'object'; title: string; sub: string; tone: string }
+type GNode = {
+  id: string
+  level: number
+  kind: 'op' | 'response' | 'object'
+  title: string
+  sub: string
+  tone: string
+}
 type GEdge = { from: string; to: string; label: string }
+
+export interface GraphLabels {
+  body: string
+  response: (code: string) => string
+  fields: (n: number) => string
+  /** Nom affiché d'un objet : les objets en ligne (« ~body:0 ») ont un libellé. */
+  title: (name: string) => string
+}
+
+/** Objets que transporte un corps ou une réponse : l'objet en ligne s'il y en a un. */
+function carried(
+  content:
+    { schema?: RawContractSchema | null; inline?: { key: string; card: string } | null } | null | undefined,
+): { name: string; card: string }[] {
+  if (!content) return []
+  if (content.inline) return [{ name: content.inline.key, card: content.inline.card }]
+  return refsOf(content.schema)
+}
+
+/** Déplie, niveau par niveau, les objets cités par les propriétés (une seule
+ * fois chacun). `dir` : +1 vers la droite, -1 vers la gauche. */
+function expand(
+  frontier: { name: string; level: number; dir: number }[],
+  schemas: Record<string, RawContractObject>,
+  depth: number,
+  addObject: (name: string, level: number) => boolean,
+  edges: GEdge[],
+) {
+  for (let step = 0; step < depth && frontier.length > 0; step += 1) {
+    const next: typeof frontier = []
+    for (const f of frontier) {
+      for (const prop of schemas[f.name]?.properties ?? []) {
+        for (const r of refsOf(prop.schema)) {
+          const level = f.level + f.dir
+          const added = addObject(r.name, level)
+          const a = `obj:${f.name}`
+          const b = `obj:${r.name}`
+          const label = `${prop.name} · ${r.card}`
+          if (a !== b) edges.push(f.dir > 0 ? { from: a, to: b, label } : { from: b, to: a, label })
+          if (added) next.push({ name: r.name, level, dir: f.dir })
+        }
+      }
+    }
+    frontier = next
+  }
+}
+
+function objectAdder(
+  nodes: Map<string, GNode>,
+  schemas: Record<string, RawContractObject>,
+  labels: GraphLabels,
+) {
+  return (name: string, level: number) => {
+    const id = `obj:${name}`
+    if (nodes.has(id)) return false
+    const props = schemas[name]?.properties.length ?? 0
+    nodes.set(id, {
+      id,
+      level,
+      kind: 'object',
+      title: labels.title(name),
+      sub: labels.fields(props),
+      tone: '',
+    })
+    return true
+  }
+}
 
 export function buildOperationGraph(
   op: RawContractOperation,
   schemas: Record<string, RawContractObject>,
   depth: number,
-  labels: { body: string; response: (code: string) => string; fields: (n: number) => string },
+  labels: GraphLabels,
 ): { nodes: GNode[]; edges: GEdge[] } {
   const nodes = new Map<string, GNode>()
   const edges: GEdge[] = []
-  const objectNode = (name: string, level: number) => {
-    const id = `obj:${name}`
-    if (!nodes.has(id)) {
-      const props = schemas[name]?.properties.length ?? 0
-      nodes.set(id, { id, level, kind: 'object', title: name, sub: labels.fields(props), tone: '' })
-      return true
-    }
-    return false
-  }
-  nodes.set('op', { id: 'op', level: 0, kind: 'op', title: op.path, sub: op.method, tone: verbKey(op.method) })
-  // Objets à déplier ensuite : (nom, niveau, sens) — sens -1 vers la gauche.
-  let frontier: { name: string; level: number; dir: number }[] = []
-  for (const r of refsOf(op.body?.schema)) {
-    objectNode(r.name, -1)
+  const addObject = objectAdder(nodes, schemas, labels)
+  nodes.set('op', {
+    id: 'op',
+    level: 0,
+    kind: 'op',
+    title: op.path,
+    sub: op.method,
+    tone: verbKey(op.method),
+  })
+  const frontier: { name: string; level: number; dir: number }[] = []
+  for (const r of carried(op.body)) {
+    addObject(r.name, -1)
     edges.push({ from: `obj:${r.name}`, to: 'op', label: `${labels.body} · ${r.card}` })
     frontier.push({ name: r.name, level: -1, dir: -1 })
   }
@@ -423,54 +512,63 @@ export function buildOperationGraph(
       tone: responseTone(resp.code),
     })
     edges.push({ from: 'op', to: id, label: '' })
-    for (const r of refsOf(resp.schema)) {
-      objectNode(r.name, 2)
+    for (const r of carried(resp)) {
+      addObject(r.name, 2)
       edges.push({ from: id, to: `obj:${r.name}`, label: r.card })
       frontier.push({ name: r.name, level: 2, dir: 1 })
     }
   }
-  for (let step = 0; step < depth && frontier.length > 0; step += 1) {
-    const next: typeof frontier = []
-    for (const f of frontier) {
-      for (const prop of schemas[f.name]?.properties ?? []) {
-        for (const r of refsOf(prop.schema)) {
-          const level = f.level + f.dir
-          const added = objectNode(r.name, level)
-          const a = `obj:${f.name}`
-          const b = `obj:${r.name}`
-          if (a !== b) edges.push(f.dir > 0 ? { from: a, to: b, label: `${prop.name} · ${r.card}` } : { from: b, to: a, label: `${prop.name} · ${r.card}` })
-          if (added) next.push({ name: r.name, level, dir: f.dir })
-        }
-      }
-    }
-    frontier = next
-  }
+  expand(frontier, schemas, depth, addObject, edges)
   return { nodes: [...nodes.values()], edges }
 }
 
-function ContractGraph({
-  op,
-  schemas,
+/** Graphe du corps d'une action (ticket c62f94e9) : le paquet envoyé à gauche,
+ * puis les objets cités par ses propriétés, de gauche à droite. */
+export function buildBodyGraph(
+  op: RawContractOperation,
+  schemas: Record<string, RawContractObject>,
+  depth: number,
+  labels: GraphLabels,
+): { nodes: GNode[]; edges: GEdge[] } {
+  const nodes = new Map<string, GNode>()
+  const edges: GEdge[] = []
+  const addObject = objectAdder(nodes, schemas, labels)
+  const roots = carried(op.body)
+  for (const r of roots) addObject(r.name, 0)
+  expand(
+    roots.map((r) => ({ name: r.name, level: 0, dir: 1 })),
+    schemas,
+    depth,
+    addObject,
+    edges,
+  )
+  return { nodes: [...nodes.values()], edges }
+}
+
+/** Dessin commun aux deux graphes : colonnes, liens libellés (abrégés quand ils
+ * sont nombreux, complets au survol ou au clic), objets cliquables. */
+function GraphCanvas({
+  nodes,
+  edges: rawEdges,
+  label,
   selected,
   onPick,
+  onOpClick,
 }: {
-  op: RawContractOperation
-  schemas: Record<string, RawContractObject>
+  nodes: GNode[]
+  edges: GEdge[]
+  label: string
   selected: string | null
   onPick: (name: string) => void
+  /** Clic sur le nœud de la méthode : montre le graphe de son corps. */
+  onOpClick?: () => void
 }) {
   const { t } = useTranslation()
-  const [depth, setDepth] = useState(1)
   // Gael : « quand il y a beaucoup de liens, afficher juste le début et le
   // reste au clic ou au survol ». Survol : temporaire ; clic : épinglé.
   const [hovered, setHovered] = useState<string | null>(null)
   const [pinned, setPinned] = useState<Set<string>>(new Set())
   const layout = useMemo(() => {
-    const { nodes, edges: rawEdges } = buildOperationGraph(op, schemas, depth, {
-      body: t('rawContract.graphBody'),
-      response: (code) => responseWords(t, code),
-      fields: (n) => t('rawFields', { count: n }),
-    })
     // Plusieurs liens entre les deux mêmes objets (sendingDepot, recipientDepot) :
     // un seul trait, libellés réunis — comme le graphe des vignettes.
     const merged = new Map<string, GEdge>()
@@ -494,7 +592,10 @@ function ContractGraph({
         pos.set(n.id, { x: G_PAD + col * (G_NODE_W + G_COL_GAP), y: top + i * (G_NODE_H + G_ROW_GAP) }),
       )
     })
-    const width = G_PAD * 2 + levels.length * (G_NODE_W + G_COL_GAP) - G_COL_GAP
+    const width = Math.max(
+      G_NODE_W + G_PAD * 2,
+      G_PAD * 2 + levels.length * (G_NODE_W + G_COL_GAP) - G_COL_GAP,
+    )
     // Libellé d'un lien posé du côté où il est seul : quand vingt liens
     // convergent vers un objet, leurs libellés au milieu se superposaient.
     const outCount = new Map<string, number>()
@@ -506,11 +607,11 @@ function ContractGraph({
     const labelAtSource = (e: GEdge) => (outCount.get(e.from) ?? 0) <= (inCount.get(e.to) ?? 0)
     // Au-delà de quelques liens, les libellés sont abrégés (début seulement).
     const short = edges.length > SHORT_LABELS_FROM
-    return { nodes, edges, pos, width, height, labelAtSource, short }
-  }, [op, schemas, depth, t])
+    return { edges, pos, width, height, labelAtSource, short }
+  }, [nodes, rawEdges])
   const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max - 1)}…` : text)
-  const labelOf = (key: string, label: string) =>
-    !layout.short || key === hovered || pinned.has(key) ? label : cut(label, SHORT_LABEL_CHARS)
+  const labelOf = (key: string, text: string) =>
+    !layout.short || key === hovered || pinned.has(key) ? text : cut(text, SHORT_LABEL_CHARS)
   const togglePin = (key: string) =>
     setPinned((prev) => {
       const next = new Set(prev)
@@ -519,111 +620,225 @@ function ContractGraph({
       return next
     })
   return (
+    <div className="raw-graph-canvas">
+      <svg
+        width={layout.width}
+        height={layout.height}
+        viewBox={`0 0 ${layout.width} ${layout.height}`}
+        role="img"
+        aria-label={label}
+      >
+        <defs>
+          <marker
+            id="oas-arrow"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="7"
+            markerHeight="7"
+            orient="auto-start-reverse"
+          >
+            <path d="M0,0 L10,5 L0,10 z" className="raw-graph-arrow" />
+          </marker>
+        </defs>
+        {layout.edges.map((e) => {
+          const key = `${e.from}→${e.to}`
+          const hot = key === hovered || pinned.has(key)
+          const a = layout.pos.get(e.from)
+          const b = layout.pos.get(e.to)
+          if (!a || !b) return null
+          const forward = b.x >= a.x
+          const x1 = forward ? a.x + G_NODE_W : a.x
+          const x2 = forward ? b.x : b.x + G_NODE_W
+          const y1 = a.y + G_NODE_H / 2
+          const y2 = b.y + G_NODE_H / 2
+          const bend = Math.max(30, Math.abs(x2 - x1) / 2) * (forward ? 1 : -1)
+          const d = `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`
+          return (
+            <g
+              key={key}
+              className={`raw-graph-edge oas-edge${hot ? ' hot' : ''}`}
+              onMouseEnter={() => setHovered(key)}
+              onMouseLeave={() => setHovered(null)}
+              onClick={() => e.label && togglePin(key)}
+            >
+              {/* Trait invisible et large : un lien fin se survole difficilement. */}
+              <path d={d} className="oas-edge-hit" />
+              <path d={d} markerEnd="url(#oas-arrow)" />
+              {e.label ? (
+                layout.labelAtSource(e) ? (
+                  <text x={x1 + 6} y={y1 - 5} textAnchor="start">
+                    {labelOf(key, e.label)}
+                  </text>
+                ) : (
+                  <text x={x2 - 8} y={y2 - 5} textAnchor="end">
+                    {labelOf(key, e.label)}
+                  </text>
+                )
+              ) : null}
+              <title>{e.label}</title>
+            </g>
+          )
+        })}
+        {nodes.map((n) => {
+          const p = layout.pos.get(n.id)
+          if (!p) return null
+          const isObject = n.kind === 'object'
+          const name = n.id.slice(4) // « obj:<nom> »
+          const clickable = isObject || (n.kind === 'op' && !!onOpClick)
+          return (
+            <g
+              key={n.id}
+              className={`raw-graph-node oas-node oas-node-${n.kind} oas-tone-${n.tone}${
+                isObject && name === selected ? ' center' : ''
+              }${clickable ? ' oas-node-clickable' : ''}`}
+              transform={`translate(${p.x},${p.y})`}
+              onClick={isObject ? () => onPick(name) : n.kind === 'op' ? onOpClick : undefined}
+              role={clickable ? 'button' : undefined}
+              aria-label={clickable ? (isObject ? n.title : t('rawContract.showBody')) : undefined}
+            >
+              <title>
+                {n.kind === 'op' ? `${n.sub} ${n.title} — ${t('rawContract.showBody')}` : n.title}
+              </title>
+              <rect width={G_NODE_W} height={G_NODE_H} rx={n.kind === 'object' ? 4 : 18} />
+              <text x="10" y="19" className="raw-graph-node-title">
+                {cut(n.title, 23)}
+              </text>
+              <text x="10" y="35" className="raw-graph-node-sub">
+                {n.kind === 'op' ? t(`rawContract.verb.${n.tone}`) + ' · ' + n.sub : n.sub}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
+function useGraphLabels(schemas: Record<string, RawContractObject>): GraphLabels {
+  const { t } = useTranslation()
+  return useMemo(
+    () => ({
+      body: t('rawContract.graphBody'),
+      response: (code: string) => responseWords(t, code),
+      fields: (n: number) => t('rawFields', { count: n }),
+      title: (name: string) => objectTitle(t, schemas[name], name),
+    }),
+    [t, schemas],
+  )
+}
+
+/** Nom affiché d'un objet : son nom, ou « Le paquet envoyé » / « Réponse 200 »
+ * pour un corps ou une réponse décrits en ligne. */
+function objectTitle(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  detail: RawContractObject | undefined,
+  name: string,
+): string {
+  if (detail?.inline === 'body') return t('rawContract.body')
+  if (detail?.inline === 'response') return t('rawContract.responseObject', { code: detail.code ?? '' })
+  return name
+}
+
+function DepthSelect({ value, onChange }: { value: number; onChange: (d: number) => void }) {
+  const { t } = useTranslation()
+  return (
+    <label>
+      {t('rawContract.graphDepth')}{' '}
+      <select className="select" value={value} onChange={(e) => onChange(Number(e.target.value))}>
+        {[0, 1, 2, 3].map((d) => (
+          <option key={d} value={d}>
+            {d}
+          </option>
+        ))}
+      </select>
+    </label>
+  )
+}
+
+function ContractGraph({
+  op,
+  schemas,
+  selected,
+  onPick,
+  onOpClick,
+}: {
+  op: RawContractOperation
+  schemas: Record<string, RawContractObject>
+  selected: string | null
+  onPick: (name: string) => void
+  onOpClick: () => void
+}) {
+  const { t } = useTranslation()
+  const [depth, setDepth] = useState(1)
+  const labels = useGraphLabels(schemas)
+  const graph = useMemo(() => buildOperationGraph(op, schemas, depth, labels), [op, schemas, depth, labels])
+  return (
     <section className="oas-graph raw-graph">
       <div className="raw-graph-controls">
         <h3 className="panel-label">{t('rawContract.graphTitle')}</h3>
-        <label>
-          {t('rawContract.graphDepth')}{' '}
-          <select className="select" value={depth} onChange={(e) => setDepth(Number(e.target.value))}>
-            {[0, 1, 2, 3].map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </label>
+        <DepthSelect value={depth} onChange={setDepth} />
         <span className="small muted">{t('rawContract.graphHint')}</span>
       </div>
-      {op.responses.length === 0 && !op.body ? <p className="empty-note">{t('rawContract.graphEmpty')}</p> : null}
-      <div className="raw-graph-canvas">
-        <svg
-          width={layout.width}
-          height={layout.height}
-          viewBox={`0 0 ${layout.width} ${layout.height}`}
-          role="img"
-          aria-label={t('rawContract.graphLabel', { path: op.path })}
-        >
-          <defs>
-            <marker
-              id="oas-arrow"
-              viewBox="0 0 10 10"
-              refX="9"
-              refY="5"
-              markerWidth="7"
-              markerHeight="7"
-              orient="auto-start-reverse"
-            >
-              <path d="M0,0 L10,5 L0,10 z" className="raw-graph-arrow" />
-            </marker>
-          </defs>
-          {layout.edges.map((e) => {
-            const key = `${e.from}→${e.to}`
-            const hot = key === hovered || pinned.has(key)
-            const a = layout.pos.get(e.from)
-            const b = layout.pos.get(e.to)
-            if (!a || !b) return null
-            const forward = b.x >= a.x
-            const x1 = forward ? a.x + G_NODE_W : a.x
-            const x2 = forward ? b.x : b.x + G_NODE_W
-            const y1 = a.y + G_NODE_H / 2
-            const y2 = b.y + G_NODE_H / 2
-            const bend = Math.max(30, Math.abs(x2 - x1) / 2) * (forward ? 1 : -1)
-            const d = `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`
-            return (
-              <g
-                key={key}
-                className={`raw-graph-edge oas-edge${hot ? ' hot' : ''}`}
-                onMouseEnter={() => setHovered(key)}
-                onMouseLeave={() => setHovered(null)}
-                onClick={() => e.label && togglePin(key)}
-              >
-                {/* Trait invisible et large : un lien fin se survole difficilement. */}
-                <path d={d} className="oas-edge-hit" />
-                <path d={d} markerEnd="url(#oas-arrow)" />
-                {e.label ? (
-                  layout.labelAtSource(e) ? (
-                    <text x={x1 + 6} y={y1 - 5} textAnchor="start">
-                      {labelOf(key, e.label)}
-                    </text>
-                  ) : (
-                    <text x={x2 - 8} y={y2 - 5} textAnchor="end">
-                      {labelOf(key, e.label)}
-                    </text>
-                  )
-                ) : null}
-                <title>{e.label}</title>
-              </g>
-            )
-          })}
-          {layout.nodes.map((n) => {
-            const p = layout.pos.get(n.id)
-            if (!p) return null
-            const name = n.title
-            const isObject = n.kind === 'object'
-            return (
-              <g
-                key={n.id}
-                className={`raw-graph-node oas-node oas-node-${n.kind} oas-tone-${n.tone}${
-                  isObject && name === selected ? ' center' : ''
-                }`}
-                transform={`translate(${p.x},${p.y})`}
-                onClick={isObject ? () => onPick(name) : undefined}
-                role={isObject ? 'button' : undefined}
-                aria-label={isObject ? name : undefined}
-              >
-                <title>{n.kind === 'op' ? `${n.sub} ${n.title}` : n.title}</title>
-                <rect width={G_NODE_W} height={G_NODE_H} rx={n.kind === 'object' ? 4 : 18} />
-                <text x="10" y="19" className="raw-graph-node-title">
-                  {cut(n.title, 23)}
-                </text>
-                <text x="10" y="35" className="raw-graph-node-sub">
-                  {n.kind === 'op' ? t(`rawContract.verb.${n.tone}`) + ' · ' + n.sub : n.sub}
-                </text>
-              </g>
-            )
-          })}
-        </svg>
+      {op.responses.length === 0 && !op.body ? (
+        <p className="empty-note">{t('rawContract.graphEmpty')}</p>
+      ) : null}
+      <GraphCanvas
+        nodes={graph.nodes}
+        edges={graph.edges}
+        label={t('rawContract.graphLabel', { path: op.path })}
+        selected={selected}
+        onPick={onPick}
+        onOpClick={onOpClick}
+      />
+    </section>
+  )
+}
+
+/** Bloc « Le corps de la méthode » (ticket c62f94e9), à la place de la liste
+ * des objets, après un clic sur le nœud de la méthode. */
+function BodyGraph({
+  op,
+  schemas,
+  selected,
+  onPick,
+  onClose,
+}: {
+  op: RawContractOperation
+  schemas: Record<string, RawContractObject>
+  selected: string | null
+  onPick: (name: string) => void
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [depth, setDepth] = useState(2)
+  const labels = useGraphLabels(schemas)
+  const graph = useMemo(() => buildBodyGraph(op, schemas, depth, labels), [op, schemas, depth, labels])
+  return (
+    <section className="oas-graph raw-graph oas-body-graph">
+      <div className="raw-graph-controls">
+        <h3 className="panel-label">
+          {t('rawContract.bodyTitle')} <span className="mono">{`${op.method} ${op.path}`}</span>
+        </h3>
+        {graph.nodes.length > 0 ? <DepthSelect value={depth} onChange={setDepth} /> : null}
+        <button type="button" className="btn btn-sm" onClick={onClose}>
+          {t('rawContract.bodyClose')}
+        </button>
       </div>
+      {graph.nodes.length === 0 ? (
+        <p className="empty-note">{op.body ? t('rawContract.bodyNoObject') : t('rawContract.bodyNone')}</p>
+      ) : (
+        <>
+          <p className="small muted">{t('rawContract.bodyHint')}</p>
+          <GraphCanvas
+            nodes={graph.nodes}
+            edges={graph.edges}
+            label={t('rawContract.bodyGraphLabel', { path: op.path })}
+            selected={selected}
+            onPick={onPick}
+          />
+        </>
+      )}
     </section>
   )
 }
@@ -641,7 +856,7 @@ function ObjectPanel({
   const { t } = useTranslation()
   return (
     <div className="oas-props-body">
-      <h3>{detail.name}</h3>
+      <h3>{objectTitle(t, detail, detail.name)}</h3>
       {detail.description ? (
         <p className="oas-desc">{detail.description}</p>
       ) : (

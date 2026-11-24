@@ -281,13 +281,17 @@ def _parameters(doc: dict[str, Any], *groups: Any) -> list[dict[str, Any]]:
     ]
 
 
-def _object_detail(schemas: dict[str, Any], name: str, files: dict[str, str]) -> dict[str, Any]:
+def _object_detail(
+    schemas: dict[str, Any], name: str, files: dict[str, str], node: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Un objet de `components/schemas` pour le panneau des propriétés (ticket
     82686dc0) : description, propriétés (type en forme `describe_schema`,
     obligatoire, description, valeurs possibles) et objets dont il hérite.
     `allOf` : les membres nommés deviennent « hérite de », leurs propriétés et
-    celles des membres en ligne sont reprises (on montre tout ce que l'objet a)."""
-    node = _map(schemas.get(name))
+    celles des membres en ligne sont reprises (on montre tout ce que l'objet a).
+    `node` : schéma en ligne (corps ou réponse d'une action, ticket c62f94e9),
+    à la place de `components/schemas/<name>`."""
+    node = _map(schemas.get(name)) if node is None else node
     extends: list[str] = []
     props: dict[str, Any] = {}
     required: set[str] = set()
@@ -336,6 +340,27 @@ def _object_detail(schemas: dict[str, Any], name: str, files: dict[str, str]) ->
     }
 
 
+def _inline_object(doc: dict[str, Any], content: Any) -> tuple[dict[str, Any], str] | None:
+    """Schéma d'objet décrit EN LIGNE dans un corps ou une réponse (pas une
+    référence nommée), et sa cardinalité : « 1 », ou « n » pour une liste
+    d'objets en ligne. Ticket c62f94e9 : sur le contrat AMS, le corps est un
+    objet en ligne `{transactions: [Transaction]}` — sans ce repli le graphe de
+    l'action n'avait rien à gauche et ses propriétés n'étaient pas consultables."""
+    content = _map(content)
+    if not content:
+        return None
+    media = next((m for m in content if "json" in m), next(iter(content)))
+    schema = _resolve(doc, _map(content.get(media)).get("schema"))
+    card = "1"
+    if isinstance(schema, dict) and (schema.get("type") == "array" or "items" in schema):
+        schema, card = _map(schema.get("items")), "n"
+    if not isinstance(schema, dict) or "$ref" in schema:
+        return None
+    if isinstance(schema.get("properties"), dict) or "allOf" in schema:
+        return schema, card
+    return None
+
+
 def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict[str, Any]:
     """Vue lisible d'un contrat : présentation, adresses, une entrée par
     opération (ce qu'on donne, ce qu'on reçoit) et les objets qu'il décrit.
@@ -346,6 +371,20 @@ def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict
         str(s.get("url")) for s in doc.get("servers") or [] if isinstance(s, dict) and s.get("url")
     ]
     operations: list[dict[str, Any]] = []
+    components = _map(doc.get("components"))
+    schemas = _map(components.get("schemas"))
+    # Corps et réponses en ligne, consultables comme les objets nommés ; clés
+    # préfixées « ~ » (jamais un nom de `components/schemas`).
+    inline: dict[str, dict[str, Any]] = {}
+
+    def register(key: str, content: Any, extra: dict[str, str]) -> dict[str, str] | None:
+        found = _inline_object(doc, content)
+        if found is None:
+            return None
+        node, card = found
+        inline[key] = {**_object_detail(schemas, key, schema_files, node), **extra}
+        return {"key": key, "card": card}
+
     paths = _map(doc.get("paths"))
     for path, raw_item in paths.items():
         item = _resolve(doc, raw_item)
@@ -357,6 +396,7 @@ def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict
                 continue
             body = _resolve(doc, op.get("requestBody"))
             responses = _map(op.get("responses"))
+            index = len(operations)
             operations.append(
                 {
                     "method": method.upper(),
@@ -372,6 +412,9 @@ def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict
                             "required": bool(body.get("required")),
                             "description": str(body.get("description") or ""),
                             **_content_schema(doc, body.get("content"), schema_files),
+                            "inline": register(
+                                f"~body:{index}", body.get("content"), {"inline": "body"}
+                            ),
                         }
                         if isinstance(body, dict) and body
                         else None
@@ -381,6 +424,11 @@ def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict
                             "code": str(code),
                             "description": str(resp.get("description") or ""),
                             **_content_schema(doc, resp.get("content"), schema_files),
+                            "inline": register(
+                                f"~resp:{index}:{code}",
+                                resp.get("content"),
+                                {"inline": "response", "code": str(code)},
+                            ),
                         }
                         for code, raw_resp in sorted(responses.items(), key=lambda kv: str(kv[0]))
                         for resp in [_resolve(doc, raw_resp)]
@@ -388,8 +436,6 @@ def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict
                     ],
                 }
             )
-    components = _map(doc.get("components"))
-    schemas = _map(components.get("schemas"))
     return {
         "openapi": str(doc.get("openapi", "")),
         "title": str(info.get("title", "")),
@@ -400,5 +446,8 @@ def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict
         "objects": [{"name": n, "file": schema_files.get(n, "")} for n in sorted(schemas)],
         # Détail de chaque objet, pour le graphe d'une méthode et le panneau des
         # propriétés (ticket 82686dc0) : tout vient du contrat, en un appel.
-        "schemas": {n: _object_detail(schemas, n, schema_files) for n in sorted(schemas)},
+        "schemas": {
+            **{n: _object_detail(schemas, n, schema_files) for n in sorted(schemas)},
+            **inline,
+        },
     }

@@ -1119,6 +1119,14 @@ describe('RawExplorer', () => {
     expect(screen.getAllByText('Ça a marché').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Introuvable').length).toBeGreaterThan(0)
     expect(screen.getByRole('img', { name: 'Graphe de l’action /pets/{id}' })).toBeInTheDocument()
+    // Clic sur le nœud de la méthode : le bloc du corps remplace la liste des objets (ticket c62f94e9).
+    expect(screen.getByText('Les objets de ce contrat')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Voir le corps de cette action' }))
+    expect(screen.getByText('Le corps de la méthode')).toBeInTheDocument()
+    expect(screen.getByText(/n’envoie pas de paquet/)).toBeInTheDocument()
+    expect(screen.queryByText('Les objets de ce contrat')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Revenir à la liste des objets' }))
+    expect(screen.getByText('Les objets de ce contrat')).toBeInTheDocument()
     // Clic sur une autre action : son détail remplace le précédent, l'adresse ne change pas.
     const before = screen.getByTestId('loc').textContent
     await user.click(screen.getByRole('button', { name: /Supprimer\s*DELETE/ }))

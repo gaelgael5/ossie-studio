@@ -2970,3 +2970,10 @@ td .raw-ref-menu {
   fill: var(--text);
   font-weight: 600;
 }
+/* Nœud de la méthode cliquable : ouvre le graphe du corps (ticket c62f94e9). */
+.oas-node-op.oas-node-clickable {
+  cursor: pointer;
+}
+.oas-node-op.oas-node-clickable:hover rect {
+  stroke-width: 3;
+}
