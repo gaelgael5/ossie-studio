@@ -410,3 +410,26 @@ async def test_regrouper_dans_un_domaine_neuf_en_un_commit(sp: ApiSpace) -> None
         "Expédition",
         1,
     )
+
+
+async def test_editer_libelle_et_description_sans_toucher_au_slug(sp: ApiSpace) -> None:
+    """Ticket 82fc14f6 : le bouton « Éditer » change libellé et description ; le
+    slug (fichiers, modèle Ossie) reste."""
+    api = f"{sp.base}/domains"
+    r = await sp.client.post(api, json={"name": "pudo", "label": "pudo", "description": "x"})
+    assert r.status_code == 201, r.text
+    r = await sp.client.patch(
+        f"{api}/pudo", json={"label": " Pudo au colis ", "description": "Vue par le colis"}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["label"] == "Pudo au colis"
+    assert r.json()["name"] == "pudo"
+    detail = (await sp.client.get(f"{api}/pudo")).json()
+    assert detail["label"] == "Pudo au colis"
+    assert detail["description"] == "Vue par le colis"
+    # Libellé vidé : l'affichage retombe sur le slug.
+    r = await sp.client.patch(f"{api}/pudo", json={"label": "", "description": ""})
+    assert r.json()["label"] == "pudo"
+    missing = await sp.client.patch(f"{api}/inconnu", json={"label": "x"})
+    assert missing.status_code == 404
+    assert missing.json()["error"] == "domain_not_found"

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
-import type { DomainDataset, DomainDetail } from '../apiClient'
+import type { DomainDataset, DomainDetail, DomainSummary } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
@@ -38,6 +38,93 @@ export function DomainsPage() {
   return branch ? <DomainList {...branch} /> : <NoBranch />
 }
 
+// « Éditer » un domaine (ticket 82fc14f6). Gael, 24/11/2026 : « Ajoute un bouton
+// éditer pour pouvoir modifier le label et la description. » Le slug est montré
+// mais pas modifiable : il nomme les fichiers domaines/<slug>.* et le modèle Ossie.
+function EditDomainDialog({
+  spaceId,
+  branchId,
+  domain,
+  onClose,
+}: {
+  spaceId: string
+  branchId: string
+  domain: { name: string; label: string; description: string }
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const [label, setLabel] = useState(domain.label)
+  const [description, setDescription] = useState(domain.description)
+  const save = useMutation({
+    mutationFn: () =>
+      api.editDomain(spaceId, branchId, domain.name, { label: label.trim(), description: description.trim() }),
+    onSuccess: async () => {
+      await Promise.all(
+        ['domains', 'domain', 'draft', 'draftChanges'].map((key) =>
+          queryClient.invalidateQueries({ queryKey: [key] }),
+        ),
+      )
+      onClose()
+    },
+  })
+  const title = t('domainEditTitle', { name: domain.label })
+  return (
+    <div role="dialog" aria-label={title} className="dialog-backdrop">
+      <form
+        className="panel dialog-panel stack"
+        onSubmit={(e) => {
+          e.preventDefault()
+          save.mutate()
+        }}
+      >
+        <div className="row dialog-head">
+          <h2>{title}</h2>
+          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
+            {'✕'}
+          </button>
+        </div>
+        <ErrorList messages={save.error ? errorMessages(t, save.error) : []} />
+        <div className="field">
+          <label className="field-label" htmlFor="edit-domain-label">
+            {t('fieldLabel')}
+          </label>
+          <input
+            id="edit-domain-label"
+            className="input"
+            autoFocus
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+          <span className="field-hint">
+            {t('fieldSlug')} : <code>{domain.name}</code> — {t('domainSlugFixed')}
+          </span>
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor="edit-domain-desc">
+            {t('domainDescription')}
+          </label>
+          <textarea
+            id="edit-domain-desc"
+            className="input"
+            rows={4}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+        <div className="row modal-foot">
+          <button type="button" className="btn" onClick={onClose}>
+            {t('cancelEdit')}
+          </button>
+          <BusyButton type="submit" className="btn btn-primary" busy={save.isPending} busyText={t('domainEditBusy')}>
+            {t('save')}
+          </BusyButton>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }) {
   const { t } = useTranslation()
   const session = useSession()
@@ -45,6 +132,7 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<DomainSummary | null>(null)
   // Règle commune : libellé d'abord, slug déduit et corrigeable (bug 668d0c75).
   const pair = useLabelSlug()
   const [description, setDescription] = useState('')
@@ -120,6 +208,9 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
           </div>
         </section>
       ) : null}
+      {editing ? (
+        <EditDomainDialog spaceId={spaceId} branchId={branchId} domain={editing} onClose={() => setEditing(null)} />
+      ) : null}
       {list.isLoading ? <p className="muted">{t('loading')}</p> : null}
       {list.data && domains.length === 0 ? (
         <div className="empty-note">
@@ -135,6 +226,7 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
                 <th>{t('domainDescription')}</th>
                 <th>{t('domainConsultable')}</th>
                 <th>{t('domainVirtual')}</th>
+                {canWrite ? <th>{t('colActions')}</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -161,6 +253,22 @@ function DomainList({ spaceId, branchId }: { spaceId: string; branchId: string }
                   <td>{d.description}</td>
                   <td>{d.consultable}</td>
                   <td>{d.virtual}</td>
+                  {canWrite ? (
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        aria-label={t('domainEditNamed', { name: d.label })}
+                        onClick={(e) => {
+                          // Le bouton édite, il n'ouvre pas le domaine (ligne cliquable).
+                          e.stopPropagation()
+                          setEditing(d)
+                        }}
+                      >
+                        {t('domainEdit')}
+                      </button>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -278,6 +386,7 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
   const navigate = useNavigate()
   const [messages, setMessages] = useState<string[]>([])
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [editing, setEditing] = useState(false)
   const detail = useQuery({
     queryKey: ['domain', spaceId, branchId, name],
     queryFn: () => api.getDomain(spaceId, branchId, name),
@@ -320,6 +429,11 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
           <Link className="btn" to="/curation">
             {t('domainAddFromCuration')}
           </Link>
+          {canWrite && domain ? (
+            <button type="button" className="btn" onClick={() => setEditing(true)}>
+              {t('domainEdit')}
+            </button>
+          ) : null}
           {canWrite ? (
             <button type="button" className="btn" onClick={() => setConfirmDelete(true)}>
               {t('domainDelete')}
@@ -328,6 +442,9 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
         </div>
       </div>
       <ErrorList messages={detail.error ? errorMessages(t, detail.error) : messages} />
+      {editing && domain ? (
+        <EditDomainDialog spaceId={spaceId} branchId={branchId} domain={domain} onClose={() => setEditing(false)} />
+      ) : null}
       {confirmDelete ? (
         <div className="banner row" role="alertdialog" aria-label={t('domainDelete')}>
           <span>{t('domainDeleteConfirm', { name })}</span>

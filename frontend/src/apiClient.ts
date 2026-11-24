@@ -1658,6 +1658,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  // Libellé et description seulement : le slug ne change pas (ticket 82fc14f6).
+  editDomain: (spaceId: string, branchId: string, name: string, body: { label: string; description: string }) =>
+    apiFetch<DomainSummary>(`/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
   deleteDomain: (spaceId: string, branchId: string, name: string) =>
     apiFetch<void>(`/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}`, {
       method: 'DELETE',

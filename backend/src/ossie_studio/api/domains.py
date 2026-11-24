@@ -62,6 +62,15 @@ class DomainCreate(BaseModel):
     description: str = ""
 
 
+class DomainEdit(BaseModel):
+    """Libellé et description seulement (ticket 82fc14f6) : le slug nomme les
+    fichiers et le modèle Ossie, il ne se modifie pas ici."""
+
+    model_config = ConfigDict(extra="forbid")
+    label: str = ""
+    description: str = ""
+
+
 class AssetRefBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     source: str
@@ -290,6 +299,37 @@ async def get_branch_domain(
     except DomainError as exc:
         raise _domain_error(exc) from None
     return _detail(domain)
+
+
+@router.patch("/{name}")
+async def edit_branch_domain(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    body: DomainEdit,
+) -> dict[str, object]:
+    ctx, _ref = await _ctx(conn, crypto, workdir, space_id, branch_id)
+    edited: list[Domain] = []
+
+    def write(root: Path) -> None:
+        domain = _read_or_raise(root, name)
+        domain.label = body.label.strip()
+        domain.description = body.description.strip()
+        write_domain(root, domain)
+        edited.append(domain)
+
+    try:
+        await ctx.write(user.email, f"domaine {name} : libellé et description", write)
+    except _NotFound:
+        raise ApiError("domain_not_found", status_code=404, name=name) from None
+    except DomainError as exc:
+        raise _domain_error(exc) from None
+    log.info("domain_edited", name=name, author=user.email)
+    return _summary(edited[0])
 
 
 @router.delete("/{name}", status_code=204)

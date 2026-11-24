@@ -1184,6 +1184,11 @@ export const en = {
     domainGoCuration: 'Go to Curation',
     domainEmpty: 'This domain has no dataset yet.',
     domainAddFromCuration: 'Add assets',
+    domainEdit: 'Edit',
+    domainEditNamed: 'Edit domain {{name}}',
+    domainEditTitle: 'Edit domain {{name}}',
+    domainEditBusy: 'Saving…',
+    domainSlugFixed: 'it names the files and cannot be changed.',
     domainDelete: 'Delete the domain',
     domainDeleteConfirm:
       'Delete domain “{{name}}”? Its files are removed from your draft (recoverable from the Git history); the assets stay retained.',

@@ -1186,6 +1186,11 @@ export const fr = {
     domainGoCuration: 'Aller à la Curation',
     domainEmpty: 'Ce domaine n’a pas encore de dataset.',
     domainAddFromCuration: 'Ajouter des assets',
+    domainEdit: 'Éditer',
+    domainEditNamed: 'Éditer le domaine {{name}}',
+    domainEditTitle: 'Éditer le domaine {{name}}',
+    domainEditBusy: 'Enregistrement…',
+    domainSlugFixed: 'il nomme les fichiers et ne se modifie pas.',
     domainDelete: 'Supprimer le domaine',
     domainDeleteConfirm:
       'Supprimer le domaine « {{name}} » ? Ses fichiers sont retirés de votre brouillon (récupérables dans l’historique Git) ; les assets restent retenus.',

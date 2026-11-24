@@ -35,6 +35,7 @@ function setup(url: string, domains: unknown[] = []) {
       if (path === '/api/session') body = { authenticated: true, capabilities: ['curation:read', 'curation:write'] }
       else if (path === BASE && method === 'GET') body = { domains }
       else if (path === BASE) body = { ...DETAIL, datasets: undefined }
+      else if (path === `${BASE}/expedition` && method === 'PATCH') body = { ...DETAIL, ...JSON.parse(String(init?.body)) }
       else if (path === `${BASE}/expedition`) body = DETAIL
       return Promise.resolve({ ok: true, status: method === 'DELETE' ? 204 : 200, text: () => Promise.resolve(method === 'DELETE' ? '' : JSON.stringify(body)) })
     }),
@@ -76,6 +77,28 @@ describe('Domaines (tickets a7baaaa3, 36d35a88)', () => {
     const user = userEvent.setup()
     await user.click(await screen.findByText('Colis'))
     expect((await screen.findAllByText('Order')).length).toBeGreaterThan(0)
+  })
+
+  it('« Éditer » change libellé et description, sans ouvrir le domaine', async () => {
+    const calls = setup('/domaines', [{ ...DETAIL, datasets: undefined }])
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Éditer le domaine Expédition' }))
+    // Le bouton n'a pas ouvert le domaine : la liste est toujours là.
+    expect(screen.getByRole('dialog', { name: 'Éditer le domaine Expédition' })).toBeInTheDocument()
+    expect(screen.getByText('expedition', { selector: 'code' })).toBeInTheDocument()
+    const label = screen.getByLabelText('Libellé')
+    await user.clear(label)
+    await user.type(label, 'Pudo au colis')
+    const desc = screen.getByLabelText('Description')
+    await user.clear(desc)
+    await user.type(desc, 'Vue par le colis')
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+    expect(JSON.parse(calls.find((c) => c.method === 'PATCH')!.body!)).toEqual({
+      label: 'Pudo au colis',
+      description: 'Vue par le colis',
+    })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 
   it('écran du domaine : datasets virtuels, liens, retrait d’un dataset', async () => {
