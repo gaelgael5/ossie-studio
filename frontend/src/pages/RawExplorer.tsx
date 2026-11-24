@@ -32,7 +32,7 @@ import { RawPreview, TagBadges, VisibilityBadge, isObjectSelection } from './Raw
 import { RefMenu } from './RawRefMenu'
 import { RawGraph } from './RawGraph'
 import { RawDocumentPage, RawExclusive } from './RawExclusive'
-import { RawContractPage, isContractSelection } from './RawContractPage'
+import { FULL_CONTRACT_NAME, RawContractPage, isContractSelection } from './RawContractPage'
 import {
   DEFAULT_EXCLUSIONS,
   excludingEntry,
@@ -1353,7 +1353,15 @@ function Tiles({
                 onClick={() => onOpenItem?.(c.path)}
               >
                 <span className="raw-glyph raw-glyph-oas">OAS</span>
-                <span className="raw-tile-name mono">{lastSegment(c.path)}</span>
+                {/* Le nom en dur est le repère (Gael : « pour comprendre que c'est
+                    un répertoire qui expose un contrat OAS ») : toujours en entier ;
+                    le radical, quand le dossier a plusieurs contrats, en dessous. */}
+                <span className="raw-tile-name mono">{FULL_CONTRACT_NAME}</span>
+                {lastSegment(c.path) !== FULL_CONTRACT_NAME ? (
+                  <span className="raw-tile-sub mono">
+                    {lastSegment(c.path).slice(0, -FULL_CONTRACT_NAME.length - 1)}
+                  </span>
+                ) : null}
                 <span className="raw-tile-sub">
                   {[c.title, c.version].filter(Boolean).join(' · ')}
                 </span>

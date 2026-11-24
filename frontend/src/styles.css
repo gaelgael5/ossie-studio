@@ -2625,6 +2625,10 @@ td .raw-ref-menu {
   gap: 12px;
   align-items: center;
 }
+.oas-head > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .oas-head h2 {
   margin: 0;
 }
@@ -2814,4 +2818,9 @@ td .raw-ref-menu {
   font-weight: 600;
   text-decoration: underline;
   cursor: pointer;
+}
+/* Le nom en dur du contrat complet ne se tronque jamais : c'est le repère. */
+.raw-tile-contract .raw-tile-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
