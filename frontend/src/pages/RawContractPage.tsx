@@ -138,9 +138,11 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
   // La sélection reste dans l'écran (pas dans l'adresse) : c'est une lecture.
   const [opIndex, setOpIndex] = useState(0)
   const [objectName, setObjectName] = useState<string | null>(null)
-  // Clic sur le nœud de la méthode : le graphe de son corps remplace la liste
-  // des objets (ticket c62f94e9).
-  const [showBody, setShowBody] = useState(false)
+  // Bloc « modèle » (ticket c62f94e9), à la place de la liste des objets : il
+  // suit l'élément cliqué dans le graphe de l'action. Gael : un objet porte son
+  // modèle (sur AMS, c'est Transaction) ; un autre clic le met à jour ; un
+  // élément sans modèle (réponse sans objet) efface le bloc.
+  const [model, setModel] = useState<ModelRoot | null>(null)
   const op = view.operations[opIndex] as RawContractOperation | undefined
   const detail = objectName ? view.schemas[objectName] : undefined
   // Rangées par premier tag : c'est ainsi que l'auteur du contrat a groupé ses
@@ -152,6 +154,33 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
   })
   const verbsUsed = VERBS.filter((v) => view.operations.some((o) => o.method === v))
   const pick = (name: string) => setObjectName(view.schemas[name] ? name : null)
+  const modelOf = (title: string, key: string, roots: { name: string; card: string }[], empty = '') =>
+    setModel({ key, title, roots, empty })
+  const graphObject = (name: string) => {
+    pick(name)
+    modelOf(t('rawContract.modelOf', { name: objectTitle(t, view.schemas[name], name) }), `obj:${name}`, [
+      { name, card: '1' },
+    ])
+  }
+  const graphOp = () => {
+    if (!op) return
+    modelOf(
+      `${t('rawContract.bodyTitle')} ${op.method} ${op.path}`,
+      'body',
+      carried(op.body),
+      op.body ? t('rawContract.bodyNoObject') : t('rawContract.bodyNone'),
+    )
+  }
+  const graphResponse = (code: string) => {
+    const roots = carried(op?.responses.find((r) => r.code === code))
+    if (roots.length === 0) setModel(null)
+    else
+      modelOf(
+        t('rawContract.modelOf', { name: `${responseWords(t, code)} (${code})` }),
+        `resp:${code}`,
+        roots,
+      )
+  }
   return (
     <div className="oas-body">
       <div className="oas-intro">
@@ -206,6 +235,7 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
                     onClick={() => {
                       setOpIndex(index)
                       setObjectName(null)
+                      setModel(null)
                     }}
                   >
                     <span className={`oas-verb oas-verb-${verbKey(o.method)}`}>
@@ -230,20 +260,21 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
                 op={op}
                 schemas={view.schemas}
                 selected={objectName}
-                onPick={pick}
-                onOpClick={() => setShowBody(true)}
+                onPick={graphObject}
+                onOpClick={graphOp}
+                onResponseClick={graphResponse}
               />
               <Operation op={op} onPick={pick} />
             </>
           ) : null}
-          {op && showBody ? (
-            <BodyGraph
-              key={opIndex}
-              op={op}
+          {op && model ? (
+            <ModelGraph
+              key={`${opIndex}:${model.key}`}
+              model={model}
               schemas={view.schemas}
               selected={objectName}
               onPick={pick}
-              onClose={() => setShowBody(false)}
+              onClose={() => setModel(null)}
             />
           ) : view.objects.length > 0 ? (
             <section className="oas-group">
@@ -538,6 +569,16 @@ export function buildBodyGraph(
   expanded: ReadonlySet<string>,
   labels: GraphLabels,
 ): { nodes: GNode[]; edges: GEdge[] } {
+  return buildModelGraph(carried(op.body), schemas, expanded, labels)
+}
+
+/** Modèle à partir de ses racines (un objet cliqué, le corps, une réponse). */
+export function buildModelGraph(
+  roots: { name: string; card: string }[],
+  schemas: Record<string, RawContractObject>,
+  expanded: ReadonlySet<string>,
+  labels: GraphLabels,
+): { nodes: GNode[]; edges: GEdge[] } {
   const nodes = new Map<string, GNode>()
   const edges: GEdge[] = []
   const addObject = objectAdder(nodes, schemas, labels)
@@ -545,7 +586,7 @@ export function buildBodyGraph(
     (schemas[name]?.properties ?? []).flatMap((prop) =>
       refsOf(prop.schema).map((r) => ({ ...r, field: prop.name })),
     )
-  const queue = carried(op.body).map((r) => ({ name: r.name, level: 0 }))
+  const queue = roots.map((r) => ({ name: r.name, level: 0 }))
   for (const r of queue) addObject(r.name, 0)
   for (let i = 0; i < queue.length; i += 1) {
     const { name, level } = queue[i]
@@ -571,6 +612,7 @@ function GraphCanvas({
   selected,
   onPick,
   onOpClick,
+  onResponseClick,
 }: {
   nodes: GNode[]
   edges: GEdge[]
@@ -579,6 +621,8 @@ function GraphCanvas({
   onPick: (name: string) => void
   /** Clic sur le nœud de la méthode : montre le graphe de son corps. */
   onOpClick?: () => void
+  /** Clic sur une réponse : le modèle de l'objet qu'elle renvoie. */
+  onResponseClick?: (code: string) => void
 }) {
   const { t } = useTranslation()
   // Gael : « quand il y a beaucoup de liens, afficher juste le début et le
@@ -705,7 +749,8 @@ function GraphCanvas({
           if (!p) return null
           const isObject = n.kind === 'object'
           const name = n.id.slice(4) // « obj:<nom> »
-          const clickable = isObject || (n.kind === 'op' && !!onOpClick)
+          const clickable =
+            isObject || (n.kind === 'op' && !!onOpClick) || (n.kind === 'response' && !!onResponseClick)
           return (
             <g
               key={n.id}
@@ -713,9 +758,17 @@ function GraphCanvas({
                 isObject && name === selected ? ' center' : ''
               }${clickable ? ' oas-node-clickable' : ''}`}
               transform={`translate(${p.x},${p.y})`}
-              onClick={isObject ? () => onPick(name) : n.kind === 'op' ? onOpClick : undefined}
+              onClick={
+                isObject
+                  ? () => onPick(name)
+                  : n.kind === 'op'
+                    ? onOpClick
+                    : n.kind === 'response' && onResponseClick
+                      ? () => onResponseClick(n.sub)
+                      : undefined
+              }
               role={clickable ? 'button' : undefined}
-              aria-label={clickable ? (isObject ? n.title : t('rawContract.showBody')) : undefined}
+              aria-label={clickable ? (n.kind === 'op' ? t('rawContract.showBody') : n.title) : undefined}
             >
               <title>
                 {n.kind === 'op' ? `${n.sub} ${n.title} — ${t('rawContract.showBody')}` : n.title}
@@ -787,12 +840,14 @@ function ContractGraph({
   selected,
   onPick,
   onOpClick,
+  onResponseClick,
 }: {
   op: RawContractOperation
   schemas: Record<string, RawContractObject>
   selected: string | null
   onPick: (name: string) => void
   onOpClick: () => void
+  onResponseClick: (code: string) => void
 }) {
   const { t } = useTranslation()
   const [depth, setDepth] = useState(1)
@@ -815,21 +870,27 @@ function ContractGraph({
         selected={selected}
         onPick={onPick}
         onOpClick={onOpClick}
+        onResponseClick={onResponseClick}
       />
     </section>
   )
 }
 
-/** Bloc « Le corps de la méthode » (ticket c62f94e9), à la place de la liste
- * des objets, après un clic sur le nœud de la méthode. */
-function BodyGraph({
-  op,
+type ModelRoot = { key: string; title: string; roots: { name: string; card: string }[]; empty: string }
+
+/** Bloc « modèle » (ticket c62f94e9), à la place de la liste des objets : le
+ * graphe de l'élément cliqué dans le graphe de l'action. Pas de profondeur
+ * (Gael) : un clic sur un nœud affiche ses propriétés et déplie (▸) ou replie
+ * (▾) les objets qu'il cite. Remonté à chaque nouveau modèle (clé) : il
+ * repart avec sa seule racine dépliée. */
+function ModelGraph({
+  model,
   schemas,
   selected,
   onPick,
   onClose,
 }: {
-  op: RawContractOperation
+  model: ModelRoot
   schemas: Record<string, RawContractObject>
   selected: string | null
   onPick: (name: string) => void
@@ -837,10 +898,11 @@ function BodyGraph({
 }) {
   const { t } = useTranslation()
   const labels = useGraphLabels(schemas)
-  // Au départ : le paquet envoyé déplié (ses objets directs visibles). Le bloc
-  // est remonté à chaque changement d'action (clé), il repart replié.
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(carried(op.body).map((r) => r.name)))
-  const graph = useMemo(() => buildBodyGraph(op, schemas, expanded, labels), [op, schemas, expanded, labels])
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(model.roots.map((r) => r.name)))
+  const graph = useMemo(
+    () => buildModelGraph(model.roots, schemas, expanded, labels),
+    [model.roots, schemas, expanded, labels],
+  )
   const clickObject = (name: string) => {
     onPick(name)
     setExpanded((prev) => {
@@ -853,22 +915,20 @@ function BodyGraph({
   return (
     <section className="oas-graph raw-graph oas-body-graph">
       <div className="raw-graph-controls">
-        <h3 className="panel-label">
-          {t('rawContract.bodyTitle')} <span className="mono">{`${op.method} ${op.path}`}</span>
-        </h3>
+        <h3 className="panel-label">{model.title}</h3>
         <button type="button" className="btn btn-sm" onClick={onClose}>
           {t('rawContract.bodyClose')}
         </button>
       </div>
       {graph.nodes.length === 0 ? (
-        <p className="empty-note">{op.body ? t('rawContract.bodyNoObject') : t('rawContract.bodyNone')}</p>
+        <p className="empty-note">{model.empty}</p>
       ) : (
         <>
           <p className="small muted">{t('rawContract.bodyHint')}</p>
           <GraphCanvas
             nodes={graph.nodes}
             edges={graph.edges}
-            label={t('rawContract.bodyGraphLabel', { path: op.path })}
+            label={model.title}
             selected={selected}
             onPick={clickObject}
           />
