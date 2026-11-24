@@ -1413,7 +1413,8 @@ input[type='radio'] {
    étiquettes du plan : pas de pictogrammes à maintenir. */
 /* L'explorateur prend toute la largeur de la fenêtre (la page reste bornée à
    1200px ailleurs) : un dépôt se lit mieux avec de la place. */
-.page:has(.raw-explorer) {
+.page:has(.raw-explorer),
+.page:has(.oas) {
   max-width: none;
 }
 .raw-explorer {

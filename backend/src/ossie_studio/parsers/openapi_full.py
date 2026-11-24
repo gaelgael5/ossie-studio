@@ -219,10 +219,16 @@ def describe_schema(node: Any, schema_files: dict[str, str], depth: int = 0) -> 
     for combo in ("oneOf", "anyOf", "allOf"):
         options = node.get(combo)
         if isinstance(options, list) and options:
-            return {
-                "kind": combo,
-                "options": [describe_schema(o, schema_files, depth + 1) for o in options[:6]],
-            }
+            described = [describe_schema(o, schema_files, depth + 1) for o in options[:6]]
+            # Un membre qui n'apporte aucun type (souvent `allOf: [$ref, {description}]`,
+            # la façon d'ajouter une description à une référence) ne se lit pas :
+            # « un mélange de Depot et n'importe quoi » devient « l'objet Depot ».
+            meaningful = [
+                d for d in described if d != {"kind": "type", "type": "", "format": "", "enum": []}
+            ]
+            if len(meaningful) == 1:
+                return meaningful[0]
+            return {"kind": combo, "options": meaningful or described}
     node_type = node.get("type")
     if isinstance(node_type, list):
         node_type = next((t for t in node_type if t != "null"), "")

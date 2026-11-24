@@ -301,13 +301,20 @@ components:
             poids: {type: number}
             suivant: {$ref: '#/components/schemas/Colis'}
             etat: {type: string, enum: [OK, KO]}
+            depot:
+              allOf:
+                - $ref: '#/components/schemas/Base'
+                - description: Le dépôt.
 """
     )
     detail = readable_contract(doc, {"Colis": "c.schema.yaml"})["schemas"]["Colis"]
     assert detail["description"] == "Un colis." and detail["file"] == "c.schema.yaml"
     assert detail["extends"] == ["Base"]
     props = {p["name"]: p for p in detail["properties"]}
-    assert set(props) == {"id", "poids", "suivant", "etat"}
+    assert set(props) == {"id", "poids", "suivant", "etat", "depot"}
+    # Une référence décrite (`allOf` d'une référence et d'une description) se lit
+    # comme la référence seule.
+    assert props["depot"]["schema"] == {"kind": "ref", "name": "Base", "file": ""}
     assert props["id"]["required"] is True and props["id"]["description"] == "Identifiant"
     assert props["suivant"]["schema"] == {"kind": "ref", "name": "Colis", "file": "c.schema.yaml"}
     assert props["etat"]["schema"]["enum"] == ["OK", "KO"]

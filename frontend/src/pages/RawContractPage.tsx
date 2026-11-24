@@ -222,8 +222,9 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
         <div className="oas-main">
           {op ? (
             <>
-              <Operation op={op} onPick={pick} />
+              {/* Le graphe d'abord : c'est la vue de l'action (Gael) ; le détail en mots suit. */}
               <ContractGraph op={op} schemas={view.schemas} selected={objectName} onPick={pick} />
+              <Operation op={op} onPick={pick} />
             </>
           ) : null}
           {view.objects.length > 0 ? (
