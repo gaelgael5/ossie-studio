@@ -315,8 +315,20 @@ const CONTRACT = {
         responses: [],
       },
     ],
-    objects: [{ name: 'Pet', file: 'pet.schema.yaml' }],
+    // Owner n'est dans aucun graphe : seul objet restant dans la liste du bas (ticket 2ae63415).
+    objects: [
+      { name: 'Owner', file: '' },
+      { name: 'Pet', file: 'pet.schema.yaml' },
+    ],
     schemas: {
+      Owner: {
+        name: 'Owner',
+        file: '',
+        description: 'Le maître.',
+        shape: { kind: 'object', fields: [] },
+        extends: [],
+        properties: [],
+      },
       Pet: {
         name: 'Pet',
         file: 'pet.schema.yaml',
@@ -1120,13 +1132,17 @@ describe('RawExplorer', () => {
     expect(screen.getAllByText('Introuvable').length).toBeGreaterThan(0)
     expect(screen.getByRole('img', { name: 'Graphe de l’action /pets/{id}' })).toBeInTheDocument()
     // Clic sur le nœud de la méthode : le bloc du corps remplace la liste des objets (ticket c62f94e9).
-    expect(screen.getByText('Les objets de ce contrat')).toBeInTheDocument()
+    expect(screen.getByText('Les autres objets du contrat')).toBeInTheDocument()
+    // Pet est cliquable dans le graphe : il n'est plus listé en bas, Owner si.
+    const others = screen.getByText('Les autres objets du contrat').closest('section') as HTMLElement
+    expect(within(others).getByRole('button', { name: 'Owner' })).toBeInTheDocument()
+    expect(within(others).queryByRole('button', { name: 'Pet' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Voir le corps de cette action' }))
     expect(screen.getByText(/^Le corps de la méthode/)).toBeInTheDocument()
     expect(screen.getByText(/n’envoie pas de paquet/)).toBeInTheDocument()
-    expect(screen.queryByText('Les objets de ce contrat')).not.toBeInTheDocument()
+    expect(screen.queryByText('Les autres objets du contrat')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Revenir à la liste des objets' }))
-    expect(screen.getByText('Les objets de ce contrat')).toBeInTheDocument()
+    expect(screen.getByText('Les autres objets du contrat')).toBeInTheDocument()
     // Un élément du graphe porte son modèle ; un autre le met à jour ; une
     // réponse sans objet efface le bloc.
     await user.click(screen.getByRole('button', { name: 'Ça a marché' }))
@@ -1135,7 +1151,7 @@ describe('RawExplorer', () => {
     expect(screen.getByText('Modèle : Pet')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Introuvable' }))
     expect(screen.queryByText(/^Modèle :/)).not.toBeInTheDocument()
-    expect(screen.getByText('Les objets de ce contrat')).toBeInTheDocument()
+    expect(screen.getByText('Les autres objets du contrat')).toBeInTheDocument()
     // Clic sur une autre action : son détail remplace le précédent, l'adresse ne change pas.
     const before = screen.getByTestId('loc').textContent
     await user.click(screen.getByRole('button', { name: /Supprimer\s*DELETE/ }))

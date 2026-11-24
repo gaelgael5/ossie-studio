@@ -148,6 +148,19 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
   const [model, setModel] = useState<ModelRoot | null>(null)
   const op = view.operations[opIndex] as RawContractOperation | undefined
   const detail = objectName ? view.schemas[objectName] : undefined
+  // Gael (ticket 2ae63415) : inutile de lister en bas les objets déjà
+  // cliquables dans le graphe ; la liste suit l'action et la profondeur.
+  const [depth, setDepth] = useState(1)
+  const labels = useGraphLabels(view.schemas)
+  const otherObjects = useMemo(() => {
+    if (!op) return view.objects
+    const inGraph = new Set(
+      buildOperationGraph(op, view.schemas, depth, labels)
+        .nodes.filter((n) => n.kind === 'object')
+        .map((n) => n.id.slice(4)),
+    )
+    return view.objects.filter((o) => !inGraph.has(o.name))
+  }, [op, view.objects, view.schemas, depth, labels])
   // Rangées par premier tag : c'est ainsi que l'auteur du contrat a groupé ses
   // opérations ; sans tag, une seule liste.
   const groups = new Map<string, { op: RawContractOperation; index: number }[]>()
@@ -267,6 +280,8 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
                   onPick={graphObject}
                   onOpClick={graphOp}
                   onResponseClick={graphResponse}
+                  depth={depth}
+                  setDepth={setDepth}
                 />
                 <Operation op={op} onPick={pick} />
               </>
@@ -280,12 +295,12 @@ function Readable({ data, onOpenObject }: { data: RawContractDetail; onOpenObjec
                 onPick={pick}
                 onClose={() => setModel(null)}
               />
-            ) : view.objects.length > 0 ? (
+            ) : otherObjects.length > 0 ? (
               <section className="oas-group">
                 <h3 className="panel-label">{t('rawContract.objectsTitle')}</h3>
                 <p className="small muted">{t('rawContract.objectsHint')}</p>
                 <div className="oas-objects">
-                  {view.objects.map((o) => (
+                  {otherObjects.map((o) => (
                     <button
                       key={o.name}
                       type="button"
@@ -853,6 +868,8 @@ function ContractGraph({
   onPick,
   onOpClick,
   onResponseClick,
+  depth,
+  setDepth,
 }: {
   op: RawContractOperation
   schemas: Record<string, RawContractObject>
@@ -860,9 +877,11 @@ function ContractGraph({
   onPick: (name: string) => void
   onOpClick: () => void
   onResponseClick: (code: string) => void
+  /** Profondeur tenue par l'écran : la liste des autres objets en dépend. */
+  depth: number
+  setDepth: (d: number) => void
 }) {
   const { t } = useTranslation()
-  const [depth, setDepth] = useState(1)
   const labels = useGraphLabels(schemas)
   const graph = useMemo(() => buildOperationGraph(op, schemas, depth, labels), [op, schemas, depth, labels])
   return (

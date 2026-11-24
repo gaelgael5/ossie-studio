@@ -1794,7 +1794,7 @@ export const fr = {
         other: 'Autre réponse',
       },
       technicalName: 'Nom technique :',
-      objectsTitle: 'Les objets de ce contrat',
+      objectsTitle: 'Les autres objets du contrat',
       objectsHint: 'Clique sur un objet pour voir ses propriétés à droite.',
       schema: {
         objectNamed: 'l’objet',

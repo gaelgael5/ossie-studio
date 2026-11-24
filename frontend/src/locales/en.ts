@@ -1792,7 +1792,7 @@ export const en = {
         other: 'Other answer',
       },
       technicalName: 'Technical name:',
-      objectsTitle: 'The objects of this contract',
+      objectsTitle: 'The other objects of the contract',
       objectsHint: 'Click an object to see its properties on the right.',
       schema: {
         objectNamed: 'the object',
