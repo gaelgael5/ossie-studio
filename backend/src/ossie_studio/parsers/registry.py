@@ -100,3 +100,34 @@ def select_code_plugins(parseurs: list[str] | None) -> list[Plugin]:
         return list(_CODE_PLUGINS)
     by_id = {p.id: p for p in _CODE_PLUGINS}
     return [by_id[pid] for pid in parseurs if pid in by_id]
+
+
+# --- Plugins utilisés par un espace (ticket a30b4bd8) ---------------------------
+
+ORIGIN_NATIVE = "native"
+
+
+def plugin_usage(sources: list[tuple[str, str, str, list[str] | None]]) -> dict[str, list[str]]:
+    """Identifiant de plugin → slugs des sources qui l'utilisent, d'après les
+    manifestes (`(slug, label, type, parseurs)`). L'usage vit dans le Git de
+    l'espace ; les plugins natifs, eux, sont dans l'application.
+
+    - source Git : les parseurs nommés par son manifeste, ou tous les parseurs
+      de code s'il n'en nomme aucun (c'est ce que la collecte lance) ;
+    - source de contrats déposés : le plugin `openapi` ;
+    - source base de données : un extracteur SQL, pas un plugin installé — rien.
+    Un parseur inconnu de l'installation est ignoré (Gael, cadrage du 24/11).
+    """
+    from ossie_studio.sources.manifest import GIT_TYPE, OPENAPI_TYPE
+
+    usage: dict[str, list[str]] = {}
+    for slug, _label, source_type, parseurs in sources:
+        if source_type == GIT_TYPE:
+            ids = [p.id for p in select_code_plugins(parseurs)]
+        elif source_type == OPENAPI_TYPE:
+            ids = [_OPENAPI.id]
+        else:
+            ids = []
+        for pid in dict.fromkeys(ids):
+            usage.setdefault(pid, []).append(slug)
+    return usage
