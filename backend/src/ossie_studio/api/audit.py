@@ -21,12 +21,18 @@ from fastapi import APIRouter, Depends, Query, Request
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import AuditRead
-from ossie_studio.audit.git_history import GOVERNANCE_TYPES, governance_events
+from ossie_studio.audit.git_history import (
+    GOVERNANCE_TYPES,
+    REFERENTIEL_TYPES,
+    governance_events,
+    referentiel_events,
+)
 from ossie_studio.audit.service import AuditEvent, AuditFilters, db_list_audit
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto
 from ossie_studio.errors import ApiError
 from ossie_studio.governance.repo import GOVERNANCE_DIR
+from ossie_studio.referentiels.repo import REFERENTIELS_DIR
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
 
@@ -50,6 +56,8 @@ DB_TYPES = (
     "team",
     "user",
 )
+# Types d'objets tenus dans Git : leur historique est celui des commits publiés.
+GIT_TYPES = (*GOVERNANCE_TYPES, *REFERENTIEL_TYPES)
 
 
 def _payload(event: AuditEvent) -> dict[str, object]:
@@ -91,7 +99,7 @@ async def list_audit(
     )
     # Une ligne de plus que la page : savoir s'il en reste.
     events: list[AuditEvent] = []
-    if object_type not in GOVERNANCE_TYPES:
+    if object_type not in GIT_TYPES:
         events = await db_list_audit(conn, filters, limit + 1)
     if space_id is not None and branch_id is not None and object_type not in DB_TYPES:
         branch = await db_get_branch(conn, branch_id)
@@ -111,13 +119,26 @@ async def list_audit(
                 GOVERNANCE_DIR,
                 GIT_LOG_LIMIT,
             )
+            ref_commits = await manager.path_log(
+                space.id,
+                branch.git_ref,
+                space.repo_url,
+                username,
+                token,
+                REFERENTIELS_DIR,
+                GIT_LOG_LIMIT,
+            )
         except WorkdirError as exc:
             raise ApiError(exc.code, status_code=502) from None
-        events = [*events, *governance_events(commits, filters)]
+        events = [
+            *events,
+            *governance_events(commits, filters),
+            *referentiel_events(ref_commits, filters),
+        ]
     events.sort(key=lambda e: e.at, reverse=True)
     page, more = _page(events, limit)
     return {
         "events": [_payload(e) for e in page],
         "next": page[-1].at.isoformat() if more and page else None,
-        "types": [*DB_TYPES, *GOVERNANCE_TYPES],
+        "types": [*DB_TYPES, *GIT_TYPES],
     }

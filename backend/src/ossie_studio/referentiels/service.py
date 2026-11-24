@@ -35,12 +35,16 @@ class ReferentielTarget:
             self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token, fn
         )
 
-    async def _check_not_root(self) -> None:
+    async def is_root(self) -> bool:
+        """La branche visée est-elle la racine du dépôt (lecture seule) ?"""
         _heads, root = await self.workdir.manager.remote_branches(
             self.space.id, self.space.repo_url, self.username, self.token
         )
-        if root and self.branch_ref == root:
-            raise ReferentielError("branch_root_readonly", 409, ref=root)
+        return bool(root) and self.branch_ref == root
+
+    async def _check_not_root(self) -> None:
+        if await self.is_root():
+            raise ReferentielError("branch_root_readonly", 409, ref=self.branch_ref)
 
     async def write[T](self, intent: str, fn: Callable[[Path], T]) -> tuple[T, str | None]:
         """Applique `fn` dans le brouillon de la personne ; rend ce qu'elle rend

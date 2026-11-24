@@ -7,7 +7,7 @@ Accès :
 - par **clé d'API de service** (`Authorization: Bearer osk_…`) : son profil
   agent doit contenir la primitive MCP de la même lecture (un seul droit pour
   l'API et le MCP) ;
-- par une **personne connectée**, avec `spaces:read` sur l'espace.
+- par une **personne connectée**, avec `referentiels:read` sur l'espace.
 
 La logique de lecture est celle du service MCP : `referentiels/published.py`.
 """
@@ -56,7 +56,7 @@ def _reader(primitive: str) -> Callable[..., Awaitable[None]]:
             if not await authorize(conn, caller, primitive, space_id):
                 raise ApiError("forbidden", status_code=403)
             return
-        await require_capability("spaces:read")(request, conn)
+        await require_capability("referentiels:read")(request, conn)
 
     return dependency
 
