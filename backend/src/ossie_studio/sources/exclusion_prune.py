@@ -18,6 +18,12 @@ from pathlib import Path
 import yaml
 
 from ossie_studio.parsers.markdown import DOCS_DIR, DOCS_INDEX, dump_docs_index, parse_docs_index
+from ossie_studio.parsers.openapi_full import (
+    CONTRACTS_DIR,
+    CONTRACTS_INDEX,
+    dump_contracts_index,
+    parse_contracts_index,
+)
 from ossie_studio.sources.collect import is_excluded
 from ossie_studio.sources.collect_core import (
     RAW_DIR,
@@ -60,6 +66,7 @@ def prune_excluded_raw(workdir: Path, slug: str, exclusions: list[str]) -> list[
     for index_file, tech in manifests.items():
         index_file.write_text(dump_tech_manifest(tech), encoding="utf-8")
     removed.extend(_prune_docs(raw_dir, exclusions))
+    removed.extend(_prune_contracts(raw_dir, exclusions))
     return removed
 
 
@@ -81,4 +88,27 @@ def _prune_docs(raw_dir: Path, exclusions: list[str]) -> list[str]:
             removed.append(f"{DOCS_DIR}/{path}")
     if dropped:
         index_file.write_text(dump_docs_index(entries), encoding="utf-8")
+    return removed
+
+
+def _prune_contracts(raw_dir: Path, exclusions: list[str]) -> list[str]:
+    """Copies intégrales des contrats exclus (ticket e79d008f), d'après le
+    contrat d'origine porté par `contracts-index.yaml`."""
+    index_file = raw_dir / CONTRACTS_INDEX
+    if not index_file.is_file():
+        return []
+    try:
+        entries = parse_contracts_index(index_file.read_text(encoding="utf-8"))
+    except OSError:
+        return []
+    dropped = [path for path, e in entries.items() if is_excluded(e.source, exclusions)]
+    removed: list[str] = []
+    for path in dropped:
+        del entries[path]
+        target = raw_dir / CONTRACTS_DIR / path
+        if target.is_file():
+            target.unlink()
+            removed.append(f"{CONTRACTS_DIR}/{path}")
+    if dropped:
+        index_file.write_text(dump_contracts_index(entries), encoding="utf-8")
     return removed
