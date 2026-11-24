@@ -1122,10 +1122,19 @@ describe('RawExplorer', () => {
     // Clic sur le nœud de la méthode : le bloc du corps remplace la liste des objets (ticket c62f94e9).
     expect(screen.getByText('Les objets de ce contrat')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Voir le corps de cette action' }))
-    expect(screen.getByText('Le corps de la méthode')).toBeInTheDocument()
+    expect(screen.getByText(/^Le corps de la méthode/)).toBeInTheDocument()
     expect(screen.getByText(/n’envoie pas de paquet/)).toBeInTheDocument()
     expect(screen.queryByText('Les objets de ce contrat')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Revenir à la liste des objets' }))
+    expect(screen.getByText('Les objets de ce contrat')).toBeInTheDocument()
+    // Un élément du graphe porte son modèle ; un autre le met à jour ; une
+    // réponse sans objet efface le bloc.
+    await user.click(screen.getByRole('button', { name: 'Ça a marché' }))
+    expect(screen.getByText('Modèle : Ça a marché (200)')).toBeInTheDocument()
+    await user.click(screen.getAllByRole('button', { name: 'Pet' })[0])
+    expect(screen.getByText('Modèle : Pet')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Introuvable' }))
+    expect(screen.queryByText(/^Modèle :/)).not.toBeInTheDocument()
     expect(screen.getByText('Les objets de ce contrat')).toBeInTheDocument()
     // Clic sur une autre action : son détail remplace le précédent, l'adresse ne change pas.
     const before = screen.getByTestId('loc').textContent

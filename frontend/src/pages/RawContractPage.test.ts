@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RawContractObject, RawContractOperation } from '../apiClient'
-import { buildBodyGraph, buildOperationGraph } from './RawContractPage'
+import { buildBodyGraph, buildModelGraph, buildOperationGraph } from './RawContractPage'
 
 const labels = {
   body: 'envoyé',
@@ -115,5 +115,17 @@ describe('corps décrit en ligne (ticket c62f94e9)', () => {
 
   it('sans corps : graphe du corps vide', () => {
     expect(buildBodyGraph(op(false), schemas, new Set(), labels).nodes).toEqual([])
+  })
+})
+
+describe('modèle porté par un objet cliqué (ticket c62f94e9)', () => {
+  it('Transaction porte son modèle : racine T, ses objets dépliés', () => {
+    const schemas = { T: obj('T', ['A', 'B']), A: obj('A', []), B: obj('B', []) }
+    const g = buildModelGraph([{ name: 'T', card: '1' }], schemas, new Set(['T']), labels)
+    expect(g.nodes.map((n) => [n.id, n.level])).toEqual([
+      ['obj:T', 0],
+      ['obj:A', 1],
+      ['obj:B', 1],
+    ])
   })
 })

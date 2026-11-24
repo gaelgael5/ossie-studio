@@ -3174,3 +3174,6 @@ td.cell-error {
   font-size: 12px;
   fill: var(--primary);
 }
+.oas-node-response.oas-node-clickable {
+  cursor: pointer;
+}
