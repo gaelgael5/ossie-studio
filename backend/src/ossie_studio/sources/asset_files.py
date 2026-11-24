@@ -46,6 +46,9 @@ HUMAN_KEYS: dict[str, str] = {
     "x-tags": "tags",
     # Ticket 5e8680d7 : { id du schéma : nom du niveau, ou liste (multi-valeurs) }.
     "x-classification": "classification",
+    # Ticket 8269c642 : lien vers une propriété de référentiel, sur un champ
+    # ({schema, property, group?}, voir `referentiel_links`).
+    "x-referentiel": "referentiel",
 }
 _FROM_EXTEND = {v: k for k, v in HUMAN_KEYS.items()}
 

@@ -2998,6 +2998,19 @@ td.cell-error {
 .ref-import-run code {
   overflow-wrap: anywhere;
 }
+/* Lien d'une propriété d'asset vers un référentiel (ticket 8269c642). */
+.link-cell {
+  gap: 4px;
+}
+.link-badge {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+.link-composite {
+  border-color: var(--warn-fg);
+  background: var(--warn-bg);
+}
 @media (max-width: 1100px) {
   .ref-imports-layout,
   .ref-import-result {

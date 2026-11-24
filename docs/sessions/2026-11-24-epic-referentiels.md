@@ -31,6 +31,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | a909dc66 — Importer des valeurs depuis un fichier (écran et web API) | En dev — écran et route faits ; import par **clé d'API de service** en attente de Gael (voir plus bas) |
 | e65b590b — Service MCP de lecture des référentiels publiés | En review (fait avec l'API) |
 | 46cf70a6 — Thème sombre pour tous les éditeurs Monaco | En review |
+| 8269c642 — Lier une propriété d'asset à une propriété de référentiel | En review |
 | e80f0cad — Clôture | avec Gael |
 
 ## Notes techniques (format)
@@ -84,3 +85,11 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - Thème `ossie-dark` (base `vs-dark`) déclaré **une seule fois** dans `frontend/src/monaco/setup.ts` (`MONACO_THEME`, couleurs de la maquette : fond `#1e1e1e`, numéros `#6e7681`, clés `#9cdcfe`, chaînes `#ce9178`, nombres `#b5cea8`, booléens et `null` `#569cd6`, commentaires `#6a9955`). Jetons de la coloration YAML de Monaco : clé = `type`, booléens / `null` = `keyword`.
 - Appliqué à **tous** les éditeurs Monaco : YAML du modèle et visionneuse de code du raw (arrivée de `dev`, auparavant en thème clair `vs`). Un test vérifie qu'aucun éditeur ne passe ses propres couleurs.
 - Cadre de l'éditeur YAML : rayon `var(--radius)` du design.
+
+## Notes techniques (lier une propriété d'asset à un référentiel, 8269c642)
+
+- Stockage : `<clé>.extend.yaml`, `fields.<propriété>.referentiel` = `{schema, property, group?}` ; clé mémoire `x-referentiel` ajoutée aux clés de travail humain (`sources/asset_files.HUMAN_KEYS`), donc jamais dans le `<clé>.schema.yaml`, et conservée au rafraîchissement depuis raw comme tout `x-`.
+- Règles : `sources/referentiel_links.py` — `read_targets` (référentiels de la vue : chemin du schéma, clé, propriétés simples), `link_group` (un groupe en une fois ; clé composée complète obligatoire, `referentiel_link_incomplete` ; une seule liaison par propriété, `referentiel_link_taken` ; « Modifier » = `replace`, garde l'identifiant de groupe), `unlink` (tout le groupe), `link_views` (statut `ok` | `partial` | `broken`, propriétés de clé manquantes, membres du groupe ; jamais de suppression automatique).
+- Routes : `PUT` / `DELETE …/sources/{slug}/curation/referentiel-link` (`api/curation_links.py`, `curation:write`, brouillon, journal `curation_referentiel_link` / `_unlink` comme l'enrichissement, refus sur la racine) ; `GET …/curation-assets/referentiels` (catalogue + `readonly` si racine). La fiche d'un asset porte `referentiel` par propriété, le résumé `referentiel_issues`.
+- Agent : la lecture MCP d'un asset (`read_asset`) rend `referentiel` sur les champs liés.
+- Frontend : `curation/ReferentielLink.tsx` (colonne « Référentiel » : étiquette `<référentiel> · <propriété>`, `· clé 1/2` en avertissement, « cassé » ; menu Modifier / Délier avec confirmation pour un groupe ; popup « Lier à un référentiel » : chemin du schéma, « CLÉ n/N », encadré de clé composée, même nom proposé d'abord, propriétés déjà liées écartées, « Lier » inactif avec la raison).

@@ -302,12 +302,16 @@ async def list_assets(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]
 
 
 def _enrichment(scope: Any) -> dict[str, Any]:
-    return {
+    out = {
         "business_name": scope.business_name,
         "description": scope.description,
         "concept": scope.concept,
         "tags": scope.tags,
     }
+    # Lien déclaré vers une propriété de référentiel (ticket 8269c642).
+    if scope.referentiel:
+        out["referentiel"] = scope.referentiel
+    return out
 
 
 async def read_asset(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:

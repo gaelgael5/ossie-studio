@@ -800,6 +800,8 @@ export interface CurationAssetSummary {
   classification: ClassBadgeValue[]
   /** Tous les niveaux effectifs, champs compris, en « schéma/niveau » (filtre). */
   class_levels: string[]
+  /** Liens de référentiel partiels ou cassés (ticket 8269c642). */
+  referentiel_issues?: number
 }
 
 // Classification (ticket 5e8680d7).
@@ -855,6 +857,31 @@ export interface CurationAssetProperty {
   external: string
   description: string
   missing: boolean
+  referentiel?: ReferentielLink | null
+}
+
+/** Lien d'une propriété d'asset vers une propriété de référentiel (ticket 8269c642). */
+export interface ReferentielLink {
+  referentiel: string
+  title: string
+  schema: string
+  property: string
+  group: string
+  /** Rang dans la clé (1…), 0 hors clé. */
+  key_index: number
+  key_size: number
+  linked_keys: number
+  status: 'ok' | 'partial' | 'broken'
+  missing: string[]
+  members: string[]
+}
+
+export interface LinkTarget {
+  name: string
+  title: string
+  schema: string
+  key: string[]
+  properties: { name: string; type: string }[]
 }
 
 export interface CurationAssetDetail extends CurationAssetSummary {
@@ -1830,6 +1857,27 @@ export const api = {
     apiFetch<{ ok: boolean; commit: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/enrich`,
       { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  listLinkTargets: (spaceId: string, branchId: string) =>
+    apiFetch<{ referentiels: LinkTarget[]; readonly: boolean }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/curation-assets/referentiels`,
+    ),
+  /** Lie en une fois une propriété et, pour une clé composée, les autres propriétés de la clé. */
+  linkReferentiel: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    body: { path: string; referentiel: string; links: Record<string, string>; replace?: string | null },
+  ) =>
+    apiFetch<{ ok: boolean; commit: string | null; fields: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/referentiel-link`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  /** Délie la propriété et tout son groupe. */
+  unlinkReferentiel: (spaceId: string, branchId: string, slug: string, path: string, field: string) =>
+    apiFetch<{ ok: boolean; commit: string | null; fields: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/sources/${slug}/curation/referentiel-link?path=${encodeURIComponent(path)}&field=${encodeURIComponent(field)}`,
+      { method: 'DELETE' },
     ),
   getEnrichment: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<EnrichView>(

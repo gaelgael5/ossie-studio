@@ -82,6 +82,9 @@ class EnrichScope:
     concept: str
     tags: list[str]
     readonly: dict[str, Any]  # description standard + clés x- du parseur
+    # Lien vers une propriété de référentiel (ticket 8269c642) : {schema,
+    # property, group?}, None sinon. Lu ici pour qu'un agent le voie.
+    referentiel: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -355,6 +358,7 @@ def _scope_view(name: str, node: dict[str, Any]) -> EnrichScope:
         concept=str(node.get("x-concept") or ""),
         tags=[str(t) for t in (node.get("x-tags") or [])],
         readonly=readonly,
+        referentiel=link if isinstance(link := node.get("x-referentiel"), dict) else None,
     )
 
 

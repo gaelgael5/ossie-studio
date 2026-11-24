@@ -15,8 +15,8 @@ Deux lectures :
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,7 @@ from ossie_studio.sources.asset_files import read_asset_dir
 from ossie_studio.sources.explorer import BADGE_MODIFIED, SchemaRef, list_source_slugs
 from ossie_studio.sources.explorer_graph import ReferenceGraph
 from ossie_studio.sources.paths import safe_assets_path
+from ossie_studio.sources.referentiel_links import LinkTarget, issues, link_views, read_targets
 
 AssetKey = tuple[str, str]  # (source, fichier du schéma)
 
@@ -56,6 +57,14 @@ def read_assets_and_schemes(
 ) -> tuple[dict[AssetKey, dict[str, Any]], list[Scheme]]:
     """Assets et schémas de classification de la même vue (une seule lecture)."""
     return read_assets(workdir), read_schemes(workdir)
+
+
+def read_curation_view(
+    workdir: Path,
+) -> tuple[dict[AssetKey, dict[str, Any]], list[Scheme], dict[str, LinkTarget]]:
+    """Assets, schémas de classification et référentiels (liens des propriétés,
+    ticket 8269c642) de la même vue."""
+    return read_assets(workdir), read_schemes(workdir), read_targets(workdir)
 
 
 def _described(node: dict[str, Any]) -> bool:
@@ -104,6 +113,8 @@ class AssetSummary:
     # (critère 8 : un asset apparaît si l'un de ses niveaux correspond).
     classification: tuple[ClassBadge, ...] = ()
     class_levels: tuple[str, ...] = ()
+    # Liens de référentiel à reprendre (partiels ou cassés), ticket 8269c642.
+    referentiel_issues: int = 0
 
 
 def _class_fields(asset: dict[str, Any], schemes: Sequence[Scheme]) -> dict[str, Any]:
@@ -124,6 +135,7 @@ def summarize(
     assets: dict[AssetKey, dict[str, Any]],
     graph: ReferenceGraph,
     schemes: Sequence[Scheme] = (),
+    targets: Mapping[str, LinkTarget] | None = None,
 ) -> list[AssetSummary]:
     out: list[AssetSummary] = []
     for (slug, name), asset in sorted(assets.items()):
@@ -149,6 +161,7 @@ def summarize(
                     sorted({n for k, p in props.items() for n in (k, p.get("x-businessName")) if n})
                 ),
                 **_class_fields(asset, schemes),
+                referentiel_issues=issues(asset, targets) if targets is not None else 0,
             )
         )
     return out
@@ -174,6 +187,8 @@ class AssetProperty:
     external: str  # type externe non résolu (référence sortante hors de l'espace)
     description: str
     missing: bool  # retenu mais disparu du raw
+    # Lien vers une propriété de référentiel (ticket 8269c642), None sinon.
+    referentiel: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -201,8 +216,10 @@ def asset_view(
     asset: dict[str, Any],
     assets: dict[AssetKey, dict[str, Any]],
     graph: ReferenceGraph,
+    targets: Mapping[str, LinkTarget] | None = None,
 ) -> AssetView:
-    summary = summarize({key: asset}, graph)[0]
+    summary = summarize({key: asset}, graph, (), targets)[0]
+    links = link_views(asset, targets or {})
     located = graph.located(key)
     refs: dict[str, SchemaRef] = {}
     raw_fields: set[str] | None = None
@@ -240,6 +257,7 @@ def asset_view(
                 external=external,
                 description=str(prop.get("x-description") or ""),
                 missing=raw_fields is not None and name not in raw_fields,
+                referentiel=asdict(links[name]) if name in links else None,
             )
         )
     return AssetView(
