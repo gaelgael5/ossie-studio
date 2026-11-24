@@ -297,9 +297,9 @@ async def test_racine_en_lecture_seule(app: FastAPI, space: ApiSpace) -> None:
         },
         ref="main",
     )
-    refused = await space.client.post(url, files={"file": ("t.csv", TEN, "text/csv")})
-    assert refused.status_code == 409, refused.text
-    assert refused.json()["error"] == "branch_root_readonly"
+    # Bug e7deb2b9 : plus de refus « branche racine » (brouillon de la personne).
+    answer = await space.client.post(url, files={"file": ("t.csv", TEN, "text/csv")})
+    assert answer.json().get("error") != "branch_root_readonly", answer.text
 
 
 # --- Critère 7 : journal et date du dernier import -------------------------------------------

@@ -82,11 +82,8 @@ async def _write(
         write_asset(asset_file, asset)
 
     try:
-        _heads, root_ref = await workdir.manager.remote_branches(
-            space.id, space.repo_url, username, token
-        )
-        if root_ref and branch_slug == root_ref:
-            raise ApiError("branch_root_readonly", status_code=409, ref=branch_slug)
+        # Pas de refus sur la branche racine (bug e7deb2b9) : l'écriture va dans
+        # le brouillon de la personne, rien n'atteint la racine avant publication.
         revision = await _target(workdir, space, branch_slug, username, token, user).write(
             f"curation {slug} : {intent} {path}", write
         )

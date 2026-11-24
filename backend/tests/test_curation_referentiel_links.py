@@ -250,15 +250,15 @@ async def test_racine_en_lecture_seule(app: FastAPI, sp: ApiSpace) -> None:
             conn, uuid.UUID(sp.space_id), "main", "main", KIND_CHILD, git_ref="main"
         )
     url = f"/api/spaces/{sp.space_id}/branches/{root.id}/sources/app/curation/referentiel-link"
-    refused = await sp.client.put(
+    # Bug e7deb2b9 : plus de refus « branche racine » (brouillon de la personne).
+    answer = await sp.client.put(
         url, json={"path": ASSET, "referentiel": "statuts-commande", "links": {"statut": "code"}}
     )
-    assert refused.status_code == 409, refused.text
-    assert refused.json()["error"] == "branch_root_readonly"
+    assert answer.json().get("error") != "branch_root_readonly", answer.text
     catalog = await sp.client.get(
         f"/api/spaces/{sp.space_id}/branches/{root.id}/curation-assets/referentiels"
     )
-    assert catalog.json()["readonly"] is True
+    assert catalog.json()["readonly"] is False
 
 
 async def test_sans_authentification_refus(app: FastAPI, sp: ApiSpace) -> None:

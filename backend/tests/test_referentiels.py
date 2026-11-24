@@ -341,17 +341,13 @@ async def test_ecriture_dans_le_brouillon_jamais_publiee(
     assert await target.read(lambda root: read_referentiel(root, "delais").values) == [FR_SITE]
 
 
-async def test_branche_racine_en_lecture_seule(target: ReferentielTarget) -> None:
+async def test_branche_racine_ecrit_dans_le_brouillon(target: ReferentielTarget) -> None:
+    # Bug e7deb2b9 : la racine n'est plus refusée, l'écriture va dans le brouillon.
     on_root = ReferentielTarget(
         target.workdir, target.space, "main", target.username, target.token, target.author
     )
-    with pytest.raises(ReferentielError) as caught:
-        await on_root.write(
-            "delais",
-            lambda root: write_referentiel(root, "delais", MODEL, [], create=True),
-        )
-    assert (caught.value.code, caught.value.status, caught.value.detail) == (
-        "branch_root_readonly",
-        409,
-        {"ref": "main"},
+    await on_root.write(
+        "delais",
+        lambda root: write_referentiel(root, "delais", MODEL, [], create=True),
     )
+    assert await on_root.read(lambda root: read_referentiel(root, "delais").values) == []

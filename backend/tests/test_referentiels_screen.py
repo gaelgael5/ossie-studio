@@ -206,10 +206,10 @@ async def test_racine_en_lecture_seule(app: FastAPI, space: ApiSpace) -> None:
             conn, uuid.UUID(space.space_id), "main", "main", KIND_CHILD, git_ref="main"
         )
     base = f"/api/spaces/{space.space_id}/branches/{root.id}/referentiels"
-    assert (await space.client.get(base)).json()["readonly"] is True
-    refused = await space.client.put(f"{base}/delais/modele", json={"model": MODEL})
-    assert refused.status_code == 409
-    assert refused.json()["error"] == "branch_root_readonly"
+    # Bug e7deb2b9 : la racine s'écrit dans le brouillon, la liste n'est pas en lecture seule.
+    assert (await space.client.get(base)).json()["readonly"] is False
+    answer = await space.client.put(f"{base}/delais/modele", json={"model": MODEL})
+    assert answer.json().get("error") != "branch_root_readonly", answer.text
 
 
 # --- Critère 8 : droits, historique, journal d'audit ---------------------------------------------

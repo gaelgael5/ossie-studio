@@ -156,9 +156,9 @@ async def test_racine_en_lecture_seule(app: FastAPI, space: ApiSpace) -> None:
             conn, uuid.UUID(space.space_id), "main", "main", KIND_CHILD, git_ref="main"
         )
     url = f"/api/spaces/{space.space_id}/branches/{root.id}/referentiels/delais/valeurs"
-    refused = await space.client.put(url, json={"values": VALUES})
-    assert refused.status_code == 409
-    assert refused.json()["error"] == "branch_root_readonly"
+    # Bug e7deb2b9 : plus de refus « branche racine » (brouillon de la personne).
+    answer = await space.client.put(url, json={"values": VALUES})
+    assert answer.json().get("error") != "branch_root_readonly", answer.text
 
 
 async def test_enregistrer_demande_le_droit_de_modifier(app: FastAPI, space: ApiSpace) -> None:

@@ -2,9 +2,10 @@
 
 L'écriture va dans le **brouillon de la personne** (`DraftWorkdir.commit_to_branch`),
 comme pour les sources et la gouvernance : aucun commit, aucun push. La
-**branche racine** du dépôt est en lecture seule (règle des espaces Git) :
-écrire un référentiel quand la branche visée est la racine est refusé
-(« branch_root_readonly »), avant toute écriture.
+branche racine n'est PAS refusée (bug e7deb2b9, Gael : « il essaie d'écrire sur
+la racine au lieu de mettre ça dans le répertoire de changement de
+l'utilisateur ») : rien n'atteint la racine avant la publication, et la racine
+peut être la branche de base d'un espace.
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from pathlib import Path
 
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.models import GitSpace
-from ossie_studio.referentiels.errors import ReferentielError
 
 
 @dataclass(frozen=True)
@@ -35,22 +35,10 @@ class ReferentielTarget:
             self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token, fn
         )
 
-    async def is_root(self) -> bool:
-        """La branche visée est-elle la racine du dépôt (lecture seule) ?"""
-        _heads, root = await self.workdir.manager.remote_branches(
-            self.space.id, self.space.repo_url, self.username, self.token
-        )
-        return bool(root) and self.branch_ref == root
-
-    async def _check_not_root(self) -> None:
-        if await self.is_root():
-            raise ReferentielError("branch_root_readonly", 409, ref=self.branch_ref)
-
     async def write[T](self, intent: str, fn: Callable[[Path], T]) -> tuple[T, str | None]:
         """Applique `fn` dans le brouillon de la personne ; rend ce qu'elle rend
-        et la révision du brouillon (None si rien n'a changé). Refus sur la
-        branche racine, et tout refus de `fn`, avant écriture."""
-        await self._check_not_root()
+        et la révision du brouillon (None si rien n'a changé). Tout refus de
+        `fn` arrive avant écriture."""
         results: list[T] = []
         revision = await self.workdir.commit_to_branch(
             self.space.id,

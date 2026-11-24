@@ -3,7 +3,8 @@ ticket « Page Référentiels et onglet Modèle »).
 
 Lectures : la vue de la personne (publié + son brouillon) ; écritures : son
 brouillon, par la brique « Format d'un référentiel » (`referentiels/`), jamais
-autrement. La racine du dépôt est en lecture seule (`readonly`).
+autrement, y compris sur la branche racine (bug e7deb2b9). `readonly` reste
+dans les réponses pour l'écran ; il est toujours faux aujourd'hui.
 
 Enregistrer un modèle retire des valeurs les propriétés retirées du modèle ;
 les valeurs obtenues doivent être valides pour le nouveau modèle (clé unique
@@ -163,7 +164,7 @@ async def list_referentiels(
     items: list[dict[str, Any]] = await read_in(target, published.summaries)
     touched = await _unpublished(conn, workdir, branch_id)
     return {
-        "readonly": await target.is_root(),
+        "readonly": False,
         "referentiels": [{**item, "unpublished": item["name"] in touched} for item in items],
     }
 
@@ -209,7 +210,7 @@ async def get_referentiel(
     target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
     ref: Referentiel = await read_in(target, lambda root: read_referentiel(root, name))
     touched = await _unpublished(conn, workdir, branch_id)
-    return _detail(ref, name in touched, await target.is_root())
+    return _detail(ref, name in touched, False)
 
 
 @router.post("/{name}/modele/apercu")

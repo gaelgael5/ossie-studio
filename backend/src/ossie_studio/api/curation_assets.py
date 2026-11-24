@@ -125,14 +125,13 @@ async def list_link_targets(
         targets = await workdir.read_branch(
             space.id, branch.git_ref, space.repo_url, username, token, read_targets
         )
-        _heads, root = await workdir.manager.remote_branches(
-            space.id, space.repo_url, username, token
-        )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     return {
         "referentiels": [t.payload() for t in targets.values()],
-        "readonly": bool(root) and branch.git_ref == root,
+        # Jamais en lecture seule à cause de la racine (bug e7deb2b9) : les
+        # liaisons vont dans le brouillon de la personne. Champ gardé pour l'écran.
+        "readonly": False,
     }
 
 

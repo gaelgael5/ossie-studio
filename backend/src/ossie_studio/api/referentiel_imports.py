@@ -25,10 +25,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ossie_studio.api.common import ReferentielsRead, ReferentielsWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
-from ossie_studio.api.referentiels import api_error, read_in, referentiel_target, write_in
+from ossie_studio.api.referentiels import read_in, referentiel_target, write_in
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
-from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.import_journal import (
     IMPORTED,
     REFUSED,
@@ -435,8 +434,6 @@ async def run_import(
     done = await asyncio.to_thread(transform, ref.model, imp.template, example)
     journal = {"file": file_name, "mode": mode}
     if not done.ok:
-        if await target.is_root():
-            raise api_error(ReferentielError("branch_root_readonly", 409, ref=target.branch_ref))
         refused = report(ref.model, ref.values, done, mode)
         await record_import(
             conn, user, branch_id, name, slug, outcome=REFUSED, result=refused, **journal
