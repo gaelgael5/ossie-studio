@@ -921,7 +921,6 @@ export const en = {
     refImportReplaceDo: 'Replace',
     refImportDone: 'Import of {{file}} saved in your changes: they still need to be published.',
     refImportNoChange: 'No change: {{file}} already matches the values. Nothing is written.',
-    refImportWebApi: 'Web API: the same import, with the file (field “file”) and the mode (“merge” or “replace”) sent as multipart:',
     refValueError_template_conversion: 'conversion impossible',
     refValueError_template_evaluation: 'execution error',
     refValueError_template_budget_depasse: 'template too long to run',

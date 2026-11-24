@@ -1,7 +1,8 @@
 """Importer des valeurs depuis un fichier (ticket a909dc66) : appliquer un import
 à un fichier déposé (ou au fichier d'exemple), en fusion par clé ou en
 remplacement, tout ou rien, dans le brouillon de la personne ; journal de
-chaque import et date du dernier import."""
+chaque import et date du dernier import. À l'écran seulement : les API des
+référentiels sont en lecture seule (Gael, 24 novembre)."""
 
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from ossie_studio.referentiels.repo import model_path, values_path
 from ossie_studio.referentiels.values import dump_values
 from ossie_studio.spaces.branch_service import KIND_CHILD, db_create_branch
 from tests.space_fixture import ApiSpace, forge_edit, make_api_space
+from tests.test_referentiels_read import _key
 
 MODEL: dict[str, Any] = {
     "title": "Délais",
@@ -231,6 +233,31 @@ async def test_sans_authentification_refus(space: ApiSpace, anonymous: AsyncClie
         _url(space, "/transporteur/import"), files={"file": ("t.csv", TEN, "text/csv")}
     )
     assert refused.status_code == 401
+
+
+async def test_une_cle_d_api_ne_peut_pas_importer(
+    app: FastAPI, space: ApiSpace, anonymous: AsyncClient
+) -> None:
+    """Gael : « Les api sur les référentiels sont en lecture seules » — l'import
+    se fait à l'écran, par une personne connectée ; une clé d'API, même dotée de
+    toutes les lectures des référentiels, est refusée."""
+    key = await _key(
+        app,
+        space.client,
+        [
+            "list_referentiels",
+            "read_referentiel_model",
+            "search_referentiel_values",
+            "get_referentiel_value",
+        ],
+    )
+    refused = await anonymous.post(
+        _url(space, "/transporteur/import"),
+        files={"file": ("t.csv", TEN, "text/csv")},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    assert refused.status_code == 401
+    assert len(await _values(space)) == len(VALUES)
 
 
 async def test_import_ou_referentiel_inconnu_404(space: ApiSpace) -> None:

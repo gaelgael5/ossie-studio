@@ -3,6 +3,10 @@ déposer un fichier d'exemple, régler sa lecture, écrire et essayer le templat
 JSLT ; puis **importer** (ticket a909dc66) : appliquer l'import à un fichier et
 écrire les valeurs du référentiel.
 
+Routes de l'écran, pour une personne connectée (session) : les API des
+référentiels sont **en lecture seule** (Gael, 24 novembre : « Les api sur les
+référentiels sont en lecture seules »), une clé d'API n'importe rien.
+
 Les fichiers sont ceux de la brique « format » (`imports/<slug>.yaml`, `.jslt`,
 `.exemple.<csv|json>`, `valeurs.json`), écrits dans le brouillon de la personne
 (jamais dans la version publiée : la publication reste un geste humain).

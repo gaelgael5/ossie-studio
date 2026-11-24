@@ -11,6 +11,7 @@ import { ImportReport } from './ImportReport'
 // « Importer » (ticket a909dc66), au pied du sous-onglet Template JSLT : choisir le
 // mode, le fichier (l'exemple ou un autre), puis écrire les valeurs dans les
 // modifications de la personne. Tout ou rien ; le remplacement demande confirmation.
+// À l'écran seulement : les API des référentiels sont en lecture seule (Gael).
 // L'import applique le template **enregistré** : tant que celui affiché ne l'est pas,
 // le bouton attend.
 
@@ -62,7 +63,6 @@ export function ImportRunPanel({
   })
   const ready = templateSaved && (source === 'example' ? detail.example_size > 0 : file !== null)
   const start = () => (mode === 'replace' ? setConfirming(true) : run.mutate())
-  const webApi = `POST /api/spaces/${spaceId}/branches/${branchId}/referentiels/${name}/imports/${detail.slug}/import`
   return (
     <section className="panel stack ref-import-run" aria-label={t('refImportRunTitle')}>
       <h4>{t('refImportRunTitle')}</h4>
@@ -143,9 +143,6 @@ export function ImportRunPanel({
         </div>
       ) : null}
       {refused ? <ImportReport report={refused} /> : null}
-      <p className="muted small">
-        {t('refImportWebApi')} <code className="mono">{webApi}</code>
-      </p>
     </section>
   )
 }

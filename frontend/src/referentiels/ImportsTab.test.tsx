@@ -263,7 +263,8 @@ describe('Référentiels — importer des valeurs (ticket a909dc66)', () => {
     const user = await openTemplate()
     const panel = screen.getByRole('region', { name: 'Importer dans le référentiel' })
     expect(within(panel).getByLabelText('Mode')).toHaveValue('merge')
-    expect(panel).toHaveTextContent('POST /api/spaces/s1/branches/b1/referentiels/delais/imports/transporteur/import')
+    // Pas de « Web API » : les API des référentiels sont en lecture seule.
+    expect(panel).not.toHaveTextContent('POST /api')
     await user.click(within(panel).getByRole('button', { name: 'Importer' }))
     expect(await within(panel).findByText(/Import de transporteur.exemple.csv enregistré/)).toBeInTheDocument()
     expect(within(panel).getByText('1 nouvelle(s)')).toBeInTheDocument()

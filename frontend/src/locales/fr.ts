@@ -923,7 +923,6 @@ export const fr = {
     refImportReplaceDo: 'Remplacer',
     refImportDone: 'Import de {{file}} enregistré dans vos modifications : il reste à les publier.',
     refImportNoChange: 'Aucun changement : {{file}} correspond déjà aux valeurs. Rien n’est écrit.',
-    refImportWebApi: 'Web API : le même import, fichier (champ « file ») et mode (« merge » ou « replace ») envoyés en multipart :',
     refValueError_template_conversion: 'conversion impossible',
     refValueError_template_evaluation: 'erreur d’exécution',
     refValueError_template_budget_depasse: 'template trop long à exécuter',

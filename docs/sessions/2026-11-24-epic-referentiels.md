@@ -16,6 +16,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - **Éditeur de Miles et React 19** (« B, vas-y ») : `jsonjoy-builder` exige React 19 (ossie-studio est en 18.3) ; on embarque une **copie corrigée** (`frontend/vendor/jsonjoy-builder-1.0.4-89529b6-react18.tgz`, deux `Context.Provider`) et le passage en React 19 est un ticket à part : **c3e24590** (socle technique, à planifier avec Gael et l'autre agent).
 - **Supprimer une valeur** (« oui, vas-y ») : bouton « Supprimer » dans le panneau ; la ligne est marquée « supprimée » jusqu'à « Enregistrer » ; « Annuler les modifications » la fait revenir.
 - **Imports** (« 1. oui 2. oui, vas-y ») : une ligne du CSV (ou un élément d'un JSON tableau) = une valeur ; un JSON objet = une ligne. « Date du dernier import » : « jamais » jusqu'au ticket d'import.
+- **API des référentiels en lecture seule** (Gael : « Les api sur les référentiels sont en lecture seules ») : l'import de valeurs se fait **à l'écran seulement**, par une personne connectée ; une clé d'API n'importe rien (refus 401, testé). La « web API » d'import du ticket a909dc66 est abandonnée.
 - **Méthode** (Gael, 24 novembre) : « traite tous les sujets sur lesquels tu es autonome d'une traite ; à chaque passe récupère la branche dev sur ta branche ».
 - On commence par la base : le format (enabler e9a87d3c), avec ce que prévoit le ticket (modèle YAML, fichiers d'import `imports/<slug>.yaml|.jslt|.exemple.<csv|json>`). Les deux modes d'import (fusion par clé, remplacement) se traiteront avec le ticket d'import.
 
@@ -28,7 +29,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | 829a86a7 — Page Référentiels et onglet Modèle | En review |
 | fbe04555 — Onglet Valeurs | En review |
 | cda9c43a — Onglet Imports | En review |
-| a909dc66 — Importer des valeurs depuis un fichier (écran et web API) | En dev — écran et route faits ; import par **clé d'API de service** en attente de Gael (voir plus bas) |
+| a909dc66 — Importer des valeurs depuis un fichier (à l'écran ; API en lecture seule) | En review |
 | e65b590b — Service MCP de lecture des référentiels publiés | En review (fait avec l'API) |
 | 46cf70a6 — Thème sombre pour tous les éditeurs Monaco | En review |
 | 8269c642 — Lier une propriété d'asset à une propriété de référentiel | En review |
@@ -77,8 +78,8 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - `referentiels/importing.py` : `transform` (template appliqué ligne à ligne et valeurs validées, hors écriture et hors boucle d'événements via `asyncio.to_thread`), `report` (nouvelles, modifiées, inchangées, **supprimées** en remplacement, erreurs, différences), `imported_values` (fusion par clé ou remplacement ; `None` = refusé, **tout ou rien**). L'essai prend aussi le mode (en remplacement, il annonce les suppressions).
 - Route `POST …/referentiels/{nom}/imports/{slug}/import` (multipart : `file` facultatif — sans fichier, le fichier d'exemple —, `mode` = `merge` | `replace`, 10 Mo au plus). Écrit `valeurs.json` dans le **brouillon** de la personne (relu au moment d'écrire). Refus : `422 import_refused` avec le compte rendu dans `error_args.report` ; fichier sans ligne : `400 import_file_empty` ; racine : `409 branch_root_readonly`. Réponse : compte rendu, `mode`, `file`, `revision` (nulle = aucun changement, rien d'écrit), `last_import`.
 - Journal : `referentiels/import_journal.py`, une ligne du journal d'audit par import (type `referentiel_import`, objet `<branche>/<référentiel>/<import>`, détail : `outcome` imported | unchanged | refused, `mode`, `file`, nombres du compte rendu, `revision`). La **date du dernier import** (et son auteur) se lit dans ce journal : rien n'est écrit dans les fichiers, donc un même fichier importé deux fois ne crée pas de second changement.
-- Frontend : `referentiels/ImportRunPanel.tsx` (pied du sous-onglet Template : mode, fichier d'exemple ou autre fichier, « Importer », confirmation avant remplacement, compte rendu, mention de la web API ; attend que le template affiché soit enregistré), `referentiels/ImportReport.tsx` (compte rendu partagé par l'essai et l'import).
-- **En attente de Gael** : une clé d'API de service n'a pas de personne derrière, donc pas de brouillon où écrire (règle du MCP en écriture : `draft_requires_person`). Écrire directement dans la version publiée est le cas « s'arrêter et demander » du ticket. La route marche aujourd'hui pour une personne connectée.
+- Frontend : `referentiels/ImportRunPanel.tsx` (pied du sous-onglet Template : mode, fichier d'exemple ou autre fichier, « Importer », confirmation avant remplacement, compte rendu ; attend que le template affiché soit enregistré), `referentiels/ImportReport.tsx` (compte rendu partagé par l'essai et l'import).
+- **Pas de web API d'import** (décision de Gael) : la route `…/import` est celle de l'écran, réservée à une personne connectée (session) ; une clé d'API est refusée.
 
 ## Notes techniques (thème sombre Monaco, 46cf70a6)
 
