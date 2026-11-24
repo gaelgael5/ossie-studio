@@ -1071,6 +1071,11 @@ input[type='radio'] {
    que l'œil situe un peu au-dessus du centre géométrique. */
 .login-stage {
   display: grid;
+  /* Piste unique pleine largeur, cartes centrées dedans : sans piste explicite,
+     la carte qui sort (deux éléments dans la cellule) se calait à gauche et
+     sautait d'environ 12 cm avant de partir (mesuré au navigateur headless). */
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
   align-content: center;
   overflow-x: hidden;
   /* 56 px de barre haute + 2 × 24 px de marge de .page : pas de défilement. */
@@ -1080,8 +1085,8 @@ input[type='radio'] {
 }
 .login-stage > .auth-card {
   grid-area: 1 / 1;
-  width: 100%;
-  margin: 0 auto;
+  width: min(420px, 100%);
+  margin: 0;
   box-sizing: border-box;
 }
 .login-fade {
