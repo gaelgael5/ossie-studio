@@ -683,7 +683,12 @@ export function RawExplorer({
                   <span className="raw-tree-glyph">SRC</span>
                   {s.label}
                   <span className="raw-count">
-                    {treeCounts?.[s.slug] ? (treeCounts[s.slug][''] ?? 0) : s.objects + s.documents}
+                    {treeCounts?.[s.slug]
+                      ? (treeCounts[s.slug][''] ?? 0)
+                      : familyFilter && s.slug === sourceSlug && tree.data
+                        ? // Filtre « Type » : total du seul type choisi (racine de l'arbre).
+                          (tree.data.folders.find((f) => f.path === '')?.files ?? 0)
+                        : s.objects + s.documents}
                   </span>
                 </button>
                 {s.slug === sourceSlug && tree.data ? (
