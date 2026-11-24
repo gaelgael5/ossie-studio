@@ -12,6 +12,8 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - Branche dédiée à l'epic : `feature/referentiels` (« si tu veux »).
 - **Pas de sujet « branche »** (Gael : « arrete de me parler de branche ») : l'API et le MCP lisent ce qui est publié dans l'espace ; les modifications en cours restent dans le brouillon de chaque personne et partiront avec le reste de son travail.
 - **Un seul droit pour l'API et le MCP** (« 1. oui ») : une clé d'API lit les référentiels si son profil agent contient les primitives de lecture ; les tickets API (2c321d50) et MCP (e65b590b) sont faits ensemble.
+- **Droits** (« oui vas-y ») : capacités **« Référentiels : consulter / modifier »** (`referentiels:read` / `referentiels:write`, par espace) ; l'API de lecture publiée et les primitives MCP utilisent `referentiels:read`.
+- **Éditeur de Miles et React 19** (« B, vas-y ») : `jsonjoy-builder` exige React 19 (ossie-studio est en 18.3) ; on embarque une **copie corrigée** (`frontend/vendor/jsonjoy-builder-1.0.4-89529b6-react18.tgz`, deux `Context.Provider`) et le passage en React 19 est un ticket à part : **c3e24590** (socle technique, à planifier avec Gael et l'autre agent).
 - On commence par la base : le format (enabler e9a87d3c), avec ce que prévoit le ticket (modèle YAML, fichiers d'import `imports/<slug>.yaml|.jslt|.exemple.<csv|json>`). Les deux modes d'import (fusion par clé, remplacement) se traiteront avec le ticket d'import.
 
 ## Tickets
@@ -20,7 +22,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 |---|---|
 | e9a87d3c — Format d'un référentiel dans l'espace Git (enabler) | En review |
 | 2c321d50 — API de lecture des référentiels publiés | En review (fait avec le MCP) |
-| 829a86a7 — Page Référentiels et onglet Modèle | Prêt pour dev |
+| 829a86a7 — Page Référentiels et onglet Modèle | En review |
 | fbe04555 — Onglet Valeurs | Prêt pour dev |
 | cda9c43a — Onglet Imports | Prêt pour dev |
 | a909dc66 — Importer des valeurs depuis un fichier (écran et web API) | Prêt pour dev |
@@ -43,3 +45,10 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 - MCP : `mcp_surface/referentiels.py`, primitives `list_referentiels`, `read_referentiel_model`, `search_referentiel_values` (bornée à 100), `get_referentiel_value` ; domaine `referentiels`, capacité `spaces:read`, ouvertes aux clés.
 - Codes d'erreur ajoutés : `referentiel_not_found`, `referentiel_unreadable`, `referentiel_filter_unknown`, `referentiel_key_incomplete`, `referentiel_value_not_found`.
 - Frontend : après une récupération de `dev`, lancer `npm ci` (nouvelles dépendances, ex. BlockNote, mermaid).
+
+## Notes techniques (écran Référentiels et onglet Modèle)
+
+- Backend : `api/referentiels.py` (`/api/spaces/{s}/branches/{b}/referentiels` : liste avec « non publié » et `readonly` sur la racine, création libellé + slug figé avec un modèle de départ à clé `code`, lecture, `modele/apercu`, `PUT modele`, `historique`) ; `referentiels/model_change.py` (propriétés retirées ôtées des valeurs, puis validation ; aperçu : valeurs restant valides, propriétés retirées et nombre de valeurs touchées, problèmes, doublons de clé).
+- Journal d'audit : `audit/git_history.referentiel_events` (type `referentiel`, depuis les commits publiés qui touchent `referentiels/`), comme la gouvernance.
+- Frontend : `pages/ReferentielsPage.tsx` ; `referentiels/` = éditeur repris de Miles (`SchemaEditor.tsx`, `YamlEditor.tsx`, `monaco.ts`, `yaml.worker.ts`) + `modelRules.ts` (lecture YAML, clé, garde). Monaco tenu en `~0.52.2` (0.53 casse monaco-yaml 5.5), chargé à la demande ; Vite `worker.format = 'es'`.
+- Écart assumé avec le ticket : JSONJoy ne permet pas de marquer « CLÉ » ni de verrouiller « requis » par propriété ; la mention est dans le bandeau de la clé et une garde refuse de rendre facultative ou de supprimer une propriété de la clé (le serveur revérifie).
