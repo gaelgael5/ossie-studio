@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import structlog
+import urban_json_editor
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
@@ -26,12 +27,15 @@ from ossie_studio.api.domains import router as api_domains_router
 from ossie_studio.api.drafts import router as api_drafts_router
 from ossie_studio.api.governance import certifications_router as api_certifications_router
 from ossie_studio.api.governance import router as api_governance_router
+from ossie_studio.api.jslt_editor import JSLT_EDITOR_PATH
+from ossie_studio.api.jslt_editor import router as api_jslt_editor_router
 from ossie_studio.api.oauth import router as api_oauth_router
 from ossie_studio.api.oidc import router as api_oidc_router
 from ossie_studio.api.parsing import router as api_parsing_router
 from ossie_studio.api.profiles import router as api_profiles_router
 from ossie_studio.api.publish import router as api_publish_router
 from ossie_studio.api.raw_explorer import router as api_raw_explorer_router
+from ossie_studio.api.referentiel_imports import router as api_referentiel_imports_router
 from ossie_studio.api.referentiels import router as api_referentiels_router
 from ossie_studio.api.referentiels_read import router as api_referentiels_read_router
 from ossie_studio.api.secrets import router as api_secrets_router
@@ -168,6 +172,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_branches_router)
     app.include_router(api_referentiels_read_router)
     app.include_router(api_referentiels_router)
+    app.include_router(api_referentiel_imports_router)
+    # Éditeur de template JSLT (urban-json-editor, comme Miles) : ses assets sous /api,
+    # seul préfixe relayé par le nginx du front ; jamais par un CDN.
+    app.include_router(api_jslt_editor_router)
+    urban_json_editor.mount(app, JSLT_EDITOR_PATH)
     app.include_router(api_sources_router)
     app.include_router(api_parsing_router)
     app.include_router(api_curation_router)

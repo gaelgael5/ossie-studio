@@ -69,7 +69,7 @@ class ValuesBody(BaseModel):
     values: list[Any]
 
 
-def _api_error(exc: ReferentielError) -> ApiError:
+def api_error(exc: ReferentielError) -> ApiError:
     code = "referentiel_unreadable" if exc.code in _UNREADABLE else exc.code
     extra: dict[str, object] = dict(exc.detail)
     if exc.problems:
@@ -77,7 +77,7 @@ def _api_error(exc: ReferentielError) -> ApiError:
     return ApiError(code, status_code=exc.status if code == exc.code else 409, **extra)
 
 
-async def _target(
+async def referentiel_target(
     conn: ConnDep,
     crypto: CryptoDep,
     workdir: DraftWorkdir,
@@ -105,21 +105,21 @@ async def _unpublished(conn: ConnDep, workdir: DraftWorkdir, branch_id: uuid.UUI
     }
 
 
-async def _read[T](target: ReferentielTarget, fn: Any) -> T:
+async def read_in[T](target: ReferentielTarget, fn: Any) -> T:
     try:
         result: T = await target.read(fn)
     except ReferentielError as exc:
-        raise _api_error(exc) from None
+        raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     return result
 
 
-async def _write[T](target: ReferentielTarget, intent: str, fn: Any) -> tuple[T, str | None]:
+async def write_in[T](target: ReferentielTarget, intent: str, fn: Any) -> tuple[T, str | None]:
     try:
         result: tuple[T, str | None] = await target.write(intent, fn)
     except ReferentielError as exc:
-        raise _api_error(exc) from None
+        raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     return result
@@ -159,8 +159,8 @@ async def list_referentiels(
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
-    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
-    items: list[dict[str, Any]] = await _read(target, published.summaries)
+    target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
+    items: list[dict[str, Any]] = await read_in(target, published.summaries)
     touched = await _unpublished(conn, workdir, branch_id)
     return {
         "readonly": await target.is_root(),
@@ -186,9 +186,9 @@ async def create_referentiel(
     ]
     if fields:
         raise ApiError("invalid_request", status_code=400, fields=fields)
-    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
+    target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
     ref: Referentiel
-    ref, _rev = await _write(
+    ref, _rev = await write_in(
         target,
         f"crée {slug}",
         lambda root: write_referentiel(root, slug, _starter_model(label), [], create=True),
@@ -206,8 +206,8 @@ async def get_referentiel(
     branch_id: uuid.UUID,
     name: str,
 ) -> dict[str, object]:
-    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
-    ref: Referentiel = await _read(target, lambda root: read_referentiel(root, name))
+    target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
+    ref: Referentiel = await read_in(target, lambda root: read_referentiel(root, name))
     touched = await _unpublished(conn, workdir, branch_id)
     return _detail(ref, name in touched, await target.is_root())
 
@@ -224,8 +224,8 @@ async def preview_model(
     body: ModelBody,
 ) -> dict[str, object]:
     """Ce que deviendraient les valeurs existantes avec ce modèle (rien n'est écrit)."""
-    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
-    ref: Referentiel = await _read(target, lambda root: read_referentiel(root, name))
+    target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
+    ref: Referentiel = await read_in(target, lambda root: read_referentiel(root, name))
     return preview(body.model, ref.values).payload()
 
 
@@ -242,7 +242,7 @@ async def save_model(
 ) -> dict[str, object]:
     """Enregistre le modèle dans le brouillon ; les propriétés retirées le sont
     aussi des valeurs, qui doivent rester valides (clé unique comprise)."""
-    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
+    target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
 
     def write(root: Path) -> Referentiel:
         current = read_referentiel(root, name)
@@ -250,7 +250,7 @@ async def save_model(
         return write_referentiel(root, name, body.model, values, create=False)
 
     ref: Referentiel
-    ref, revision = await _write(target, f"modèle de {name}", write)
+    ref, revision = await write_in(target, f"modèle de {name}", write)
     return {**_detail(ref, True, False), "revision": revision}
 
 
@@ -265,8 +265,8 @@ async def get_values(
     name: str,
 ) -> dict[str, object]:
     """Les valeurs (vue de la personne), triées par clé."""
-    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
-    ref: Referentiel = await _read(target, lambda root: read_referentiel(root, name))
+    target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
+    ref: Referentiel = await read_in(target, lambda root: read_referentiel(root, name))
     return {"values": sorted_values(ref.model, ref.values), "count": len(ref.values)}
 
 
@@ -283,8 +283,8 @@ async def verify_values(
 ) -> dict[str, object]:
     """Les problèmes d'une liste de valeurs pour le modèle actuel, sans rien
     écrire : chacun désigne la valeur (`index`) et le champ (`field`)."""
-    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
-    ref: Referentiel = await _read(target, lambda root: read_referentiel(root, name))
+    target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
+    ref: Referentiel = await read_in(target, lambda root: read_referentiel(root, name))
     problems = check_values(ref.model, body.values)
     return {"ok": not problems, "problems": [p.payload() for p in problems]}
 
@@ -302,14 +302,14 @@ async def save_values(
 ) -> dict[str, object]:
     """Enregistre la liste complète des valeurs dans le brouillon, triée par clé ;
     refus (« values_invalid ») si elle n'est pas valide pour le modèle."""
-    target = await _target(conn, crypto, workdir, space_id, branch_id, user)
+    target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
 
     def write(root: Path) -> Referentiel:
         current = read_referentiel(root, name)
         return write_referentiel(root, name, current.model, body.values, create=False)
 
     ref: Referentiel
-    ref, revision = await _write(target, f"valeurs de {name}", write)
+    ref, revision = await write_in(target, f"valeurs de {name}", write)
     return {"values": ref.values, "count": len(ref.values), "revision": revision}
 
 
@@ -328,7 +328,7 @@ async def referentiel_history(
     try:
         rel = referentiel_dir(name)
     except ReferentielError as exc:
-        raise _api_error(exc) from None
+        raise api_error(exc) from None
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)

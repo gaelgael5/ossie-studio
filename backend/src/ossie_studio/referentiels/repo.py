@@ -194,3 +194,25 @@ def write_import(
         if other != decl.format and stale.is_file():
             stale.unlink()
     return ReferentielImport(decl, template, example)
+
+
+def delete_import(root: Path, name: str, slug: str) -> None:
+    """Supprime les trois fichiers d'un import (« import_not_found » s'il n'existe pas)."""
+    if not _exists(root, name):
+        raise ReferentielError("referentiel_not_found", 404, name=name)
+    folder = root / referentiel_dir(name) / IMPORTS_DIR
+    if not is_valid_slug(slug) or not (folder / f"{slug}.yaml").is_file():
+        raise ReferentielError("import_not_found", 404, slug=slug)
+    for file in (f"{slug}.yaml", f"{slug}.jslt", f"{slug}.exemple.csv", f"{slug}.exemple.json"):
+        target = folder / file
+        if target.is_file():
+            target.unlink()
+
+
+def read_import(root: Path, name: str, slug: str) -> ReferentielImport:
+    if not _exists(root, name):
+        raise ReferentielError("referentiel_not_found", 404, name=name)
+    found = next((i for i in read_imports(root, name) if i.slug == slug), None)
+    if found is None:
+        raise ReferentielError("import_not_found", 404, slug=slug)
+    return found
