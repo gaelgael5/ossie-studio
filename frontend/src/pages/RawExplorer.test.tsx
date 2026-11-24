@@ -316,6 +316,18 @@ const CONTRACT = {
       },
     ],
     objects: [{ name: 'Pet', file: 'pet.schema.yaml' }],
+    schemas: {
+      Pet: {
+        name: 'Pet',
+        file: 'pet.schema.yaml',
+        description: 'Un animal de la boutique.',
+        shape: { kind: 'object', fields: ['name'] },
+        extends: [],
+        properties: [
+          { name: 'name', required: true, description: 'Le petit nom.', schema: { kind: 'type', type: 'string' } },
+        ],
+      },
+    },
   },
 }
 
@@ -1102,16 +1114,26 @@ describe('RawExplorer', () => {
     // Un verbe de tous les jours par méthode, et ce qu'on donne / reçoit.
     expect(screen.getAllByText('Lire').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Supprimer').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Ce que tu donnes').length).toBe(2)
-    expect(screen.getByText('Ça a marché')).toBeInTheDocument()
-    expect(screen.getByText('Introuvable')).toBeInTheDocument()
+    // La première action est choisie : son détail et son graphe (ticket 82686dc0).
+    expect(screen.getAllByText('Ce que tu donnes').length).toBe(1)
+    expect(screen.getAllByText('Ça a marché').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Introuvable').length).toBeGreaterThan(0)
+    expect(screen.getByRole('img', { name: 'Graphe de l’action /pets/{id}' })).toBeInTheDocument()
+    // Clic sur une autre action : son détail remplace le précédent, l'adresse ne change pas.
+    const before = screen.getByTestId('loc').textContent
+    await user.click(screen.getByRole('button', { name: /Supprimer\s*DELETE/ }))
     expect(screen.getByText('Rien à donner.')).toBeInTheDocument()
+    expect(screen.getByTestId('loc').textContent).toBe(before)
     // Le texte complet reste là.
     await user.click(screen.getByRole('tab', { name: 'Texte complet (YAML)' }))
     expect(screen.getByText(/title: API Animaux/)).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: 'Lecture facile' }))
-    // Un objet du contrat s'ouvre dans sa vue d'objet découpé.
+    // Clic sur un objet : ses propriétés et leurs descriptions à droite.
     await user.click(screen.getAllByRole('button', { name: 'Pet' })[0])
+    expect(await screen.findByText('Un animal de la boutique.')).toBeInTheDocument()
+    expect(screen.getByText('Le petit nom.')).toBeInTheDocument()
+    // L'objet découpé s'ouvre depuis le panneau.
+    await user.click(screen.getByRole('button', { name: 'Ouvrir l’objet découpé' }))
     expect(screen.getByTestId('loc').textContent).toContain('open=pet.schema.yaml')
   })
 
