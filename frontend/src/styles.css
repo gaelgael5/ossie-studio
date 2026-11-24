@@ -2984,3 +2984,8 @@ td .raw-ref-menu {
 .oas-node-response.oas-node-clickable {
   cursor: pointer;
 }
+/* Liste décrite sur place (ticket 21566af3) : cadre en pointillés, elle contient « item ». */
+.oas-node.oas-tone-list rect {
+  stroke-dasharray: 5 3;
+  fill: var(--surface-muted);
+}

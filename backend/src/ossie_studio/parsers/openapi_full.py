@@ -281,8 +281,93 @@ def _parameters(doc: dict[str, Any], *groups: Any) -> list[dict[str, Any]]:
     ]
 
 
+_SHAPE_KEYS = ("type", "properties", "allOf", "anyOf", "oneOf", "items", "$ref", "enum")
+
+
+def _is_described_ref(value: dict[str, Any]) -> bool:
+    """`allOf: [$ref, {description: …}]` : une référence à laquelle on ajoute une
+    description, pas un objet décrit sur place (« l'objet Depot »)."""
+    members = [_map(m) for m in value.get("allOf") or []]
+    shaped = [m for m in members if any(k in m for k in _SHAPE_KEYS)]
+    return (
+        len(shaped) == 1 and "$ref" in shaped[0] and not isinstance(value.get("properties"), dict)
+    )
+
+
+def _is_inline_object(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and "$ref" not in value
+        and (isinstance(value.get("properties"), dict) or "allOf" in value)
+        and not _is_described_ref(value)
+    )
+
+
+def _is_array(value: Any) -> bool:
+    return isinstance(value, dict) and (value.get("type") == "array" or "items" in value)
+
+
+def _nestable(value: Any) -> bool:
+    """Objet décrit sur place, ou liste (à toute profondeur) d'objets décrits sur place."""
+    if _is_inline_object(value):
+        return True
+    return _is_array(value) and _nestable(_map(value).get("items"))
+
+
+_MAX_NEST = 10
+
+
+def _nest(
+    value: Any,
+    key: str,
+    title: str,
+    registry: dict[str, dict[str, Any]],
+    schemas: dict[str, Any],
+    files: dict[str, str],
+    depth: int,
+) -> dict[str, Any]:
+    """Enregistre un objet ou une liste décrits SUR PLACE dans une propriété
+    (ticket 21566af3) et rend la référence qui le remplace dans la propriété.
+    Gael : « l'objet parent est un array, il faut pouvoir le visualiser, et
+    dedans mettre un composant item puisque c'est là qu'il est décrit ». Une
+    liste devient un nœud `list` (nom de la propriété) qui contient `item`."""
+    node = _map(value)
+    if _is_inline_object(node):
+        registry[key] = {
+            **_object_detail(schemas, key, files, node, registry, depth + 1),
+            "inline": "object",
+            "title": title,
+        }
+        return {"kind": "ref", "name": key, "file": ""}
+    items = _map(node.get("items"))
+    item_ref = _nest(items, f"{key}/item", "item", registry, schemas, files, depth + 1)
+    registry[key] = {
+        "name": key,
+        "file": "",
+        "description": str(node.get("description") or ""),
+        "shape": {"kind": "list", "of": item_ref},
+        "extends": [],
+        "properties": [
+            {
+                "name": "item",
+                "required": True,
+                "description": str(items.get("description") or ""),
+                "schema": {"kind": "list", "of": item_ref},
+            }
+        ],
+        "inline": "list",
+        "title": title,
+    }
+    return {"kind": "ref", "name": key, "file": ""}
+
+
 def _object_detail(
-    schemas: dict[str, Any], name: str, files: dict[str, str], node: dict[str, Any] | None = None
+    schemas: dict[str, Any],
+    name: str,
+    files: dict[str, str],
+    node: dict[str, Any] | None = None,
+    registry: dict[str, dict[str, Any]] | None = None,
+    depth: int = 0,
 ) -> dict[str, Any]:
     """Un objet de `components/schemas` pour le panneau des propriétés (ticket
     82686dc0) : description, propriétés (type en forme `describe_schema`,
@@ -290,7 +375,10 @@ def _object_detail(
     `allOf` : les membres nommés deviennent « hérite de », leurs propriétés et
     celles des membres en ligne sont reprises (on montre tout ce que l'objet a).
     `node` : schéma en ligne (corps ou réponse d'une action, ticket c62f94e9),
-    à la place de `components/schemas/<name>`."""
+    à la place de `components/schemas/<name>`.
+    `registry` : reçoit les objets et listes décrits sur place dans les
+    propriétés (ticket 21566af3), sous des clés « ~parent/propriété » qui ne
+    peuvent pas être des noms de `components/schemas`."""
     node = _map(schemas.get(name)) if node is None else node
     extends: list[str] = []
     props: dict[str, Any] = {}
@@ -317,6 +405,13 @@ def _object_detail(
         required.update(str(r) for r in current.get("required") or [])
 
     gather(node)
+    base = name if name.startswith("~") else f"~{name}"
+
+    def prop_schema(key: str, value: Any) -> dict[str, Any]:
+        if registry is not None and depth < _MAX_NEST and _nestable(value):
+            return _nest(value, f"{base}/{key}", key, registry, schemas, files, depth)
+        return describe_schema(value, files)
+
     return {
         "name": name,
         "file": files.get(name, ""),
@@ -333,7 +428,7 @@ def _object_detail(
                 "name": key,
                 "required": key in required,
                 "description": str(_map(value).get("description") or ""),
-                "schema": describe_schema(value, files),
+                "schema": prop_schema(key, value),
             }
             for key, value in props.items()
         ],
@@ -382,7 +477,7 @@ def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict
         if found is None:
             return None
         node, card = found
-        inline[key] = {**_object_detail(schemas, key, schema_files, node), **extra}
+        inline[key] = {**_object_detail(schemas, key, schema_files, node, inline), **extra}
         return {"key": key, "card": card}
 
     paths = _map(doc.get("paths"))
@@ -447,7 +542,7 @@ def readable_contract(doc: dict[str, Any], schema_files: dict[str, str]) -> dict
         # Détail de chaque objet, pour le graphe d'une méthode et le panneau des
         # propriétés (ticket 82686dc0) : tout vient du contrat, en un appel.
         "schemas": {
-            **{n: _object_detail(schemas, n, schema_files) for n in sorted(schemas)},
+            **{n: _object_detail(schemas, n, schema_files, None, inline) for n in sorted(schemas)},
             **inline,
         },
     }

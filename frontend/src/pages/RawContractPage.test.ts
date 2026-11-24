@@ -129,3 +129,38 @@ describe('modèle porté par un objet cliqué (ticket c62f94e9)', () => {
     ])
   })
 })
+
+describe('liste décrite sur place et son item (ticket 21566af3)', () => {
+  const ref = (name: string) => ({ kind: 'ref' as const, name, file: '' })
+  const schemas: Record<string, RawContractObject> = {
+    R: {
+      ...obj('R', []),
+      properties: [{ name: 'parcels', required: false, description: '', schema: ref('~R/parcels') }],
+    },
+    '~R/parcels': {
+      ...obj('~R/parcels', []),
+      inline: 'list',
+      title: 'parcels',
+      properties: [
+        {
+          name: 'item',
+          required: true,
+          description: '',
+          schema: { kind: 'list', of: ref('~R/parcels/item') },
+        },
+      ],
+    },
+    '~R/parcels/item': { ...obj('~R/parcels/item', []), inline: 'object', title: 'item' },
+  }
+  const withTitles = { ...labels, title: (n: string) => schemas[n]?.title ?? n, list: 'liste' }
+
+  it('R → parcels (liste) → item, en dépliant', () => {
+    const g = buildModelGraph([{ name: 'R', card: '1' }], schemas, new Set(['R', '~R/parcels']), withTitles)
+    expect(g.nodes.map((n) => [n.title, n.level, n.sub, n.tone])).toEqual([
+      ['R', 0, '1 champ(s)', ''],
+      ['parcels', 1, 'liste', 'list'],
+      ['item', 2, '0 champ(s)', ''],
+    ])
+    expect(g.edges).toContainEqual({ from: 'obj:~R/parcels', to: 'obj:~R/parcels/item', label: 'item · n' })
+  })
+})
