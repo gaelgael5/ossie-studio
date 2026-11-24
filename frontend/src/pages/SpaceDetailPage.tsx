@@ -239,9 +239,7 @@ export function SpaceDetailPage() {
             </button>
           </div>
           {tab === 'plugins' ? (
-            viewedId ? (
-              <SpacePlugins spaceId={spaceId} branchId={viewedId} />
-            ) : null
+            <SpacePlugins spaceId={spaceId} fallbackBranchId={viewedId ?? data.branches[0].id} />
           ) : tab === 'branches' ? (
           <>
           <div className="page-body stack">

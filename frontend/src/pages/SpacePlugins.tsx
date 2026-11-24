@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { useWorkspace } from '../workspace'
 
 /**
  * Onglet « Plugins » d'un espace (ticket a30b4bd8). Gael : « les plugins natifs
@@ -12,8 +13,12 @@ import { ErrorList } from '../components/ErrorList'
  * quels plugins l'espace utilise, et par quelles sources. Natifs seulement :
  * l'import de plugins n'est pas cadré, la colonne « Origine » l'attend.
  */
-export function SpacePlugins({ spaceId, branchId }: { spaceId: string; branchId: string }) {
+export function SpacePlugins({ spaceId, fallbackBranchId }: { spaceId: string; fallbackBranchId: string }) {
   const { t } = useTranslation()
+  // Branche regardée = celle du sélecteur « Branche » du bandeau quand il porte
+  // sur cet espace (cadrage Gael) ; sinon la branche regardée de l'espace.
+  const ws = useWorkspace()
+  const branchId = ws.spaceId === spaceId && ws.branchId ? ws.branchId : fallbackBranchId
   const plugins = useQuery({
     queryKey: ['spacePlugins', spaceId, branchId],
     queryFn: () => api.listSpacePlugins(spaceId, branchId),
