@@ -1,6 +1,9 @@
 FROM node:22-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
+# Dépendance locale (`file:vendor/…tgz`, éditeur de schéma des référentiels) :
+# présente avant `npm ci`, qui l'installe — sans elle le build échoue (ENOENT).
+COPY vendor ./vendor
 RUN npm ci
 COPY . .
 # Monaco (ticket a29fd1ec) s'ajoute à BlockNote et Mermaid : le tas par défaut
