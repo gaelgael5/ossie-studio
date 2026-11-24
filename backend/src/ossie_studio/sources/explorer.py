@@ -40,6 +40,7 @@ from ossie_studio.parsers.conventions import (
     load_schema,
 )
 from ossie_studio.parsers.markdown import DOCS_INDEX, parse_docs_index
+from ossie_studio.parsers.openapi_full import CONTRACTS_INDEX, parse_contracts_index
 from ossie_studio.sources.collect_core import RAW_DIR, TECH_MANIFEST_NAME, parse_tech_manifest
 from ossie_studio.sources.manifest import ManifestError, parse_manifest
 from ossie_studio.sources.paths import (
@@ -56,7 +57,7 @@ GIT_SOURCE_TYPE = "git"
 # force la reconstruction des index existants à la livraison suivante.
 # 9 : badges « nouveau » / « modifié » par rapport à la tête publiée (aad1d3c6).
 # 10 : schémas en YAML, `<clé>.schema.yaml` (ticket 5cc1cb07).
-INDEX_FORMAT = "11"
+INDEX_FORMAT = "12"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -68,6 +69,8 @@ BADGE_ERROR = "error"
 
 # Dossier virtuel des documents dans les modes `kind` et `parser`.
 DOCUMENTS_FOLDER = "documents"
+# Dossier virtuel des contrats complets dans les modes `kind` et `parser`.
+CONTRACTS_FOLDER = "openapi"
 MARKDOWN_PARSER = "markdown"
 
 # Résultats rendus au plus par une recherche (toutes sources confondues).
@@ -186,12 +189,26 @@ class ExplorerDocument:
     mentions: tuple[str, ...] = ()  # identifiants cités (rapprochés des objets)
 
 
+@dataclass(frozen=True)
+class ExplorerContract:
+    """Copie intégrale d'un contrat OpenAPI (ticket e79d008f), sous
+    `raw/contracts/` : `path` y est relatif et finit par
+    `contrat.full.openapi.yaml` ; `source` est le contrat d'origine."""
+
+    path: str
+    source: str
+    title: str
+    version: str
+    operations: int
+
+
 @dataclass
 class _Folder:
     path: str
     folders: set[str] = field(default_factory=set)
     objects: list[ExplorerObject] = field(default_factory=list)
     documents: list[ExplorerDocument] = field(default_factory=list)
+    contracts: list[ExplorerContract] = field(default_factory=list)
 
 
 @dataclass
@@ -206,6 +223,7 @@ class SourceIndex:
     objects: list[ExplorerObject]
     documents: list[ExplorerDocument]
     folders: dict[str, _Folder]
+    contracts: list[ExplorerContract] = field(default_factory=list)
 
 
 # --- Cache des schémas -------------------------------------------------------
@@ -562,6 +580,29 @@ def _read_docs(raw_dir: Path) -> list[ExplorerDocument]:
     ]
 
 
+def _read_contracts(raw_dir: Path) -> list[ExplorerContract]:
+    index_file = raw_dir / CONTRACTS_INDEX
+    if not index_file.is_file():
+        return []
+    try:
+        entries = parse_contracts_index(index_file.read_text(encoding="utf-8"))
+    except OSError:
+        return []
+    return [
+        ExplorerContract(e.path, e.source, e.title, e.version, e.operations)
+        for e in sorted(entries.values(), key=lambda c: c.path)
+    ]
+
+
+def _contract_folder(mode: str, contract: ExplorerContract) -> str:
+    """Le dossier de la copie est celui de ses schémas en arborescence d'origine
+    (son chemin sous `contracts/` le porte déjà) ; dans les autres modes, le
+    dossier du parseur `openapi` / des contrats."""
+    if mode in ("kind", "parser"):
+        return CONTRACTS_FOLDER
+    return _dirname(contract.path)
+
+
 def _dirname(path: str) -> str:
     return path.rsplit("/", 1)[0] if "/" in path else ""
 
@@ -616,6 +657,7 @@ class SourceEntries:
     collected: bool
     objects: list[ExplorerObject]
     documents: list[ExplorerDocument]
+    contracts: list[ExplorerContract] = field(default_factory=list)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -659,6 +701,9 @@ class SourceEntries:
                 for o in self.objects
             ],
             "documents": [[d.path, d.title, d.sections, list(d.mentions)] for d in self.documents],
+            "contracts": [
+                [c.path, c.source, c.title, c.version, c.operations] for c in self.contracts
+            ],
             "database": self.database,
         }
 
@@ -718,6 +763,10 @@ class SourceEntries:
                     mentions=tuple(d[3]) if len(d) > 3 else (),
                 )
                 for d in data.get("documents") or []
+            ],
+            contracts=[
+                ExplorerContract(c[0], c[1], c[2], c[3], int(c[4]))
+                for c in data.get("contracts") or []
             ],
         )
 
@@ -790,7 +839,14 @@ def collect_source_entries(
             )
         )
     return SourceEntries(
-        slug, meta.label, meta.type, meta.database, True, objects, _read_docs(raw_dir)
+        slug,
+        meta.label,
+        meta.type,
+        meta.database,
+        True,
+        objects,
+        _read_docs(raw_dir),
+        _read_contracts(raw_dir),
     )
 
 
@@ -814,6 +870,8 @@ def index_from_entries(
         _ensure_folder(folders, object_folder(mode, entries, obj)).objects.append(obj)
     for doc in entries.documents:
         _ensure_folder(folders, _document_folder(mode, entries, doc)).documents.append(doc)
+    for contract in entries.contracts:
+        _ensure_folder(folders, _contract_folder(mode, contract)).contracts.append(contract)
     return SourceIndex(
         entries.slug,
         entries.label,
@@ -823,6 +881,7 @@ def index_from_entries(
         objects,
         entries.documents,
         folders,
+        entries.contracts,
     )
 
 
@@ -856,7 +915,7 @@ def list_source_slugs(workdir: Path) -> list[str]:
 
 
 def folder_item_count(folder: _Folder) -> int:
-    return len(folder.folders) + len(folder.objects) + len(folder.documents)
+    return len(folder.folders) + len(folder.objects) + len(folder.documents) + len(folder.contracts)
 
 
 def subtree_file_counts(index: SourceIndex, family: str = "") -> dict[str, int]:
@@ -867,11 +926,13 @@ def subtree_file_counts(index: SourceIndex, family: str = "") -> dict[str, int]:
     counts = dict.fromkeys(index.folders, 0)
     for path, folder in index.folders.items():
         if not family:
-            own = len(folder.objects) + len(folder.documents)
+            own = len(folder.objects) + len(folder.documents) + len(folder.contracts)
         elif family == FAMILY_MARKDOWN:
             own = len(folder.documents)
         else:
             own = sum(1 for o in folder.objects if object_family(o) == family)
+            # Le contrat complet est de la famille « Contrats OpenAPI ».
+            own += len(folder.contracts) if family == FAMILY_OPENAPI else 0
         if not own:
             continue
         current: str | None = path

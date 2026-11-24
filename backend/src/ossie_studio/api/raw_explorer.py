@@ -35,6 +35,8 @@ from ossie_studio.forges.links import forge_file_url
 from ossie_studio.governance.tag_rules import parse_rule
 from ossie_studio.parsers.base import STATUT_ERREUR
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
+from ossie_studio.parsers.openapi import OpenApiError, load_document, schema_files_of
+from ossie_studio.parsers.openapi_full import CONTRACTS_DIR, readable_contract
 from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.draft_changes import asset_names, group_changes
 from ossie_studio.sources.explorer import (
@@ -43,6 +45,7 @@ from ossie_studio.sources.explorer import (
     GIT_SOURCE_TYPE,
     MODES,
     SEARCH_LIMIT,
+    ExplorerContract,
     ExplorerDocument,
     ExplorerObject,
     ObjectTag,
@@ -77,6 +80,9 @@ from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
 
 log = structlog.get_logger(__name__)
+
+# Type d'une source de contrats déposés (les autres sources de contrats sont Git).
+OPENAPI_SOURCE_TYPE = "openapi"
 
 router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/raw-explorer")
 
@@ -120,6 +126,16 @@ def _tag_payload(tag: ObjectTag) -> dict[str, str]:
 
 def _document_payload(doc: ExplorerDocument) -> dict[str, object]:
     return {"path": doc.path, "title": doc.title, "sections": doc.sections}
+
+
+def _contract_payload(contract: ExplorerContract) -> dict[str, object]:
+    return {
+        "path": contract.path,
+        "source": contract.source,
+        "title": contract.title,
+        "version": contract.version,
+        "operations": contract.operations,
+    }
 
 
 def _workdir_error(exc: WorkdirError) -> ApiError:
@@ -327,6 +343,7 @@ async def get_explorer_folder(
             for o in sort_objects(folder.objects)
         ],
         "documents": [_document_payload(d) for d in sorted(folder.documents, key=lambda d: d.path)],
+        "contracts": [_contract_payload(c) for c in folder.contracts],
     }
 
 
@@ -785,6 +802,59 @@ async def get_explorer_document(
     if doc is None:
         raise ApiError("raw_explorer_object_not_found", status_code=404, file=path)
     return document_detail(doc, await _space_objects(conn, key, mode))
+
+
+@router.get("/{slug}/contract")
+async def get_explorer_contract(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    path: str,
+) -> dict[str, object]:
+    """Contrat OpenAPI complet (ticket e79d008f) : sa copie intégrale telle
+    quelle (`yaml`) et sa vue lisible (opérations, ce qu'on donne, ce qu'on
+    reçoit), chaque objet relié à son schéma découpé quand il existe."""
+    if not is_valid_source_slug(slug) or ".." in path.split("/") or path.startswith("/"):
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=path)
+    key, branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    entries = await db_get_source_entries(conn, key, slug)
+    contract = next((c for c in entries.contracts if c.path == path), None) if entries else None
+    if entries is None or contract is None:
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=path)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        text = await workdir.read_file(
+            space.id,
+            branch_ref,
+            space.repo_url,
+            username,
+            token,
+            f"sources/{slug}/raw/{CONTRACTS_DIR}/{path}",
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    if text is None:
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=path)
+    try:
+        doc = load_document(text.encode("utf-8"))
+    except OpenApiError:
+        doc = None
+    readable = None
+    if doc is not None:
+        present = {o.file for o in entries.objects}
+        files = {
+            name: file
+            for name, file in schema_files_of(
+                contract.source, doc, repository=entries.type != OPENAPI_SOURCE_TYPE
+            ).items()
+            if file in present
+        }
+        readable = readable_contract(doc, files)
+    return {**_contract_payload(contract), "yaml": text, "readable": readable}
 
 
 @router.get("/{slug}/graph")

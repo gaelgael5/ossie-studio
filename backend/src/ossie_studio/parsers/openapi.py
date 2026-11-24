@@ -428,6 +428,34 @@ def repo_prefix(path: str, declared_version: str) -> str:
     return f"{_slug(stem)}-{version}" if version else _slug(stem)
 
 
+def _schema_version(filename: str, doc: dict[str, Any], *, repository: bool) -> str:
+    """Préfixe d'identité des schémas d'un contrat (voir `_contract_schemas`)."""
+    if not repository:
+        return PurePosixPath(filename).stem
+    raw_info = doc.get("info")
+    declared = str(raw_info.get("version", "")) if isinstance(raw_info, dict) else ""
+    return repo_prefix(filename, declared)
+
+
+def schema_files_of(filename: str, doc: dict[str, Any], *, repository: bool) -> dict[str, str]:
+    """Nom d'objet de `components/schemas` → fichier schéma découpé dans `raw/`
+    (ticket e79d008f : la vue du contrat complet ouvre ses objets)."""
+    version = _schema_version(filename, doc, repository=repository)
+    return {name: _dest_name(version, name) for name in _schemas(doc)}
+
+
+def _valid_contract(filename: str, raw: bytes, *, repository: bool) -> dict[str, Any] | None:
+    """Document chargé si le contrat est collectable (mêmes refus que
+    `_contract_schemas`), None sinon."""
+    try:
+        doc = load_document(raw)
+        if repository:
+            _check_internal_refs(_schemas(doc))
+    except OpenApiError:
+        return None
+    return doc
+
+
 def _contract_schemas(filename: str, raw: bytes, *, repository: bool = False) -> list[ParsedObject]:
     """Les schémas tirés d'un contrat. Contrat déposé : `filename` nomme la
     version (son radical : `v1.yaml` → `v1`). Contrat d'un dépôt : chemin et
@@ -444,11 +472,7 @@ def _contract_schemas(filename: str, raw: bytes, *, repository: bool = False) ->
             _check_internal_refs(_schemas(doc))
         except OpenApiError as exc:
             raise ParserError("syntax", f"{exc.code}: {exc.detail}") from exc
-        raw_info = doc.get("info")
-        declared = str(raw_info.get("version", "")) if isinstance(raw_info, dict) else ""
-        version = repo_prefix(filename, declared)
-    else:
-        version = PurePosixPath(filename).stem
+    version = _schema_version(filename, doc, repository=repository)
     major = _major(doc)
     schemas = _schemas(doc)
     names = set(schemas)
@@ -505,9 +529,26 @@ class OpenApiParser:
 
     def run(self, context: PluginContext) -> PluginResult:
         # Import tardif : évite un cycle base ← collect_core ← openapi.
+        from ossie_studio.parsers.openapi_full import CONTRACTS_INDEX, full_contract_actions
         from ossie_studio.sources.collect_core import schema_plugin_run
 
-        return schema_plugin_run(context, self)
+        result = schema_plugin_run(context, self)
+        # Ticket e79d008f : à côté du découpage, la copie intégrale de chaque
+        # contrat valide (`contrat.full.openapi.yaml`). Hors du moteur
+        # incrémental : le nom d'une copie dépend des autres contrats du dossier.
+        contracts: dict[str, tuple[bytes, dict[str, Any]]] = {}
+        for path, raw in context.contents.items():
+            if not (self.handles(path) and self.claims(path, raw)):
+                continue
+            doc = _valid_contract(path, raw, repository=self.repository)
+            if doc is not None:
+                contracts[path] = (raw, doc)
+        writes, deletes = full_contract_actions(
+            contracts, context.raw.read_index(CONTRACTS_INDEX), repository=self.repository
+        )
+        result.writes.extend(writes)
+        result.deletes.extend(deletes)
+        return result
 
     def handles(self, path: str) -> bool:
         return matches_globs(self.globs(), path.lower())

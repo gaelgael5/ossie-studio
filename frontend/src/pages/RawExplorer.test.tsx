@@ -68,6 +68,10 @@ function folderBody(path: string) {
         { ...OBJ, file: 'pet.schema.yaml', title: 'Pet', parser: 'openapi', badges: [], visibility: '', visibility_source: '' },
       ],
       documents: [{ path: 'mixte/guide.md', title: 'Guide', sections: 2 }],
+      // Ticket e79d008f : la copie intégrale du contrat, nom en dur.
+      contracts: [
+        { path: 'mixte/contrat.full.openapi.yaml', source: 'mixte/pets.yaml', title: 'API Animaux', version: '1.0', operations: 2 },
+      ],
     }
   if (path === '') return { path, folders: [{ path: 'src', items: 1, files: 2 }], objects: [], documents: [] }
   if (path === 'src')
@@ -269,6 +273,52 @@ const DETAIL = {
   forge_url: 'https://github.com/org/app/blob/main/src/Domain/Order.cs',
 }
 
+const CONTRACT = {
+  path: 'mixte/contrat.full.openapi.yaml',
+  source: 'mixte/pets.yaml',
+  title: 'API Animaux',
+  version: '1.0',
+  operations: 2,
+  yaml: 'openapi: 3.0.3\ninfo:\n  title: API Animaux\n',
+  readable: {
+    openapi: '3.0.3',
+    title: 'API Animaux',
+    version: '1.0',
+    description: 'Les animaux de la boutique.',
+    servers: ['https://api.exemple.fr'],
+    operations: [
+      {
+        method: 'GET',
+        path: '/pets/{id}',
+        summary: 'Un animal',
+        description: '',
+        operation_id: 'getPet',
+        tags: [],
+        deprecated: false,
+        parameters: [{ name: 'id', in: 'path', required: true, description: '', schema: { kind: 'type', type: 'string' } }],
+        body: null,
+        responses: [
+          { code: '200', description: 'l’animal', media: 'application/json', schema: { kind: 'ref', name: 'Pet', file: 'pet.schema.yaml' } },
+          { code: '404', description: '' },
+        ],
+      },
+      {
+        method: 'DELETE',
+        path: '/pets/{id}',
+        summary: '',
+        description: '',
+        operation_id: 'deletePet',
+        tags: [],
+        deprecated: false,
+        parameters: [],
+        body: null,
+        responses: [],
+      },
+    ],
+    objects: [{ name: 'Pet', file: 'pet.schema.yaml' }],
+  },
+}
+
 const SESSION_CAPS = { value: [] as string[] }
 const DESCENDANTS = { value: [] as { slug: string; file: string; title: string; retained: boolean }[] }
 const STATUS_EXCLUDED = { value: false }
@@ -324,6 +374,7 @@ function mockApi(sources = SOURCES, declared: unknown = DECLARED) {
       else if (u.pathname.endsWith('/incoming')) body = { incoming: DETAIL.incoming }
       else if (u.pathname.endsWith('/descendants')) body = { descendants: DESCENDANTS.value }
       else if (u.pathname.endsWith('/curation/retain-many')) body = { ok: true, commit: 'abc', retained: [] }
+      else if (u.pathname.endsWith('/contract')) body = CONTRACT
       else if (u.pathname.endsWith('/document/content'))
         body = { path: 'docs/guide.md', title: 'Guide', markdown: '# Guide\n\n<!-- note interne -->\n\n## Commandes\n\nUne Order se crée.' }
       else if (u.pathname.endsWith('/object/history'))
@@ -1038,6 +1089,42 @@ describe('RawExplorer', () => {
     expect(screen.getByText('Order')).toBeInTheDocument()
     expect(screen.queryByText('Pet')).not.toBeInTheDocument()
     expect(screen.queryByText('Guide')).not.toBeInTheDocument()
+  })
+
+  it('contrat OpenAPI complet : vignette au nom en dur, vue lisible, objets ouvrables (ticket e79d008f)', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=mixte')
+    expect(await screen.findByText('Contrat OpenAPI complet')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^OAS\s*contrat\.full\.openapi\.yaml/ }))
+    expect(screen.getByTestId('loc').textContent).toContain('open=mixte%2Fcontrat.full.openapi.yaml')
+    expect(await screen.findByText('Cette API sait faire 2 choses.')).toBeInTheDocument()
+    // Un verbe de tous les jours par méthode, et ce qu'on donne / reçoit.
+    expect(screen.getAllByText('Lire').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Supprimer').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Ce que tu donnes').length).toBe(2)
+    expect(screen.getByText('Ça a marché')).toBeInTheDocument()
+    expect(screen.getByText('Introuvable')).toBeInTheDocument()
+    expect(screen.getByText('Rien à donner.')).toBeInTheDocument()
+    // Le texte complet reste là.
+    await user.click(screen.getByRole('tab', { name: 'Texte complet (YAML)' }))
+    expect(screen.getByText(/title: API Animaux/)).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: 'Lecture facile' }))
+    // Un objet du contrat s'ouvre dans sa vue d'objet découpé.
+    await user.click(screen.getAllByRole('button', { name: 'Pet' })[0])
+    expect(screen.getByTestId('loc').textContent).toContain('open=pet.schema.yaml')
+  })
+
+  it('contrat complet : suit le filtre Type', async () => {
+    mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=mixte')
+    await screen.findByText('Contrat OpenAPI complet')
+    const select = screen.getByRole('combobox', { name: 'Type' })
+    await user.selectOptions(select, 'openapi')
+    expect(screen.getByText('Contrat OpenAPI complet')).toBeInTheDocument()
+    await user.selectOptions(select, 'schema')
+    expect(screen.queryByText('Contrat OpenAPI complet')).not.toBeInTheDocument()
   })
 
   it('vue exclusive : objet suivant dans l’ordre du dossier', async () => {

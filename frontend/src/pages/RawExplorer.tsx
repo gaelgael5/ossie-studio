@@ -14,6 +14,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import type {
   RawBadge,
+  RawContractItem,
   RawDocumentItem,
   RawExplorerMode,
   RawExplorerSource,
@@ -31,6 +32,7 @@ import { RawPreview, TagBadges, VisibilityBadge, isObjectSelection } from './Raw
 import { RefMenu } from './RawRefMenu'
 import { RawGraph } from './RawGraph'
 import { RawDocumentPage, RawExclusive } from './RawExclusive'
+import { FULL_CONTRACT_NAME, RawContractPage, isContractSelection } from './RawContractPage'
 import {
   DEFAULT_EXCLUSIONS,
   excludingEntry,
@@ -543,6 +545,9 @@ export function RawExplorer({
   const shownFolders = searching ? [] : (folder.data?.folders ?? [])
   const shownDocuments =
     searching || (familyFilter && familyFilter !== 'markdown') ? [] : (folder.data?.documents ?? [])
+  // Contrat OpenAPI complet (ticket e79d008f) : de la famille « Contrats OpenAPI ».
+  const shownContracts =
+    searching || (familyFilter && familyFilter !== 'openapi') ? [] : (folder.data?.contracts ?? [])
   const hasContent = searching ? !!results.data : !!folder.data
 
   const messages = [sources.error, tree.error, results.error]
@@ -602,6 +607,20 @@ export function RawExplorer({
   // vignettes » et le bouton retour du navigateur retrouvent tout.
   if (opened && current?.collected) {
     const back = () => go({ open: null, sel: opened })
+    if (isContractSelection(opened)) {
+      return (
+        <RawContractPage
+          spaceId={spaceId}
+          branchId={branchId}
+          slug={sourceSlug}
+          path={opened}
+          // Pas de sélection au retour : l'aperçu latéral ne montre que les
+          // objets et les documents.
+          onBack={() => go({ open: null, sel: null })}
+          onOpenObject={(file) => go({ open: file, sel: file })}
+        />
+      )
+    }
     if (!isObjectSelection(opened)) {
       return (
         <RawDocumentPage
@@ -984,7 +1003,11 @@ export function RawExplorer({
               <span className="spinner" aria-hidden="true" /> {t('rawLoading')}
             </div>
           ) : hasContent &&
-            shownFolders.length + shownObjects.length + shownDocuments.length === 0 ? (
+            shownFolders.length +
+              shownObjects.length +
+              shownDocuments.length +
+              shownContracts.length ===
+              0 ? (
             <div className="empty-note">
               {searching ? t('rawSearchNone') : t('rawFolderEmpty')}
             </div>
@@ -993,6 +1016,7 @@ export function RawExplorer({
               folders={shownFolders}
               objects={shownObjects}
               documents={shownDocuments}
+              contracts={shownContracts}
               selected={selected}
               currentSource={sourceSlug}
               showSource={searching && !singleSource}
@@ -1019,6 +1043,7 @@ export function RawExplorer({
               folders={shownFolders}
               objects={shownObjects}
               documents={shownDocuments}
+              contracts={shownContracts}
               selected={selected}
               currentSource={sourceSlug}
               showSource={searching && !singleSource}
@@ -1253,6 +1278,7 @@ interface ContentProps {
   folders: RawFolderItem[]
   objects: RawObjectItem[]
   documents: RawDocumentItem[]
+  contracts?: RawContractItem[]
   selected: string
   /** Source ouverte : la sélection (`sel`) ne porte que sur elle. */
   currentSource: string
@@ -1273,6 +1299,7 @@ function Tiles({
   folders,
   objects,
   documents,
+  contracts = [],
   selected,
   currentSource,
   showSource,
@@ -1308,6 +1335,39 @@ function Tiles({
                     <span className="raw-badge raw-badge-excluded">{t('rawExcludedBadge')}</span>
                   </span>
                 ) : null}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {contracts.length > 0 ? (
+        <section>
+          <h2 className="panel-label">{t('rawSectionContracts')}</h2>
+          <div className="raw-tiles">
+            {contracts.map((c) => (
+              // Un clic ouvre la vue lisible, comme un document.
+              <button
+                key={c.path}
+                type="button"
+                className="raw-tile raw-tile-contract"
+                onClick={() => onOpenItem?.(c.path)}
+              >
+                <span className="raw-glyph raw-glyph-oas">OAS</span>
+                {/* Le nom en dur est le repère (Gael : « pour comprendre que c'est
+                    un répertoire qui expose un contrat OAS ») : toujours en entier ;
+                    le radical, quand le dossier a plusieurs contrats, en dessous. */}
+                <span className="raw-tile-name mono">{FULL_CONTRACT_NAME}</span>
+                {lastSegment(c.path) !== FULL_CONTRACT_NAME ? (
+                  <span className="raw-tile-sub mono">
+                    {lastSegment(c.path).slice(0, -FULL_CONTRACT_NAME.length - 1)}
+                  </span>
+                ) : null}
+                <span className="raw-tile-sub">
+                  {[c.title, c.version].filter(Boolean).join(' · ')}
+                </span>
+                <span className="raw-tile-sub">
+                  {t('rawContractTileSub', { count: c.operations })}
+                </span>
               </button>
             ))}
           </div>
@@ -1398,6 +1458,7 @@ function ListView({
   folders,
   objects,
   documents,
+  contracts = [],
   selected,
   currentSource,
   showSource,
@@ -1497,6 +1558,23 @@ function ListView({
                 <Badges obj={o} />
               </td>
               <td>{refMenu?.(o)}</td>
+            </tr>
+          ))}
+          {contracts.map((c) => (
+            <tr
+              key={`oas:${c.path}`}
+              className="row-clickable"
+              onClick={() => onOpenItem?.(c.path)}
+            >
+              <td>
+                <span className="raw-glyph-sm raw-glyph-oas">OAS</span>{' '}
+                <span className="mono">{lastSegment(c.path)}</span>
+              </td>
+              <td className="muted">{t('rawKindContract')}</td>
+              <td className="muted">{t('rawContractTileSub', { count: c.operations })}</td>
+              <td className="mono">{c.source}</td>
+              <td />
+              <td />
             </tr>
           ))}
           {documents.map((d) => (

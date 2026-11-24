@@ -108,7 +108,9 @@ async def db_replace_index(
                 s.type,
                 s.collected,
                 len(s.objects),
-                len(s.documents),
+                # Fichiers hors objets : documents et contrats complets (ticket
+                # e79d008f), comptés ensemble pour ne pas ajouter de colonne.
+                len(s.documents) + len(s.contracts),
                 json.dumps(s.to_json(), ensure_ascii=False),
             )
             for s in sources

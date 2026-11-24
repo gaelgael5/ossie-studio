@@ -486,11 +486,67 @@ export interface RawDocumentItem {
   sections: number
 }
 
+/** Copie intégrale d'un contrat OpenAPI (ticket e79d008f), sous `raw/contracts/`. */
+export interface RawContractItem {
+  path: string
+  source: string
+  title: string
+  version: string
+  operations: number
+}
+
+/** Ce que transporte un schéma, mis en mots par l'écran. */
+export type RawContractSchema =
+  | { kind: 'ref'; name: string; file: string }
+  | { kind: 'list'; of: RawContractSchema }
+  | { kind: 'object'; fields: string[] }
+  | { kind: 'oneOf' | 'anyOf' | 'allOf'; options: RawContractSchema[] }
+  | { kind: 'type'; type: string; format?: string; enum?: string[] }
+
+export interface RawContractContent {
+  media?: string
+  schema?: RawContractSchema | null
+}
+
+export interface RawContractOperation {
+  method: string
+  path: string
+  summary: string
+  description: string
+  operation_id: string
+  tags: string[]
+  deprecated: boolean
+  parameters: {
+    name: string
+    in: string
+    required: boolean
+    description: string
+    schema: RawContractSchema | null
+  }[]
+  body: (RawContractContent & { required: boolean; description: string }) | null
+  responses: (RawContractContent & { code: string; description: string })[]
+}
+
+export interface RawContractDetail extends RawContractItem {
+  yaml: string
+  /** null : la copie n'est plus un contrat lisible (le YAML reste montré). */
+  readable: {
+    openapi: string
+    title: string
+    version: string
+    description: string
+    servers: string[]
+    operations: RawContractOperation[]
+    objects: { name: string; file: string }[]
+  } | null
+}
+
 export interface RawFolderContent {
   path: string
   folders: RawFolderItem[]
   objects: RawObjectItem[]
   documents: RawDocumentItem[]
+  contracts?: RawContractItem[]
 }
 
 export interface RawTarget {
@@ -1560,6 +1616,10 @@ export const api = {
   getRawObjectHistory: (spaceId: string, branchId: string, slug: string, file: string) =>
     apiFetch<{ commits: RawHistoryCommit[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/object/history?file=${encodeURIComponent(file)}`,
+    ),
+  getRawContract: (spaceId: string, branchId: string, slug: string, path: string) =>
+    apiFetch<RawContractDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/contract?path=${encodeURIComponent(path)}`,
     ),
   getRawDocumentContent: (spaceId: string, branchId: string, slug: string, path: string) =>
     apiFetch<{ path: string; title: string; markdown: string }>(

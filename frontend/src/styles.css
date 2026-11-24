@@ -89,6 +89,9 @@
   --ko-bg: var(--danger-bg);
   --warn: var(--warn-fg);
   --muted-bg: var(--surface-muted);
+  /* Couleur d'un verbe HTTP de la vue lisible d'un contrat (redéfinie par verbe). */
+  --verb: #475569;
+  --verb-bg: #f1f5f9;
 
   /* Angles vifs. */
   --radius: 4px;
@@ -2609,6 +2612,217 @@ td .raw-ref-menu {
 .curation-row > .curation-item {
   flex: 1;
   min-width: 0;
+}
+
+/* Contrat OpenAPI complet, vue lisible (ticket e79d008f) — Gael : « un affichage
+   que même un enfant comprendrait ». Un verbe = une couleur, repris partout. */
+.raw-glyph-oas {
+  color: #5b21b6;
+  background: #ede9fe;
+}
+.oas-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.oas-head > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.oas-head h2 {
+  margin: 0;
+}
+.oas-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 14px;
+}
+.oas-lead {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.oas-desc {
+  white-space: pre-line;
+  margin: 4px 0;
+}
+.oas-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 14px;
+  margin: 8px 0;
+}
+.oas-facts dt {
+  color: var(--muted);
+}
+.oas-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.oas-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.oas-verb {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  white-space: nowrap;
+  --verb: #475569;
+  --verb-bg: #f1f5f9;
+  color: var(--verb);
+  background: var(--verb-bg);
+  border: 1px solid color-mix(in srgb, var(--verb) 30%, transparent);
+}
+.oas-verb-http {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  opacity: 0.75;
+}
+.oas-verb-get,
+.oas-op-get {
+  --verb: #1d4ed8;
+  --verb-bg: #e0ecff;
+}
+.oas-verb-post,
+.oas-op-post {
+  --verb: #15803d;
+  --verb-bg: #dcfce7;
+}
+.oas-verb-put,
+.oas-op-put {
+  --verb: #c2410c;
+  --verb-bg: #ffedd5;
+}
+.oas-verb-patch,
+.oas-op-patch {
+  --verb: #a16207;
+  --verb-bg: #fef9c3;
+}
+.oas-verb-delete,
+.oas-op-delete {
+  --verb: #b91c1c;
+  --verb-bg: #fee2e2;
+}
+.oas-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.oas-op {
+  --verb: #475569;
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--verb);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.oas-op > summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.oas-op[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+.oas-path {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.oas-summary {
+  color: var(--muted);
+}
+.oas-op-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.oas-sentence {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.oas-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: 12px;
+}
+.oas-col {
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.oas-give {
+  background: #eff6ff;
+}
+.oas-get {
+  background: #f0fdf4;
+}
+.oas-col h4 {
+  margin: 0 0 6px;
+}
+.oas-col ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.oas-required {
+  color: var(--ko);
+  background: var(--ko-bg);
+}
+.oas-code {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.oas-code-ok {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+.oas-code-warn {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+}
+.oas-code-bad {
+  color: var(--ko);
+  background: var(--ko-bg);
+}
+.oas-code-neutral {
+  color: var(--muted);
+  background: var(--muted-bg);
+}
+.oas-objects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.oas .link-button {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--link);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* Le nom en dur du contrat complet ne se tronque jamais : c'est le repère. */
+.raw-tile-contract .raw-tile-name {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* --- Référentiels (epic « Référentiels ») ------------------------------------ */
