@@ -39,6 +39,13 @@ const EMAILS = {
   },
 }
 const GONE = { ...EMAILS, id: 'gone', path: 'governance/classification-rules/gone.yaml', errors: ['classification_rule_scheme_unknown'], rule: { ...EMAILS.rule, id: 'gone', name: 'Ancienne', scheme: 'absent' } }
+const PROVIDED = {
+  ...EMAILS,
+  id: 'ossie-rgpd-telephone',
+  path: '',
+  builtin: true,
+  rule: { ...EMAILS.rule, id: 'ossie-rgpd-telephone', name: 'RGPD — téléphones', when: { field: ['*phone*'], type: ['string'] } },
+}
 const FIELDS = { objects: [{ source: 'app', file: 'customer.schema.yaml', title: 'Customer', origin: 'src/Customer.cs', folder: 'src', fields: ['Email', 'customer_email'] }] }
 
 function mockApi() {
@@ -50,11 +57,12 @@ function mockApi() {
       calls.push({ method, path, body: init?.body as string | undefined })
       let body: unknown = {}
       if (path === '/api/session') body = { authenticated: true, capabilities: ['governance:read', 'governance:write', 'sources:read'] }
-      else if (path.startsWith(`${BASE}/governance/classification-rules`) && method === 'GET') body = { rules: [EMAILS, GONE] }
+      else if (path.startsWith(`${BASE}/governance/classification-rules`) && method === 'GET') body = { rules: [PROVIDED, EMAILS, GONE] }
       else if (path.startsWith(`${BASE}/governance/classifications`)) body = { schemes: [GDPR] }
       else if (path.endsWith('/classification-rules/usage')) body = { rules: { emails: 2 } }
       else if (path.endsWith('/classification-rules/emails/fields')) body = FIELDS
       else if (path.endsWith('/classification-rules/preview')) body = { fields: 2, object_count: 1, objects: FIELDS.objects }
+      else if (method === 'PUT' && path.endsWith('/state')) body = { ...PROVIDED, rule: { ...PROVIDED.rule, enabled: false } }
       else if (method === 'PUT') body = EMAILS
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
@@ -95,6 +103,20 @@ describe('GovernanceClassificationRulesPage (ticket cfc33d51)', () => {
     // Schéma disparu : la règle est signalée invalide avec la raison.
     await user.click(screen.getByText('Ancienne'))
     expect(screen.getByText('Le schéma de classification n’existe pas (ou plus).')).toBeInTheDocument()
+  })
+
+  it('règle fournie par Ossie : badge, ni modifier ni supprimer, désactivable (ticket c7ce55aa)', async () => {
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByText('RGPD — téléphones'))
+    expect(screen.getAllByText('Ossie').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: 'Supprimer' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Modifier la règle' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Désactiver' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.path.endsWith('/ossie-rgpd-telephone/state'))).toBe(true))
+    const put = calls.find((c) => c.path.endsWith('/state'))!
+    expect(JSON.parse(put.body!)).toEqual({ enabled: false })
   })
 
   it('crée une règle : conditions, schéma, valeur, aperçu puis enregistrement', async () => {

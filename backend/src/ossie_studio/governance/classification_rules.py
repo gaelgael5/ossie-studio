@@ -100,7 +100,13 @@ def _patterns(value: Any) -> tuple[list[str], bool]:
     return out, len(out) == len(value)
 
 
-def parse_rule(rule_id: str, data: Any) -> tuple[ClassificationRule | None, list[str]]:
+# Préfixe réservé aux règles fournies par Ossie (governance/builtin_classification_rules.py).
+BUILTIN_PREFIX = "ossie-"
+
+
+def parse_rule(
+    rule_id: str, data: Any, *, builtin: bool = False
+) -> tuple[ClassificationRule | None, list[str]]:
     """Règle lue d'un fichier ou d'un formulaire, ou None et les erreurs (codes
     stables, traduits par l'interface). La cohérence avec les schémas de
     classification se vérifie à part (`effect_errors`) : un schéma supprimé
@@ -113,6 +119,9 @@ def parse_rule(rule_id: str, data: Any) -> tuple[ClassificationRule | None, list
     declared = str(data.get("id") or rule_id)
     if declared != rule_id or not is_valid_rule_id(rule_id):
         errors.append("classification_rule_id_invalid")
+    elif rule_id.startswith(BUILTIN_PREFIX) and not builtin:
+        # Un fichier du dépôt ne peut pas masquer une règle fournie.
+        errors.append("classification_rule_id_reserved")
     files, ok = _patterns(data.get("files"))
     if not ok:
         errors.append("classification_rule_files_invalid")
@@ -233,6 +242,54 @@ def delete_classification_rule(root: Path, rule_id: str) -> bool:
         return False
     target.unlink()
     return True
+
+
+# --- État des règles fournies par Ossie ------------------------------------------
+#
+# Seul leur état vit dans le Git de l'espace : la liste de celles qu'il a
+# désactivées. Une règle ajoutée par une nouvelle version d'Ossie est active
+# d'office ; une règle retirée du produit disparaît.
+
+BUILTIN_STATE_FILE = f"{GOVERNANCE_DIR}/classification-rules-builtin.yaml"
+
+
+def read_builtin_disabled(root: Path) -> set[str]:
+    file = root / BUILTIN_STATE_FILE
+    if not file.is_file():
+        return set()
+    try:
+        data = yaml.safe_load(file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return set()
+    items = data.get("disabled") if isinstance(data, dict) else None
+    return {str(i) for i in items} if isinstance(items, list) else set()
+
+
+def write_builtin_disabled(root: Path, disabled: set[str]) -> None:
+    file = root / BUILTIN_STATE_FILE
+    if not disabled:
+        if file.is_file():
+            file.unlink()
+        return
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(
+        yaml.safe_dump({"disabled": sorted(disabled)}, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
+def active_classification_rules(root: Path) -> list[ClassificationRule]:
+    """Règles qui classent : celles fournies par Ossie (sauf celles que l'espace
+    a désactivées), puis celles du dépôt (valides ; l'état « active » est
+    regardé par le moteur)."""
+    from ossie_studio.governance.builtin_classification_rules import (
+        builtin_classification_rules,
+    )
+
+    disabled = read_builtin_disabled(root)
+    provided = [r for r in builtin_classification_rules() if r.id not in disabled]
+    own = [f.rule for f in read_classification_rules(root) if f.rule is not None]
+    return provided + own
 
 
 # --- Correspondance ---------------------------------------------------------------

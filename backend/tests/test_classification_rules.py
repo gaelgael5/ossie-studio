@@ -242,7 +242,11 @@ async def test_api_regle_classe_les_champs_visibles_dans_l_explorateur(sp: ApiSp
     r = await sp.client.put(f"{rules}/emails", json=body)
     assert r.status_code == 200, r.text
     listing = (await sp.client.get(rules)).json()["rules"]
-    assert [(x["id"], x["errors"]) for x in listing] == [("emails", [])]
+    own = [(x["id"], x["errors"]) for x in listing if not x["builtin"]]
+    assert own == [("emails", [])]
+    # Les règles fournies visent le schéma `rgpd`, absent ici : signalées, sans effet.
+    provided = [x for x in listing if x["builtin"]]
+    assert provided and all(x["errors"] == ["classification_rule_scheme_unknown"] for x in provided)
 
     detail = await sp.client.get(
         f"{sp.base}/raw-explorer/app/object", params={"file": "customer.schema.yaml"}
@@ -283,8 +287,112 @@ async def test_api_valeur_inconnue_refusee_et_schema_supprime_signale(sp: ApiSpa
     # Le schéma disparaît après coup : la règle est signalée, pas d'erreur 500.
     assert (await sp.client.delete(f"{sp.base}/governance/classifications/gdpr")).status_code == 204
     listing = (await sp.client.get(rules)).json()["rules"]
-    assert listing[0]["errors"] == ["classification_rule_scheme_unknown"]
+    own = [x for x in listing if not x["builtin"]]
+    assert own[0]["errors"] == ["classification_rule_scheme_unknown"]
     usage = await sp.client.get(f"{sp.base}/raw-explorer/classification-rules/usage")
     assert usage.status_code == 200 and usage.json()["rules"] == {}
     assert (await sp.client.delete(f"{rules}/ok")).status_code == 204
     assert (await sp.client.delete(f"{rules}/ok")).status_code == 404
+
+
+# --- Règles fournies par Ossie (ticket c7ce55aa) -----------------------------------
+
+
+def test_regles_fournies_valides_prefixees_et_id_reserve() -> None:
+    from ossie_studio.governance.builtin_classification_rules import (
+        builtin_classification_rules,
+    )
+
+    rules = builtin_classification_rules()
+    assert len(rules) == 13
+    assert all(r.id.startswith("ossie-") and r.scheme == "rgpd" for r in rules)
+    rule, errors = parse_rule(
+        "ossie-x", {"when": {"field": ["x"]}, "scheme": "rgpd", "values": ["v"]}
+    )
+    assert rule is None and "classification_rule_id_reserved" in errors
+
+
+RGPD = Scheme(
+    "rgpd",
+    "GDPR",
+    levels=[
+        Level("1", "rgpd", "Non personnelle", rank=1),
+        Level("2", "rgpd", "Donnée personnelle", rank=2),
+        Level("3", "rgpd", "Catégorie particulière", rank=3),
+        Level("4", "rgpd", "Infraction pénale", rank=4),
+    ],
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "kind", "classified"),
+    [
+        ("ReceiverEmail", "string", True),
+        ("EmailSent", "boolean", False),
+        ("SHIPTO_MAIL", "string", True),
+        ("ReceiverPhone1", "string", True),
+        ("MOBILEAPP_USER", "string", False),
+        ("FirstName", "string", True),
+        ("Name", "string", False),
+        ("ZipCode", "string", True),
+        ("CarrierPudoZipCode", "string", False),
+        ("SiteInternationalId", "string", False),
+        ("IdCardNumber", "string", True),
+        ("HasGeographicCoordinates", "boolean", False),
+        ("disabilityAccess", "boolean", False),
+        ("TokenUsername", "string", False),
+        ("login", "string", True),
+    ],
+)
+def test_jeu_rgpd_sur_les_noms_de_colis_21(
+    tmp_path: Path, name: str, kind: str, classified: bool
+) -> None:
+    """Noms relevés sur colis 21, dont les faux positifs écartés au réglage."""
+    from ossie_studio.governance.builtin_classification_rules import (
+        builtin_classification_rules,
+    )
+
+    raw = tmp_path / "sources/app/raw"
+    raw.mkdir(parents=True)
+    (tmp_path / "sources/app/manifest.yaml").write_text(_manifest("app"), encoding="utf-8")
+    (raw / "x.schema.yaml").write_text(_schema("X", {name: {"type": kind}}), encoding="utf-8")
+    sources = apply_classification_rules(
+        [collect_source_entries(tmp_path, "app")], builtin_classification_rules(), [RGPD]
+    )
+    found = [c.field for o in sources[0].objects for c in o.field_classes]
+    assert (found == [name]) is classified
+
+
+async def test_api_regle_fournie_desactivable(sp: ApiSpace) -> None:
+    forge_edit(sp, _files())
+    gov = f"{sp.base}/governance/classifications"
+    r = await sp.client.post(gov, json={"id": "rgpd", "name": "GDPR"})
+    assert r.status_code == 201, r.text
+    scheme_id = r.json()["id"]
+    assert scheme_id == "rgpd"
+    for rank, name in (
+        (1, "Non personnelle"),
+        (2, "Donnée personnelle"),
+        (3, "Catégorie particulière"),
+        (4, "Infraction pénale"),
+    ):
+        r = await sp.client.post(
+            f"{gov}/rgpd/levels", json={"name": name, "short_name": name[:2], "rank": rank}
+        )
+        assert r.status_code == 201, r.text
+    rules = f"{sp.base}/governance/classification-rules"
+    listing = (await sp.client.get(rules)).json()["rules"]
+    email = next(x for x in listing if x["id"] == "ossie-rgpd-email")
+    assert email["builtin"] is True and email["errors"] == [] and email["rule"]["enabled"] is True
+    usage = f"{sp.base}/raw-explorer/classification-rules/usage"
+    # Email, customer_email (Customer) et Mail (CustomerDto) ; EmailSent est un booléen.
+    assert (await sp.client.get(usage)).json()["rules"]["ossie-rgpd-email"] == 3
+    r = await sp.client.put(f"{rules}/ossie-rgpd-email/state", json={"enabled": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["rule"]["enabled"] is False
+    assert "ossie-rgpd-email" not in (await sp.client.get(usage)).json()["rules"]
+    r = await sp.client.put(f"{rules}/ossie-rgpd-email/state", json={"enabled": True})
+    assert (await sp.client.get(usage)).json()["rules"]["ossie-rgpd-email"] == 3
+    assert (
+        await sp.client.put(f"{rules}/ossie-inconnue/state", json={"enabled": True})
+    ).status_code == 404

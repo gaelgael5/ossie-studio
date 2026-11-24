@@ -220,8 +220,27 @@ export function GovernanceClassificationRulesPage() {
     setForm(fromRule(file))
     setMode({ kind: 'edit', id: file.id })
   }
+  // Règle fournie par Ossie (ticket c7ce55aa) : seul son état s'écrit dans le dépôt.
+  const toggleBuiltin = useMutation({
+    mutationFn: (file: ClassificationRuleFile) =>
+      api.setBuiltinClassificationRuleState(file.id, !file.rule?.enabled),
+    onSuccess: async (res) => {
+      setMessages([])
+      setNotice(t('classRuleSaved'))
+      queryClient.setQueryData<{ rules: ClassificationRuleFile[] }>(
+        ['classification-rules', ws.spaceId, ws.branchId],
+        (old) => ({ rules: (old?.rules ?? []).map((f) => (f.id === res.id ? res : f)) }),
+      )
+      await invalidate()
+    },
+    onError,
+  })
   const toggle = (file: ClassificationRuleFile) => {
     if (!file.rule) return
+    if (file.builtin) {
+      toggleBuiltin.mutate(file)
+      return
+    }
     const { id, ...rest } = file.rule
     save.mutate({ id, body: { ...rest, files: rest.files ?? [], enabled: !rest.enabled } })
   }
@@ -307,7 +326,7 @@ export function GovernanceClassificationRulesPage() {
               branchId={ws.branchId}
               count={usage.data ? (usage.data.rules[selected.id] ?? 0) : null}
               canWrite={canWrite}
-              busy={save.isPending || remove.isPending}
+              busy={save.isPending || remove.isPending || toggleBuiltin.isPending}
               onEdit={() => startEdit(selected)}
               onToggle={() => toggle(selected)}
               onDelete={() => {
@@ -326,12 +345,23 @@ export function GovernanceClassificationRulesPage() {
 
 function RuleStatus({ file }: { file: ClassificationRuleFile }) {
   const { t } = useTranslation()
-  if (!file.rule || file.errors.length > 0)
-    return <span className="raw-badge raw-badge-error">{t('tagRuleInvalid')}</span>
-  return file.rule.enabled ? (
-    <span className="raw-badge raw-badge-retained">{t('tagRuleEnabled')}</span>
-  ) : (
-    <span className="raw-badge">{t('tagRuleDisabled')}</span>
+  const state =
+    !file.rule || file.errors.length > 0 ? (
+      <span className="raw-badge raw-badge-error">{t('tagRuleInvalid')}</span>
+    ) : file.rule.enabled ? (
+      <span className="raw-badge raw-badge-retained">{t('tagRuleEnabled')}</span>
+    ) : (
+      <span className="raw-badge">{t('tagRuleDisabled')}</span>
+    )
+  return (
+    <>
+      {state}
+      {file.builtin ? (
+        <span className="raw-badge" title={t('classRuleBuiltinHint')}>
+          {t('tagRuleBuiltin')}
+        </span>
+      ) : null}
+    </>
   )
 }
 
@@ -410,21 +440,27 @@ function RuleDetail({
           <div className="row">
             {rule ? (
               <>
-                <button type="button" className="btn btn-sm" onClick={onEdit}>
-                  {t('editTagRule')}
-                </button>
+                {!file.builtin ? (
+                  <button type="button" className="btn btn-sm" onClick={onEdit}>
+                    {t('editTagRule')}
+                  </button>
+                ) : null}
                 <button type="button" className="btn btn-sm" disabled={busy} onClick={onToggle}>
                   {rule.enabled ? t('disableTagRule') : t('enableTagRule')}
                 </button>
               </>
             ) : null}
-            <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={onDelete}>
-              {t('delete')}
-            </button>
+            {!file.builtin ? (
+              <button type="button" className="btn btn-sm btn-danger" disabled={busy} onClick={onDelete}>
+                {t('delete')}
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
-      <p className="mono small muted">{file.path}</p>
+      <p className={file.builtin ? 'small muted' : 'mono small muted'}>
+        {file.builtin ? t('classRuleBuiltinHint') : file.path}
+      </p>
       <ErrorList messages={file.errors.map((code) => t(`fields.${code}`, { defaultValue: code }))} />
       {rule ? (
         <>

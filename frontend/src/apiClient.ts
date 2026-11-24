@@ -1020,6 +1020,8 @@ export interface ClassificationRuleFile {
   path: string
   rule: (ClassificationRuleInput & { id: string }) | null
   errors: string[]
+  /** Fournie par Ossie (ticket c7ce55aa) : désactivable, pas modifiable. */
+  builtin?: boolean
 }
 export interface ClassifiedObject {
   source: string
@@ -1849,6 +1851,11 @@ export const api = {
     apiFetch<ClassificationRuleFile>(`/api/governance/classification-rules/${id}`, {
       method: 'PUT',
       body: JSON.stringify(body),
+    }),
+  setBuiltinClassificationRuleState: (id: string, enabled: boolean) =>
+    apiFetch<ClassificationRuleFile>(`/api/governance/classification-rules/${id}/state`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
     }),
   deleteClassificationRule: (id: string) =>
     apiFetch(`/api/governance/classification-rules/${id}`, { method: 'DELETE' }),
