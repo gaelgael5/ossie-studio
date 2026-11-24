@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -11,7 +11,7 @@ import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
-import { UnsavedProvider, useDirty, useUnsaved } from '../referentiels/unsaved'
+import { UnsavedProvider, useDirty, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
 import SchemaEditor from '../referentiels/SchemaEditor'
 import { ValuesTab } from '../referentiels/ValuesTab'
 import { ImportsTab } from '../referentiels/ImportsTab'
@@ -181,6 +181,11 @@ function ReferentielView({
   // modifications non enregistrées survivent à un changement d'onglet (bug
   // 5a6b0213 ; seul l'onglet Valeurs le faisait).
   const [opened, setOpened] = useState<Set<Tab>>(() => new Set(['model']))
+  // Cmd+S / Ctrl+S : enregistre l'onglet affiché (le modèle sur l'onglet Modèle).
+  const prefixOf: Record<Tab, string> = { model: 'model', values: 'values', imports: 'import:', history: '' }
+  const tabRef = useRef(tab)
+  tabRef.current = tab
+  useSaveShortcut(() => prefixOf[tabRef.current])
   const dirtyTab = {
     model: useDirty('model').length > 0,
     values: useDirty('values').length > 0,

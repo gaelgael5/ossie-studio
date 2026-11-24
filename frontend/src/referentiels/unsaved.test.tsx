@@ -3,13 +3,14 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { Link, RouterProvider, createMemoryRouter } from 'react-router-dom'
-import { UnsavedProvider, useDirty, useUnsaved } from './unsaved'
+import { UnsavedProvider, useDirty, useSaveShortcut, useUnsaved } from './unsaved'
 
 // Bug 5a6b0213 : demander s'il faut enregistrer avant de quitter l'écran.
 
-function Editor({ save }: { save: () => Promise<unknown> }) {
+function Editor({ save, shortcut = 'model' }: { save: () => Promise<unknown>; shortcut?: string }) {
   const [dirty, setDirty] = useState(false)
   useUnsaved('model', { label: 'Modèle', dirty, saveable: true }, save)
+  useSaveShortcut(() => shortcut)
   const marked = useDirty('model').length > 0
   return (
     <>
@@ -22,14 +23,14 @@ function Editor({ save }: { save: () => Promise<unknown> }) {
   )
 }
 
-function setup(save: () => Promise<unknown> = () => Promise.resolve()) {
+function setup(save: () => Promise<unknown> = () => Promise.resolve(), shortcut = 'model') {
   const router = createMemoryRouter(
     [
       {
         path: '/ecran',
         element: (
           <UnsavedProvider>
-            <Editor save={save} />
+            <Editor save={save} shortcut={shortcut} />
           </UnsavedProvider>
         ),
       },
@@ -80,5 +81,37 @@ describe('garde de sortie (bug 5a6b0213)', () => {
     await user.click(screen.getByRole('button', { name: 'Enregistrer et quitter' }))
     expect(await screen.findByText('ailleurs')).toBeInTheDocument()
     expect(save).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('Cmd+S / Ctrl+S (ticket 718f28e5)', () => {
+  const press = (init: KeyboardEventInit) => {
+    const event = new KeyboardEvent('keydown', { key: 's', bubbles: true, cancelable: true, ...init })
+    window.dispatchEvent(event)
+    return event
+  }
+
+  it('enregistre l’onglet affiché quand il est modifié, et bloque le navigateur', async () => {
+    const user = userEvent.setup()
+    const save = vi.fn(() => Promise.resolve())
+    setup(save)
+    // Sans modification : intercepté, rien d'enregistré.
+    expect(press({ ctrlKey: true }).defaultPrevented).toBe(true)
+    expect(save).not.toHaveBeenCalled()
+    await user.click(screen.getByRole('button', { name: 'modifier' }))
+    press({ ctrlKey: true })
+    press({ metaKey: true })
+    expect(save).toHaveBeenCalledTimes(2)
+    // Une autre touche n'est pas interceptée.
+    expect(press({ key: 'a', ctrlKey: true }).defaultPrevented).toBe(false)
+  })
+
+  it('n’enregistre pas un onglet qui n’est pas affiché', async () => {
+    const user = userEvent.setup()
+    const save = vi.fn(() => Promise.resolve())
+    setup(save, 'values')
+    await user.click(screen.getByRole('button', { name: 'modifier' }))
+    press({ ctrlKey: true })
+    expect(save).not.toHaveBeenCalled()
   })
 })

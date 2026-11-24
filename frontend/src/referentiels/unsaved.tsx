@@ -82,6 +82,36 @@ export function useUnsaved(id: string, state: UnsavedState, save: () => Promise<
   )
 }
 
+/**
+ * Cmd+S / Ctrl+S (ticket : « intercepter command+S et CTRL+S pour enregistrer le
+ * modèle du référentiel ») : enregistre les onglets modifiés dont l'identifiant
+ * commence par `prefix()` (l'onglet affiché). Toujours intercepté sur l'écran,
+ * même sans rien à enregistrer : le navigateur ne propose pas « Enregistrer sous ».
+ * Écoute en phase de capture : l'éditeur YAML (Monaco) ne l'avale pas.
+ */
+export function useSaveShortcut(prefix: () => string) {
+  const registry = useContext(UnsavedContext)
+  const latest = useRef({ registry, prefix })
+  latest.current = { registry, prefix }
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 's') return
+      e.preventDefault()
+      const { registry: reg, prefix: current } = latest.current
+      if (!reg) return
+      const wanted = current()
+      for (const [id, state] of Object.entries(reg.entries)) {
+        if (wanted && id.startsWith(wanted) && state.dirty && state.saveable) {
+          // L'erreur éventuelle est montrée par l'onglet (même mutation que son bouton).
+          reg.saves.current[id]?.().catch(() => undefined)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [])
+}
+
 /** Onglets modifiés (identifiants commençant par `prefix`, ou tous). */
 export function useDirty(prefix = ''): UnsavedState[] {
   const registry = useContext(UnsavedContext)
