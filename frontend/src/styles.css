@@ -1065,14 +1065,23 @@ input[type='radio'] {
  * cellule de grille ; la scène coupe ce qui déborde à l'horizontale.
  * Durée totale du travelling : 1,8 s (TRAVEL_MS dans LoginPage.tsx).
  */
+/* Gael (24/11) : « le formulaire doit trouver le centre de gravité de la page ».
+   La scène occupe la hauteur sous la barre haute et centre la carte ; un léger
+   décalage vers le haut (padding bas plus grand) la place au centre optique,
+   que l'œil situe un peu au-dessus du centre géométrique. */
 .login-stage {
   display: grid;
+  align-content: center;
   overflow-x: hidden;
-  padding-bottom: 48px;
+  /* 56 px de barre haute + 2 × 24 px de marge de .page : pas de défilement. */
+  min-height: calc(100dvh - 104px);
+  box-sizing: border-box;
+  padding-bottom: 8vh;
 }
 .login-stage > .auth-card {
   grid-area: 1 / 1;
   width: 100%;
+  margin: 0 auto;
   box-sizing: border-box;
 }
 .login-fade {
