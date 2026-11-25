@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 from typing import Annotated
@@ -45,12 +46,17 @@ CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 
 def _opened_key_value(body: SecretCreate) -> str:
     """Valeur d'un secret « keyfile » : la clé privée ouverte. Le fichier arrive
-    en base64 ; la phrase de passe sert à l'ouvrir et n'est pas conservée."""
+    en base64 ; la phrase de passe sert à l'ouvrir et n'est pas conservée.
+    Le fichier est facultatif (dc22b381) : sans lui, la valeur saisie (mot de
+    passe ou jeton d'accès programmatique Snowflake) est stockée telle quelle, et
+    le moteur choisit la méthode d'authentification d'après la forme du secret."""
     from ossie_studio.databases.base import DbEngineError
     from ossie_studio.databases.keys import open_private_key
 
     if not body.key_file:
-        raise ApiError("invalid_request", status_code=400, fields=["key_file_required"])
+        if not body.value:
+            raise ApiError("invalid_request", status_code=400, fields=["key_file_required"])
+        return body.value
     try:
         pem = base64.b64decode(body.key_file, validate=True)
     except (binascii.Error, ValueError):
@@ -70,8 +76,41 @@ class SecretCreate(BaseModel):
     # Catégories « keyfile » (Snowflake) : la valeur vient d'un fichier de clé
     # privée (base64) et d'une phrase de passe facultative, ouverte ici — c'est
     # la clé ouverte qui est stockée, la phrase de passe n'est pas conservée.
+    # Sans fichier, `value` (mot de passe ou jeton) est stockée à la place.
     key_file: str = ""
     passphrase: str = ""
+    # Facultatif : éprouver une connexion avec ce secret avant de l'enregistrer.
+    # En échec, rien n'est stocké — un secret faux ne doit pas survivre au test.
+    verify: SecretVerify | None = None
+
+
+async def _verified_identity(category: str, value: str, verify: SecretVerify) -> dict[str, str]:
+    from ossie_studio.databases.base import VERIFY_TIMEOUT_SECONDS, DbEngineError
+    from ossie_studio.databases.registry import get_engine, is_known_engine
+
+    if not is_known_engine(verify.engine):
+        raise ApiError("invalid_request", status_code=400, fields=["engine_invalid"])
+    engine = get_engine(verify.engine)
+    if engine.form_spec().secret_category != category:
+        raise ApiError("db_connection_secret_invalid", status_code=400)
+    try:
+        identity = await asyncio.wait_for(
+            engine.verify(dict(verify.params), value), timeout=VERIFY_TIMEOUT_SECONDS + 2
+        )
+    except DbEngineError as exc:
+        raise ApiError(exc.code, status_code=400) from None
+    except TimeoutError:
+        raise ApiError("db_host_unreachable", status_code=400) from None
+    return {"identity": identity.username, "server_version": identity.server_version}
+
+
+class SecretVerify(BaseModel):
+    """Connexion à éprouver avant d'enregistrer le secret (0d575422) : la popup
+    d'une connexion de base envoie le moteur et les paramètres déjà saisis."""
+
+    model_config = ConfigDict(extra="forbid")
+    engine: str = ""
+    params: dict[str, str] = {}
 
 
 class SecretValueBody(BaseModel):
@@ -125,6 +164,9 @@ async def create_secret(
     errors = validate_new_secret(slug, body.label, body.category, value)
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
+    verified: dict[str, str] = {}
+    if body.verify is not None:
+        verified = await _verified_identity(body.category, value, body.verify)
     try:
         # Jamais la valeur dans l'audit : le slug, le libellé et la catégorie.
         async with audited(
@@ -135,8 +177,8 @@ async def create_secret(
             )
     except SecretSlugTakenError:
         raise ApiError("secret_slug_taken", status_code=409, slug=slug) from None
-    log.info("secret_created", slug=slug, category=body.category)
-    return _payload(secret)
+    log.info("secret_created", slug=slug, category=body.category, verified=bool(verified))
+    return {**_payload(secret), **verified}
 
 
 @router.put("/{slug}/value")

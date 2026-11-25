@@ -1675,7 +1675,12 @@ export const api = {
     value?: string
     key_file?: string
     passphrase?: string
-  }) => apiFetch<{ slug: string }>('/api/secrets', { method: 'POST', body: JSON.stringify(body) }),
+    verify?: { engine: string; params: Record<string, string> }
+  }) =>
+    apiFetch<{ slug: string; identity?: string; server_version?: string }>('/api/secrets', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   replaceSecretValue: (slug: string, value: string) =>
     apiFetch(`/api/secrets/${encodeURIComponent(slug)}/value`, {
       method: 'PUT',
@@ -1708,6 +1713,10 @@ export const api = {
     params: Record<string, string>
     secret_slug: string
   }) => apiFetch<DbConnectionItem>('/api/db-connections', { method: 'POST', body: JSON.stringify(body) }),
+  listDbSchemas: (id: string, database: string) =>
+    apiFetch<{ schemas: { name: string; tables: number }[] }>(
+      `/api/db-connections/${id}/schemas?database=${encodeURIComponent(database)}`,
+    ),
   testDbConnection: (id: string) =>
     apiFetch<DbConnectionItem>(`/api/db-connections/${id}/test`, { method: 'POST' }),
   deleteDbConnection: (id: string, deleteSecret = false) =>

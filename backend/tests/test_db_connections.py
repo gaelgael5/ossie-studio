@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import uuid
 
+import asyncpg
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -127,6 +128,135 @@ async def test_secret_snowflake_mauvaise_phrase_refuse(admin: AsyncClient, app: 
     assert r.status_code == 400
     assert r.json()["error"] == "db_key_rejected"
     assert await db_fetchval(app, "SELECT count(*) FROM secrets WHERE slug = 'sf-ko'") == 0
+
+
+async def test_secret_snowflake_mot_de_passe_sans_cle(admin: AsyncClient, app: FastAPI) -> None:
+    # dc22b381 : la clé privée est facultative ; sans fichier, la valeur saisie
+    # (mot de passe ou jeton d'accès programmatique) est stockée telle quelle.
+    r = await admin.post(
+        "/api/secrets",
+        json={"slug": "sf-pw", "label": "SF mdp", "category": "snowflake", "value": "s3cret"},
+    )
+    assert r.status_code == 201, r.text
+    enc = await db_fetchval(app, "SELECT value_encrypted FROM secrets WHERE slug = 'sf-pw'")
+    assert app.state.crypto.decrypt(enc).reveal() == "s3cret"
+
+
+async def test_secret_snowflake_ni_cle_ni_valeur_refuse(admin: AsyncClient) -> None:
+    r = await admin.post(
+        "/api/secrets", json={"slug": "sf-vide", "label": "SF", "category": "snowflake"}
+    )
+    assert r.status_code == 400
+    assert "key_file_required" in r.json()["error_args"]["fields"]
+
+
+def test_snowflake_methode_d_authentification_selon_le_secret() -> None:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from ossie_studio.databases.snowflake import auth_kwargs
+
+    assert auth_kwargs("s3cret") == {"password": "s3cret"}
+    pem = (
+        rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        .private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+        .decode()
+    )
+    kw = auth_kwargs(pem)
+    assert set(kw) == {"private_key"}
+    assert isinstance(kw["private_key"], bytes)
+
+
+def test_snowflake_mot_de_passe_refuse_n_est_pas_une_cle_refusee() -> None:
+    from ossie_studio.databases.snowflake import _map_error
+
+    exc = Exception("250001: Incorrect username or password was specified.")
+    assert _map_error(None, exc, keypair=False).code == "db_auth_failed"
+    assert _map_error(None, exc, keypair=True).code == "db_key_rejected"
+    # Login qui n'aboutit pas (MFA en attente) : pas « hôte injoignable ».
+    slow = Exception("000014 (HYT00): Failed to login: login timed out after 10s")
+    assert _map_error(None, slow).code == "db_login_timeout"
+
+
+async def test_secret_verifie_a_la_creation(admin: AsyncClient, app: FastAPI) -> None:
+    # 0d575422 : la popup éprouve la connexion avant d'enregistrer le secret.
+    r = await admin.post(
+        "/api/secrets",
+        json={
+            "slug": "pg-ok", "label": "PG", "category": "postgres", "value": PG_PASSWORD,
+            "verify": {"engine": "postgres", "params": PG_PARAMS},
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["identity"] == "ossie"
+    assert r.json()["server_version"]
+
+
+async def test_secret_faux_non_enregistre_si_le_test_echoue(
+    admin: AsyncClient, app: FastAPI
+) -> None:
+    r = await admin.post(
+        "/api/secrets",
+        json={
+            "slug": "pg-ko", "label": "PG", "category": "postgres", "value": "mauvais",
+            "verify": {"engine": "postgres", "params": PG_PARAMS},
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "db_auth_failed"
+    assert await db_fetchval(app, "SELECT count(*) FROM secrets WHERE slug = 'pg-ko'") == 0
+
+
+async def test_secret_verify_moteur_incoherent_refuse(admin: AsyncClient) -> None:
+    r = await admin.post(
+        "/api/secrets",
+        json={
+            "slug": "pg-x", "label": "PG", "category": "postgres", "value": "x",
+            "verify": {"engine": "snowflake", "params": {}},
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "db_connection_secret_invalid"
+
+
+async def test_schemas_d_une_connexion(admin: AsyncClient, app: FastAPI) -> None:
+    # eebe6994 : liste à cocher des schémas d'une source, lue avec le secret.
+    await _pg_secret(admin)
+    cid = (await _create_pg(admin, "pg")).json()["id"]
+    # La connexion vise la base « postgres » (PG_PARAMS), pas la base de l'app.
+    pg = await asyncpg.connect(
+        host=PG_PARAMS["host"], port=int(PG_PARAMS["port"]), database="postgres",
+        user=PG_PARAMS["username"], password=PG_PASSWORD,
+    )
+    await pg.execute("CREATE SCHEMA IF NOT EXISTS sch_test")
+    await pg.execute("CREATE TABLE IF NOT EXISTS sch_test.t1 (id int)")
+    try:
+        r = await admin.get(f"/api/db-connections/{cid}/schemas")
+        assert r.status_code == 200, r.text
+        names = [s["name"] for s in r.json()["schemas"]]
+        assert names == sorted(names)
+        assert {"name": "sch_test", "tables": 1} in r.json()["schemas"]
+        assert "information_schema" not in names and "pg_catalog" not in names
+    finally:
+        await pg.execute("DROP SCHEMA sch_test CASCADE")
+        await pg.close()
+
+
+async def test_schemas_connexion_inconnue(admin: AsyncClient) -> None:
+    r = await admin.get(f"/api/db-connections/{uuid.uuid4()}/schemas")
+    assert r.status_code == 404
+
+
+async def test_schemas_base_injoignable(admin: AsyncClient) -> None:
+    await _pg_secret(admin)
+    cid = (await _create_pg(admin, "pg")).json()["id"]
+    r = await admin.get(f"/api/db-connections/{cid}/schemas", params={"database": "nexiste_pas"})
+    assert r.status_code == 400
+    assert r.json()["error"].startswith("db_")
 
 
 # --- Menu des moteurs, suppression, 403 -------------------------------------

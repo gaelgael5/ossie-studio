@@ -171,6 +171,42 @@ async def create_db_connection(
     return _payload(created)
 
 
+# Schémas système : jamais proposés au choix d'une source (ils ne portent pas
+# de modèle métier, et la collecte les écarte déjà).
+_SYSTEM_SCHEMAS = {"information_schema", "pg_catalog", "pg_toast", "sys", "guest", "db_owner"}
+
+
+@router.get("/{connection_id}/schemas")
+async def list_db_schemas(
+    conn: ConnDep, crypto: CryptoDep, _: ConnectionsRead, connection_id: uuid.UUID,
+    database: str = "",
+) -> dict[str, object]:
+    """Schémas visibles d'une connexion, pour la liste à cocher d'une source
+    (eebe6994). Structure seulement ; la base de la source remplace celle de la
+    connexion, comme à la collecte (api/sources)."""
+    connection = await db_get_db_connection(conn, connection_id)
+    if connection is None:
+        raise ApiError("db_connection_not_found", status_code=404)
+    secret_value = (await resolve_secret_value(conn, crypto, connection.secret_slug)).reveal()
+    params = _str_params(connection.params)
+    if database.strip():
+        params["database"] = database.strip()
+    engine = get_engine(connection.engine)
+    try:
+        tables = await asyncio.wait_for(
+            engine.list_structure(params, secret_value), timeout=VERIFY_TIMEOUT_SECONDS * 3
+        )
+    except DbEngineError as exc:
+        raise ApiError(exc.code, status_code=400) from None
+    except TimeoutError:
+        raise ApiError("db_host_unreachable", status_code=400) from None
+    counts: dict[str, int] = {}
+    for t in tables:
+        if t.schema.lower() not in _SYSTEM_SCHEMAS:
+            counts[t.schema] = counts.get(t.schema, 0) + 1
+    return {"schemas": [{"name": n, "tables": counts[n]} for n in sorted(counts)]}
+
+
 @router.post("/{connection_id}/test")
 async def test_db_connection(
     conn: ConnDep, crypto: CryptoDep, _: ConnectionsWrite, connection_id: uuid.UUID

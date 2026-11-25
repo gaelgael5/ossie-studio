@@ -12,6 +12,7 @@ import { Combobox } from '../components/Combobox'
 import { useWorkspace } from '../workspace'
 import { RawExplorer } from './RawExplorer'
 import { exclusionsOf, parseExclusionInput } from '../sourceExclusions'
+import { SchemaPicker } from '../components/SchemaPicker'
 import { TriRulesEditor, useTriRules } from '../components/TriRulesEditor'
 import { ClassBadges } from '../components/ClassBadges'
 
@@ -68,6 +69,18 @@ export function SourcesPage() {
     retry: false,
   })
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['sources'] })
+  // « Déclarer et collecter » (popups Git et SQL) : la collecte part en tâche de
+  // fond côté serveur ; la page de la source suit son état à l'ouverture.
+  const declaredCollect = async (slug: string) => {
+    setEditing(null)
+    await invalidate()
+    void api
+      .collectSource(ws.spaceId as string, ws.branchId as string, slug, false)
+      .catch(() => undefined)
+      .finally(() => void queryClient.invalidateQueries({ queryKey: ['collect-status'] }))
+    await queryClient.invalidateQueries({ queryKey: ['collect-status'] })
+    navigate(`/sources/${slug}`)
+  }
   // Schémas de classification, pour colorer le niveau de chaque source (ticket
   // 5e8680d7). Sans droit de lecture de la gouvernance, le niveau s'affiche en texte.
   const hasClassification = (sources.data?.sources ?? []).some((s) => (s.classification ?? []).length > 0)
@@ -337,18 +350,7 @@ export function SourcesPage() {
             setEditing(null)
             await invalidate()
           }}
-          onDeclaredCollect={async (slug) => {
-            setEditing(null)
-            await invalidate()
-            // La collecte part en tâche de fond côté serveur ; la page de la source
-            // suit son état (elle redemande l'état à l'ouverture).
-            void api
-              .collectSource(ws.spaceId as string, ws.branchId as string, slug, false)
-              .catch(() => undefined)
-              .finally(() => void queryClient.invalidateQueries({ queryKey: ['collect-status'] }))
-            await queryClient.invalidateQueries({ queryKey: ['collect-status'] })
-            navigate(`/sources/${slug}`)
-          }}
+          onDeclaredCollect={declaredCollect}
         />
       ) : null}
       {editing?.kind === 'sql' ? (
@@ -361,6 +363,7 @@ export function SourcesPage() {
             setEditing(null)
             await invalidate()
           }}
+          onDeclaredCollect={declaredCollect}
         />
       ) : null}
       {editing?.kind === 'openapi' ? (
@@ -845,12 +848,14 @@ function SqlSourceModal({
   source,
   onClose,
   onSaved,
+  onDeclaredCollect,
 }: {
   spaceId: string
   branchId: string
   source?: SourceItem
   onClose: () => void
   onSaved: () => void
+  onDeclaredCollect: (slug: string) => void
 }) {
   const { t } = useTranslation()
   const editMode = source !== undefined
@@ -861,7 +866,7 @@ function SqlSourceModal({
   const slug = pair.finalSlug
   const [connectionId, setConnectionId] = useState('')
   const [database, setDatabase] = useState(String(p.database ?? ''))
-  const [schemas, setSchemas] = useState(asList(p.schemas).join(', '))
+  const [schemas, setSchemas] = useState<string[]>(asList(p.schemas).map(String))
   const [exclusions, setExclusions] = useState(asList(p.exclusions).join(', '))
   const [messages, setMessages] = useState<string[]>([])
   const tri = useTriRules(spaceId, branchId, source?.slug)
@@ -882,13 +887,14 @@ function SqlSourceModal({
   const connSlug = chosen?.slug ?? ''
   const parameters: Record<string, unknown> = {
     database,
-    ...(schemas.trim() ? { schemas: schemas.split(',').map((s) => s.trim()).filter(Boolean) } : {}),
+    ...(schemas.length > 0 ? { schemas } : {}),
     ...(exclusions.trim()
       ? { exclusions: exclusions.split(',').map((s) => s.trim()).filter(Boolean) }
       : {}),
   }
   const preview = { slug, label, type: engine || 'postgres', connection: connSlug, parameters }
 
+  const collectAfter = useRef(false)
   const save = useMutation({
     mutationFn: () => {
       const body: SourceInput = { slug, label, type: engine, connection: connSlug, parameters }
@@ -901,10 +907,11 @@ function SqlSourceModal({
             })
         : api.declareSource(spaceId, branchId, body)
     },
-    onSuccess: onSaved,
+    onSuccess: (saved) => (collectAfter.current ? onDeclaredCollect(saved.slug) : onSaved()),
     onError: (err) => setMessages(errorMessages(t, err)),
   })
 
+  const sqlDisabled = save.isPending || !label || !slug || !connectionId || !database
   return (
     <Modal
       title={editMode ? t('editSqlSource') : t('newSqlSource')}
@@ -914,12 +921,27 @@ function SqlSourceModal({
           <button type="button" className="btn" onClick={onClose}>
             {t('cancelEdit')}
           </button>
+          {!editMode ? (
+            <button
+              type="button"
+              className="btn"
+              disabled={sqlDisabled}
+              onClick={() => {
+                setMessages([])
+                collectAfter.current = true
+                save.mutate()
+              }}
+            >
+              {t('declareAndCollect')}
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn btn-primary"
-            disabled={save.isPending || !label || !slug || !connectionId || !database}
+            disabled={sqlDisabled}
             onClick={() => {
               setMessages([])
+              collectAfter.current = false
               save.mutate()
             }}
           >
@@ -974,7 +996,7 @@ function SqlSourceModal({
               <label className="field-label" htmlFor="s-schemas">
                 {t('fieldSchemas')}
               </label>
-              <input id="s-schemas" className="input" value={schemas} onChange={(e) => setSchemas(e.target.value)} />
+              <SchemaPicker connectionId={connectionId} database={database} value={schemas} onChange={setSchemas} />
             </div>
             <div className="field">
               <label className="field-label" htmlFor="s-excl">

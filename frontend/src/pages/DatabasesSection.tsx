@@ -59,14 +59,25 @@ function DbEnginePopup({
     },
     onError,
   })
+  const [nsVerified, setNsVerified] = useState('')
+  // La connexion est éprouvée avec les paramètres déjà saisis avant que le
+  // secret soit enregistré (0d575422) : un secret faux n'est jamais stocké.
+  const verify = { engine: spec.engine, params }
   const createSecret = useMutation({
     mutationFn: () =>
-      api.createSecret(
-        isKeyfile
-          ? { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, key_file: nsKeyFile, passphrase: nsPassphrase }
-          : { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, value: nsValue },
-      ),
-    onSuccess: async () => {
+      api.createSecret({
+        verify,
+        ...(isKeyfile
+          ? // Clé privée facultative (dc22b381) : sans fichier, la valeur saisie
+            // (mot de passe ou jeton d'accès programmatique) est envoyée à la place.
+            nsKeyFile
+            ? { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, key_file: nsKeyFile, passphrase: nsPassphrase }
+            : { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, value: nsValue }
+          : { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, value: nsValue }),
+      }),
+    onMutate: () => setNsVerified(''),
+    onSuccess: async (res) => {
+      setNsVerified(t('secretVerified', { identity: res.identity ?? '', version: res.server_version ?? '' }))
       setSecretSlug(ns.finalSlug)
       setShowNew(false)
       ns.reset()
@@ -162,7 +173,7 @@ function DbEnginePopup({
               <>
                 <div className="field">
                   <label className="field-label" htmlFor="db-ns-key">
-                    {t('keyFileLabel')}
+                    {t('keyFileOptionalLabel')}
                   </label>
                   <input id="db-ns-key" type="file" onChange={(e) => onKeyFile(e.target.files?.[0])} />
                 </div>
@@ -177,6 +188,20 @@ function DbEnginePopup({
                     value={nsPassphrase}
                     onChange={(e) => setNsPassphrase(e.target.value)}
                   />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="db-ns-password">
+                    {t('keyfilePasswordLabel')}
+                  </label>
+                  <input
+                    id="db-ns-password"
+                    className="input"
+                    type="password"
+                    value={nsValue}
+                    disabled={!!nsKeyFile}
+                    onChange={(e) => setNsValue(e.target.value)}
+                  />
+                  <p className="field-hint">{t('keyfilePasswordHelp')}</p>
                 </div>
               </>
             ) : (
@@ -194,17 +219,20 @@ function DbEnginePopup({
               </div>
             )}
             <div>
-              <button
+              <BusyButton
                 type="button"
                 className="btn"
-                disabled={createSecret.isPending || !ns.finalSlug || (isKeyfile ? !nsKeyFile : !nsValue)}
+                busy={createSecret.isPending}
+                busyText={t('verifyRunning')}
+                disabled={!ns.finalSlug || (isKeyfile ? !nsKeyFile && !nsValue : !nsValue)}
                 onClick={() => createSecret.mutate()}
               >
-                {t('createAndSelect')}
-              </button>
+                {t('testAndCreate')}
+              </BusyButton>
             </div>
           </fieldset>
         ) : null}
+        {nsVerified ? <p className="badge badge-ok">{nsVerified}</p> : null}
         <div>
           <BusyButton type="submit" className="btn btn-primary" busy={create.isPending} busyText={t('verifyRunning')}>
             {t('verifyAndSave')}

@@ -28,7 +28,7 @@ class DbEngineError(Exception):
     de passe, de clé ou de chaîne de connexion dans le message (anti-fuite).
 
     Codes : db_host_unreachable, db_auth_failed, db_not_found, db_role_not_found,
-    db_warehouse_not_found, db_key_rejected, db_driver_unavailable.
+    db_warehouse_not_found, db_key_rejected, db_login_timeout, db_driver_unavailable.
     """
 
     def __init__(self, code: str) -> None:

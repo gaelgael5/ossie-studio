@@ -13,12 +13,10 @@ function Where() {
   return <output data-testid="where">{`${loc.pathname}${loc.search}`}</output>
 }
 
-function renderAt(entry: string) {
+function renderAt(entry: string, body = '{"sources":[]}') {
   vi.stubGlobal(
     'fetch',
-    vi.fn(() =>
-      Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve('{"sources":[]}') }),
-    ),
+    vi.fn(() => Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(body) })),
   )
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -47,5 +45,18 @@ describe('SourceDetailPage — anciens onglets Curation et Revue', () => {
     renderAt('/sources/app?tab=revue')
     expect(await screen.findByTestId('where')).toHaveTextContent('/sources?tab=raw&source=app')
     expect(screen.getByTestId('where')).not.toHaveTextContent('view=review')
+  })
+})
+
+describe('SourceDetailPage — bouton Collecter', () => {
+  it('une source Snowflake se collecte : le bouton est actif (917102e5)', async () => {
+    const body = JSON.stringify({
+      sources: [
+        { slug: 'sf', label: 'SF', type: 'snowflake', ok: true, connection: { slug: 'c' }, parameters: { database: 'DB' } },
+      ],
+    })
+    renderAt('/sources/sf', body)
+    const button = await screen.findByRole('button', { name: 'Collecter' })
+    await vi.waitFor(() => expect(button).toBeEnabled())
   })
 })

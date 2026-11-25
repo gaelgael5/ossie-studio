@@ -182,10 +182,26 @@ def _private_key_der(opened_pem: str) -> bytes:  # pragma: no cover - nécessite
     )
 
 
+def is_private_key(secret_value: str) -> bool:
+    """Le secret stocké est-il une clé PEM ouverte ? Sinon c'est un mot de passe
+    ou un jeton d'accès programmatique (dc22b381) — un PEM ne peut pas être pris
+    pour un mot de passe : son en-tête est normalisé."""
+    return secret_value.lstrip().startswith("-----BEGIN")
+
+
+def auth_kwargs(secret_value: str) -> dict[str, Any]:
+    """Arguments d'authentification du pilote selon la forme du secret. Le jeton
+    d'accès programmatique passe par `password`, comme le documente Snowflake."""
+    if is_private_key(secret_value):
+        return {"private_key": _private_key_der(secret_value)}
+    return {"password": secret_value}
+
+
 class SnowflakeEngine(DatabaseEngine):
-    """Snowflake par paire de clés (le mot de passe seul n'est pas offert : la
-    paire de clés est la méthode durable). Lecture de métadonnées uniquement.
-    Non éprouvable dans cet environnement (pilote absent)."""
+    """Snowflake par paire de clés (méthode durable, recommandée) ou, faute de
+    clé, par mot de passe / jeton d'accès programmatique (dc22b381 : on doit
+    pouvoir éprouver une connexion sans clé privée). Lecture de métadonnées
+    uniquement. Non éprouvable dans cet environnement (pilote absent)."""
 
     def _connect(self, params: dict[str, str], secret_value: str) -> Any:  # pragma: no cover
         connector = _driver()
@@ -196,11 +212,11 @@ class SnowflakeEngine(DatabaseEngine):
                 role=params.get("role") or None,
                 warehouse=params.get("warehouse") or None,
                 database=params.get("database") or None,
-                private_key=_private_key_der(secret_value),
                 login_timeout=10,
+                **auth_kwargs(secret_value),
             )
         except Exception as exc:
-            raise _map_error(connector, exc) from exc
+            raise _map_error(connector, exc, keypair=is_private_key(secret_value)) from exc
 
     async def verify(self, params: dict[str, str], secret_value: str) -> DbIdentity:
         def _work() -> DbIdentity:  # pragma: no cover - nécessite le pilote
@@ -354,10 +370,17 @@ class SnowflakeEngine(DatabaseEngine):
         )
 
 
-def _map_error(connector: Any, exc: Exception) -> DbEngineError:  # pragma: no cover
+def _map_error(connector: Any, exc: Exception, *, keypair: bool = True) -> DbEngineError:
     message = str(exc).lower()
+    if "login timed out" in message:
+        # Le serveur répond mais ne conclut pas : typiquement la MFA d'un compte
+        # humain, qui attend la validation d'une notification. « Hôte
+        # injoignable » ferait chercher du côté du réseau, à tort.
+        return DbEngineError("db_login_timeout")
     if "incorrect username or password" in message or "jwt" in message or "key" in message:
-        return DbEngineError("db_key_rejected")
+        # Le même refus se lit « clé refusée » ou « identifiants refusés » selon
+        # la méthode employée : un mot de passe refusé n'a rien à voir avec une clé.
+        return DbEngineError("db_key_rejected" if keypair else "db_auth_failed")
     if "role" in message and "does not exist" in message:
         return DbEngineError("db_role_not_found")
     if "warehouse" in message and "does not exist" in message:
