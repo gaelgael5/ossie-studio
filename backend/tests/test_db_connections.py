@@ -178,6 +178,47 @@ def test_snowflake_mot_de_passe_refuse_n_est_pas_une_cle_refusee() -> None:
     assert _map_error(None, exc, keypair=True).code == "db_key_rejected"
 
 
+async def test_secret_verifie_a_la_creation(admin: AsyncClient, app: FastAPI) -> None:
+    # 0d575422 : la popup éprouve la connexion avant d'enregistrer le secret.
+    r = await admin.post(
+        "/api/secrets",
+        json={
+            "slug": "pg-ok", "label": "PG", "category": "postgres", "value": PG_PASSWORD,
+            "verify": {"engine": "postgres", "params": PG_PARAMS},
+        },
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["identity"] == "ossie"
+    assert r.json()["server_version"]
+
+
+async def test_secret_faux_non_enregistre_si_le_test_echoue(
+    admin: AsyncClient, app: FastAPI
+) -> None:
+    r = await admin.post(
+        "/api/secrets",
+        json={
+            "slug": "pg-ko", "label": "PG", "category": "postgres", "value": "mauvais",
+            "verify": {"engine": "postgres", "params": PG_PARAMS},
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "db_auth_failed"
+    assert await db_fetchval(app, "SELECT count(*) FROM secrets WHERE slug = 'pg-ko'") == 0
+
+
+async def test_secret_verify_moteur_incoherent_refuse(admin: AsyncClient) -> None:
+    r = await admin.post(
+        "/api/secrets",
+        json={
+            "slug": "pg-x", "label": "PG", "category": "postgres", "value": "x",
+            "verify": {"engine": "snowflake", "params": {}},
+        },
+    )
+    assert r.status_code == 400
+    assert r.json()["error"] == "db_connection_secret_invalid"
+
+
 # --- Menu des moteurs, suppression, 403 -------------------------------------
 
 async def test_menu_des_moteurs(admin: AsyncClient) -> None:

@@ -140,6 +140,7 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
     '/api/secrets?category=snowflake': {
       body: { secrets: [], categories: { snowflake: 'Snowflake' }, category_inputs: { snowflake: 'keyfile' } },
     },
+    'POST /api/secrets': { status: 201, body: { slug: 'sf-mdp', identity: 'AGENT', server_version: '9.1.0' } },
   })
   renderAt('/forges')
   await screen.findByText('Forges et connexions')
@@ -163,11 +164,16 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
   await userEvent.click(within(sfDialog).getByRole('button', { name: '+' }))
   expect(within(sfDialog).getByLabelText('Fichier de clé privée (facultatif)')).toBeInTheDocument()
   // Sans fichier de clé, un mot de passe (ou un jeton) suffit à créer le secret.
-  const create = within(sfDialog).getByRole('button', { name: 'Créer et sélectionner' })
+  const create = within(sfDialog).getByRole('button', { name: 'Tester et créer' })
   await userEvent.type(within(sfDialog).getAllByLabelText('Libellé')[1], 'SF mdp')
   expect(create).toBeDisabled()
   await userEvent.type(within(sfDialog).getByLabelText("Ou mot de passe / jeton d'accès programmatique"), 'pw')
   expect(create).toBeEnabled()
+  // Le secret est éprouvé avec les paramètres saisis avant d'être enregistré.
+  await userEvent.click(create)
+  expect(await within(sfDialog).findByText('Connexion réussie : AGENT — 9.1.0')).toBeInTheDocument()
+  const post = vi.mocked(fetch).mock.calls.find(([u, i]) => u === '/api/secrets' && i?.method === 'POST')
+  expect(JSON.parse(String(post?.[1]?.body)).verify).toEqual({ engine: 'snowflake', params: { account: '' } })
 })
 
 test('forges : une connexion se réédite, slug figé, valeurs reprises', async () => {

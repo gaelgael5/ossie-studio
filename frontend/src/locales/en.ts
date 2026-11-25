@@ -80,6 +80,8 @@ export const en = {
     noOidcSecret: 'No OIDC secret — create one with “+”',
     newSecretBlockTitle: 'New secret · oidc category',
     createAndSelect: 'Create and select',
+    testAndCreate: 'Test and create',
+    secretVerified: 'Connection succeeded: {{identity}} — {{version}}',
     deleteAlsoSecret: 'Also delete the secret (if nothing else uses it)',
     deleteConnectorReminder:
       '{{count}} linked account(s): not deleted, their identity is kept. The button disappears from the sign-in screen; local sign-in stays open.',

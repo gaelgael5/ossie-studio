@@ -81,6 +81,8 @@ export const fr = {
     noOidcSecret: 'Aucun secret OIDC — créez-en un avec « + »',
     newSecretBlockTitle: 'Nouveau secret · catégorie oidc',
     createAndSelect: 'Créer et sélectionner',
+    testAndCreate: 'Tester et créer',
+    secretVerified: 'Connexion réussie : {{identity}} — {{version}}',
     deleteAlsoSecret: 'Supprimer aussi le secret (s’il n’est utilisé par rien d’autre)',
     deleteConnectorReminder:
       '{{count}} compte(s) rattaché(s) : non supprimés, leur identité est conservée. Le bouton disparaît de l’écran de connexion ; la connexion locale reste ouverte.',

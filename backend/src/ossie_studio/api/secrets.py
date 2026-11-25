@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 from typing import Annotated
@@ -78,6 +79,38 @@ class SecretCreate(BaseModel):
     # Sans fichier, `value` (mot de passe ou jeton) est stockée à la place.
     key_file: str = ""
     passphrase: str = ""
+    # Facultatif : éprouver une connexion avec ce secret avant de l'enregistrer.
+    # En échec, rien n'est stocké — un secret faux ne doit pas survivre au test.
+    verify: SecretVerify | None = None
+
+
+async def _verified_identity(category: str, value: str, verify: SecretVerify) -> dict[str, str]:
+    from ossie_studio.databases.base import VERIFY_TIMEOUT_SECONDS, DbEngineError
+    from ossie_studio.databases.registry import get_engine, is_known_engine
+
+    if not is_known_engine(verify.engine):
+        raise ApiError("invalid_request", status_code=400, fields=["engine_invalid"])
+    engine = get_engine(verify.engine)
+    if engine.form_spec().secret_category != category:
+        raise ApiError("db_connection_secret_invalid", status_code=400)
+    try:
+        identity = await asyncio.wait_for(
+            engine.verify(dict(verify.params), value), timeout=VERIFY_TIMEOUT_SECONDS + 2
+        )
+    except DbEngineError as exc:
+        raise ApiError(exc.code, status_code=400) from None
+    except TimeoutError:
+        raise ApiError("db_host_unreachable", status_code=400) from None
+    return {"identity": identity.username, "server_version": identity.server_version}
+
+
+class SecretVerify(BaseModel):
+    """Connexion à éprouver avant d'enregistrer le secret (0d575422) : la popup
+    d'une connexion de base envoie le moteur et les paramètres déjà saisis."""
+
+    model_config = ConfigDict(extra="forbid")
+    engine: str = ""
+    params: dict[str, str] = {}
 
 
 class SecretValueBody(BaseModel):
@@ -131,6 +164,9 @@ async def create_secret(
     errors = validate_new_secret(slug, body.label, body.category, value)
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
+    verified: dict[str, str] = {}
+    if body.verify is not None:
+        verified = await _verified_identity(body.category, value, body.verify)
     try:
         # Jamais la valeur dans l'audit : le slug, le libellé et la catégorie.
         async with audited(
@@ -141,8 +177,8 @@ async def create_secret(
             )
     except SecretSlugTakenError:
         raise ApiError("secret_slug_taken", status_code=409, slug=slug) from None
-    log.info("secret_created", slug=slug, category=body.category)
-    return _payload(secret)
+    log.info("secret_created", slug=slug, category=body.category, verified=bool(verified))
+    return {**_payload(secret), **verified}
 
 
 @router.put("/{slug}/value")
