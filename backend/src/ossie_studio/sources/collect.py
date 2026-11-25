@@ -32,6 +32,7 @@ from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
 from ossie_studio.sources.jvm_modules import jvm_module_actions, read_jvm_projects
 from ossie_studio.sources.module_functions import sync_module_functions
 from ossie_studio.sources.module_views import sync_module_views
+from ossie_studio.sources.npm_modules import npm_module_actions, read_npm_projects
 from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
 from ossie_studio.sources.progress import CollectProgress
 from ossie_studio.sources.schema_resolve import (
@@ -355,7 +356,12 @@ class SourceCollector:
         jvm = await asyncio.to_thread(
             jvm_module_actions, raw_files, modules.writes, modules.deletes, jvm_projects
         )
-        for step in (modules, jvm):
+        # Paquets npm (`package.json`) : un objet module chacun (TypeScript / JavaScript).
+        npm_projects = await asyncio.to_thread(read_npm_projects, source_files)
+        npm = await asyncio.to_thread(
+            npm_module_actions, raw_files, jvm.writes, jvm.deletes, npm_projects
+        )
+        for step in (modules, jvm, npm):
             statuts.update(step.statuses)
             messages.update(step.errors)
             agg.added += step.added
@@ -363,7 +369,7 @@ class SourceCollector:
             agg.deleted += step.deleted
         # Les fonctions libres (minimal API…) vont dans le `.extend.yaml` de leur module.
         writes, deletes = await asyncio.to_thread(
-            sync_module_functions, raw_files, jvm.writes, jvm.deletes
+            sync_module_functions, raw_files, npm.writes, npm.deletes
         )
         writes, resolved = await asyncio.to_thread(
             resolve_source_schemas, raw_files, writes, deletes, source_files, projects

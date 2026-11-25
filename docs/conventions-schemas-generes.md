@@ -324,6 +324,35 @@ exécutés) :
   méthode, `route: null` pour une constante ou `${…}` ; `@Scheduled` → `task` ;
   `@KafkaListener` / `@RabbitListener` → `message` avec le sujet.
 
+### TypeScript : modules npm, méthodes, fonctions, points d'entrée NestJS et Express
+
+Ticket f619f4a7, sur le même modèle :
+
+- **modules** (étape du socle `sources/npm_modules.py`, écriture commune
+  `sources/project_modules.py`) : un par `package.json` hors `node_modules/` ; la
+  racine d'un monorepo (`workspaces`, `pnpm-workspace.yaml`, `lerna.json`) est un
+  agrégateur, pas un module, sauf si elle a son propre `src/`. Dépendances : les
+  noms des `dependencies` / `devDependencies` / `peerDependencies` /
+  `optionalDependencies` qui sont ceux d'un autre paquet de la source (les
+  paquets npm externes sont ignorés). Nature : framework serveur ou front dans
+  `dependencies` → `web`, script `start` ou `bin` → `application`, sinon
+  `library`. Langage `typescript` ou `javascript` ; cible `node20`… ;
+- **méthodes** (parseur `typescript` 1.2) des classes **exportées** : jamais
+  `private`, `#privées`, accesseurs ni constructeur ; `Promise<T>` → `T` et
+  `async` ; paramètre `?` ou avec valeur par défaut → `optional` ;
+- **fonctions exportées** (`export function`, `export const f = () => …`) et
+  **routes Express** : notées dans l'index `functions-typescript.yaml`, rangées
+  par le socle dans le `.extend.yaml` du module ; une route est nommée d'après son
+  gestionnaire, sinon « VERBE route » ;
+- **points d'entrée** : NestJS (`@Controller('commandes')` + `@Get(':id')` →
+  `GET /commandes/{id}` ; `@Cron` / `@Interval` / `@Timeout` → `task` ;
+  `@MessagePattern` / `@EventPattern` → `message`) ; Express et routeurs
+  semblables (`router.post('/paniers', creer)`) sur un objet nommé comme un
+  routeur ou créé par `express()`, `Router()`, `fastify()`, `new Hono()`… Les
+  `:id` deviennent `{id}` ; une route non littérale garde son point d'entrée avec
+  `route: null`. Le préfixe d'un `app.use('/api', router)` posé dans un autre
+  fichier n'est pas recomposé (limite connue).
+
 ### Projet SQL Server : module `sql`, procédures et fonctions
 
 Ticket 30c55418. Le parseur `sqlserver-projet` produit un **objet module** par
