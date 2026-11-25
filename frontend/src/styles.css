@@ -3255,6 +3255,44 @@ td.cell-error {
   text-decoration: underline;
   cursor: pointer;
 }
+.raw-app-edge[role='button'] {
+  cursor: pointer;
+}
+.raw-app-edge .raw-app-hit {
+  stroke: transparent;
+  stroke-width: 12;
+}
+.raw-app-edge.selected path:not(.raw-app-hit),
+.raw-app-edge[role='button']:focus-visible path:not(.raw-app-hit) {
+  stroke: var(--primary);
+  stroke-width: 2.6;
+}
+.raw-app-slot {
+  fill: var(--panel);
+  stroke: var(--primary);
+  stroke-width: 1.4;
+  cursor: pointer;
+}
+.raw-app-slot.current {
+  fill: var(--primary);
+}
+.raw-app-slot:focus-visible {
+  stroke-width: 3;
+}
+.raw-app-handle {
+  fill: var(--primary);
+  stroke: var(--panel);
+  stroke-width: 2;
+  cursor: grab;
+  touch-action: none;
+}
+.raw-app-link-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
 .raw-app-edge.contract path {
   stroke-dasharray: 3 4;
 }

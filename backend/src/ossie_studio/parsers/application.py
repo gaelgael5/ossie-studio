@@ -260,6 +260,30 @@ def view_links(text: str | None, links: Iterable[str]) -> dict[str, dict[str, An
     return {target: dict(stored.get(target) or DEFAULT_LINK) for target in sorted(set(links))}
 
 
+def custom_links(text: str | None) -> dict[str, dict[str, Any]]:
+    """Les liens du `.view.yaml` dont au moins une ancre a été choisie (pas
+    `auto`) ; rien pour un fichier absent ou illisible."""
+    stored = (_read_view(text) or {"links": {}})["links"]
+    return {
+        target: dict(entry) for target, entry in sorted(stored.items()) if entry != DEFAULT_LINK
+    }
+
+
+def set_view_link(text: str | None, target: str, link: Mapping[str, Any]) -> str | None:
+    """Change l'entrée d'**un seul** lien d'un `.view.yaml` (ticket a1fd0663) ; les
+    autres entrées restent telles quelles, le fichier n'est jamais régénéré.
+    Rend le nouveau texte, ou None si rien ne change. Lève ConventionError
+    (« view_invalid ») si le fichier est illisible (il n'est pas écrasé) ou si
+    l'entrée donnée est mal formée."""
+    current = _read_view(text)
+    if current is None:
+        raise ConventionError("view_invalid", "unreadable .view.yaml: fix it by hand first")
+    updated = {**current, "links": {**current["links"], target: dict(link)}}
+    validate_view(updated)
+    new_text = dump_schema(updated)
+    return None if text is not None and new_text == text else new_text
+
+
 def sync_view(text: str | None, links: Iterable[str]) -> str | None:
     """Met à jour un `.view.yaml` **par ajouts et suppressions**, jamais en le
     régénérant : entrées des liens disparus retirées, entrées des liens nouveaux

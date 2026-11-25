@@ -17,7 +17,7 @@ from typing import Any
 
 from ossie_studio.parsers.application import extend_file, key_of, module_of
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
-from ossie_studio.sources.explorer import ExplorerObject, SourceEntries
+from ossie_studio.sources.explorer import ExplorerObject, SourceEntries, anchor_value
 
 SQL_NATURE = "sql"
 
@@ -97,6 +97,11 @@ def application_view(entries: SourceEntries) -> dict[str, Any]:
                 ],
                 "dependents": sorted(dependents[key]),
                 "counts": _counts(mod, members[key]),
+                # Ancres choisies des liens partant du module (`.view`, a1fd0663).
+                "anchors": {
+                    target: {"from": anchor_value(start), "to": anchor_value(end)}
+                    for target, start, end in facts.anchors
+                },
             }
         )
     linked = _linked_operations(entries)

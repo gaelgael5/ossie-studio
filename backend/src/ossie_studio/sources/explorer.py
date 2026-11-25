@@ -30,6 +30,7 @@ from typing import Any
 
 import yaml
 
+from ossie_studio.parsers.application import custom_links
 from ossie_studio.parsers.conventions import (
     CODE_LANGUAGE_KEY,
     SCHEMA_SUFFIX,
@@ -58,7 +59,7 @@ GIT_SOURCE_TYPE = "git"
 # 9 : badges « nouveau » / « modifié » par rapport à la tête publiée (aad1d3c6).
 # 10 : schémas en YAML, `<clé>.schema.yaml` (ticket 5cc1cb07).
 # 13 : modules et compteurs de fonctions (cartographie applicative, 0fa620be).
-INDEX_FORMAT = "14"
+INDEX_FORMAT = "15"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -95,13 +96,44 @@ class SchemaRef:
 class ModuleFacts:
     """Ce que l'explorateur retient d'un objet module (cartographie applicative) :
     son fichier de projet, sa nature, ses cibles, ses dépendances
-    (`(projet, $id du module ou "")`, "" pour une dépendance externe)."""
+    (`(projet, $id du module ou "")`, "" pour une dépendance externe) et les
+    ancres choisies de ses liens, lues dans son `.view.yaml` (ticket a1fd0663) :
+    `(module d'arrivée, départ, arrivée)`, chaque ancre `auto` ou `côté:position`."""
 
     project: str
     nature: str
     language: str
     targets: tuple[str, ...] = ()
     dependencies: tuple[tuple[str, str], ...] = ()
+    anchors: tuple[tuple[str, str, str], ...] = ()
+
+
+def anchor_text(anchor: Any) -> str:
+    """Une ancre du `.view.yaml` en texte d'index : `auto` ou `côté:position`."""
+    if isinstance(anchor, dict):
+        return f"{anchor.get('side')}:{anchor.get('at')}"
+    return "auto"
+
+
+def anchor_value(text: str) -> Any:
+    """L'inverse d'`anchor_text` : `auto` ou `{side, at}`."""
+    side, sep, at = text.partition(":")
+    if not sep:
+        return "auto"
+    return {"side": side, "at": float(at)}
+
+
+def view_anchors(path: Path) -> tuple[tuple[str, str, str], ...]:
+    """Les ancres choisies des liens d'un module (son `.view.yaml`, absent ou
+    illisible : aucune)."""
+    try:
+        text = path.read_text(encoding="utf-8") if path.is_file() else None
+    except (OSError, UnicodeDecodeError):
+        return ()
+    return tuple(
+        (target, anchor_text(link.get("from")), anchor_text(link.get("to")))
+        for target, link in custom_links(text).items()
+    )
 
 
 @dataclass(frozen=True)
@@ -468,6 +500,16 @@ def _extend_name(schema_name: str) -> str:
     return f"{schema_name[: -len(SCHEMA_SUFFIX)]}.extend.yaml"
 
 
+def _view_name(schema_name: str) -> str:
+    """`module-x.schema.yaml` → `module-x.view.yaml` (ancres des liens du module)."""
+    return f"{schema_name[: -len(SCHEMA_SUFFIX)]}.view.yaml"
+
+
+def _with_anchors(module: ModuleFacts | None, view: Path) -> ModuleFacts | None:
+    """Les faits d'un module complétés des ancres de son `.view.yaml`."""
+    return replace(module, anchors=view_anchors(view)) if module else None
+
+
 def extend_counts(path: Path) -> FunctionCounts:
     """Compteurs du `.extend.yaml` d'un objet (absent : zéro), relus seulement
     si le fichier a changé."""
@@ -829,6 +871,7 @@ class SourceEntries:
                         o.module.language,
                         list(o.module.targets),
                         [list(d) for d in o.module.dependencies],
+                        [list(a) for a in o.module.anchors],
                     ]
                     if o.module
                     else None,
@@ -901,6 +944,7 @@ class SourceEntries:
                         o[21][2],
                         tuple(o[21][3]),
                         tuple((d[0], d[1]) for d in o[21][4]),
+                        tuple((a[0], a[1], a[2]) for a in o[21][5]) if len(o[21]) > 5 else (),
                     )
                     if len(o) > 21 and o[21]
                     else None,
@@ -989,7 +1033,7 @@ def collect_source_entries(
                 top_fields=summary.top_fields,
                 namespace=summary.namespace,
                 facts=ObjectFacts(summary.annotations, summary.field_names, summary.field_types),
-                module=summary.module,
+                module=_with_anchors(summary.module, raw_dir / _view_name(path.name)),
                 functions=extend_counts(raw_dir / _extend_name(path.name)),
             )
         )

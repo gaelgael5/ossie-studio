@@ -465,6 +465,13 @@ export interface RawTreeModule {
 }
 
 /** Un module de la vue « Application » (ticket 0fa620be). */
+/** Ancre d'un lien de la vue « Application » : calculée (`auto`) ou choisie. */
+export type RawAnchor = 'auto' | { side: 'top' | 'right' | 'bottom' | 'left'; at: number }
+export interface RawLinkAnchors {
+  from: RawAnchor
+  to: RawAnchor
+}
+
 export interface RawAppModule {
   id: string
   file: string
@@ -478,6 +485,8 @@ export interface RawAppModule {
   dependents: string[]
   /** linked : points d'entrée reliés à une opération d'un contrat de la source. */
   counts: { classes: number; entry_points: number; http: number; methods: number; functions: number; linked?: number }
+  /** Ancres choisies des liens partant du module (fichier `.view`), par module d'arrivée. */
+  anchors?: Record<string, RawLinkAnchors>
 }
 
 export interface RawApplication {
@@ -1846,6 +1855,17 @@ export const api = {
   /** Vue « Application » d'une source : modules, dépendances, compteurs, contrats. */
   getRawApplication: (spaceId: string, branchId: string, slug: string) =>
     apiFetch<RawApplication>(`/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/application`),
+  /** Ancres d'un lien de la vue « Application » (`.view` du module de départ, brouillon). */
+  setRawModuleLink: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    body: { module: string; target: string } & RawLinkAnchors,
+  ) =>
+    apiFetch<{ module: string; target: string } & RawLinkAnchors>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/module/link`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
   /** Aperçu d'un module : points d'entrée et méthodes publiques par classe. */
   getRawModule: (spaceId: string, branchId: string, slug: string, file: string) =>
     apiFetch<RawModuleDetail>(

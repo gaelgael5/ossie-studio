@@ -9,21 +9,27 @@ la tête publiée de la branche ou le brouillon de l'utilisateur a changé.
 Accès : capacité `sources:read` — l'explorateur est un onglet de la page
 « Sources » et ne fait que lire ce que cette page déclare et collecte ; une
 capacité distincte n'apporterait rien tant qu'il ne modifie rien.
+
+Une seule écriture (ticket a1fd0663) : l'ancre d'un lien de la vue
+« Application », dans le `.view.yaml` du module de départ, dans le brouillon de
+la personne — capacité `sources:collect` (celle qui produit raw).
 """
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import asdict
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.classification_rules import ClassificationRuleBody
 from ossie_studio.api.classification_rules import parse_body as parse_classification_body
-from ossie_studio.api.common import SourcesRead
+from ossie_studio.api.common import SourcesCollect, SourcesRead
 from ossie_studio.api.tag_rules import TagRuleBody
 from ossie_studio.connections.service import db_get_connection_by_slug
 from ossie_studio.crypto import CryptoService
@@ -37,8 +43,9 @@ from ossie_studio.governance.classification_rules import (
     parse_classification_removals,
 )
 from ossie_studio.governance.tag_rules import parse_rule
+from ossie_studio.parsers.application import key_of, set_view_link, view_file
 from ossie_studio.parsers.base import STATUT_ERREUR
-from ossie_studio.parsers.conventions import SchemaReadError, load_schema
+from ossie_studio.parsers.conventions import ConventionError, SchemaReadError, load_schema
 from ossie_studio.parsers.openapi import OpenApiError, load_document, schema_files_of
 from ossie_studio.parsers.openapi_full import CONTRACTS_DIR, readable_contract
 from ossie_studio.sources.curation import is_schema_file
@@ -780,6 +787,87 @@ async def get_explorer_application(
     if entries is None:
         raise ApiError("source_not_found", status_code=404, slug=slug)
     return application_view(entries)
+
+
+class AnchorBody(BaseModel):
+    """Une ancre choisie : le côté du bloc et la position le long de ce côté."""
+
+    model_config = ConfigDict(extra="forbid")
+    side: Literal["top", "right", "bottom", "left"]
+    at: float = Field(ge=0, le=1)
+
+
+class LinkAnchorsBody(BaseModel):
+    """Les deux ancres d'un lien (`auto` = calculée par la vue)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    module: str  # fichier du module de départ
+    target: str  # `$id` du module d'arrivée
+    start: AnchorBody | Literal["auto"] = Field(alias="from")
+    end: AnchorBody | Literal["auto"] = Field(alias="to")
+
+
+def _anchor(value: AnchorBody | Literal["auto"]) -> object:
+    return value if value == "auto" else value.model_dump()
+
+
+@router.put("/{slug}/module/link")
+async def put_module_link(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: SourcesCollect,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: LinkAnchorsBody,
+) -> dict[str, object]:
+    """Ancres d'un lien de la vue « Application » (ticket a1fd0663) : écrites dans
+    le `.view.yaml` du module de départ, dans le brouillon de la personne ; seule
+    l'entrée de ce lien change. `auto` aux deux bouts = ancre calculée."""
+    if not is_valid_source_slug(slug) or not is_schema_file(body.module):
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=body.module)
+    key, branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    entries = await db_get_source_entries(conn, key, slug)
+    module = next(
+        (o for o in (entries.objects if entries else []) if o.file == body.module and o.module),
+        None,
+    )
+    if module is None or module.module is None:
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=body.module)
+    if body.target not in {target for _project, target in module.module.dependencies if target}:
+        raise ApiError("module_link_not_found", status_code=404, target=body.target)
+    path = f"sources/{slug}/raw/{view_file(key_of(body.module))}"
+    link = {"from": _anchor(body.start), "to": _anchor(body.end)}
+    written: list[str] = []
+
+    def write(root: Path) -> None:
+        file = root / path
+        text = file.read_text(encoding="utf-8") if file.is_file() else None
+        updated = set_view_link(text, body.target, link)
+        if updated is not None:
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(updated, encoding="utf-8")
+            written.append(updated)
+
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        await workdir.commit_to_branch(
+            space.id,
+            branch_ref,
+            space.repo_url,
+            username,
+            token,
+            user.email,
+            user.email,
+            f"vue Application : ancres du lien {module.title} → {body.target}",
+            write,
+        )
+    except ConventionError:
+        raise ApiError("view_unreadable", status_code=409, file=path) from None
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    return {"module": body.module, "target": body.target, **link}
 
 
 @router.get("/{slug}/module")

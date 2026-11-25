@@ -8,6 +8,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 ## Décisions de Gael (25 novembre)
 
+- Plan du ticket 7 (déplacer les ancres, a1fd0663) validé (« continue ») avec deux ajustements proposés : (1) les poignées s'affichent pour qui a `sources:collect`, quelle que soit la branche — le critère 6 « branche racine en lecture seule » est dépassé par la règle du bug e7deb2b9 (on écrit dans le brouillon de la personne, racine comprise) ; (2) « remettre l'ancre calculée » remet l'entrée à `auto` aux deux bouts au lieu de la supprimer (sinon la collecte la recréerait et le critère 3 tomberait).
 - Plan du ticket 5 (projet SQL Server comme module) validé (« oui go ») ; une procédure mal formée est signalée **dans le compte rendu de collecte et dans le journal** (« 1. oui »).
 - Plan du ticket 4 (lien au contrat OpenAPI) validé (« Oui go »).
 - Plan du ticket 8 (primitives MCP) validé (« Oui go »).
@@ -27,7 +28,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | 90ed0967 — Relier les points d'entrée au contrat OpenAPI | En review |
 | 30c55418 — Projet SQL Server comme module | En review |
 | 0fa620be — Explorateur raw : objets module et vue « Application » | En review |
-| a1fd0663 — Déplacer les ancres des connecteurs (`.view`) | Prêt pour dev |
+| a1fd0663 — Déplacer les ancres des connecteurs (`.view`) | En review |
 | 72ce32b3 — Primitives MCP : modules, fonctions, points d'entrée | En review |
 | e34e5c29 / f619f4a7 / 3343afe4 — Kotlin-Java / TypeScript / Python | Prêt pour dev |
 | 3191b4a4 — Clôture (avec Gael, jamais seul) | — |
@@ -100,3 +101,11 @@ Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les au
 - Schémas des tables et des vues : identiques octet pour octet à la version précédente du parseur (comparaison faite sur le projet de test : 11 schémas identiques, seul le module s'ajoute).
 - Aperçu d'un module (`module_detail`) : `functions` (fonctions propres du module, avec signature) ; écran « Procédures et fonctions · n » pour un projet SQL (« Fonctions du module · n » sinon), section « Méthodes publiques » masquée quand un projet SQL n'en a pas.
 - Tests : `backend/tests/test_sqlserver_modules.py` (critères 1 à 3, `ProjectReference`, exemple des conventions, collecte de bout en bout : fonctions rangées, onze objets rattachés, incrémental, procédures retirées), `test_sqlserver_project.py` (version, sorties), `test_explorer_application.py`, `RawApplication.test.tsx`.
+
+## Notes techniques (ancres des liens, a1fd0663)
+
+- Index de l'Explorateur (format **15**) : `ModuleFacts.anchors` — ancres choisies des liens du module, lues dans son `.view.yaml` (`explorer.view_anchors`, `parsers.application.custom_links` : seuls les liens dont une ancre n'est pas `auto`). Une écriture du `.view` change la signature de raw, donc reconstruit l'index. La vue « Application » rend `anchors` par module (`{module d'arrivée: {from, to}}`), toujours sans relire la branche.
+- Écriture : `PUT …/raw-explorer/{source}/module/link` (`module`, `target`, `from`, `to` ; ancre `auto` ou `{side, at}`, `at` entre 0 et 1), capacité `sources:collect`, dans le brouillon de la personne (`commit_to_branch`) ; `parsers.application.set_view_link` ne change que l'entrée du lien (fichier absent : créé avec cette entrée ; illisible : refus `view_unreadable`, 409, jamais écrasé). Lien que le module n'a pas : `module_link_not_found` (404).
+- Écran (`pages/RawApplication.tsx`) : géométrie exportée (`ANCHOR_SLOTS` — milieu de chaque côté et deux points de plus en haut et en bas —, `anchorPoint`, `autoAnchors`, `linkAnchors`, `linkPath` : même tracé qu'avant pour les ancres calculées). Clic sur un lien → mis en avant, barre « Lien A → B » ; avec le droit : poignées aux extrémités (glisser, capture à 18 px d'une ancre du même bloc, sinon retour), ancres en petits cercles (cliquables, clavier compris), bouton « Ancre calculée ». Rendu immédiat (choix gardé jusqu'au rechargement de la vue), annulé si l'écriture échoue. Échap ou clic dans le vide : désélection. Blocs fixes.
+- Collecte : inchangée — `sync_module_views` garde les ancres, retire l'entrée d'un lien disparu (testé avec des ancres choisies).
+- Tests : `backend/tests/test_module_anchors.py` (critères 1 à 6, erreurs, une seule entrée change) ; `RawApplication.test.tsx` (géométrie, ancre appliquée à l'ouverture, clic sur une ancre, retour à l'ancre calculée, glisser-lâcher avec géométrie SVG simulée, sans droit). Pas encore vérifié dans un vrai navigateur.

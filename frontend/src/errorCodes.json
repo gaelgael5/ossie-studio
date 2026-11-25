@@ -110,6 +110,8 @@
   "raw_explorer_mode_invalid",
   "raw_explorer_folder_not_found",
   "raw_explorer_object_not_found",
+  "module_link_not_found",
+  "view_unreadable",
   "asset_not_retained",
   "classification_unknown_level",
   "classification_unknown_scheme",

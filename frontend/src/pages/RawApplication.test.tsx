@@ -1,9 +1,19 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RawAppModule, RawApplication as RawApplicationData } from '../apiClient'
-import { BLOCK_H, BLOCK_W, RawApplication, applicationLayout, contractId } from './RawApplication'
+import {
+  BLOCK_H,
+  BLOCK_W,
+  RawApplication,
+  anchorPoint,
+  applicationLayout,
+  autoAnchors,
+  contractId,
+  linkAnchors,
+  linkPath,
+} from './RawApplication'
 import { RawModulePreview } from './RawModulePreview'
 
 function mod(title: string, nature: string, deps: string[] = []): RawAppModule {
@@ -184,5 +194,161 @@ describe('Aperçu d’un projet SQL (ticket 30c55418)', () => {
     expect(await screen.findByText('Procédures et fonctions · 2')).toBeInTheDocument()
     expect(screen.getByText(/dbo\.Total\(@CommandeId: INT\): DECIMAL\(18,2\)/)).toBeInTheDocument()
     expect(screen.queryByText(/Méthodes publiques/)).not.toBeInTheDocument()
+  })
+})
+
+describe('Ancres des liens (ticket a1fd0663)', () => {
+  const layout = applicationLayout(APP)
+  const api = at(layout, 'Api')
+  const domain = at(layout, 'Domain')
+  const end = (d: string) => d.trim().split(' ').at(-1)!.split(',').map(Number)
+
+  it('ancres calculées : du côté droit au côté gauche, même tracé qu’avant', () => {
+    const [a, b] = autoAnchors(api, domain)
+    expect([a.side, b.side]).toEqual(['right', 'left'])
+    const p1 = anchorPoint(api, a)
+    const p2 = anchorPoint(domain, b)
+    const mid = (p1.x + p2.x) / 2
+    expect(linkPath(p1, a.side, p2, b.side)).toBe(`M${p1.x},${p1.y} C${mid},${p1.y} ${mid},${p2.y} ${p2.x},${p2.y}`)
+    // Une ancre choisie remplace la seule extrémité concernée.
+    expect(linkAnchors(api, domain, { from: 'auto', to: { side: 'top', at: 0.5 } })).toEqual([
+      { side: 'right', at: 0.5 },
+      { side: 'top', at: 0.5 },
+    ])
+  })
+
+  function routes(app: RawApplicationData, capabilities: string[]) {
+    return vi.fn((url: string, init?: { method?: string; body?: string }) => {
+      if (url.includes('/api/session')) return ok({ authenticated: true, bootstrap_required: false, user: null, capabilities })
+      if (init?.method === 'PUT') return ok(JSON.parse(init.body ?? '{}'))
+      return ok(app)
+    })
+  }
+  const edgePath = () =>
+    screen.getByRole('button', { name: 'Lien Api → Domain' }).querySelector('path:not(.raw-app-hit)')!.getAttribute('d')!
+
+  it('à l’ouverture, l’ancre enregistrée est appliquée', async () => {
+    const withAnchor = {
+      ...APP,
+      modules: APP.modules.map((m) =>
+        m.title === 'Api' ? { ...m, anchors: { [domain.id]: { from: 'auto' as const, to: { side: 'top' as const, at: 0.5 } } } } : m,
+      ),
+    }
+    vi.stubGlobal('fetch', routes(withAnchor, []))
+    wrap(<RawApplication spaceId="s1" branchId="b1" slug="app" selected="" onSelect={() => {}} onOpenClasses={() => {}} />)
+    await screen.findByRole('button', { name: 'Lien Api → Domain' })
+    const top = anchorPoint(domain, { side: 'top', at: 0.5 })
+    expect(end(edgePath())).toEqual([top.x, top.y])
+  })
+
+  it('clic sur un lien, puis sur une ancre : rendu immédiat et écriture ; retour à l’ancre calculée', async () => {
+    const fetch = routes(APP, ['sources:read', 'sources:collect'])
+    vi.stubGlobal('fetch', fetch)
+    wrap(<RawApplication spaceId="s1" branchId="b1" slug="app" selected="" onSelect={() => {}} onOpenClasses={() => {}} />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Lien Api → Domain' }))
+    expect(screen.getByRole('button', { name: 'Lien Api → Domain' })).toHaveAttribute('aria-pressed', 'true')
+    // Les ancres des deux blocs, la courante marquée.
+    expect(screen.getByRole('button', { name: 'Ancre gauche 50 % de Domain' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getAllByRole('button', { name: /^Ancre .* de (Api|Domain)$/ })).toHaveLength(16)
+    expect(screen.getByRole('button', { name: 'Ancre calculée' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Ancre haut 50 % de Domain' }))
+    const top = anchorPoint(domain, { side: 'top', at: 0.5 })
+    expect(end(edgePath())).toEqual([top.x, top.y])
+    const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')!
+    expect(put[0]).toContain('/raw-explorer/app/module/link')
+    expect(JSON.parse(put[1]!.body!)).toEqual({
+      module: 'module-api.schema.yaml',
+      target: 'module-domain.schema.yaml',
+      from: 'auto',
+      to: { side: 'top', at: 0.5 },
+    })
+  })
+
+  it('remettre l’ancre calculée écrit auto aux deux bouts', async () => {
+    const withAnchor = {
+      ...APP,
+      modules: APP.modules.map((m) =>
+        m.title === 'Api' ? { ...m, anchors: { [domain.id]: { from: { side: 'bottom' as const, at: 0.25 }, to: 'auto' as const } } } : m,
+      ),
+    }
+    const fetch = routes(withAnchor, ['sources:collect'])
+    vi.stubGlobal('fetch', fetch)
+    wrap(<RawApplication spaceId="s1" branchId="b1" slug="app" selected="" onSelect={() => {}} onOpenClasses={() => {}} />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Lien Api → Domain' }))
+    await user.click(screen.getByRole('button', { name: 'Ancre calculée' }))
+    const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')!
+    expect(JSON.parse(put[1]!.body!)).toMatchObject({ from: 'auto', to: 'auto' })
+    const left = anchorPoint(domain, { side: 'left', at: 0.5 })
+    expect(end(edgePath())).toEqual([left.x, left.y])
+  })
+
+  it('sans le droit de collecter : le lien se sélectionne, sans poignée ni ancre', async () => {
+    vi.stubGlobal('fetch', routes(APP, ['sources:read']))
+    wrap(<RawApplication spaceId="s1" branchId="b1" slug="app" selected="" onSelect={() => {}} onOpenClasses={() => {}} />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Lien Api → Domain' }))
+    expect(screen.getByRole('group', { name: 'Lien Api → Domain' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Ancre / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ancre calculée' })).not.toBeInTheDocument()
+  })
+})
+
+describe('Glisser une poignée (ticket a1fd0663)', () => {
+  // jsdom ne calcule pas la géométrie SVG : écran et dessin coïncident (zoom 1).
+  const identity = { inverse: () => identity }
+  beforeEach(() => {
+    // jsdom n'a pas PointerEvent : sans lui, les coordonnées du pointeur sont perdues.
+    class PointerEventShim extends MouseEvent {
+      pointerId: number
+      constructor(type: string, init: PointerEventInit = {}) {
+        super(type, init)
+        this.pointerId = init.pointerId ?? 0
+      }
+    }
+    vi.stubGlobal('PointerEvent', PointerEventShim)
+    Object.assign(SVGSVGElement.prototype, {
+      getScreenCTM: () => identity,
+      createSVGPoint: () => ({ x: 0, y: 0, matrixTransform(this: { x: number; y: number }) { return { x: this.x, y: this.y } } }),
+      setPointerCapture: () => {},
+    })
+  })
+
+  function routes(capabilities: string[]) {
+    return vi.fn((url: string, init?: { method?: string; body?: string }) => {
+      if (url.includes('/api/session')) return ok({ authenticated: true, bootstrap_required: false, user: null, capabilities })
+      if (init?.method === 'PUT') return ok(JSON.parse(init.body ?? '{}'))
+      return ok(APP)
+    })
+  }
+
+  it('lâchée sur une ancre du même bloc, la poignée s’y accroche ; ailleurs, retour', async () => {
+    const fetch = routes(['sources:collect'])
+    vi.stubGlobal('fetch', fetch)
+    wrap(<RawApplication spaceId="s1" branchId="b1" slug="app" selected="" onSelect={() => {}} onOpenClasses={() => {}} />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Lien Api → Domain' }))
+    const layout = applicationLayout(APP)
+    const domain = at(layout, 'Domain')
+    const svg = screen.getByRole('img', { name: /./ })
+    const handle = () => screen.getByLabelText(/^Arrivée du lien/)
+    const left = anchorPoint(domain, { side: 'left', at: 0.5 })
+    // Lâchée loin de toute ancre : rien n'est écrit.
+    fireEvent.pointerDown(handle(), { clientX: left.x, clientY: left.y, pointerId: 1 })
+    fireEvent.pointerMove(svg, { clientX: left.x + 60, clientY: left.y + 200, pointerId: 1 })
+    fireEvent.pointerUp(svg, { clientX: left.x + 60, clientY: left.y + 200, pointerId: 1 })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(fetch.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
+    // Lâchée près de l'ancre bas-droite de Domain : elle s'y accroche.
+    const target = anchorPoint(domain, { side: 'bottom', at: 0.75 })
+    fireEvent.pointerDown(handle(), { clientX: left.x, clientY: left.y, pointerId: 1 })
+    fireEvent.pointerMove(svg, { clientX: target.x + 5, clientY: target.y + 4, pointerId: 1 })
+    fireEvent.pointerUp(svg, { clientX: target.x + 5, clientY: target.y + 4, pointerId: 1 })
+    await waitFor(() => expect(fetch.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(true))
+    const put = fetch.mock.calls.find(([, init]) => init?.method === 'PUT')!
+    expect(JSON.parse(put[1]!.body!)).toMatchObject({ from: 'auto', to: { side: 'bottom', at: 0.75 } })
+    // Le lien reste sélectionné (le lâcher ne désélectionne pas).
+    expect(screen.getByRole('button', { name: 'Lien Api → Domain' })).toHaveAttribute('aria-pressed', 'true')
   })
 })

@@ -370,7 +370,11 @@ links:
   gardées telles quelles ; le `.view` d'un module disparu est retiré avec lui ;
   un `.view` illisible n'est jamais écrasé ;
 - un `.view` absent n'empêche rien : la vue prend les valeurs par défaut ;
-- écrit dans le brouillon de la personne quand elle déplace une ancre à l'écran.
+- écrit dans le brouillon de la personne quand elle déplace une ancre à l'écran
+  (ticket a1fd0663, capacité `sources:collect`) : **seule l'entrée du lien
+  change** ; « Ancre calculée » remet l'entrée à `from: auto, to: auto` (elle
+  n'est pas supprimée : la collecte suivante la recréerait et changerait le
+  fichier).
 
 ## Exception : `raw/docs/`
 
