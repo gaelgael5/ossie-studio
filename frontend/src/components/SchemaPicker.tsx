@@ -1,41 +1,55 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
+import { BusyButton } from './BusyButton'
 
 // Liste déroulante à cocher des schémas d'une source base (eebe6994), lue
 // depuis la base avec le secret de la connexion. Aucune case cochée = tous les
 // schémas : c'est le sens du manifeste sans clé `schemas`, qu'on ne change pas.
 // Si la lecture échoue (droits, base injoignable), on retombe sur la saisie
 // libre : la déclaration de la source ne doit jamais en dépendre.
+//
+// Lecture À LA DEMANDE (89752930) : une lecture pendant la frappe ouvrait une
+// session par pause de saisie (« DP », « D », « DB_ »…), donc une notification
+// de double authentification à chaque fois. Seul le bouton « Rafraîchir » lit
+// la base, plus une lecture unique à l'ouverture d'une source déjà déclarée.
 export function SchemaPicker({
   connectionId,
   database,
   value,
   onChange,
+  autoLoad = false,
 }: {
   connectionId: string
   database: string
   value: string[]
   onChange: (next: string[]) => void
+  autoLoad?: boolean
 }) {
   const { t } = useTranslation()
   const [filter, setFilter] = useState('')
-  // La base se tape lettre à lettre : on attend une pause avant d'interroger
-  // la base, sinon chaque frappe ouvrirait une connexion.
-  const [db, setDb] = useState(database)
+  // Dernière demande : la base lue et un compteur, pour qu'un nouveau clic
+  // relise vraiment la base même si elle n'a pas changé.
+  const [request, setRequest] = useState<{ db: string; n: number } | null>(null)
+  const ready = !!connectionId && !!database.trim()
+  const refresh = () => setRequest((r) => ({ db: database.trim(), n: (r?.n ?? 0) + 1 }))
+
+  const autoDone = useRef(false)
   useEffect(() => {
-    const id = setTimeout(() => setDb(database), 600)
-    return () => clearTimeout(id)
-  }, [database])
+    if (autoLoad && ready && !autoDone.current) {
+      autoDone.current = true
+      setRequest({ db: database.trim(), n: 1 })
+    }
+  }, [autoLoad, ready, database])
 
   const schemas = useQuery({
-    queryKey: ['db-schemas', connectionId, db],
-    queryFn: () => api.listDbSchemas(connectionId, db),
-    enabled: !!connectionId && !!db.trim(),
+    queryKey: ['db-schemas', connectionId, request?.db, request?.n],
+    queryFn: () => api.listDbSchemas(connectionId, request!.db),
+    enabled: !!connectionId && !!request,
     retry: false,
-    staleTime: 60_000,
+    staleTime: Infinity,
   })
 
   // Texte gardé tel que tapé : le reconstruire depuis la liste ferait
@@ -52,20 +66,65 @@ export function SchemaPicker({
       }}
     />
   )
-  if (!connectionId || !db.trim()) return <span className="muted small">{t('schemaPickerNeedsBase')}</span>
-  if (schemas.isPending) return <span className="muted small">{t('schemaPickerLoading')}</span>
-  if (schemas.isError) {
-    return (
-      <div className="stack">
+  const loading = !!request && schemas.isFetching
+  const refreshButton = (
+    <BusyButton
+      type="button"
+      className="btn btn-sm"
+      busy={loading}
+      busyText={t('schemaPickerLoading')}
+      disabled={!ready}
+      onClick={refresh}
+    >
+      ↻ {t('schemaPickerRefresh')}
+    </BusyButton>
+  )
+
+  let body
+  if (!request || (schemas.isPending && !schemas.isFetching)) {
+    body = (
+      <>
+        <span className="muted small">{ready ? t('schemaPickerHint') : t('schemaPickerNeedsBase')}</span>
+        {freeText}
+      </>
+    )
+  } else if (schemas.isPending) {
+    body = <span className="muted small">{t('schemaPickerLoading')}</span>
+  } else if (schemas.isError) {
+    body = (
+      <>
         <span className="field-hint text-warn">
           {t('schemaPickerFailed', { cause: errorMessages(t, schemas.error).join(' ') })}
         </span>
         {freeText}
-      </div>
+      </>
     )
+  } else {
+    body = <SchemaList found={schemas.data.schemas} value={value} onChange={onChange} filter={filter} setFilter={setFilter} />
   }
 
-  const found = schemas.data.schemas
+  return (
+    <div className="stack">
+      <div>{refreshButton}</div>
+      {body}
+    </div>
+  )
+}
+
+function SchemaList({
+  found,
+  value,
+  onChange,
+  filter,
+  setFilter,
+}: {
+  found: { name: string; tables: number }[]
+  value: string[]
+  onChange: (next: string[]) => void
+  filter: string
+  setFilter: (f: string) => void
+}) {
+  const { t } = useTranslation()
   const known = new Set(found.map((s) => s.name))
   // Un schéma déclaré que la base ne rend plus reste coché, signalé introuvable :
   // le décocher en silence changerait le manifeste sans que la personne le voie.

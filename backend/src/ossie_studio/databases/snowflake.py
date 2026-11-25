@@ -289,6 +289,8 @@ class SnowflakeEngine(DatabaseEngine):
                     "ORDER BY TABLE_SCHEMA, TABLE_NAME"
                 )
                 rows = cur.fetchall()
+            except Exception as exc:
+                raise _query_error(exc) from exc
             finally:
                 cn.close()
             return [DbTable(schema=str(r[0]), name=str(r[1])) for r in rows]
@@ -364,20 +366,20 @@ class SnowflakeEngine(DatabaseEngine):
                     {"schema": r.get("schema_name"), "table": r.get("table_name"),
                      "column": r.get("column_name"), "seq": r.get("key_sequence", 0),
                      "constraint": r.get("constraint_name")}
-                    for r in safe("SHOW PRIMARY KEYS", "primary_keys")
+                    for r in safe("SHOW PRIMARY KEYS IN DATABASE", "primary_keys")
                 ]
                 uqs = [
                     {"schema": r.get("schema_name"), "table": r.get("table_name"),
                      "column": r.get("column_name"), "seq": r.get("key_sequence", 0),
                      "constraint": r.get("constraint_name")}
-                    for r in safe("SHOW UNIQUE KEYS", "unique_keys")
+                    for r in safe("SHOW UNIQUE KEYS IN DATABASE", "unique_keys")
                 ]
                 fks = [
                     {"schema": r.get("fk_schema_name"), "table": r.get("fk_table_name"),
                      "column": r.get("fk_column_name"), "ref_schema": r.get("pk_schema_name"),
                      "ref_table": r.get("pk_table_name"), "ref_column": r.get("pk_column_name"),
                      "seq": r.get("key_sequence", 0), "fk_name": r.get("fk_name")}
-                    for r in safe("SHOW IMPORTED KEYS", "foreign_keys")
+                    for r in safe("SHOW IMPORTED KEYS IN DATABASE", "foreign_keys")
                 ]
                 deps = [
                     {"schema": r.get("referencing_schema_name"),
@@ -403,6 +405,13 @@ class SnowflakeEngine(DatabaseEngine):
                     "AND domain IN ('DATABASE', 'SCHEMA', 'TABLE', 'COLUMN')",
                     "tags",
                 )
+            except DbEngineError:
+                raise
+            except Exception as exc:
+                # Tables et colonnes sont indispensables (les autres lectures
+                # passent par `safe`) : leur échec arrête la collecte, avec un
+                # code traduit plutôt qu'une erreur 500 (89752930).
+                raise _query_error(exc) from exc
             finally:
                 cn.close()
             return build_catalog(
@@ -428,6 +437,17 @@ class SnowflakeEngine(DatabaseEngine):
                 DbFormField("database", "text", required=False),
             ),
         )
+
+
+def _query_error(exc: Exception) -> DbEngineError:
+    """Échec d'une requête après une connexion réussie. Snowflake ouvre la
+    session même si la base demandée n'existe pas ou n'est pas accessible : c'est
+    la première requête qui échoue (090105 « no current database », 002003
+    « does not exist or not authorized »)."""
+    message = str(exc).lower()
+    if "current database" in message or "does not exist or not authorized" in message:
+        return DbEngineError("db_not_found")
+    return DbEngineError("db_query_failed")
 
 
 def _map_error(connector: Any, exc: Exception, *, keypair: bool = True) -> DbEngineError:

@@ -95,6 +95,7 @@ ERROR_CODES: tuple[str, ...] = (
     "db_host_unreachable",
     "db_auth_failed",
     "db_not_found",
+    "db_query_failed",
     "db_role_not_found",
     "db_warehouse_not_found",
     "db_key_rejected",

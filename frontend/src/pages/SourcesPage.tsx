@@ -1000,7 +1000,7 @@ function SqlSourceModal({
               <label className="field-label" htmlFor="s-schemas">
                 {t('fieldSchemas')}
               </label>
-              <SchemaPicker connectionId={connectionId} database={database} value={schemas} onChange={setSchemas} />
+              <SchemaPicker connectionId={connectionId} database={database} value={schemas} onChange={setSchemas} autoLoad={editMode} />
             </div>
             <div className="field">
               <label className="field-label" htmlFor="s-excl">
