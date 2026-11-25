@@ -329,6 +329,28 @@ describe('CurationPage', () => {
     )
   })
 
+  it('valeur posée par règle : la retirer (droit gouvernance, ticket 77ce0d79)', async () => {
+    const calls = mockApi(['curation:read', 'curation:write', 'governance:write'])
+    const user = userEvent.setup()
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml&tab=governance')
+    await user.click(await screen.findByRole('button', { name: 'Retirer la valeur posée par règle sur Client (Classification)' }))
+    await waitFor(() => expect(calls.some((c) => c.path.endsWith('/governance/classification-removals'))).toBe(true))
+    const sent = calls.find((c) => c.path.endsWith('/governance/classification-removals'))!
+    expect(JSON.parse(sent.body!)).toMatchObject({
+      object: 'api-boutique/commande.schema.yaml',
+      field: 'Client',
+      scheme: 'classification',
+      rule: 'clients',
+    })
+  })
+
+  it('valeur posée par règle : sans droit gouvernance, pas de « Retirer »', async () => {
+    mockApi()
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml&tab=governance')
+    expect(await screen.findByText('par règle')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Retirer la valeur posée par règle/ })).not.toBeInTheDocument()
+  })
+
   it('filtre par niveau : un asset apparaît si l’un de ses niveaux (champs compris) correspond', async () => {
     mockApi()
     const user = userEvent.setup()

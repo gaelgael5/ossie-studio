@@ -137,3 +137,62 @@ async def test_report_sur_l_asset_declaration_et_regle_desactivee(sp: ApiSpace) 
     assert _field(data, "Email")["values"] == {"gdpr": ["Non personnelle"]}
     assert _field(data, "customer_email")["values"] == {}
     assert data["governance"]["object"][0]["values"] == ["Non personnelle"]
+
+
+# --- Ticket 77ce0d79 : retrait mémorisé --------------------------------------------
+
+
+async def _explorer_classes(sp: ApiSpace) -> dict[str, list[dict[str, Any]]]:
+    r = await sp.client.get(
+        f"{sp.base}/raw-explorer/app/object", params={"file": "customer.schema.yaml"}
+    )
+    assert r.status_code == 200, r.text
+    return {f["name"]: f["classification"] for f in r.json()["fields"]} | {
+        "__removed__": r.json()["removed_classes"]
+    }
+
+
+async def test_retirer_puis_retablir_une_valeur_posee_par_regle(sp: ApiSpace) -> None:
+    removal = {
+        "object": "app/customer.schema.yaml",
+        "field": "Email",
+        "scheme": "gdpr",
+        "rule": "emails",
+        "title": "Customer",
+    }
+    url = f"{sp.base}/governance/classification-removals"
+    r = await sp.client.post(url, json=removal)
+    assert r.status_code == 200, r.text
+    assert (await sp.client.post(url, json=removal)).status_code == 200  # idempotent
+
+    classes = await _explorer_classes(sp)
+    assert classes["Email"] == []
+    # Les autres champs classés par la même règle gardent leur badge.
+    assert classes["customer_email"][0]["rule"] == "emails"
+    assert classes["__removed__"] == [removal]
+    # La Curation suit : plus de valeur par règle sur Email.
+    assert _field(await _asset(sp), "Email")["values"] == {}
+    # La page des règles compte les retraits.
+    rules = (await sp.client.get(f"{sp.base}/governance/classification-rules")).json()["rules"]
+    assert next(x for x in rules if x["id"] == "emails")["removals"] == 1
+    listing = (await sp.client.get(url)).json()["removals"]
+    assert listing == [removal]
+
+    # Recollecte (le raw change sur la forge) : le retrait tient.
+    forge_edit(
+        sp,
+        {
+            "sources/app/raw/customer.schema.yaml": _files()["sources/app/raw/customer.schema.yaml"]
+            + "\n"
+        },
+    )
+    assert (await _explorer_classes(sp))["Email"] == []
+
+    # Rétablir : le badge revient.
+    r = await sp.client.post(f"{url}/restore", json=removal)
+    assert r.status_code == 200, r.text
+    classes = await _explorer_classes(sp)
+    assert classes["Email"][0]["values"] == ["Donnée personnelle"]
+    assert classes["__removed__"] == []
+    bad = await sp.client.post(url, json={**removal, "object": "sans-fichier"})
+    assert bad.status_code == 400

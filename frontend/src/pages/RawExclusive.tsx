@@ -17,7 +17,7 @@ import { ErrorList } from '../components/ErrorList'
 import { CodeViewer } from '../components/CodeViewer'
 import { sectionsMentioning } from '../components/SafeMarkdown'
 import { MarkdownView } from '../components/MarkdownView'
-import { FieldRuleClasses } from '../components/FieldRuleClasses'
+import { FieldRuleClasses, RemovedFieldClasses } from '../components/FieldRuleClasses'
 import {
   ExposureLegend,
   FieldType,
@@ -390,7 +390,10 @@ function FieldsTable({
               </td>
               <td>
                 <span className="mono">{f.name}</span>
-                <FieldRuleClasses classes={f.classification} />
+                <FieldRuleClasses
+                      classes={f.classification}
+                      removal={{ object: `${slug}/${detail.file}`, field: f.name, title: detail.title }}
+                    />
               </td>
               <td>
                 <FieldType type={f.type} onOpen={onOpen} />
@@ -405,6 +408,7 @@ function FieldsTable({
           ))}
         </tbody>
       </table>
+      <RemovedFieldClasses removed={detail.removed_classes} />
       <ExposureLegend detail={detail} slug={slug} />
     </>
   )

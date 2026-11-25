@@ -5,6 +5,7 @@ import type { TFunction } from 'i18next'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
 import type {
+  ClassificationRemoval,
   AssetGovernance,
   ClassScheme,
   CurationAssetDetail,
@@ -12,6 +13,7 @@ import type {
   CurationAssetSummary,
 } from '../apiClient'
 import { ClassBadges } from '../components/ClassBadges'
+import { REMOVAL_REFRESH, useCanRemoveClasses } from '../components/FieldRuleClasses'
 import { AddToDomainDialog } from '../components/AddToDomainDialog'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
@@ -863,6 +865,18 @@ function ClassificationPanel({
     },
     onError: (err) => setMessages(errorMessages(t, err)),
   })
+  // Retirer une valeur posée par règle (ticket 77ce0d79) : mémorisé dans la
+  // gouvernance de l'espace, comme les retraits de tags (droit gouvernance).
+  const canRemoveRule = useCanRemoveClasses()
+  const removeRule = useMutation({
+    mutationFn: (body: ClassificationRemoval) => api.removeFieldClass(body),
+    onSuccess: async () => {
+      setMessages([])
+      await Promise.all(REMOVAL_REFRESH.map((key) => queryClient.invalidateQueries({ queryKey: [key] })))
+    },
+    onError: (err) => setMessages(errorMessages(t, err)),
+  })
+  const { source, path, title } = summary
   if (schemes.length === 0) {
     return (
       <div className="panel stack">
@@ -987,6 +1001,25 @@ function ClassificationPanel({
                               onClick={() => setEditing(key)}
                             >
                               {t('classDeclareOtherShort')}
+                            </button>
+                          ) : null}
+                          {canRemoveRule ? (
+                            <button
+                              type="button"
+                              className="btn-link"
+                              disabled={removeRule.isPending}
+                              aria-label={t('classRemoveRuleValue', { field: f.name, scheme: sc.name })}
+                              onClick={() =>
+                                removeRule.mutate({
+                                  object: `${source}/${path}`,
+                                  field: f.name,
+                                  scheme: sc.id,
+                                  rule: rule.rule,
+                                  title,
+                                })
+                              }
+                            >
+                              {t('classRemoveShort')}
                             </button>
                           ) : null}
                         </span>

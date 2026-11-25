@@ -660,6 +660,8 @@ export interface RawObjectDetail {
   tags: (RawObjectTag & { via_target: RawTarget | null })[]
   /** Tags qu'une règle poserait mais que l'utilisateur a retirés de cet objet. */
   removed_tags: RawObjectTag[]
+  /** Classifications retirées des champs (ticket 77ce0d79). */
+  removed_classes?: ClassificationRemoval[]
   /** Par tag : classes dérivées qui le perdront aussi si on le retire ici. */
   tag_dependents: Record<string, number>
   description: string
@@ -1154,6 +1156,8 @@ export interface ClassificationRuleFile {
   errors: string[]
   /** Fournie par Ossie (ticket c7ce55aa) : désactivable, pas modifiable. */
   builtin?: boolean
+  /** Retraits mémorisés de ses valeurs (ticket 77ce0d79). */
+  removals?: number
 }
 export interface ClassifiedObject {
   source: string
@@ -1168,6 +1172,14 @@ export interface FieldClassification {
   values: string[]
   rule: string
   rule_name: string
+}
+/** Valeur posée par règle retirée d'un champ, mémorisée (ticket 77ce0d79). */
+export interface ClassificationRemoval {
+  object: string
+  field: string
+  scheme: string
+  rule: string
+  title: string
 }
 
 export interface ClassificationLevel {
@@ -2295,6 +2307,13 @@ export const api = {
     }),
   deleteGovernedTag: (id: string) =>
     apiFetch(`/api/governance/tags/${id}`, { method: 'DELETE' }),
+  removeFieldClass: (body: ClassificationRemoval) =>
+    apiFetch('/api/governance/classification-removals', { method: 'POST', body: JSON.stringify(body) }),
+  restoreFieldClass: (body: ClassificationRemoval) =>
+    apiFetch('/api/governance/classification-removals/restore', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   removeObjectTag: (body: { object: string; tag: string; title: string }) =>
     apiFetch('/api/governance/tag-removals', { method: 'POST', body: JSON.stringify(body) }),
   restoreObjectTag: (body: { object: string; tag: string; title: string }) =>

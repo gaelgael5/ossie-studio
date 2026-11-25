@@ -237,11 +237,15 @@ const DETAIL = {
     },
   ],
   removed_tags: [{ ...SERVICE_TAG, tag: 'donnees/personnelles', reason: 'field', value: 'Email' }],
+  removed_classes: [{ object: 'app/order.schema.yaml', field: 'customer', scheme: 'gdpr', rule: 'ids', title: 'Order' }],
   tag_dependents: { 'technique/service': 2, 'technique/entite': 0 },
   description: 'Une commande du client.',
   enum: [],
   fields: [
-    { name: 'id', type: { label: 'integer' }, required: true, description: '', annotations: ['[Key]'], exposed: true },
+    {
+      name: 'id', type: { label: 'integer' }, required: true, description: '', annotations: ['[Key]'], exposed: true,
+      classification: [{ scheme: 'gdpr', values: ['DP'], rule: 'ids', rule_name: 'Identifiants' }],
+    },
     {
       name: 'customer',
       type: { label: 'Customer', target: { slug: 'app', file: 'customer.schema.yaml', title: 'Customer', folder: 'src/Domain/Sub' } },
@@ -844,6 +848,23 @@ describe('RawExplorer', () => {
     expect(JSON.parse(sent.body!)).toEqual({ object: 'app/order.schema.yaml', tag: 'technique/service', title: 'Order' })
     await user.click(within(section).getByRole('button', { name: 'remettre' }))
     await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/tag-removals/restore'))).toBe(true))
+  })
+
+  it('retirer une classification posée par règle, puis rétablir (ticket 77ce0d79)', async () => {
+    SESSION_CAPS.value = ['governance:write']
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain&sel=order.schema.yaml')
+    await user.click(await screen.findByRole('button', { name: 'Retirer la valeur posée par règle sur id (gdpr)' }))
+    await waitFor(() =>
+      expect(calls.bodies.some((b) => b.url.endsWith('/governance/classification-removals') && b.method === 'POST')).toBe(true),
+    )
+    const sent = calls.bodies.find((b) => b.url.endsWith('/governance/classification-removals'))!
+    expect(sent.url).toBe('/api/spaces/s1/branches/b1/governance/classification-removals')
+    expect(JSON.parse(sent.body!)).toEqual({ object: 'app/order.schema.yaml', field: 'id', title: 'Order', scheme: 'gdpr', rule: 'ids' })
+    expect(screen.getByText('customer · gdpr : retirée, la règle ne la repose plus')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Rétablir la classification gdpr de customer' }))
+    await waitFor(() => expect(calls.bodies.some((b) => b.url.endsWith('/classification-removals/restore'))).toBe(true))
   })
 
   it('sans droit de gouvernance : tags en lecture seule', async () => {

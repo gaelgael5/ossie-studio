@@ -315,3 +315,99 @@ def tag_matches(tags: tuple[str, ...], patterns: tuple[str, ...]) -> str | None:
             if tag == p or tag.startswith(f"{p}/") or fnmatch.fnmatchcase(tag, p):
                 return tag
     return None
+
+
+# --- Retraits ------------------------------------------------------------------------
+#
+# Ticket 77ce0d79 (Gael, 24/11/2026) : retirer la valeur posée par une règle sur
+# un champ est **mémorisé**, comme les retraits de tags : la règle ne la repose
+# plus sur ce champ. Rattaché à l'identité du champ raw (« source/fichier »,
+# champ, schéma) : renommer le champ dans le code en fait un autre champ, et la
+# règle repose la valeur (accepté, comme pour les tags).
+
+CLASSIFICATION_REMOVALS_FILE = f"{GOVERNANCE_DIR}/classification-removals.yaml"
+
+
+@dataclass(frozen=True)
+class ClassificationRemoval:
+    object: str  # « source/fichier » de l'objet raw
+    field: str
+    scheme: str
+    # Règle(s) qui posaient la valeur au moment du retrait (ids séparés par des
+    # virgules) : la page d'une règle compte ses retraits.
+    rule: str = ""
+    title: str = ""  # titre de l'objet au moment du retrait (lisibilité du fichier)
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        return (self.object, self.field, self.scheme)
+
+
+def read_classification_removals(root: Path) -> list[ClassificationRemoval]:
+    """Retraits du dépôt ; une entrée mal formée est ignorée plutôt que de
+    bloquer l'indexation."""
+    file = root / CLASSIFICATION_REMOVALS_FILE
+    try:
+        text = file.read_text(encoding="utf-8") if file.is_file() else None
+    except (OSError, UnicodeDecodeError):
+        return []
+    return parse_classification_removals(text)
+
+
+def parse_classification_removals(text: str | None) -> list[ClassificationRemoval]:
+    """Retraits lus d'un texte (fichier lu sans matérialiser la vue)."""
+    if not text:
+        return []
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return []
+    items = data.get("removals") if isinstance(data, dict) else None
+    out: list[ClassificationRemoval] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        obj = str(item.get("object") or "")
+        name, scheme = str(item.get("field") or ""), str(item.get("scheme") or "")
+        if "/" in obj and name and scheme:
+            out.append(
+                ClassificationRemoval(
+                    obj, name, scheme, str(item.get("rule") or ""), str(item.get("title") or "")
+                )
+            )
+    return out
+
+
+def write_classification_removals(root: Path, removals: list[ClassificationRemoval]) -> None:
+    target = root / CLASSIFICATION_REMOVALS_FILE
+    unique = {r.key: r for r in removals}
+    if not unique:
+        if target.is_file():
+            target.unlink()
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "removals": [
+            {
+                "object": r.object,
+                "field": r.field,
+                "scheme": r.scheme,
+                **({"rule": r.rule} if r.rule else {}),
+                **({"title": r.title} if r.title else {}),
+            }
+            for r in sorted(unique.values(), key=lambda r: r.key)
+        ]
+    }
+    target.write_text(
+        yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False),
+        encoding="utf-8",
+    )
+
+
+def removal_counts(removals: list[ClassificationRemoval]) -> dict[str, int]:
+    """Nombre de retraits par règle (page des règles)."""
+    counts: dict[str, int] = {}
+    for r in removals:
+        for rule_id in filter(None, r.rule.split(",")):
+            counts[rule_id] = counts.get(rule_id, 0) + 1
+    return counts

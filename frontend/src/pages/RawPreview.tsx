@@ -27,7 +27,7 @@ import type {
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { CodeViewer } from '../components/CodeViewer'
-import { FieldRuleClasses } from '../components/FieldRuleClasses'
+import { FieldRuleClasses, RemovedFieldClasses } from '../components/FieldRuleClasses'
 
 // Panneau d'aperçu de l'explorateur raw : l'essentiel de l'élément sélectionné
 // sans quitter le dossier. Lecture seule ; les raccourcis renvoient vers la
@@ -687,7 +687,10 @@ function Summary({
                     {f.annotations.length > 0 ? (
                       <div className="mono small muted">{f.annotations.join(' ')}</div>
                     ) : null}
-                    <FieldRuleClasses classes={f.classification} />
+                    <FieldRuleClasses
+                      classes={f.classification}
+                      removal={{ object: `${slug}/${detail.file}`, field: f.name, title: detail.title }}
+                    />
                   </td>
                   <td>
                     <FieldType type={f.type} onOpen={onOpen} />
@@ -701,6 +704,7 @@ function Summary({
             </tbody>
           </table>
         ) : null}
+        <RemovedFieldClasses removed={detail.removed_classes} />
       </section>
 
       <section>

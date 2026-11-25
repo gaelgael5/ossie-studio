@@ -16,6 +16,7 @@ multi-valeurs, l'union.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
+from collections.abc import Set as AbstractSet
 from dataclasses import replace
 
 from ossie_studio.governance.classification_rules import (
@@ -90,10 +91,13 @@ def apply_classification_rules(
     sources: Iterable[SourceEntries],
     rules: Iterable[ClassificationRule],
     schemes: list[Scheme],
+    removed: AbstractSet[tuple[str, str, str]] = frozenset(),
 ) -> list[SourceEntries]:
     """Les sources avec, sur chaque objet, les classifications posées par les
     règles (toujours recalculées en entier : un index relu pour un aperçu ne
-    garde pas celles d'une règle modifiée)."""
+    garde pas celles d'une règle modifiée). `removed` : (« source/fichier »,
+    champ, schéma) retirés par une personne, que les règles ne reposent plus
+    (ticket 77ce0d79)."""
     active = valid_rules(rules, schemes)
     by_id = {s.id: s for s in schemes}
     rank = {(s.id, lv.name): lv.rank for s in schemes for lv in s.levels}
@@ -119,7 +123,9 @@ def apply_classification_rules(
                         (rule.scheme, current.values[0]), 0
                     ):
                         found[key] = new
-            ordered = tuple(sorted(found.values(), key=lambda c: (c.field, c.scheme)))
+            ident = f"{source.slug}/{obj.file}"
+            kept = [c for c in found.values() if (ident, c.field, c.scheme) not in removed]
+            ordered = tuple(sorted(kept, key=lambda c: (c.field, c.scheme)))
             objects.append(replace(obj, field_classes=ordered))
         out.append(replace(source, objects=objects))
     return out
