@@ -76,7 +76,7 @@ export function SchemaPicker({
       disabled={!ready}
       onClick={refresh}
     >
-      ↻ {t('schemaPickerRefresh')}
+      {'↻'} {t('schemaPickerRefresh')}
     </BusyButton>
   )
 

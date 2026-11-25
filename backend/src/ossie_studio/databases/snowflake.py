@@ -210,10 +210,10 @@ def build_catalog(
 
 
 def _driver() -> Any:
-    # Pilote absent de cet environnement : la connexion n'est pas éprouvable ici.
-    # La logique devient active dès que snowflake-connector-python est installé.
+    # snowflake-connector-python est une dépendance du projet ; sans lui (image
+    # allégée), la connexion n'est pas éprouvable et le dit.
     try:
-        import snowflake.connector  # type: ignore[import-not-found]
+        import snowflake.connector
     except ImportError as exc:  # pragma: no cover - pilote non installé
         raise DbEngineError("db_driver_unavailable") from exc
     return snowflake.connector
