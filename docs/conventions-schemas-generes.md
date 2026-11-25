@@ -298,6 +298,53 @@ methods:
   alors retiré ;
 - le `.extend.yaml` n'est réécrit que si l'état au contrat change.
 
+### Projet SQL Server : module `sql`, procédures et fonctions
+
+Ticket 30c55418. Le parseur `sqlserver-projet` produit un **objet module** par
+`.sqlproj` : nature `sql`, langage `tsql`, cible lue dans `<DSP>` (`Sql160`…),
+dépendances = `ProjectReference` (reliées au module quand le projet est dans la
+source). Les tables et les vues lui appartiennent par la règle du projet le plus
+proche ; leurs schémas ne changent pas.
+
+Les **procédures stockées** et **fonctions** T-SQL sont les fonctions du module :
+le parseur les note par fichier d'origine dans `functions-sqlserver-projet.yaml`,
+le socle les range dans le `.extend.yaml` du module. Seul l'**en-tête** est lu
+(nom qualifié `schéma.nom`, paramètres, `RETURNS`), jamais le corps.
+
+```yaml
+functions:
+- annotations:
+  - PROCEDURE
+  name: dbo.LireCommande
+  parameters:
+  - name: '@Id'
+    schema:
+      format: uuid
+      type: string
+      x-db-type: UNIQUEIDENTIFIER
+    type: UNIQUEIDENTIFIER
+  - name: '@Statut'
+    optional: true
+    schema:
+      maxLength: 50
+      type: string
+      x-db-type: NVARCHAR(50)
+    type: NVARCHAR(50) OUTPUT
+  source:
+    file: db/Boutique.Database/Programmabilite/LireCommande.sql
+    line: 1
+  visibility: public
+```
+
+- `annotations` : `PROCEDURE` ou `FUNCTION` ; `visibility` : toujours `public` ;
+- paramètre : nom avec son `@`, type tel qu'écrit (suivi de `OUTPUT` / `READONLY`),
+  `schema` sa forme JSON Schema (comme une colonne), `optional` s'il a une valeur
+  par défaut ;
+- fonction : `returns.type` (type rendu, ou `TABLE` pour une fonction table) ;
+- en-tête illisible : la procédure est laissée de côté et signalée dans le compte
+  rendu de collecte (`sql_routine_unreadable`) et dans le journal ; les autres
+  sont écrites.
+
 ### Vue d'un module : `module-<chemin>.view.yaml`
 
 La **personnalisation de l'affichage** du module dans la vue « Application » :

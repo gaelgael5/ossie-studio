@@ -500,6 +500,8 @@ export interface RawEntryPoint {
 export interface RawModuleDetail extends Omit<RawAppModule, 'dependents'> {
   dependents: { id: string; title: string }[]
   entry_points: RawEntryPoint[]
+  /** Fonctions propres du module (minimal API, procédures et fonctions SQL…). */
+  functions?: { name: string; signature: string; entry: boolean }[]
   classes: { title: string; file: string; methods: { name: string; signature: string; entry: boolean }[] }[]
 }
 

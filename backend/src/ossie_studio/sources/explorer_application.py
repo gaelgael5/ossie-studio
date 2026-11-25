@@ -160,8 +160,9 @@ def module_detail(
     entries: SourceEntries, module_file: str, read: Callable[[str], str | None]
 ) -> dict[str, Any] | None:
     """L'aperçu d'un module : fichier de projet, nature, cibles, dépendances dans
-    les deux sens, points d'entrée (verbe, route, méthode, état au contrat) et
-    méthodes publiques groupées par classe. `read` : contenu d'un fichier de
+    les deux sens, points d'entrée (verbe, route, méthode, état au contrat),
+    fonctions propres du module (dont procédures et fonctions SQL) et méthodes
+    publiques groupées par classe. `read` : contenu d'un fichier de
     `raw/` (None s'il n'existe pas). None si le module est inconnu."""
     view = application_view(entries)
     module = next((m for m in view["modules"] if m["file"] == module_file), None)
@@ -171,8 +172,19 @@ def module_detail(
     members = members_by_module(entries)[module["id"]]
     entry_points: list[dict[str, Any]] = []
     classes: list[dict[str, Any]] = []
+    # Fonctions propres du module (minimal API, procédures et fonctions SQL…).
+    functions: list[dict[str, Any]] = []
     for function in _load(read(extend_file(key_of(module_file)))).get("functions") or []:
-        point = function.get("entryPoint") if isinstance(function, dict) else None
+        if not isinstance(function, dict):
+            continue
+        point = function.get("entryPoint")
+        functions.append(
+            {
+                "name": function.get("name"),
+                "signature": _signature(function),
+                "entry": isinstance(point, dict),
+            }
+        )
         if isinstance(point, dict):
             entry = {**_point(point), "method": function.get("name"), "owner": None}
             entry["source"] = function.get("source")
@@ -204,6 +216,7 @@ def module_detail(
         ],
         "dependents": [{"id": d, "title": titles.get(d, d)} for d in module["dependents"]],
         "entry_points": entry_points,
+        "functions": functions,
         "classes": classes,
     }
 

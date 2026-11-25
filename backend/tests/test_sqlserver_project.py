@@ -290,7 +290,7 @@ def test_split_batches() -> None:
 
 
 def test_version_inclut_sqlglot() -> None:
-    assert SqlServerProjectParser().version.startswith("1.1-sqlglot")
+    assert SqlServerProjectParser().version.startswith("1.2-sqlglot")
 
 
 def test_index_ecrit_en_anglais_et_version_1_relue() -> None:
@@ -304,7 +304,8 @@ def test_index_ecrit_en_anglais_et_version_1_relue() -> None:
     index = yaml.safe_load(index_text)
     assert index["version"] == 2
     assert set(index) == {"version", "parser", "files", "outputs"}
-    assert index["outputs"] == ["dbo-t.schema.yaml"]
+    # La table, et l'objet module du projet (cartographie applicative).
+    assert index["outputs"] == ["dbo-t.schema.yaml", "module-db-db.schema.yaml"]
     # `x-source` de chaque schéma : clés anglaises.
     schema = _schemas(first)["dbo-t.schema.yaml"]
     assert all("file" in s and "fichier" not in s for s in schema["x-source"])

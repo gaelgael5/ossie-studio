@@ -8,6 +8,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 ## Décisions de Gael (25 novembre)
 
+- Plan du ticket 5 (projet SQL Server comme module) validé (« oui go ») ; une procédure mal formée est signalée **dans le compte rendu de collecte et dans le journal** (« 1. oui »).
 - Plan du ticket 4 (lien au contrat OpenAPI) validé (« Oui go »).
 - Plan du ticket 8 (primitives MCP) validé (« Oui go »).
 - Plan du ticket 6 (vue « Application ») validé (« oui, vas-y »), y compris la rangée à part, en bas, pour les projets de test.
@@ -24,7 +25,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | e0fa8519 — Modules C# (`.csproj` → objets module) | En review |
 | f1cc03c4 — Méthodes publiques et points d'entrée C# | En review |
 | 90ed0967 — Relier les points d'entrée au contrat OpenAPI | En review |
-| 30c55418 — Projet SQL Server comme module | Prêt pour dev |
+| 30c55418 — Projet SQL Server comme module | En review |
 | 0fa620be — Explorateur raw : objets module et vue « Application » | En review |
 | a1fd0663 — Déplacer les ancres des connecteurs (`.view`) | Prêt pour dev |
 | 72ce32b3 — Primitives MCP : modules, fonctions, points d'entrée | En review |
@@ -89,3 +90,13 @@ Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les au
 - Primitives : le filtre `contract_status` de `list_entry_points` répond maintenant sur les données collectées.
 - Conventions : sous-section « Point d'entrée et contrat OpenAPI » (exemple vérifié par le test : c'est ce que produit le socle).
 - Tests : `backend/tests/test_contract_links.py` (règles, écriture seulement au changement, collecte de bout en bout C# + contrat : relié, absent, route inconnue, minimal API, contrat modifié seul, contrat retiré), `test_explorer_application.py` (compteurs), `RawApplication.test.tsx`.
+
+## Notes techniques (projet SQL Server comme module, 30c55418)
+
+- Parseur `parsers/sqlserver_project.py` (version **1.2** : les sources déjà collectées reçoivent leur module à la collecte suivante) : `sqlproj_module` — un objet module par `.sqlproj` lisible (nature `sql`, langage `tsql`, cible tirée de `<DSP>`, dépendances = `ProjectReference` normalisées depuis la racine, reliées au module si le projet est dans la source). Le module suit le projet par l'index du parseur (sorties).
+- Procédures et fonctions : `parsers/tsql_routines.py`, petit lecteur d'**en-tête** (jetons à la demande, commentaires, `[ident]`, chaînes `N'…'`) — `CREATE [OR ALTER] PROC|PROCEDURE|FUNCTION`, nom qualifié, paramètres (`@p [AS] type [VARYING] [NULL] [= défaut] [OUT|OUTPUT|READONLY]`), `RETURNS type | TABLE | @t TABLE (…)`. Le corps n'est jamais lu : sqlglot échouait sur `@x AS INT`, `RETURNS @t TABLE` et produisait de faux `sql_unrecognized` sur les fonctions (vérifié contre l'ancienne version : ils disparaissent).
+- `routine_function` : format des fonctions de raw (`annotations` PROCEDURE/FUNCTION, `visibility: public`, paramètres avec `@`, type tel qu'écrit + `schema` via `type_fragment`, `returns` pour une fonction). Index `functions-sqlserver-projet.yaml` (langage `tsql`), rangé par le socle (`sources/module_functions`) ; gardé vide quand les procédures disparaissent (le socle retire alors le `.extend.yaml` du module).
+- En-tête illisible : `sql_routine_unreadable` dans le compte rendu (avec la ligne) + journal `sqlserver_routine_unreadable` ; les autres sont écrites.
+- Schémas des tables et des vues : identiques octet pour octet à la version précédente du parseur (comparaison faite sur le projet de test : 11 schémas identiques, seul le module s'ajoute).
+- Aperçu d'un module (`module_detail`) : `functions` (fonctions propres du module, avec signature) ; écran « Procédures et fonctions · n » pour un projet SQL (« Fonctions du module · n » sinon), section « Méthodes publiques » masquée quand un projet SQL n'en a pas.
+- Tests : `backend/tests/test_sqlserver_modules.py` (critères 1 à 3, `ProjectReference`, exemple des conventions, collecte de bout en bout : fonctions rangées, onze objets rattachés, incrémental, procédures retirées), `test_sqlserver_project.py` (version, sorties), `test_explorer_application.py`, `RawApplication.test.tsx`.

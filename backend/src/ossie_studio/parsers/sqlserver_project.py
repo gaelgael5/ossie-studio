@@ -4,6 +4,14 @@ compilé. Produit un schéma par table et par vue (même forme que l'extracteur 
 catalogue SQL Server), et un schéma à part par colonne JSON décrite par un
 fichier `*.schema.json` lié par convention de nommage.
 
+Cartographie applicative (ticket 30c55418) : chaque `.sqlproj` donne aussi un
+**objet module** (nature `sql`, langage `tsql`, dépendances par `ProjectReference`),
+et les procédures stockées et fonctions T-SQL deviennent les **fonctions** du
+module — notées par fichier d'origine dans l'index `functions-sqlserver-projet.yaml`,
+rangées par le socle dans le `.extend.yaml` du module. Seul leur en-tête est lu
+(`parsers.tsql_routines`) ; une procédure illisible est signalée, les autres sont
+écrites.
+
 Analyse T-SQL par **sqlglot** (dialecte tsql, épinglé — sa version entre dans la
 version du parseur). Jamais de DacFx/ScriptDom ni de dépendance .NET ; jamais
 d'exécution. Incrémentalité : le parseur tient son propre index et reconstruit
@@ -15,17 +23,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import posixpath
 import re
 from dataclasses import dataclass, field
 from importlib.metadata import version as _pkg_version
 from typing import Any
+from xml.etree.ElementTree import ParseError
 
 import sqlglot
+import structlog
 import yaml
 from defusedxml import ElementTree as DefusedET  # type: ignore[import-untyped]
 from sqlglot import exp
 
 from ossie_studio.databases.sqlserver_types import type_fragment
+from ossie_studio.parsers.application import module_key, module_schema
 from ossie_studio.parsers.base import (
     CIBLE_RAW,
     STATUT_ERREUR,
@@ -40,10 +52,27 @@ from ossie_studio.parsers.base import (
     matches_globs,
 )
 from ossie_studio.parsers.conventions import dump_schema, is_schema_name, schema_file
+from ossie_studio.parsers.tsql_routines import (
+    FUNCTION,
+    TABLE,
+    Routine,
+    RoutineError,
+    is_routine,
+    read_routine,
+)
+
+log = structlog.get_logger(__name__)
 
 _PARSER_ID = "sqlserver-projet"
 _GLOBS = ["**/*.sql", "**/*.sqlproj", "**/*.schema.json"]
 _INDEX_NAME = f"manifest-{_PARSER_ID}.yaml"
+# Procédures et fonctions par fichier d'origine, rangées par le socle dans le
+# `.extend.yaml` du module (sources.module_functions).
+FUNCTIONS_INDEX = f"functions-{_PARSER_ID}.yaml"
+_FUNCTIONS_VERSION = 1
+LANGUAGE = "tsql"
+SQL_NATURE = "sql"
+_DSP = re.compile(r"\.(Sql\w*?)DatabaseSchemaProvider", re.IGNORECASE)
 _SLUG = re.compile(r"[^a-zA-Z0-9]+")
 
 # `[schéma.]table.colonne.schema.json` (insensible à la casse). Un simple
@@ -410,6 +439,63 @@ def sqlproj_includes(xml_text: str, proj_dir: str, all_sql: set[str]) -> set[str
     return {p for p in build_include if p in all_sql}
 
 
+def sqlproj_module(proj_path: str, xml_text: str, known: set[str]) -> dict[str, Any]:
+    """L'objet module d'un `.sqlproj` : nature `sql`, plateforme cible (`DSP`,
+    ex. `Sql160`), dépendances = `ProjectReference` (chemins depuis la racine de
+    la source ; reliées au module quand le projet est dans la source)."""
+    root = DefusedET.fromstring(xml_text)
+    folder = posixpath.dirname(proj_path)
+    references: list[str] = []
+    targets: list[str] = []
+    for item in root.iter():
+        tag = _local_name(item.tag)
+        include = item.get("Include")
+        if tag == "ProjectReference" and include:
+            references.append(
+                posixpath.normpath(posixpath.join(folder, include.replace("\\", "/")))
+            )
+        elif tag == "DSP" and item.text and (match := _DSP.search(item.text.strip())):
+            targets.append(match.group(1))
+    return module_schema(
+        project=proj_path,
+        name=posixpath.splitext(posixpath.basename(proj_path))[0],
+        language=LANGUAGE,
+        nature=SQL_NATURE,
+        targets=targets,
+        dependencies=references,
+        known_projects=known,
+    )
+
+
+def routine_function(routine: Routine, path: str, batch_line: int) -> dict[str, Any]:
+    """Une procédure ou une fonction T-SQL au format des fonctions de raw : nom
+    qualifié, paramètres (type tel qu'écrit et sa forme JSON Schema), retour."""
+    params: list[dict[str, Any]] = []
+    for param in routine.parameters:
+        entry: dict[str, Any] = {
+            "name": param.name,
+            "type": param.type,
+            "schema": type_fragment(*parse_type(param.base), raw=param.base),
+        }
+        if param.optional:
+            entry["optional"] = True
+        params.append(entry)
+    function: dict[str, Any] = {
+        "name": routine.qualified,
+        "visibility": "public",
+        "annotations": [routine.kind.upper()],
+        "source": {"file": path, "line": batch_line + routine.line - 1},
+    }
+    if params:
+        function["parameters"] = params
+    if routine.kind == FUNCTION and routine.returns:
+        returns: dict[str, Any] = {"type": routine.returns}
+        if routine.returns != TABLE:
+            returns["schema"] = type_fragment(*parse_type(routine.returns), raw=routine.returns)
+        function["returns"] = returns
+    return function
+
+
 # --- JSON Schema : conversion vers 2020-12 -----------------------------------
 
 
@@ -459,6 +545,8 @@ class _Plan:
     writes: dict[str, str] = field(default_factory=dict)
     statuses: dict[str, str] = field(default_factory=dict)
     errors: list[PluginError] = field(default_factory=list)
+    # Procédures et fonctions par fichier d'origine (index des fonctions).
+    routines: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 class SqlServerProjectParser:
@@ -470,7 +558,8 @@ class SqlServerProjectParser:
     label = "Projet SQL Server"
     # 1.1 : `x-source` porte `file` / `line` (au lieu de `fichier` / `ligne`) ; le
     # changement de version force la régénération des schémas déjà collectés.
-    version = f"1.1-sqlglot{_pkg_version('sqlglot')}"
+    # 1.2 : objet module par `.sqlproj`, procédures et fonctions (cartographie).
+    version = f"1.2-sqlglot{_pkg_version('sqlglot')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)
@@ -526,10 +615,12 @@ class SqlServerProjectParser:
             "outputs": sorted(plan.writes),
         }
         writes.append(OutputAction(path=_INDEX_NAME, content=yaml.safe_dump(index, sort_keys=True)))
-        added = sum(1 for w in writes if w.path != _INDEX_NAME and w.path not in existing)
-        modified = sum(
-            1 for w in writes if w.path != _INDEX_NAME and w.path in existing
-        )
+        functions = self._functions_index(context, plan, checks)
+        if functions is not None:
+            writes.append(OutputAction(path=FUNCTIONS_INDEX, content=functions))
+        indexes = (_INDEX_NAME, FUNCTIONS_INDEX)
+        added = sum(1 for w in writes if w.path not in indexes and w.path not in existing)
+        modified = sum(1 for w in writes if w.path not in indexes and w.path in existing)
         return PluginResult(
             writes=writes,
             deletes=deletes,
@@ -541,6 +632,22 @@ class SqlServerProjectParser:
             read=len(owned),
             retained=len(owned),
         )
+
+    def _functions_index(
+        self, context: PluginContext, plan: _Plan, checks: dict[str, str]
+    ) -> str | None:
+        """Le texte de `functions-sqlserver-projet.yaml` s'il change (None sinon).
+        Gardé, vide, quand les procédures disparaissent : le socle retire alors
+        les fonctions du module."""
+        previous = context.raw.read_index(FUNCTIONS_INDEX)
+        if not plan.routines and previous is None:
+            return None
+        files = {
+            path: {"checksum": checks.get(path, ""), "functions": functions}
+            for path, functions in sorted(plan.routines.items())
+        }
+        text = dump_schema({"language": LANGUAGE, "version": _FUNCTIONS_VERSION, "files": files})
+        return None if text == previous else text
 
     def _read_index(self, context: PluginContext) -> dict[str, Any]:
         text = context.raw.read_index(_INDEX_NAME)
@@ -582,6 +689,15 @@ class SqlServerProjectParser:
             obj = objs[key]
             for real_col, (content_id, src_path) in sorted(cols.items()):
                 self._emit_content_schema(obj, real_col, content_id, src_path, schema_jsons, plan)
+
+        # Un objet module par `.sqlproj` lisible (cartographie applicative).
+        known = set(proj_files)
+        for proj_path, raw in sorted(proj_files.items()):
+            try:
+                module = sqlproj_module(proj_path, raw.decode("utf-8", "replace"), known)
+            except (ParseError, ValueError):  # déjà signalé (`sqlproj_invalid`)
+                continue
+            plan.writes[schema_file(module_key(proj_path))] = dump_schema(module)
         return plan
 
     def _emit_content_schema(
@@ -638,6 +754,10 @@ class SqlServerProjectParser:
     ) -> None:
         handled = False
         for batch, line in split_batches(text):
+            # Procédure / fonction : seul l'en-tête compte, le corps n'est pas lu.
+            if is_routine(batch):
+                handled = self._routine(path, batch, line, plan) or handled
+                continue
             try:
                 expressions = sqlglot.parse(batch, dialect="tsql")
             except Exception as exc:
@@ -658,6 +778,20 @@ class SqlServerProjectParser:
                 handled = self._dispatch(expr, batch, path, line, objs, plan) or handled
         if path not in plan.statuses:
             plan.statuses[path] = STATUT_TRAITE if handled else STATUT_IGNORE
+
+    def _routine(self, path: str, batch: str, line: int, plan: _Plan) -> bool:
+        try:
+            routine = read_routine(batch)
+        except RoutineError as exc:
+            plan.errors.append(
+                PluginError(
+                    source=path, cause="sql_routine_unreadable", detail=f"line {line}: {exc}"
+                )
+            )
+            log.warning("sqlserver_routine_unreadable", file=path, line=line, reason=str(exc))
+            return False
+        plan.routines.setdefault(path, []).append(routine_function(routine, path, line))
+        return True
 
     def _dispatch(
         self,

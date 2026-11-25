@@ -179,6 +179,8 @@ async def test_apercu_d_un_module(sp: ApiSpace) -> None:
     }
     # Pas encore comparé au contrat (ticket « Relier les points d'entrée… »).
     assert {p["contract"] for p in detail["entry_points"]} == {None}
+    # Les fonctions propres du module (ticket 30c55418).
+    assert detail["functions"] == [{"name": "Vider", "signature": "Vider()", "entry": True}]
     [controller] = detail["classes"]
     assert controller["title"] == "CommandesController"
     assert controller["methods"] == [

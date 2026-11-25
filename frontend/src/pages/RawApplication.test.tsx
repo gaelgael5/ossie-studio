@@ -161,3 +161,28 @@ describe('Aperçu d’un module', () => {
     expect(screen.getByText('ENTRÉE')).toBeInTheDocument()
   })
 })
+
+describe('Aperçu d’un projet SQL (ticket 30c55418)', () => {
+  it('procédures et fonctions du module, sans section de méthodes vide', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        ok({
+          ...mod('Database', 'sql'),
+          dependencies: [],
+          dependents: [],
+          entry_points: [],
+          functions: [
+            { name: 'dbo.LireCommande', signature: 'dbo.LireCommande(@Id: UNIQUEIDENTIFIER)', entry: false },
+            { name: 'dbo.Total', signature: 'dbo.Total(@CommandeId: INT): DECIMAL(18,2)', entry: false },
+          ],
+          classes: [],
+        }),
+      ),
+    )
+    wrap(<RawModulePreview spaceId="s1" branchId="b1" slug="app" file="module-database.schema.yaml" onCollapse={() => {}} />)
+    expect(await screen.findByText('Procédures et fonctions · 2')).toBeInTheDocument()
+    expect(screen.getByText(/dbo\.Total\(@CommandeId: INT\): DECIMAL\(18,2\)/)).toBeInTheDocument()
+    expect(screen.queryByText(/Méthodes publiques/)).not.toBeInTheDocument()
+  })
+})

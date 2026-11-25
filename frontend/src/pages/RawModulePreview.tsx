@@ -115,6 +115,21 @@ export function RawModulePreview({
               ))}
             </ul>
           </section>
+          {m.functions?.length ? (
+            <section aria-label={t(m.nature === 'sql' ? 'rawModRoutines' : 'rawModFunctions', { count: m.functions.length })}>
+              <h4 className="panel-label">
+                {t(m.nature === 'sql' ? 'rawModRoutines' : 'rawModFunctions', { count: m.functions.length })}
+              </h4>
+              <ul className="plain-list mono small raw-module-functions">
+                {m.functions.map((f, i) => (
+                  <li key={i}>
+                    {f.signature} {f.entry ? <span className="badge">{t('rawModEntryBadge')}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          {m.nature === 'sql' && methods === 0 ? null : (
           <section aria-label={t('rawModMethods', { count: methods })}>
             <h4 className="panel-label">{t('rawModMethods', { count: methods })}</h4>
             {m.classes.map((c) => (
@@ -132,6 +147,7 @@ export function RawModulePreview({
               </details>
             ))}
           </section>
+          )}
         </div>
       ) : null}
     </aside>
