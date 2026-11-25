@@ -1957,7 +1957,7 @@ export const fr = {
       'Le secret n’apparaît jamais dans un manifeste : il est porté par la connexion choisie.',
     editSource: 'Modifier',
     deleteSourceConfirm:
-      'Supprimer cette source ? Le répertoire sources/<slug>/ et ses schémas raw/ seront retirés de la branche (récupérables dans l’historique Git).',
+      'Supprimer cette source ? Son manifeste et ses schémas raw/ seront retirés de votre brouillon. Ses assets sont gardés : ils apparaîtront orphelins dans la Curation, et retrouveront leur raw si vous redéclarez la source.',
     newGitSource: 'Nouvelle source Git',
     editGitSource: 'Modifier la source Git',
     newSqlSource: 'Nouvelle source — base de données',

@@ -30,7 +30,7 @@ from ossie_studio.governance.repo import Scheme, read_schemes
 from ossie_studio.sources.asset_files import read_asset_dir
 from ossie_studio.sources.explorer import BADGE_MODIFIED, SchemaRef, list_source_slugs
 from ossie_studio.sources.explorer_graph import ReferenceGraph
-from ossie_studio.sources.paths import safe_assets_path
+from ossie_studio.sources.paths import ASSETS_DIR, SOURCES_DIR, safe_assets_path
 from ossie_studio.sources.referentiel_links import LinkTarget, issues, link_views, read_targets
 
 AssetKey = tuple[str, str]  # (source, fichier du schéma)
@@ -43,7 +43,15 @@ _PROPERTY_REF_KINDS = frozenset({"field", "list", "map"})
 def read_assets(workdir: Path) -> dict[AssetKey, dict[str, Any]]:
     """Tous les assets retenus de la branche, par (source, fichier)."""
     out: dict[AssetKey, dict[str, Any]] = {}
-    for slug in list_source_slugs(workdir):
+    # Aussi les sources supprimées qui gardent leurs assets (ticket ce21a9e8) :
+    # ils apparaissent orphelins, leur raw a disparu.
+    base = workdir / SOURCES_DIR
+    kept = (
+        [p.name for p in base.iterdir() if p.is_dir() and (p / ASSETS_DIR).is_dir()]
+        if base.is_dir()
+        else []
+    )
+    for slug in sorted(set(list_source_slugs(workdir)) | set(kept)):
         try:
             directory = safe_assets_path(workdir, slug)
         except ValueError:
