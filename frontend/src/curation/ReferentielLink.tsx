@@ -88,7 +88,7 @@ export function ReferentielLinkCell({
       <span className="muted">—</span>
     )
   }
-  const tone = link.status === 'ok' ? 'badge' : link.status === 'partial' ? 'badge badge-warn' : 'badge badge-danger'
+  const tone = link.status === 'ok' ? 'badge badge-ok' : link.status === 'partial' ? 'badge badge-warn' : 'badge badge-danger'
   const others = link.members.filter((m) => m !== property.name)
   return (
     <div className="stack link-cell">
