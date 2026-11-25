@@ -76,6 +76,45 @@ def _sf_type_fragment(
     return frag
 
 
+TagMap = dict[str, str]
+
+
+def _tags_by_target(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[tuple[str, ...], TagMap], dict[tuple[str, str, str], TagMap]]:
+    """Range les lignes de TAG_REFERENCES par cible (6a8c1828). Objets : clé
+    () pour la base, (schéma,) pour un schéma, (schéma, objet) pour une table ou
+    une vue ; colonnes : (schéma, objet, colonne). Le tag est nommé qualifié
+    (BASE.SCHEMA.TAG) : deux tags homonymes de schémas différents ne se
+    confondent pas, et les tags système (SNOWFLAKE.CORE.*) restent lisibles."""
+    objects: dict[tuple[str, ...], TagMap] = {}
+    cols: dict[tuple[str, str, str], TagMap] = {}
+    for r in rows:
+        tag = ".".join(str(r.get(k) or "") for k in ("tag_database", "tag_schema", "tag_name"))
+        value = str(r.get("tag_value") or "")
+        domain = str(r.get("domain") or "").upper()
+        schema, name = str(r.get("object_schema") or ""), str(r.get("object_name") or "")
+        if domain == "COLUMN":
+            cols.setdefault((schema, name, str(r.get("column_name") or "")), {})[tag] = value
+        elif domain == "DATABASE":
+            objects.setdefault((), {})[tag] = value
+        elif domain == "SCHEMA":
+            # Pour un tag de schéma, Snowflake met le schéma dans OBJECT_NAME.
+            objects.setdefault((name or schema,), {})[tag] = value
+        elif domain == "TABLE":  # tables et vues
+            objects.setdefault((schema, name), {})[tag] = value
+    return objects, cols
+
+
+def _effective_tags(objects: dict[tuple[str, ...], TagMap], schema: str, name: str) -> TagMap:
+    """Tags d'un objet, hérités compris, comme Snowflake les applique : base,
+    puis schéma, puis l'objet ; le tag posé au plus près gagne."""
+    merged: TagMap = {}
+    for key in ((), (schema,), (schema, name)):
+        merged.update(objects.get(key, {}))
+    return dict(sorted(merged.items()))
+
+
 def build_catalog(
     *,
     tables: list[dict[str, Any]],
@@ -84,6 +123,7 @@ def build_catalog(
     unique_keys: list[dict[str, Any]] | None = None,
     foreign_keys: list[dict[str, Any]] | None = None,
     dependencies: list[dict[str, Any]] | None = None,
+    tags: list[dict[str, Any]] | None = None,
     schemas: list[str] | None = None,
     exclusions: list[str] | None = None,
     queries: int = 0,
@@ -97,6 +137,8 @@ def build_catalog(
     def kept(schema: str) -> bool:
         return (include is None or schema in include) and schema not in exclude
 
+    object_tags, column_tags = _tags_by_target(tags or [])
+
     cols_by_obj: dict[tuple[str, str], list[CatalogColumn]] = {}
     for c in columns:
         schema, table = str(c["schema"]), str(c["table"])
@@ -105,6 +147,9 @@ def build_catalog(
         fragment = _sf_type_fragment(
             str(c["data_type"]), c.get("char_len"), c.get("precision"), c.get("scale")
         )
+        col_tags = column_tags.get((schema, table, str(c["name"])))
+        if col_tags:
+            fragment["x-db-tags"] = dict(sorted(col_tags.items()))
         cols_by_obj.setdefault((schema, table), []).append(
             CatalogColumn(
                 name=str(c["name"]),
@@ -141,6 +186,9 @@ def build_catalog(
         extra: dict[str, Any] = {}
         if str(t.get("is_transient", "")).upper() == "YES":
             extra["x-table-type"] = "transient"
+        effective = _effective_tags(object_tags, schema, name)
+        if effective:
+            extra["x-db-tags"] = effective
         # Clefs déclarées mais non appliquées dans Snowflake.
         if primary or uniques or fks:
             extra["x-enforced"] = False
@@ -344,11 +392,23 @@ class SnowflakeEngine(DatabaseEngine):
                         "dependencies",
                     )
                 ]
+                # Tags posés sur la base, ses schémas, ses objets et ses colonnes
+                # (6a8c1828). ACCOUNT_USAGE : une requête pour toute la base, au
+                # prix d'un retard possible de 2 h ; sans droit, on continue.
+                tags = safe(
+                    "SELECT tag_database, tag_schema, tag_name, tag_value, domain, "
+                    "object_schema, object_name, column_name "
+                    "FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES "
+                    "WHERE object_database = CURRENT_DATABASE() AND object_deleted IS NULL "
+                    "AND domain IN ('DATABASE', 'SCHEMA', 'TABLE', 'COLUMN')",
+                    "tags",
+                )
             finally:
                 cn.close()
             return build_catalog(
                 tables=tables, columns=columns, primary_keys=pks, unique_keys=uqs,
-                foreign_keys=fks, dependencies=deps, schemas=schemas, exclusions=exclusions,
+                foreign_keys=fks, dependencies=deps, tags=tags, schemas=schemas,
+                exclusions=exclusions,
                 queries=queries, errors=errors,
             )
 
