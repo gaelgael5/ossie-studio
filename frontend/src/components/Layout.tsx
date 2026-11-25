@@ -19,13 +19,29 @@ interface NavItem {
   prefix: string
 }
 
+/** Un bloc du menu principal : un menu déroulant qui regroupe des items. */
+interface NavGroup {
+  key: string
+  items: NavItem[]
+}
+
+type NavEntry = NavItem | NavGroup
+
+const isGroup = (entry: NavEntry): entry is NavGroup => 'items' in entry
+
 // Menu principal, calqué sur les maquettes.
-const MAIN_NAV: NavItem[] = [
+const MAIN_NAV: NavEntry[] = [
   { key: 'navSpaces', to: '/spaces', capability: 'spaces:read', prefix: '/spaces' },
   // Juste après « Espaces » (Gael, epic « Référentiels »).
   { key: 'navReferentiels', to: '/referentiels', capability: 'referentiels:read', prefix: '/referentiels' },
-  { key: 'navSources', to: '/sources', capability: 'sources:read', prefix: '/sources' },
-  { key: 'navCuration', to: '/curation', capability: 'curation:read', prefix: '/curation' },
+  // Bloc « Collecte » : les sources et leur curation (Gael).
+  {
+    key: 'navCollectGroup',
+    items: [
+      { key: 'navSources', to: '/sources', capability: 'sources:read', prefix: '/sources' },
+      { key: 'navCuration', to: '/curation', capability: 'curation:read', prefix: '/curation' },
+    ],
+  },
   { key: 'navDomains', to: '/domaines', capability: 'curation:read', prefix: '/domaines' },
   { key: 'navGovernance', to: '/governance/tags', capability: 'governance:read', prefix: '/governance' },
 ]
@@ -161,21 +177,17 @@ function AppNav({
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
-  const settingsRef = useRef<HTMLDivElement>(null)
   const userRef = useRef<HTMLDivElement>(null)
 
-  // Fermer les menus au changement de route.
+  // Fermer le menu de l'utilisateur au changement de route.
   useEffect(() => {
-    setSettingsOpen(false)
     setUserOpen(false)
   }, [location.pathname])
 
   // Fermer au clic en dehors.
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
-      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) setSettingsOpen(false)
       if (userRef.current && !userRef.current.contains(e.target as Node)) setUserOpen(false)
     }
     document.addEventListener('mousedown', onClick)
@@ -192,13 +204,18 @@ function AppNav({
 
   const isActive = (prefix: string) => location.pathname.startsWith(prefix)
   const settingsItems = SETTINGS_NAV.filter((item) => can(item.capability))
-  const settingsActive = settingsItems.some((item) => isActive(item.prefix))
 
   return (
     <nav className="topnav" aria-label={t('appName')}>
       <Brand />
       <div className="topnav-menu">
         {MAIN_NAV.map((item) => {
+          if (isGroup(item)) {
+            const items = item.items.filter((child) => child.to && can(child.capability))
+            return items.length > 0 ? (
+              <NavDropdown key={item.key} label={t(item.key)} items={items} isActive={isActive} />
+            ) : null
+          }
           const label = t(item.key)
           if (!item.to) {
             return (
@@ -224,27 +241,7 @@ function AppNav({
           )
         })}
         {settingsItems.length > 0 ? (
-          <div className="topnav-dropdown" ref={settingsRef}>
-            <button
-              type="button"
-              className={`topnav-item${settingsActive ? ' active' : ''}`}
-              aria-haspopup="true"
-              aria-expanded={settingsOpen}
-              onClick={() => setSettingsOpen((v) => !v)}
-            >
-              {t('navSettings')}
-              {' ▾'}
-            </button>
-            {settingsOpen ? (
-              <div className="topnav-dropdown-menu" role="menu">
-                {settingsItems.map((item) => (
-                  <Link key={item.key} to={item.to as string} role="menuitem">
-                    {t(item.key)}
-                  </Link>
-                ))}
-              </div>
-            ) : null}
-          </div>
+          <NavDropdown label={t('navSettings')} items={settingsItems} isActive={isActive} />
         ) : null}
       </div>
       <div className="topnav-right">
@@ -282,5 +279,65 @@ function AppNav({
         </div>
       </div>
     </nav>
+  )
+}
+
+/** Un menu déroulant du menu principal (bloc « Collecte », « Réglages ») : actif
+ * quand une de ses pages est ouverte ; se ferme au changement de page et au clic
+ * en dehors. */
+function NavDropdown({
+  label,
+  items,
+  isActive,
+}: {
+  label: string
+  items: NavItem[]
+  isActive: (prefix: string) => boolean
+}) {
+  const { t } = useTranslation()
+  const location = useLocation()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
+
+  const active = items.some((item) => isActive(item.prefix))
+  return (
+    <div className="topnav-dropdown" ref={ref}>
+      <button
+        type="button"
+        className={`topnav-item${active ? ' active' : ''}`}
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        {label}
+        {' ▾'}
+      </button>
+      {open ? (
+        <div className="topnav-dropdown-menu" role="menu">
+          {items.map((item) => (
+            <Link
+              key={item.key}
+              to={item.to as string}
+              role="menuitem"
+              className={isActive(item.prefix) ? 'active' : undefined}
+            >
+              {t(item.key)}
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }
