@@ -58,7 +58,7 @@ GIT_SOURCE_TYPE = "git"
 # 9 : badges « nouveau » / « modifié » par rapport à la tête publiée (aad1d3c6).
 # 10 : schémas en YAML, `<clé>.schema.yaml` (ticket 5cc1cb07).
 # 13 : modules et compteurs de fonctions (cartographie applicative, 0fa620be).
-INDEX_FORMAT = "13"
+INDEX_FORMAT = "14"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -107,12 +107,28 @@ class ModuleFacts:
 @dataclass(frozen=True)
 class FunctionCounts:
     """Les fonctions d'un objet, lues dans son `<clé>.extend.yaml` : méthodes
-    publiques, points d'entrée (dont routes HTTP), fonctions libres (module)."""
+    publiques, points d'entrée (dont routes HTTP), fonctions libres (module) ;
+    points d'entrée reliés au contrat et opérations reliées (fichier du contrat
+    sous `contracts/`, verbe, chemin) — ticket 90ed0967."""
 
     methods: int = 0
     entry_points: int = 0
     http: int = 0
     functions: int = 0
+    linked: int = 0
+    operations: tuple[tuple[str, str, str], ...] = ()
+
+    @classmethod
+    def from_json(cls, row: list[Any]) -> FunctionCounts:
+        counts = [int(n) for n in row[:5]] + [0] * (5 - len(row[:5]))
+        return cls(
+            methods=counts[0],
+            entry_points=counts[1],
+            http=counts[2],
+            functions=counts[3],
+            linked=counts[4],
+            operations=tuple((o[0], o[1], o[2]) for o in row[5]) if len(row) > 5 else (),
+        )
 
 
 @dataclass(frozen=True)
@@ -426,11 +442,21 @@ def function_counts(document: Any) -> FunctionCounts:
     entries = [f.get("entryPoint") for f in (*methods, *functions)]
     entries.append(document.get("entryPoint"))
     found = [e for e in entries if isinstance(e, dict)]
+    contracts = [c for c in (e.get("contract") for e in found) if isinstance(c, dict)]
+    linked = [c for c in contracts if c.get("status") == "linked"]
+    operations = {
+        (str(o.get("file", "")), str(o.get("verb", "")), str(o.get("path", "")))
+        for c in linked
+        for o in c.get("operations") or []
+        if isinstance(o, dict)
+    }
     return FunctionCounts(
         methods=sum(1 for m in methods if m.get("visibility") == "public"),
         entry_points=len(found),
         http=sum(1 for e in found if e.get("kind") == "http"),
         functions=len(functions),
+        linked=len(linked),
+        operations=tuple(sorted(operations)),
     )
 
 
@@ -811,6 +837,8 @@ class SourceEntries:
                         o.functions.entry_points,
                         o.functions.http,
                         o.functions.functions,
+                        o.functions.linked,
+                        [list(op) for op in o.functions.operations],
                     ],
                 ]
                 for o in self.objects
@@ -876,7 +904,7 @@ class SourceEntries:
                     )
                     if len(o) > 21 and o[21]
                     else None,
-                    functions=FunctionCounts(*o[22]) if len(o) > 22 else FunctionCounts(),
+                    functions=FunctionCounts.from_json(o[22]) if len(o) > 22 else FunctionCounts(),
                 )
                 for o in data.get("objects") or []
             ],

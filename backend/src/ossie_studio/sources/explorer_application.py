@@ -52,7 +52,18 @@ def _counts(module: ExplorerObject, members: list[ExplorerObject]) -> dict[str, 
         "http": own.http + sum(m.functions.http for m in members),
         "methods": sum(m.functions.methods for m in members),
         "functions": own.functions,
+        # Points d'entrée reliés à une opération d'un contrat de la source.
+        "linked": own.linked + sum(m.functions.linked for m in members),
     }
+
+
+def _linked_operations(entries: SourceEntries) -> dict[str, set[tuple[str, str]]]:
+    """Par contrat (copie sous `contracts/`), ses opérations reliées au code."""
+    out: dict[str, set[tuple[str, str]]] = {}
+    for obj in entries.objects:
+        for file, verb, path in obj.functions.operations:
+            out.setdefault(file, set()).add((verb, path))
+    return out
 
 
 def application_view(entries: SourceEntries) -> dict[str, Any]:
@@ -88,10 +99,17 @@ def application_view(entries: SourceEntries) -> dict[str, Any]:
                 "counts": _counts(mod, members[key]),
             }
         )
+    linked = _linked_operations(entries)
     return {
         "modules": payload,
         "contracts": [
-            {"path": c.path, "title": c.title, "operations": c.operations}
+            {
+                "path": c.path,
+                "title": c.title,
+                "operations": c.operations,
+                # « x / y opérations reliées au code ».
+                "linked": len(linked.get(c.path, ())),
+            }
             for c in entries.contracts
         ],
     }

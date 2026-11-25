@@ -40,6 +40,9 @@ export function RawModulePreview({
   })
   const m = query.data
   const methods = (m?.classes ?? []).reduce((n, c) => n + c.methods.length, 0)
+  // Routes comparées au contrat de la source (ticket 90ed0967) : « n au contrat ».
+  const compared = (m?.entry_points ?? []).filter((p) => p.kind === 'http' && p.contract)
+  const linked = compared.filter((p) => p.contract?.status === 'linked').length
   return (
     <aside className="panel raw-preview" aria-label={t('rawPreviewLabel')}>
       <div className="raw-preview-head">
@@ -56,6 +59,9 @@ export function RawModulePreview({
             <h2>
               <span className="raw-glyph">MOD</span> {m.title}
             </h2>
+            {compared.length ? (
+              <p className="muted small">{t('rawModLinked', { linked, count: compared.length })}</p>
+            ) : null}
           </div>
           <dl className="raw-module-facts">
             <dt>{t('rawModFile')}</dt>

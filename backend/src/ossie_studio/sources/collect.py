@@ -26,6 +26,7 @@ from ossie_studio.parsers.base import (
 from ossie_studio.parsers.openapi import FoundContract, inspect_contract
 from ossie_studio.parsers.registry import openapi_plugin, select_code_plugins
 from ossie_studio.sources.collect_core import RAW_DIR, checksum
+from ossie_studio.sources.contract_links import sync_contract_links
 from ossie_studio.sources.csharp_modules import csharp_module_actions
 from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
 from ossie_studio.sources.module_functions import sync_module_functions
@@ -360,6 +361,9 @@ class SourceCollector:
         writes, resolved = await asyncio.to_thread(
             resolve_source_schemas, raw_files, writes, deletes, source_files, projects
         )
+        # Points d'entrée HTTP ↔ opérations des contrats OpenAPI de la source :
+        # l'état au contrat va dans les `.extend.yaml` (le contrat n'est pas touché).
+        writes = await asyncio.to_thread(sync_contract_links, raw_files, writes, deletes)
         # Cartographie applicative : les `.view` des modules suivent les modules et
         # leurs dépendances, par ajouts et suppressions (jamais réécrits en entier).
         writes, deletes = await asyncio.to_thread(sync_module_views, raw_files, writes, deletes)

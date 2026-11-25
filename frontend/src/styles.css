@@ -3261,6 +3261,9 @@ td.cell-error {
 .raw-tree-module .raw-glyph-sm {
   margin-right: 4px;
 }
+.raw-module .raw-preview-title > p {
+  margin: 2px 0 0;
+}
 .raw-module-facts {
   display: grid;
   grid-template-columns: max-content 1fr;

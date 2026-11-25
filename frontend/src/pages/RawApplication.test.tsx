@@ -32,7 +32,7 @@ const APP: RawApplicationData = {
     mod('Database', 'sql'),
     mod('Tests', 'test', ['Api', 'Domain']),
   ],
-  contracts: [{ path: 'contracts/boutique/contrat.full.openapi.yaml', title: 'Boutique', operations: 14 }],
+  contracts: [{ path: 'contracts/boutique/contrat.full.openapi.yaml', title: 'Boutique', operations: 14, linked: 3 }],
 }
 
 const at = (layout: ReturnType<typeof applicationLayout>, title: string) =>
@@ -109,6 +109,8 @@ describe('Vue « Application » — interactions', () => {
     expect(onSelect).toHaveBeenCalledTimes(1)
     // Projet SQL : ses objets et ses procédures.
     expect(screen.getByRole('link', { name: /9 objet\(s\) de Database/ })).toBeInTheDocument()
+    // Bloc du contrat : opérations reliées au code (ticket 90ed0967).
+    expect(screen.getByText('3 / 14 opérations reliées au code')).toBeInTheDocument()
   })
 })
 
@@ -142,6 +144,8 @@ describe('Aperçu d’un module', () => {
     wrap(<RawModulePreview spaceId="s1" branchId="b1" slug="app" file="module-api.schema.yaml" onCollapse={() => {}} />)
     expect(await screen.findByText('src/Api/Api.csproj')).toBeInTheDocument()
     expect(screen.getByText('application web · net8.0')).toBeInTheDocument()
+    // Routes comparées au contrat : une reliée sur deux (la troisième non comparée).
+    expect(screen.getByText('1 / 2 route(s) au contrat')).toBeInTheDocument()
     expect(screen.getByText('../Externe/Outils.csproj (hors de la source)')).toBeInTheDocument()
     expect(screen.getByText('Points d’entrée · 4')).toBeInTheDocument()
     expect(screen.getByText('/api/commandes/{id}')).toBeInTheDocument()

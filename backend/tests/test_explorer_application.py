@@ -13,6 +13,7 @@ from httpx import ASGITransport, AsyncClient
 
 from ossie_studio.parsers.application import dump_functions, module_key, module_schema
 from ossie_studio.parsers.conventions import dump_schema, schema_file
+from ossie_studio.parsers.openapi_full import CONTRACTS_INDEX, ContractEntry, dump_contracts_index
 from ossie_studio.sources.explorer import clear_caches
 from tests.space_fixture import ApiSpace, forge_edit, make_api_space
 from tests.test_raw_explorer import _manifest, _tech
@@ -137,6 +138,7 @@ async def test_vue_application_modules_dependances_compteurs(sp: ApiSpace) -> No
         "http": 2,
         "methods": 2,
         "functions": 1,
+        "linked": 0,
     }
     assert modules["Boutique.Domain"]["counts"]["classes"] == 1
     assert sorted(modules["Boutique.Domain"]["dependents"]) == sorted(
@@ -193,3 +195,67 @@ async def test_module_inconnu_404_et_droits(app: FastAPI, sp: ApiSpace) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as anonymous:
         refused = await anonymous.get(f"{sp.base}/raw-explorer/app/application")
     assert refused.status_code == 401
+
+
+async def test_contrat_operations_reliees_au_code(sp: ApiSpace) -> None:
+    """Ticket 90ed0967 : « n au contrat » par module, « x / y opérations reliées
+    au code » par contrat (lu dans l'index de l'Explorateur)."""
+    op = {"file": "api/contrat.full.openapi.yaml", "verb": "GET", "path": "/commandes/{id}"}
+    controller = {
+        "methods": [
+            {
+                "name": "Lire",
+                "visibility": "public",
+                "entryPoint": {
+                    "kind": "http",
+                    "verb": "GET",
+                    "route": "/api/commandes/{id}",
+                    "contract": {"status": "linked", "operations": [op]},
+                },
+            },
+            {
+                "name": "Relire",
+                "visibility": "public",
+                "entryPoint": {
+                    "kind": "http",
+                    "verb": "GET",
+                    "route": "/api/commandes/{id}/",
+                    "contract": {"status": "linked", "operations": [op]},
+                },
+            },
+            {
+                "name": "Changer",
+                "visibility": "public",
+                "entryPoint": {
+                    "kind": "http",
+                    "verb": "PUT",
+                    "route": "/api/commandes/{id}",
+                    "contract": {"status": "absent"},
+                },
+            },
+        ]
+    }
+    entry = ContractEntry("api/contrat.full.openapi.yaml", "api/openapi.yaml", "Boutique", "1", 3)
+    forge_edit(
+        sp,
+        {
+            f"{RAW}/commandescontroller.extend.yaml": dump_functions(controller),
+            f"{RAW}/{CONTRACTS_INDEX}": dump_contracts_index({entry.path: entry}),
+            f"{RAW}/contracts/{entry.path}": "openapi: 3.0.3\n",
+        },
+    )
+    r = await sp.client.get(f"{sp.base}/raw-explorer/app/application")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert _by_title(data)["Boutique.Api"]["counts"]["linked"] == 2
+    # Deux points reliés à la même opération : une seule opération reliée.
+    assert data["contracts"] == [
+        {"path": entry.path, "title": "Boutique", "operations": 3, "linked": 1}
+    ]
+    detail = await sp.client.get(
+        f"{sp.base}/raw-explorer/app/module", params={"file": schema_file(module_key(API))}
+    )
+    statuses = {
+        p["method"]: (p["contract"] or {}).get("status") for p in detail.json()["entry_points"]
+    }
+    assert statuses["Changer"] == "absent" and statuses["Lire"] == "linked"

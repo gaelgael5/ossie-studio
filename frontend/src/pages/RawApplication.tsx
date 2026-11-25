@@ -215,7 +215,11 @@ export function RawApplication({
                   <tspan className="raw-app-tag">OAS</tspan> {shorten(c.title, 24)}
                 </text>
                 <text x={10} y={40} className="raw-app-sub">{t('rawAppContract')}</text>
-                <text x={10} y={60} className="raw-app-sub">{t('rawAppOperations', { count: c.operations })}</text>
+                <text x={10} y={60} className="raw-app-sub">
+                  {c.linked === undefined
+                    ? t('rawAppOperations', { count: c.operations })
+                    : t('rawAppOperationsLinked', { linked: c.linked, count: c.operations })}
+                </text>
               </g>
             )
           })}

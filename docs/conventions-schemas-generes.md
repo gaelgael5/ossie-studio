@@ -254,6 +254,50 @@ methods:
   `functions-csharp.yaml` pour la minimal API), et le socle les range dans le
   `.extend.yaml` du module qui contient le fichier (même langage).
 
+### Point d'entrée et contrat OpenAPI
+
+Rempli par le **socle** à la collecte (ticket 90ed0967), après les parseurs : chaque
+point d'entrée HTTP dont la route est connue est comparé aux opérations des
+contrats OpenAPI **de la même source** (copies `raw/contracts/…`). Le contrat
+n'est jamais modifié. `file` est le chemin de la copie sous `contracts/`.
+
+```yaml
+methods:
+- entryPoint:
+    contract:
+      status: absent
+    kind: http
+    route: /api/commandes/{id}/statut
+    verb: PUT
+  name: Changer
+  visibility: public
+- entryPoint:
+    contract:
+      operations:
+      - file: api/contrat.full.openapi.yaml
+        operationId: lireCommande
+        path: /commandes/{commandeId}
+        verb: GET
+      status: linked
+    kind: http
+    route: /api/commandes/{id}
+    verb: GET
+  name: Lire
+  visibility: public
+```
+
+- **même verbe, même route** : les paramètres se comparent par position (`{id}`,
+  `{commandeId}`, `{id:guid}`, `{id?}` se valent), sans tenir compte de la casse ni
+  de la barre finale ;
+- le **chemin des `servers`** du contrat compte : avec `servers: [{url:
+  https://boutique.example/api}]`, l'opération `/commandes/{commandeId}` répond à la
+  route `/api/commandes/{id}` comme à `/commandes/{id}` ;
+- une opération trouvée dans deux contrats est listée deux fois (une par contrat) ;
+- **non comparé** (pas de `contract`) : route inconnue (`route: null`), point
+  d'entrée non HTTP, source sans contrat — un état d'une collecte précédente est
+  alors retiré ;
+- le `.extend.yaml` n'est réécrit que si l'état au contrat change.
+
 ### Vue d'un module : `module-<chemin>.view.yaml`
 
 La **personnalisation de l'affichage** du module dans la vue « Application » :

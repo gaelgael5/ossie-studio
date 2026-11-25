@@ -8,6 +8,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 ## Décisions de Gael (25 novembre)
 
+- Plan du ticket 4 (lien au contrat OpenAPI) validé (« Oui go »).
 - Plan du ticket 8 (primitives MCP) validé (« Oui go »).
 - Plan du ticket 6 (vue « Application ») validé (« oui, vas-y »), y compris la rangée à part, en bas, pour les projets de test.
 - Plan du ticket 3 (méthodes et points d'entrée C#) validé (« oui, vas-y »).
@@ -22,7 +23,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | 6c97ad98 — Format raw des modules, des fonctions et du fichier `.view` (enabler) | En review |
 | e0fa8519 — Modules C# (`.csproj` → objets module) | En review |
 | f1cc03c4 — Méthodes publiques et points d'entrée C# | En review |
-| 90ed0967 — Relier les points d'entrée au contrat OpenAPI | Prêt pour dev |
+| 90ed0967 — Relier les points d'entrée au contrat OpenAPI | En review |
 | 30c55418 — Projet SQL Server comme module | Prêt pour dev |
 | 0fa620be — Explorateur raw : objets module et vue « Application » | En review |
 | a1fd0663 — Déplacer les ancres des connecteurs (`.view`) | Prêt pour dev |
@@ -76,3 +77,15 @@ Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les au
 - Erreurs nommées : `module_not_found`, `schema_not_found`, `source_not_found` ; source sans module → liste vide. Listes bornées à 200, `truncated: true` au-delà.
 - Libellés des primitives (écran des profils agents) dans `frontend/src/locales`.
 - Tests : `backend/tests/test_mcp_application.py` (six modules, dépendances dans les deux sens, module, fonctions, routes absentes du contrat, erreurs, troncature, vue brouillon par OAuth et vue publiée par clé d'API).
+
+## Notes techniques (lien au contrat OpenAPI, 90ed0967)
+
+- Étape du socle `sources/contract_links.sync_contract_links`, juste après la résolution des types (`sources/collect.py`) : elle voit le `raw/` final (copies `contracts/…/contrat.full.openapi.yaml` listées par `contracts-index.yaml`, et tous les `.extend.yaml`) ; elle écrit `contract` dans chaque point d'entrée HTTP, et ne réécrit un `.extend.yaml` que si cet état change (l'écriture du parseur est complétée sur place). Le contrat n'est jamais touché.
+- Règle de comparaison (`route_key`, `server_prefixes`, `operation_index`) : même verbe ; paramètres par position (`{id}`, `{commandeId}`, `{id:guid}`, `{id?}` se valent) ; casse et barre finale ignorées ; chemin des `servers` (variable du chemin remplacée par son défaut, variable de l'hôte sans effet) pris avec et sans préfixe. Une opération de deux contrats est listée deux fois. `file` = chemin de la copie sous `contracts/` (le même que la vue « Application »).
+- Non comparé (pas de `contract`) : route `null`, point non HTTP, source sans contrat (l'état d'une collecte précédente est retiré).
+- Le contrat seul change : le code n'est pas relu, l'état des `.extend.yaml` suit (testé).
+- Index de l'Explorateur (format **14**) : `FunctionCounts.linked` (points reliés) et `operations` (opérations reliées : fichier, verbe, chemin). Vue « Application » : `counts.linked` par module, `contracts[].linked` (opérations distinctes reliées).
+- Écran : bloc du contrat « x / y opérations reliées au code » ; aperçu d'un module « n / m route(s) au contrat » (routes comparées).
+- Primitives : le filtre `contract_status` de `list_entry_points` répond maintenant sur les données collectées.
+- Conventions : sous-section « Point d'entrée et contrat OpenAPI » (exemple vérifié par le test : c'est ce que produit le socle).
+- Tests : `backend/tests/test_contract_links.py` (règles, écriture seulement au changement, collecte de bout en bout C# + contrat : relié, absent, route inconnue, minimal API, contrat modifié seul, contrat retiré), `test_explorer_application.py` (compteurs), `RawApplication.test.tsx`.

@@ -476,12 +476,14 @@ export interface RawAppModule {
   folder: string
   dependencies: { id: string | null; project: string; title?: string | null }[]
   dependents: string[]
-  counts: { classes: number; entry_points: number; http: number; methods: number; functions: number }
+  /** linked : points d'entrée reliés à une opération d'un contrat de la source. */
+  counts: { classes: number; entry_points: number; http: number; methods: number; functions: number; linked?: number }
 }
 
 export interface RawApplication {
   modules: RawAppModule[]
-  contracts: { path: string; title: string; operations: number }[]
+  /** linked : opérations du contrat reliées à un point d'entrée du code. */
+  contracts: { path: string; title: string; operations: number; linked?: number }[]
 }
 
 export interface RawEntryPoint {
