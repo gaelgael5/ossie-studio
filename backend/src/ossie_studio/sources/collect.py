@@ -35,6 +35,7 @@ from ossie_studio.sources.module_views import sync_module_views
 from ossie_studio.sources.npm_modules import npm_module_actions, read_npm_projects
 from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
 from ossie_studio.sources.progress import CollectProgress
+from ossie_studio.sources.python_modules import python_module_actions, read_python_projects
 from ossie_studio.sources.schema_resolve import (
     ProjectMap,
     SchemaIndex,
@@ -378,7 +379,16 @@ class SourceCollector:
         npm = await asyncio.to_thread(
             npm_module_actions, raw_files, jvm.writes, jvm.deletes, npm_projects
         )
-        for step in (modules, jvm, npm):
+        # Projets Python (`pyproject.toml`, `setup.cfg`, `setup.py`).
+        python_projects = (
+            await asyncio.to_thread(read_python_projects, source_files)
+            if "python" in selected
+            else {}
+        )
+        python = await asyncio.to_thread(
+            python_module_actions, raw_files, npm.writes, npm.deletes, python_projects
+        )
+        for step in (modules, jvm, npm, python):
             statuts.update(step.statuses)
             messages.update(step.errors)
             agg.added += step.added
@@ -386,7 +396,7 @@ class SourceCollector:
             agg.deleted += step.deleted
         # Les fonctions libres (minimal API…) vont dans le `.extend.yaml` de leur module.
         writes, deletes = await asyncio.to_thread(
-            sync_module_functions, raw_files, npm.writes, npm.deletes
+            sync_module_functions, raw_files, python.writes, python.deletes
         )
         writes, resolved = await asyncio.to_thread(
             resolve_source_schemas, raw_files, writes, deletes, source_files, projects

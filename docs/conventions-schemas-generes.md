@@ -302,7 +302,8 @@ methods:
 
 Un module de langage n'est produit que si le **parseur de ce langage est choisi
 pour la source** : `csharp` (`.csproj`), `kotlin-java` (Gradle, Maven),
-`typescript` (`package.json`), `sqlserver-projet` (`.sqlproj`). Une source
+`typescript` (`package.json`), `python` (`pyproject.toml`, `setup.cfg`,
+`setup.py`), `sqlserver-projet` (`.sqlproj`). Une source
 « contrats OpenAPI » n'a donc pas de module npm même si son dépôt contient un
 `package.json`. Retirer un parseur du choix retire ses modules à la collecte
 suivante.
@@ -361,6 +362,34 @@ Ticket f619f4a7, sur le même modèle :
   `:id` deviennent `{id}` ; une route non littérale garde son point d'entrée avec
   `route: null`. Le préfixe d'un `app.use('/api', router)` posé dans un autre
   fichier n'est pas recomposé (limite connue).
+
+### Python : modules pyproject, méthodes, fonctions, points d'entrée FastAPI, Flask, Celery
+
+Ticket 3343afe4, sur le même modèle :
+
+- **modules** (étape du socle `sources/python_modules.py`) : un projet par
+  dossier — `pyproject.toml`, sinon `setup.cfg`, sinon `setup.py` (lu comme du
+  texte, jamais exécuté) ; la racine d'un espace de travail uv sans projet à elle
+  est un agrégateur. Dépendances par nom (normalisé PEP 503 : `My_Pkg` = `my-pkg`)
+  ou par chemin (sources uv et Poetry `{ path = "../x" }`) ; paquets externes
+  ignorés. Nature : FastAPI, Flask, Django… → `web`, Celery… → `worker`, script
+  déclaré → `application`, sinon `library`. Cible `python3.12`… ;
+- **objets** : en plus des classes de données, **toute classe publique qui a des
+  méthodes publiques** a son objet (`x-kind: class`), pour porter ses méthodes ;
+- **méthodes** (parseur `python` 1.2) : nom sans `_` initial (ni `__init__`, ni
+  `_privee`), hors `@property` ; `self` / `cls` omis ; `@staticmethod` /
+  `@classmethod` → `static` ;
+- **fonctions publiques de module** et **points d'entrée** : notés dans l'index
+  `functions-python.yaml`, rangés par le socle dans le `.extend.yaml` du module.
+  FastAPI (`@router.get("/{id}")` avec le `prefix` de l'`APIRouter(...)` du
+  fichier ; `api_route(methods=[...])`), Flask (`@app.route(..., methods=[...])`,
+  GET par défaut, `@bp.get`, `url_prefix` du `Blueprint(...)` ; `<int:id>` →
+  `{id}`), Celery (`@shared_task`, `@app.task` → `task` ; `bind=True` : premier
+  paramètre omis). Une route à plusieurs verbes donne une entrée par verbe ; une
+  route non littérale garde son point d'entrée avec `route: null` ; seul un objet
+  créé dans le fichier par `FastAPI()`, `APIRouter()`, `Flask()`, `Blueprint()`,
+  `Celery()` ou nommé comme une application ou un routeur compte. Le préfixe d'un
+  `include_router(..., prefix=...)` posé dans un autre fichier n'est pas recomposé.
 
 ### Projet SQL Server : module `sql`, procédures et fonctions
 
