@@ -7,6 +7,7 @@ import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
 import { useWorkspace } from '../workspace'
 import { DraftBar } from './DraftBar'
+import { useReadingMode } from '../readingMode'
 import { useBranchHead } from '../useBranchHead'
 import { Brand } from './Brand'
 
@@ -89,12 +90,15 @@ export function showsBranchDraftBar(pathname: string): boolean {
 
 function BranchDraftBar() {
   const ws = useWorkspace()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const shown = showsBranchDraftBar(pathname)
+  // Mode lecture de l'explorateur raw (4e287004) : la barre se replie, sauf
+  // quand elle a quelque chose d'urgent à dire (voir DraftBar).
+  const reading = useReadingMode() && pathname === '/sources' && new URLSearchParams(search).get('tab') === 'raw'
   // Hors branche, inutile de suivre la tête de la branche non plus.
   useBranchHead(shown ? ws.spaceId : null, shown ? ws.branchId : null)
   if (!shown || !ws.spaceId || !ws.branchId) return null
-  return <DraftBar spaceId={ws.spaceId} branchId={ws.branchId} />
+  return <DraftBar spaceId={ws.spaceId} branchId={ws.branchId} folded={reading} />
 }
 
 function WorkspaceChips() {

@@ -29,6 +29,11 @@ from ossie_studio.governance.classification_rules import (
     active_classification_rules,
     read_classification_removals,
 )
+from ossie_studio.governance.relation_profiles import (
+    BUILTIN_PROFILES_VERSION,
+    all_profiles,
+    source_relation_profiles,
+)
 from ossie_studio.governance.repo import read_schemes
 from ossie_studio.governance.tag_rules import active_rules, read_tag_removals
 from ossie_studio.models import GitSpace
@@ -41,6 +46,7 @@ from ossie_studio.sources.explorer import (
 )
 from ossie_studio.sources.explorer_classes import apply_classification_rules
 from ossie_studio.sources.explorer_graph import ReferenceGraph
+from ossie_studio.sources.explorer_relations import apply_relation_profiles
 from ossie_studio.sources.explorer_store import (
     IndexKey,
     db_all_source_entries,
@@ -74,11 +80,20 @@ def _read_sources(wc: Path) -> list[SourceEntries]:
     # Badges « nouveau » / « modifié » : écart avec la tête publiée, HEAD de la
     # copie (ticket docflow aad1d3c6). Dans la vue publiée, aucun écart.
     published = head_commit(wc)
+    slugs = list_source_slugs(wc)
+    # Relations virtuelles des sources SQL (ticket b5f333b4) : avant les tags,
+    # pour que les références soient complètes partout ; profils et manifestes
+    # sont dans le dépôt, donc dans la signature.
+    profiles = all_profiles(wc)
+    chosen = {
+        slug: [profiles[p] for p in source_relation_profiles(wc, slug) if p in profiles]
+        for slug in slugs
+    }
     tagged = apply_tag_rules(
-        [
-            collect_source_entries(wc, slug, published_base=published)
-            for slug in list_source_slugs(wc)
-        ],
+        apply_relation_profiles(
+            [collect_source_entries(wc, slug, published_base=published) for slug in slugs],
+            chosen,
+        ),
         active_rules(wc),
         {(r.object, r.tag) for r in read_tag_removals(wc)},
     )
@@ -112,6 +127,7 @@ async def ensure_index(
     # dans la signature (une nouvelle livraison de règles reconstruit l'index).
     signature = (
         f"v{INDEX_FORMAT}.{BUILTIN_RULES_VERSION}.{BUILTIN_CLASSIFICATION_RULES_VERSION}"
+        f".{BUILTIN_PROFILES_VERSION}"
         f":{raw_signature}"
     )
     key = IndexKey(space_id=space.id, branch_id=branch_id, user_id=workdir.user_id, view=view)

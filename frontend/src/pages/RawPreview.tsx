@@ -601,7 +601,10 @@ function ReferencedBy({
                 ) : null}
               </td>
               <td className="mono">{r.field || '—'}</td>
-              <td>{t(`rawReferencedByKind.${r.kind}`, { defaultValue: r.kind })}</td>
+              <td>
+                {t(`rawReferencedByKind.${r.kind}`, { defaultValue: r.kind })}
+                {r.virtual ? <VirtualBadge profile={r.virtual} /> : null}
+              </td>
               <td className="mono">{r.cardinality || '—'}</td>
             </tr>
           ))}
@@ -730,6 +733,7 @@ function Summary({
                 ) : (
                   <TargetLink target={r.target} label={r.label} onOpen={onOpen} />
                 )}
+                {r.virtual ? <VirtualBadge profile={r.virtual} /> : null}
               </li>
             ))}
           </ul>
@@ -832,5 +836,15 @@ function DocumentPreview({ spaceId, branchId, slug, mode, selected, onOpen }: Pr
         )}
       </section>
     </div>
+  )
+}
+
+/** Relation posée par un profil de nommage (b5f333b4), pas déclarée par la base. */
+export function VirtualBadge({ profile }: { profile: string }) {
+  const { t } = useTranslation()
+  return (
+    <span className="raw-badge" title={t('rawVirtualHint', { profile })}>
+      {t('rawVirtual', { profile })}
+    </span>
   )
 }

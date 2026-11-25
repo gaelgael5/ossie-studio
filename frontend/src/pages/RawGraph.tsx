@@ -113,7 +113,9 @@ export function RawGraph({ spaceId, branchId, mode, center, onSelect, onRecenter
   const edgeLabel = (group: RawGraphEdge[]) =>
     group[0].kind === 'inherits'
       ? t('rawRefKind.inherits')
-      : group.map((e) => `${e.field} · ${e.cardinality}`).join(', ')
+      : group
+          .map((e) => `${e.field} · ${e.cardinality}${e.virtual ? ` · ${t('rawVirtualShort')}` : ''}`)
+          .join(', ')
 
   return (
     <div className="raw-graph">
@@ -216,8 +218,13 @@ export function RawGraph({ spaceId, branchId, mode, center, onSelect, onRecenter
             const bend = Math.max(40, Math.abs(x2 - x1) / 2) * (forward ? 1 : -1)
             const d = `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`
             const inherits = group[0].kind === 'inherits'
+            // Relation virtuelle (profil de nommage, b5f333b4) : pointillé fin.
+            const virtual = group.every((e) => e.virtual)
             return (
-              <g key={key} className={`raw-graph-edge${inherits ? ' inherits' : ''}`}>
+              <g
+                key={key}
+                className={`raw-graph-edge${inherits ? ' inherits' : ''}${virtual ? ' virtual' : ''}`}
+              >
                 <path d={d} markerEnd="url(#raw-arrow)" />
                 <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6} textAnchor="middle">
                   {edgeLabel(group)}

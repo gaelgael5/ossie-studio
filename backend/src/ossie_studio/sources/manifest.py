@@ -26,7 +26,8 @@ SOURCE_TYPES = (GIT_TYPE, *DB_TYPES, OPENAPI_TYPE)
 
 # Clés autorisées, par type. Toute autre clé est refusée (manifeste strict).
 _GIT_KEYS = {"repository", "branch", "directories", "parsers", "exclusions"}
-_DB_KEYS = {"database", "schemas", "exclusions"}
+# `relation_profiles` : profils de relations virtuelles choisis (ticket b5f333b4).
+_DB_KEYS = {"database", "schemas", "exclusions", "relation_profiles"}
 _TOP_KEYS = {"version", "slug", "label", "type", "connection", "parameters", "triage"}
 
 # Correspondance version 1 (française) → version 2 (anglaise). Seules les clés
@@ -151,7 +152,7 @@ def _validate_db_params(params: dict[str, Any]) -> list[str]:
     errors += [f"unknown_key:parameters.{k}" for k in sorted(set(params) - _DB_KEYS)]
     if not isinstance(params.get("database"), str) or not str(params.get("database")).strip():
         errors.append("database_required")
-    for key in ("schemas", "exclusions"):
+    for key in ("schemas", "exclusions", "relation_profiles"):
         if key in params and _str_list(params[key]) is None:
             errors.append(f"{key}_invalid")
     return errors

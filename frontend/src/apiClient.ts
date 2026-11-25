@@ -613,6 +613,8 @@ export interface RawReference {
   target?: RawTarget | null
   external?: boolean
   cardinality?: string
+  /** Relation virtuelle (b5f333b4) : nom du profil qui l'a posée. */
+  virtual?: string
 }
 
 export interface RawIncoming {
@@ -620,6 +622,7 @@ export interface RawIncoming {
   kind: RawReference['kind']
   cardinality: string
   target: RawTarget
+  virtual?: string
 }
 
 export interface RawHistoryChange {
@@ -726,6 +729,7 @@ export interface RawGraphEdge {
   kind: 'field' | 'list' | 'map' | 'foreign_key' | 'inherits'
   cardinality: string
   direction: 'outgoing' | 'incoming'
+  virtual?: string
 }
 
 export interface RawGraph {
@@ -1078,6 +1082,32 @@ export interface TagRuleInput {
   when: Partial<Record<TagRuleCondition, string[]>>
   tags: string[]
   inherit_tags: boolean
+}
+
+/** Profil de relations virtuelles (b5f333b4), `governance/relation-profiles/<id>.yaml`. */
+export interface RelationRuleInput {
+  column: string
+  table: string
+  target_column: string
+  kinds?: string[]
+}
+export interface RelationProfileInput {
+  name: string
+  description?: string
+  rules: RelationRuleInput[]
+}
+export interface RelationProfileFile {
+  id: string
+  path: string
+  profile: (RelationProfileInput & { id: string }) | null
+  errors: string[]
+  builtin: boolean
+}
+export interface RelationPreview {
+  relations: number
+  examples: { file: string; title: string; field: string; target: string; column: string; profile: string }[]
+  unresolved: number
+  unresolved_examples: { file: string; title: string; field: string; wanted: string; reason: string }[]
 }
 
 export interface TagRuleFile {
@@ -2335,6 +2365,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  listRelationProfiles: () =>
+    apiFetch<{ profiles: RelationProfileFile[] }>('/api/governance/relation-profiles'),
+  saveRelationProfile: (id: string, body: RelationProfileInput) =>
+    apiFetch<RelationProfileFile>(`/api/governance/relation-profiles/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteRelationProfile: (id: string) =>
+    apiFetch(`/api/governance/relation-profiles/${id}`, { method: 'DELETE' }),
+  previewRelationProfile: (spaceId: string, branchId: string, source: string, body: RelationProfileInput) =>
+    apiFetch<RelationPreview>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/relation-profiles/preview?source=${encodeURIComponent(source)}`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
   listTagRules: () => apiFetch<{ rules: TagRuleFile[] }>('/api/governance/tag-rules'),
   saveTagRule: (id: string, body: TagRuleInput) =>
     apiFetch<TagRuleFile & { created_tags: string[] }>(`/api/governance/tag-rules/${id}`, {

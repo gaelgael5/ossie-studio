@@ -24,6 +24,8 @@ from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.classification_rules import ClassificationRuleBody
 from ossie_studio.api.classification_rules import parse_body as parse_classification_body
 from ossie_studio.api.common import SourcesRead
+from ossie_studio.api.relation_profiles import RelationProfileBody
+from ossie_studio.api.relation_profiles import parse_body as parse_profile_body
 from ossie_studio.api.tag_rules import TagRuleBody
 from ossie_studio.connections.service import db_get_connection_by_slug
 from ossie_studio.crypto import CryptoService
@@ -69,6 +71,7 @@ from ossie_studio.sources.explorer_classes import classified_fields, field_count
 from ossie_studio.sources.explorer_detail import SpaceObjects, document_detail, object_detail
 from ossie_studio.sources.explorer_graph import ReferenceGraph
 from ossie_studio.sources.explorer_history import schema_changes
+from ossie_studio.sources.explorer_relations import resolve_source
 from ossie_studio.sources.explorer_service import ensure_index, reference_graph
 from ossie_studio.sources.explorer_store import (
     IndexKey,
@@ -558,6 +561,33 @@ async def tag_rule_preview(
     tagged = apply_tag_rules(entries, [rule], index_removals(entries))
     count, inherited, examples = _rule_objects(tagged, preview_id)
     return {"objects": count, "inherited": inherited, "examples": examples}
+
+
+@router.post("/relation-profiles/preview")
+async def relation_profile_preview(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: RelationProfileBody,
+    source: str = Query(...),
+) -> dict[str, object]:
+    """Relations qu'un profil trouverait sur une source, avant de l'enregistrer
+    (ticket b5f333b4) : trouvées, et colonnes reconnues dont la cible manque."""
+    profile = parse_profile_body("preview", body)
+    key, _ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    entries = next((e for e in await db_all_source_entries(conn, key) if e.slug == source), None)
+    if entries is None:
+        raise ApiError("source_not_found", status_code=404, slug=source)
+    hits, unresolved = resolve_source(entries, [profile])
+    return {
+        "relations": len(hits),
+        "examples": [asdict(h) for h in hits[:50]],
+        "unresolved": len(unresolved),
+        "unresolved_examples": [asdict(u) for u in unresolved[:50]],
+    }
 
 
 @router.get("/classification-rules/usage")

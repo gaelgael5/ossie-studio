@@ -2169,6 +2169,9 @@ td .raw-ref-menu {
   stroke: var(--primary);
   stroke-dasharray: 6 4;
 }
+.raw-graph-edge.virtual path {
+  stroke-dasharray: 2 3;
+}
 .raw-graph-edge text {
   font-family: var(--mono);
   font-size: 10px;

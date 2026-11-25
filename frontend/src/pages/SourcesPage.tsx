@@ -15,6 +15,7 @@ import { exclusionsOf, parseExclusionInput } from '../sourceExclusions'
 import { SchemaPicker } from '../components/SchemaPicker'
 import { TriRulesEditor, useTriRules } from '../components/TriRulesEditor'
 import { ClassBadges } from '../components/ClassBadges'
+import { useReadingMode } from '../readingMode'
 
 // Types que le serveur sait collecter (sources/manifest.py) : les bases en
 // étaient absentes, leur ligne n'avait pas de lien « Collecter » (0d85e746).
@@ -64,6 +65,9 @@ export function SourcesPage() {
   // sur une source et un dossier, se partage et se rouvre tel quel.
   const [searchParams, setSearchParams] = useSearchParams()
   const rawTab = searchParams.get('tab') === 'raw'
+  // Mode lecture (4e287004) : sur l'explorateur, l'en-tête et les onglets se
+  // replient ; l'explorateur garde sa barre (fil d'Ariane, vues, « Déplier »).
+  const folded = useReadingMode() && rawTab
 
   const key = ['sources', ws.spaceId, ws.branchId]
   const sources = useQuery({
@@ -121,6 +125,8 @@ export function SourcesPage() {
 
   return (
     <Frame>
+      {folded ? null : (
+      <>
       <div className="page-head">
         <div>
           <div className="breadcrumb">
@@ -203,6 +209,8 @@ export function SourcesPage() {
           {t('tabRawExplorer')}
         </button>
       </div>
+      </>
+      )}
 
       <ErrorList messages={messages} />
 
@@ -872,6 +880,11 @@ function SqlSourceModal({
   const [database, setDatabase] = useState(String(p.database ?? ''))
   const [schemas, setSchemas] = useState<string[]>(asList(p.schemas).map(String))
   const [exclusions, setExclusions] = useState(asList(p.exclusions).join(', '))
+  // Profils de relations virtuelles choisis (ticket b5f333b4). Sans droit de
+  // lecture de la gouvernance, la liste ne se charge pas et le choix est masqué.
+  const [relationProfiles, setRelationProfiles] = useState<string[]>(asList(p.relation_profiles).map(String))
+  const profilesQuery = useQuery({ queryKey: ['relation-profiles'], queryFn: api.listRelationProfiles, retry: false })
+  const profileChoices = (profilesQuery.data?.profiles ?? []).filter((f) => f.profile)
   const [messages, setMessages] = useState<string[]>([])
   const tri = useTriRules(spaceId, branchId, source?.slug)
 
@@ -892,6 +905,7 @@ function SqlSourceModal({
   const parameters: Record<string, unknown> = {
     database,
     ...(schemas.length > 0 ? { schemas } : {}),
+    ...(relationProfiles.length > 0 ? { relation_profiles: relationProfiles } : {}),
     ...(exclusions.trim()
       ? { exclusions: exclusions.split(',').map((s) => s.trim()).filter(Boolean) }
       : {}),
@@ -1009,6 +1023,28 @@ function SqlSourceModal({
               <input id="s-excl" className="input" value={exclusions} onChange={(e) => setExclusions(e.target.value)} />
             </div>
           </div>
+          {profileChoices.length > 0 ? (
+            <fieldset className="field">
+              <legend className="field-label">{t('sourceRelationProfiles')}</legend>
+              <div className="row">
+                {profileChoices.map((f) => (
+                  <label key={f.id}>
+                    <input
+                      type="checkbox"
+                      checked={relationProfiles.includes(f.id)}
+                      onChange={(e) =>
+                        setRelationProfiles((cur) =>
+                          e.target.checked ? [...cur, f.id] : cur.filter((x) => x !== f.id),
+                        )
+                      }
+                    />{' '}
+                    {f.profile?.name ?? f.id}
+                  </label>
+                ))}
+              </div>
+              <span className="field-hint">{t('sourceRelationProfilesHint')}</span>
+            </fieldset>
+          ) : null}
           {editMode ? <TriRulesEditor state={tri} /> : null}
         </div>
         <div className="stack">

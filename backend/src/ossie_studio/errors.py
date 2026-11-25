@@ -65,6 +65,8 @@ ERROR_CODES: tuple[str, ...] = (
     "tag_not_found",
     "tag_rule_invalid",
     "tag_rule_not_found",
+    "relation_profile_invalid",
+    "relation_profile_not_found",
     "classification_rule_not_found",
     "tag_import_invalid",
     "certification_tag_taken",
