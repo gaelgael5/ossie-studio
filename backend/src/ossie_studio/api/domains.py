@@ -10,6 +10,7 @@ Curation : lire demande `curation:read`, modifier `curation:write`. Toutes les
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated, Any
@@ -28,6 +29,7 @@ from ossie_studio.domains.documents import (
     Dataset,
     Domain,
     DomainError,
+    DomainField,
     delete_domain,
     is_valid_domain_name,
     list_domain_names,
@@ -35,6 +37,7 @@ from ossie_studio.domains.documents import (
     read_domain,
     write_domain,
 )
+from ossie_studio.domains.links import field_link_views
 from ossie_studio.domains.manual import DatasetInput, FieldInput, Impact, save_manual_dataset
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
@@ -43,6 +46,7 @@ from ossie_studio.sources.curation_assets import read_assets
 from ossie_studio.sources.explorer import DEFAULT_MODE
 from ossie_studio.sources.explorer_graph import ReferenceGraph
 from ossie_studio.sources.explorer_service import ensure_index, reference_graph
+from ossie_studio.sources.referentiel_links import LinkTarget, read_targets
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
 
@@ -238,7 +242,19 @@ async def _graph(conn: ConnDep, ctx: _Ctx, branch_id: uuid.UUID) -> ReferenceGra
     return await reference_graph(conn, key, DEFAULT_MODE, signature)
 
 
-def _dataset_payload(ds: Dataset) -> dict[str, object]:
+def _dataset_payload(
+    ds: Dataset, targets: Mapping[str, LinkTarget] | None = None
+) -> dict[str, object]:
+    """`targets` (référentiels de la vue) : donné, chaque champ lié porte l'état de
+    son lien (tickets 65235f64, 80bb56af) ; sinon le lien brut seulement."""
+    views = field_link_views(ds, targets) if targets is not None else {}
+
+    def field_payload(f: DomainField) -> dict[str, object]:
+        out: dict[str, object] = asdict(f)
+        view = views.get(f.name)
+        out["referentiel"] = {**asdict(view), "inherited": ds.derived} if view is not None else None
+        return out
+
     return {
         "name": ds.name,
         "source": ds.source,
@@ -246,7 +262,7 @@ def _dataset_payload(ds: Dataset) -> dict[str, object]:
         "derived": ds.derived,
         "asset": asdict(ds.asset) if ds.asset else None,
         "description": ds.description,
-        "fields": [asdict(f) for f in ds.fields],
+        "fields": [field_payload(f) for f in ds.fields],
         "primary_key": ds.primary_key,
         "unique_keys": ds.unique_keys,
     }
@@ -265,10 +281,10 @@ def _summary(domain: Domain) -> dict[str, object]:
     }
 
 
-def _detail(domain: Domain) -> dict[str, object]:
+def _detail(domain: Domain, targets: Mapping[str, LinkTarget] | None = None) -> dict[str, object]:
     return {
         **_summary(domain),
-        "datasets": [_dataset_payload(d) for d in domain.datasets],
+        "datasets": [_dataset_payload(d, targets) for d in domain.datasets],
         "relationships": [asdict(r) for r in domain.relationships],
         "references": [asdict(r) for r in domain.references],
         # Types proposés par le formulaire du dataset manuel : servis d'ici pour que
@@ -351,12 +367,14 @@ async def get_branch_domain(
 ) -> dict[str, object]:
     ctx, _ref = await _ctx(conn, crypto, workdir, space_id, branch_id)
     try:
-        domain: Domain = await ctx.read(lambda root: _read_or_raise(root, name))
+        domain, targets = await ctx.read(
+            lambda root: (_read_or_raise(root, name), read_targets(root))
+        )
     except _NotFound:
         raise ApiError("domain_not_found", status_code=404, name=name) from None
     except DomainError as exc:
         raise _domain_error(exc) from None
-    return _detail(domain)
+    return _detail(domain, targets)
 
 
 @router.patch("/{name}")

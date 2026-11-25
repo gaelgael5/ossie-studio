@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
-import type { DomainDataset, DomainDetail, DomainSummary } from '../apiClient'
+import type { DomainDataset, DomainDetail, DomainField, DomainSummary } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
@@ -351,11 +351,28 @@ function DatasetRows({
   onEdit: (dataset: DomainDataset) => void
 }) {
   const { t } = useTranslation()
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const toggle = (name: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
   return (
     <ul className="list-plain stack stack-tight">
       {datasets.map((d) => (
-        <li key={d.name} className="row">
-          <strong>{d.name}</strong>
+        <li key={d.name} className="stack stack-tight">
+          <div className="row">
+          <button
+            type="button"
+            className="btn-link"
+            aria-expanded={open.has(d.name)}
+            aria-label={t('domainFieldsOf', { name: d.name })}
+            onClick={() => toggle(d.name)}
+          >
+            {open.has(d.name) ? '▾' : '▸'} <strong>{d.name}</strong>
+          </button>
           <span className="pill">{d.derived ? t('domainDerived') : t('domainManual')}</span>
           <span className="muted small">{t('domainFieldCount', { count: d.fields.length })}</span>
           {d.asset ? (
@@ -387,9 +404,63 @@ function DatasetRows({
               {t('domainRemove')}
             </button>
           ) : null}
+          </div>
+          {open.has(d.name) ? <DatasetFields dataset={d} /> : null}
         </li>
       ))}
     </ul>
+  )
+}
+
+/** Étiquette d'un lien de référentiel sur un champ de dataset, en lecture seule. */
+function FieldLink({ link }: { link: NonNullable<DomainField['referentiel']> }) {
+  const { t } = useTranslation()
+  const tone = link.status === 'ok' ? 'badge' : link.status === 'partial' ? 'badge badge-warn' : 'badge badge-danger'
+  const extra =
+    link.status === 'partial'
+      ? ` · ${t('linkKeyCount', { done: link.linked_keys, size: link.key_size })}`
+      : link.status === 'broken'
+        ? ` · ${t('linkBroken')}`
+        : ''
+  return (
+    <div className="stack link-cell">
+      <span className={tone} title={link.schema}>
+        {`${link.referentiel} · ${link.property}${extra}`}
+      </span>
+      {link.inherited ? <span className="muted small">{t('domainLinkInherited')}</span> : null}
+      {link.status === 'partial' ? (
+        <span className="small text-warn">{t('linkPartialHint', { missing: link.missing.join(', ') })}</span>
+      ) : null}
+      {link.status === 'broken' ? <span className="small text-danger">{t('linkBrokenHint')}</span> : null}
+    </div>
+  )
+}
+
+/** Champs d'un dataset : type et lien de référentiel (hérité de l'asset pour un dérivé). */
+function DatasetFields({ dataset }: { dataset: DomainDataset }) {
+  const { t } = useTranslation()
+  if (dataset.fields.length === 0) return <p className="muted small">{t('domainNoFields')}</p>
+  return (
+    <div className="table-wrap">
+      <table className="table" aria-label={t('domainFieldsOf', { name: dataset.name })}>
+        <thead>
+          <tr>
+            <th>{t('manualFieldName')}</th>
+            <th>{t('manualFieldType')}</th>
+            <th>{t('domainReferentiel')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dataset.fields.map((f) => (
+            <tr key={f.name}>
+              <td className="mono">{f.name}</td>
+              <td>{f.datatype || <span className="muted">—</span>}</td>
+              <td>{f.referentiel ? <FieldLink link={f.referentiel} /> : <span className="muted">—</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 

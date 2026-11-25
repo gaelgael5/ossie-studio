@@ -23,6 +23,7 @@ from ossie_studio.api.common import CurationWrite
 from ossie_studio.api.curation import WorkdirDep, _branch_slug, _check, _target
 from ossie_studio.api.governance_common import CryptoDep
 from ossie_studio.deps import ConnDep
+from ossie_studio.domains.links import sync_domains_for_asset
 from ossie_studio.errors import ApiError
 from ossie_studio.sources.asset_files import load_asset, write_asset
 from ossie_studio.sources.curation import AssetNotRetainedError
@@ -80,6 +81,9 @@ async def _write(
         asset = load_asset(asset_file)
         touched[:] = change(root, asset)
         write_asset(asset_file, asset)
+        # Les datasets dérivés de l'asset héritent du lien (ticket 65235f64) : même
+        # enregistrement, jamais un domaine en retard sur son asset.
+        sync_domains_for_asset(root, slug, path, asset)
 
     try:
         # Pas de refus sur la branche racine (bug e7deb2b9) : l'écriture va dans

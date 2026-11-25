@@ -1309,6 +1309,8 @@ export interface DomainField {
   label: string
   datatype: string
   property: string
+  /** Lien de référentiel (tickets 65235f64, 80bb56af) ; `inherited` : recopié de l'asset. */
+  referentiel?: (ReferentielLink & { inherited: boolean }) | null
 }
 export interface DomainDataset {
   name: string

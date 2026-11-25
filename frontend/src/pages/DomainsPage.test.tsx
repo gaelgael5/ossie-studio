@@ -144,6 +144,32 @@ describe('Domaines (tickets a7baaaa3, 36d35a88)', () => {
     )
   })
 
+  it('champs d’un dataset dérivé : lien hérité de l’asset, partiel signalé (ticket 65235f64)', async () => {
+    const link = (property: string, extra: Record<string, unknown> = {}) => ({
+      referentiel: 'delais', title: 'Délais', schema: 'referentiels/delais/modele.schema.yaml', property,
+      group: 'g1', key_index: 1, key_size: 2, linked_keys: 2, status: 'ok', missing: [], members: [property],
+      inherited: true, ...extra,
+    })
+    const order = {
+      ...DETAIL.datasets[0],
+      fields: [
+        { name: 'statut', expression: 'statut', description: '', label: '', datatype: 'String', property: 'statut', referentiel: { ...link('code'), referentiel: 'statuts', key_size: 1, group: '' } },
+        { name: 'pays', expression: 'pays', description: '', label: '', datatype: 'String', property: 'pays', referentiel: link('pays', { status: 'partial', linked_keys: 1, missing: ['canal'] }) },
+        { name: 'montant', expression: 'montant', description: '', label: '', datatype: 'Decimal', property: 'montant', referentiel: null },
+      ],
+    }
+    setup('/domaines/expedition', [], { detail: { ...DETAIL, datasets: [order] } })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Champs de Order' }))
+    const table = screen.getByRole('table', { name: 'Champs de Order' })
+    expect(table).toHaveTextContent('statuts · code')
+    expect(table).toHaveTextContent('delais · pays · clé 1/2')
+    expect(table).toHaveTextContent('Lien partiel : la clé demande aussi canal.')
+    expect(screen.getAllByText('hérité de l’asset')).toHaveLength(2)
+    // Lecture seule : aucun bouton pour lier ou délier sur un dataset dérivé.
+    expect(screen.queryByRole('button', { name: /Lier/ })).not.toBeInTheDocument()
+  })
+
   it('dataset manuel : création consultable, types servis par le serveur (ticket 1c68a20a)', async () => {
     const calls = setup('/domaines/expedition')
     const user = userEvent.setup()

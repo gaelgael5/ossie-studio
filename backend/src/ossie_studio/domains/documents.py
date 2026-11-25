@@ -79,6 +79,10 @@ class DomainField:
     label: str = ""
     datatype: str = ""  # extension : Ossie 0.1.1 n'a pas de type de champ
     property: str = ""  # extension : propriété de l'asset d'origine
+    # Extension (tickets 65235f64, 80bb56af) : lien vers une propriété de
+    # référentiel, `{schema, property, group?}` comme sur un asset. Ossie n'a pas
+    # cette notion : rangé dans le `.extend.yaml`, jamais dans le document Ossie.
+    referentiel: dict[str, str] | None = None
 
 
 @dataclass
@@ -196,7 +200,16 @@ EXTEND_SCHEMA: dict[str, Any] = {
                         "additionalProperties": {
                             "type": "object",
                             "additionalProperties": False,
-                            "properties": {"property": _STR, "datatype": {"enum": list(DATATYPES)}},
+                            "properties": {
+                                "property": _STR,
+                                "datatype": {"enum": list(DATATYPES)},
+                                "referentiel": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["schema", "property"],
+                                    "properties": {"schema": _STR, "property": _STR, "group": _STR},
+                                },
+                            },
                         },
                     },
                 },
@@ -294,9 +307,17 @@ def _extend_document(domain: Domain) -> dict[str, Any]:
         if ds.asset is not None:
             entry["asset"] = {"source": ds.asset.source, "path": ds.asset.path}
         fields = {
-            f.name: {k: v for k, v in (("property", f.property), ("datatype", f.datatype)) if v}
+            f.name: {
+                k: v
+                for k, v in (
+                    ("property", f.property),
+                    ("datatype", f.datatype),
+                    ("referentiel", f.referentiel),
+                )
+                if v
+            }
             for f in ds.fields
-            if f.property or f.datatype
+            if f.property or f.datatype or f.referentiel
         }
         if fields:
             entry["fields"] = fields
@@ -471,6 +492,7 @@ def read_domain(root: Path, name: str) -> Domain | None:
                                 label=str(f.get("label") or ""),
                                 datatype=str((ext_fields.get(f["name"]) or {}).get("datatype", "")),
                                 property=str((ext_fields.get(f["name"]) or {}).get("property", "")),
+                                referentiel=(ext_fields.get(f["name"]) or {}).get("referentiel"),
                             )
                             for f in raw.get("fields") or []
                         ],

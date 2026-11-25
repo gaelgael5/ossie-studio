@@ -33,6 +33,7 @@ from ossie_studio.domains.documents import (
 )
 from ossie_studio.parsers.conventions import schema_key
 from ossie_studio.sources.explorer_graph import ReferenceGraph
+from ossie_studio.sources.referentiel_links import link_of
 
 AssetKey = tuple[str, str]  # (source, fichier de l'asset)
 
@@ -112,6 +113,8 @@ def dataset_from_asset(key: AssetKey, asset: dict[str, Any], name: str) -> Datas
             label=str(prop.get("x-businessName") or ""),
             datatype=datatype_of(prop),
             property=prop_name,
+            # Hérité de l'asset (ticket 65235f64), tenu à jour par `domains.links`.
+            referentiel=link_of(prop),
         )
         for prop_name, prop in props.items()
     ]
