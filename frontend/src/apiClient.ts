@@ -1072,6 +1072,8 @@ export interface TagRuleInput {
   description?: string
   enabled: boolean
   files: string[]
+  /** Types de source visés (39e009e0) ; `files` ou `sources` suffit. */
+  sources?: string[]
   match: 'any' | 'all'
   when: Partial<Record<TagRuleCondition, string[]>>
   tags: string[]

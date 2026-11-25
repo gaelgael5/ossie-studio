@@ -13,8 +13,10 @@ from httpx import ASGITransport, AsyncClient
 from ossie_studio.governance.rules import GovernanceRule
 from ossie_studio.governance.tag_rules import (
     TagRule,
+    is_valid_pattern,
     parse_rule,
     path_matches,
+    pattern_matches,
     read_tag_rules,
     short_name,
 )
@@ -228,6 +230,18 @@ def test_noms_courts_et_motifs_de_chemin() -> None:
         (
             {"files": ["*.cs"], "tags": ["s"], "when": {"name": ["X"]}, "colour": 1},
             "tag_rule_unknown_key",
+        ),
+        (
+            {"sources": ["oracle"], "tags": ["s"], "when": {"name": ["X"]}},
+            "tag_rule_sources_invalid",
+        ),
+        (
+            {"sources": ["snowflake"], "tags": ["s"], "when": {"name": ["/FACT_[/"]}},
+            "tag_rule_pattern_invalid",
+        ),
+        (
+            {"sources": ["snowflake"], "tags": ["s"], "when": {"name": ["/(a+)+$/"]}},
+            "tag_rule_pattern_invalid",
         ),
     ],
 )
@@ -577,3 +591,102 @@ async def test_api_regles_fournies_listees_et_desactivables(sp: ApiSpace) -> Non
     rule = {"files": ["*.cs"], "tags": ["s"], "when": {"name": ["X"]}}
     r = await sp.client.put(f"{sp.base}/governance/tag-rules/ossie-perso", json=rule)
     assert r.status_code == 400
+
+
+# --- Sources de base de données et expressions régulières (39e009e0) ----------
+
+
+def _sql_file(name: str) -> str:
+    # Nom de fichier distinct pour FACT_parcel et FACT_PARCEL (casse).
+    return f"carrier-{name.lower()}{'-min' if name != name.upper() else ''}.schema.yaml"
+
+
+def _sql_schema(name: str, kind: str = "table") -> str:
+    return dump_schema(
+        {
+            "$id": _sql_file(name),
+            "title": name,
+            "type": "object",
+            "x-kind": kind,
+            "properties": {"ID": {"type": "string"}},
+        }
+    )
+
+
+def _with_snowflake(tmp_path: Path) -> list[SourceEntries]:
+    files = _files()
+    files["sources/app/raw/fact_parcel.schema.yaml"] = _schema("FACT_PARCEL")  # classe C# homonyme
+    raw = "sources/dwh/raw"
+    files["sources/dwh/manifest.yaml"] = _manifest("dwh", "snowflake", database="DB")
+    names = {
+        "FACT_PARCEL": "table",
+        "FACT_X": "table",
+        "FACT_parcel": "table",
+        "XFACT_PARCEL": "table",
+        "FACT_V": "view",
+        "DIM_ACCOUNT": "table",
+    }
+    for name, kind in names.items():
+        files[f"{raw}/{_sql_file(name)}"] = _sql_schema(name, kind)
+    files[f"{raw}/manifest-snowflake.yaml"] = _tech(
+        {f"CARRIER.{n}": ([_sql_file(n)], "snowflake") for n in names}
+    )
+    for rel, text in files.items():
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    return [collect_source_entries(tmp_path, slug) for slug in ("app", "lib", "dwh")]
+
+
+def test_regle_sur_les_tables_snowflake_par_expression_reguliere(tmp_path: Path) -> None:
+    rule, errors = parse_rule(
+        "datamart-faits",
+        {
+            "sources": ["snowflake"],
+            "when": {"name": ["/FACT_[A-Z]+/"], "kind": ["table"]},
+            "match": "all",
+            "tags": ["datamart/fait"],
+        },
+    )
+    assert rule is not None, errors
+    tagged = {
+        o.title
+        for s in apply_tag_rules(_with_snowflake(tmp_path), [rule])
+        for o in s.objects
+        if o.tags
+    }
+    # Ni FACT_parcel (casse), ni XFACT_ (nom entier), ni la vue, ni la classe C#.
+    assert tagged == {"FACT_PARCEL", "FACT_X"}
+
+
+def test_sources_et_fichiers_se_combinent_en_et(tmp_path: Path) -> None:
+    rule, _ = parse_rule(
+        "r",
+        {"sources": ["snowflake"], "files": ["*.cs"], "when": {"name": ["FACT_*"]}, "tags": ["t"]},
+    )
+    assert rule is not None
+    sources = apply_tag_rules(_with_snowflake(tmp_path), [rule])
+    assert not any(o.tags for s in sources for o in s.objects)
+
+
+def test_regle_existante_sans_sources_inchangee(tmp_path: Path) -> None:
+    rule = _rule(when={"name": ["*Controller"]})
+    assert rule.sources == ()
+    tagged = {
+        o.title
+        for s in apply_tag_rules(_with_snowflake(tmp_path), [rule])
+        for o in s.objects
+        if o.tags
+    }
+    assert "FACT_PARCEL" not in tagged and "OrdersController" in tagged
+
+
+def test_motifs_glob_et_regex() -> None:
+    assert pattern_matches("FACT_PARCEL", "/FACT_[A-Z]+/")
+    assert not pattern_matches("FACT_", "/FACT_[A-Z]+/")
+    assert not pattern_matches("XFACT_A", "/FACT_[A-Z]+/")
+    assert pattern_matches("customer_email", "/.*EMAIL/", fold=True)
+    assert pattern_matches("FACT_A", "FACT_*") and not pattern_matches("fact_a", "FACT_*")
+    assert path_matches("src/Api/X.cs", ("/src/.*\\.cs/",)) == "/src/.*\\.cs/"
+    assert is_valid_pattern("*.cs") and is_valid_pattern("/(FACT|FCT)_[A-Z]{2,}/")
+    assert not is_valid_pattern("/(a+)+$/") and not is_valid_pattern("/" + "a" * 201 + "/")

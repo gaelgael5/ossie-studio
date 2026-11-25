@@ -39,6 +39,7 @@ aussi par son nom court.
 from __future__ import annotations
 
 import fnmatch
+import functools
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -79,7 +80,14 @@ _KNOWN_KEYS = {
     "when",
     "tags",
     "inherit_tags",
+    "sources",
 }
+
+# Types de source qu'une règle peut viser (ticket 39e009e0) : ceux que le
+# serveur collecte (sources/manifest.py). Un objet de catalogue SQL n'a pas
+# d'extension de fichier : `files` ne permettait pas de le viser sans attraper
+# aussi le code.
+SOURCE_TYPES: tuple[str, ...] = ("git", "openapi", "postgres", "sqlserver", "snowflake")
 
 
 @dataclass(frozen=True)
@@ -93,6 +101,7 @@ class TagRule:
     inherit_tags: bool = False
     enabled: bool = True
     description: str = ""
+    sources: tuple[str, ...] = ()
 
 
 def is_valid_rule_id(rule_id: str) -> bool:
@@ -138,9 +147,22 @@ def parse_rule(
         # Préfixe réservé aux règles fournies par Ossie : un fichier du dépôt ne
         # peut pas en masquer une.
         errors.append("tag_rule_id_reserved")
-    files, ok = _patterns(data.get("files"))
-    if not files or not ok:
+    # `files` ou `sources` (ou les deux, combinés en ET) : une règle doit dire
+    # ce qu'elle vise.
+    files: list[str] = []
+    if data.get("files") not in (None, [], ""):
+        files, ok = _patterns(data.get("files"))
+        if not files or not ok:
+            errors.append("tag_rule_files_invalid")
+    sources: list[str] = []
+    if data.get("sources") not in (None, [], ""):
+        sources, ok = _patterns(data.get("sources"))
+        if not sources or not ok or any(src not in SOURCE_TYPES for src in sources):
+            errors.append("tag_rule_sources_invalid")
+    if not files and not sources and "tag_rule_files_invalid" not in errors:
         errors.append("tag_rule_files_invalid")
+    if any(not is_valid_pattern(f) for f in files):
+        errors.append("tag_rule_pattern_invalid")
     match = str(data.get("match") or MATCH_ANY)
     if match not in (MATCH_ANY, MATCH_ALL):
         errors.append("tag_rule_match_invalid")
@@ -156,6 +178,9 @@ def parse_rule(
             values, ok = _patterns(value)
             if not values or not ok:
                 errors.append("tag_rule_condition_invalid")
+                continue
+            if any(not is_valid_pattern(v) for v in values):
+                errors.append("tag_rule_pattern_invalid")
                 continue
             conditions[kind] = tuple(values)
     raw_tags, ok = _patterns(data.get("tags"))
@@ -178,6 +203,7 @@ def parse_rule(
             match=match,
             inherit_tags=bool(data.get("inherit_tags", False)),
             enabled=bool(data.get("enabled", True)),
+            sources=tuple(dict.fromkeys(sources)),
         ),
         [],
     )
@@ -259,6 +285,8 @@ def rule_document(rule: TagRule) -> dict[str, Any]:
     if rule.description:
         doc["description"] = rule.description
     doc["enabled"] = rule.enabled
+    if rule.sources:
+        doc["sources"] = list(rule.sources)
     doc["files"] = list(rule.files)
     doc["match"] = rule.match
     doc["when"] = {k: list(v) for k, v in rule.conditions.items()}
@@ -298,13 +326,64 @@ def short_name(name: str) -> str:
     return base
 
 
+# --- Motifs : globs, ou expressions régulières entre barres obliques ----------
+#
+# Ticket 39e009e0 : `FACT_[A-Z]+` ne s'exprime pas en glob. Un motif écrit
+# `/…/` est une expression régulière qui doit couvrir TOUT le texte
+# (fullmatch) ; sans barres, c'est un glob, comme avant — les règles existantes
+# ne changent pas de sens.
+#
+# Garde contre les expressions catastrophiques : le motif est saisi par une
+# personne et appliqué à chaque objet à chaque reconstruction d'index, et le
+# module `re` n'a pas de délai. On borne la longueur, on refuse les
+# quantificateurs imbriqués (`(a+)+`, `(a*)*`, `(\d{2,})+`…, cause classique du
+# retour arrière exponentiel) et on compile une seule fois.
+REGEX_MAX_LENGTH = 200
+_TEXT_MAX_LENGTH = 512
+_NESTED_QUANTIFIER = re.compile(r"\([^()]*(?:[+*]|\{\d*,?\d*\})[^()]*\)\s*(?:[+*]|\{)")
+
+
+def is_regex(pattern: str) -> bool:
+    return len(pattern) >= 2 and pattern.startswith("/") and pattern.endswith("/")
+
+
+@functools.lru_cache(maxsize=1024)
+def _compiled(pattern: str) -> re.Pattern[str] | None:
+    body = pattern[1:-1]
+    if not body or len(body) > REGEX_MAX_LENGTH or _NESTED_QUANTIFIER.search(body):
+        return None
+    try:
+        return re.compile(body)
+    except re.error:
+        return None
+
+
+def is_valid_pattern(pattern: str) -> bool:
+    return not is_regex(pattern) or _compiled(pattern) is not None
+
+
+def pattern_matches(text: str, pattern: str, *, fold: bool = False) -> bool:
+    """Le motif (glob ou /regex/) reconnaît-il tout le texte ?"""
+    if is_regex(pattern):
+        rx = _compiled(pattern)
+        if rx is None:
+            return False
+        flags_text = text[:_TEXT_MAX_LENGTH]
+        if fold:
+            return re.fullmatch(rx.pattern, flags_text, rx.flags | re.IGNORECASE) is not None
+        return rx.fullmatch(flags_text) is not None
+    if fold:
+        return fnmatch.fnmatchcase(text.casefold(), pattern.casefold())
+    return fnmatch.fnmatchcase(text, pattern)
+
+
 def name_matches(name: str, patterns: tuple[str, ...]) -> str | None:
     """Premier motif qui reconnaît le nom (complet ou court), ou None."""
     if not name:
         return None
     candidates = {name, short_name(name)}
     for pattern in patterns:
-        if any(fnmatch.fnmatchcase(c, pattern) for c in candidates):
+        if any(pattern_matches(c, pattern) for c in candidates):
             return pattern
     return None
 
@@ -316,8 +395,10 @@ def path_matches(path: str, patterns: tuple[str, ...]) -> str | None:
         return None
     file_name = path.rsplit("/", 1)[-1]
     for pattern in patterns:
-        target = path if "/" in pattern else file_name
-        if fnmatch.fnmatchcase(target, pattern):
+        # Une expression régulière porte sur le chemin entier ; un glob sans
+        # « / » sur le seul nom du fichier, comme avant.
+        target = path if is_regex(pattern) or "/" in pattern else file_name
+        if pattern_matches(target, pattern):
             return pattern
     return None
 
@@ -399,9 +480,8 @@ def write_tag_removals(root: Path, removals: list[TagRemoval]) -> None:
 
 def field_matches(name: str, patterns: tuple[str, ...]) -> str | None:
     """Motif de champ, comparé sans la casse."""
-    folded = name.casefold()
     for pattern in patterns:
-        if fnmatch.fnmatchcase(folded, pattern.casefold()):
+        if pattern_matches(name, pattern, fold=True):
             return pattern
     return None
 

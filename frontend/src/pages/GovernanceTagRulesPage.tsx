@@ -34,6 +34,7 @@ interface FormState {
   name: string
   description: string
   files: string
+  sources: string[]
   match: 'any' | 'all'
   conditions: ConditionRow[]
   tags: string
@@ -47,6 +48,7 @@ const EMPTY_FORM: FormState = {
   name: '',
   description: '',
   files: '*.cs',
+  sources: [],
   match: 'any',
   conditions: [{ kind: 'inherits', values: '' }],
   tags: '',
@@ -54,12 +56,28 @@ const EMPTY_FORM: FormState = {
   enabled: true,
 }
 
-/** « a, b ; c » → [a, b, c] : virgules, points-virgules ou retours à la ligne. */
+// Types de source qu'une règle peut viser (governance/tag_rules.SOURCE_TYPES).
+const SOURCE_TYPES = ['git', 'openapi', 'postgres', 'sqlserver', 'snowflake']
+
+/** « a, b ; c » → [a, b, c] : virgules, points-virgules ou retours à la ligne.
+ *  Une expression régulière `/…/` reste entière même si elle contient une
+ *  virgule (`/X{2,3}/`) : on ne coupe pas entre ses barres (39e009e0). */
 function splitList(text: string): string[] {
-  return text
-    .split(/[,;\n]/)
-    .map((v) => v.trim())
-    .filter(Boolean)
+  const out: string[] = []
+  let current = ''
+  let inRegex = false
+  for (const ch of text) {
+    if (ch === '/' && current.trim() === '' && !inRegex) inRegex = true
+    else if (ch === '/' && inRegex) inRegex = false
+    if (!inRegex && /[,;\n]/.test(ch)) {
+      out.push(current)
+      current = ''
+      continue
+    }
+    current += ch
+  }
+  out.push(current)
+  return out.map((v) => v.trim()).filter(Boolean)
 }
 
 function toInput(form: FormState): TagRuleInput {
@@ -73,6 +91,7 @@ function toInput(form: FormState): TagRuleInput {
     description: form.description.trim(),
     enabled: form.enabled,
     files: splitList(form.files),
+    ...(form.sources.length > 0 ? { sources: form.sources } : {}),
     match: form.match,
     when,
     tags: splitList(form.tags).map((tag) => tag.toLowerCase()),
@@ -89,6 +108,7 @@ function fromRule(file: TagRuleFile): FormState {
     name: rule.name,
     description: rule.description ?? '',
     files: rule.files.join(', '),
+    sources: rule.sources ?? [],
     match: rule.match,
     conditions: TAG_RULE_CONDITIONS.filter((k) => rule.when[k]?.length).map((k) => ({
       kind: k,
@@ -102,7 +122,11 @@ function fromRule(file: TagRuleFile): FormState {
 
 /** Le formulaire porte assez pour qu'un aperçu ait un sens (le serveur valide le reste). */
 function previewable(input: TagRuleInput): boolean {
-  return input.files.length > 0 && input.tags.length > 0 && Object.keys(input.when).length > 0
+  return (
+    (input.files.length > 0 || (input.sources?.length ?? 0) > 0) &&
+    input.tags.length > 0 &&
+    Object.keys(input.when).length > 0
+  )
 }
 
 function explorerHref(e: TagRuleHits['examples'][number]): string {
@@ -428,10 +452,18 @@ function RuleDetail({
           {rule.description ? <p>{rule.description}</p> : null}
           <table className="table">
             <tbody>
-              <tr>
-                <td className="muted">{t('tagRuleFilesLabel')}</td>
-                <td className="mono">{rule.files.join(', ')}</td>
-              </tr>
+              {rule.sources?.length ? (
+                <tr>
+                  <td className="muted">{t('tagRuleSourcesLabel')}</td>
+                  <td className="mono">{rule.sources.join(', ')}</td>
+                </tr>
+              ) : null}
+              {rule.files.length ? (
+                <tr>
+                  <td className="muted">{t('tagRuleFilesLabel')}</td>
+                  <td className="mono">{rule.files.join(', ')}</td>
+                </tr>
+              ) : null}
               <tr>
                 <td className="muted">{t('tagRuleWhenLabel')}</td>
                 <td>
@@ -582,9 +614,32 @@ function RuleForm({
           />
           <span className="field-hint">{t('tagRuleFilesHint')}</span>
         </div>
+        <fieldset className="field">
+          <legend className="field-label">{t('tagRuleSourcesLabel')}</legend>
+          <div className="row">
+            {SOURCE_TYPES.map((type) => (
+              <label key={type}>
+                <input
+                  type="checkbox"
+                  checked={form.sources.includes(type)}
+                  onChange={(e) =>
+                    set({
+                      sources: e.target.checked
+                        ? [...form.sources, type]
+                        : form.sources.filter((x) => x !== type),
+                    })
+                  }
+                />{' '}
+                {type}
+              </label>
+            ))}
+          </div>
+          <span className="field-hint">{t('tagRuleSourcesHint')}</span>
+        </fieldset>
 
         <fieldset className="tag-rule-conditions">
           <legend className="field-label">{t('tagRuleWhenLabel')}</legend>
+          <span className="field-hint">{t('tagRuleRegexHint')}</span>
           {form.conditions.map((row, i) => (
             <div className="row" key={i}>
               <select

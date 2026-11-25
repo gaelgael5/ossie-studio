@@ -50,6 +50,8 @@ class TagRuleBody(BaseModel):
     description: str = ""
     enabled: bool = True
     files: list[str] = []
+    # Types de source visés (39e009e0) ; `files` ou `sources` suffit.
+    sources: list[str] = []
     match: str = MATCH_ANY
     when: dict[str, list[str]] = {}
     tags: list[str] = []
