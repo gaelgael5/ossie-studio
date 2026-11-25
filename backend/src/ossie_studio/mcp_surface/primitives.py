@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ossie_studio.mcp_surface import application as app_map
 from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
 from ossie_studio.mcp_surface import reads, references, source_writes, writes
@@ -38,6 +39,11 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "get_reference_graph": Implementation(
         references.ReferenceGraphArgs, references.get_reference_graph
     ),
+    # Cartographie applicative (ticket 72ce32b3)
+    "list_modules": Implementation(SourceArgs, app_map.list_modules),
+    "get_module": Implementation(app_map.ModuleArgs, app_map.get_module),
+    "get_functions": Implementation(ObjectArgs, app_map.get_functions),
+    "list_entry_points": Implementation(app_map.EntryPointsArgs, app_map.list_entry_points),
     "list_assets": Implementation(SourceArgs, reads.list_assets),
     "read_asset": Implementation(ObjectArgs, reads.read_asset),
     "get_tri_rules": Implementation(SourceArgs, reads.get_tri_rules),

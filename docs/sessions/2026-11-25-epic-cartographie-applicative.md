@@ -8,6 +8,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 ## Décisions de Gael (25 novembre)
 
+- Plan du ticket 8 (primitives MCP) validé (« Oui go »).
 - Plan du ticket 6 (vue « Application ») validé (« oui, vas-y »), y compris la rangée à part, en bas, pour les projets de test.
 - Plan du ticket 3 (méthodes et points d'entrée C#) validé (« oui, vas-y »).
 - Plan du ticket 2 (modules C#) : présenté ; Gael : « reprends la branche dev avant de démarrer » (démarrage validé).
@@ -25,7 +26,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | 30c55418 — Projet SQL Server comme module | Prêt pour dev |
 | 0fa620be — Explorateur raw : objets module et vue « Application » | En review |
 | a1fd0663 — Déplacer les ancres des connecteurs (`.view`) | Prêt pour dev |
-| 72ce32b3 — Primitives MCP : modules, fonctions, points d'entrée | Prêt pour dev |
+| 72ce32b3 — Primitives MCP : modules, fonctions, points d'entrée | En review |
 | e34e5c29 / f619f4a7 / 3343afe4 — Kotlin-Java / TypeScript / Python | Prêt pour dev |
 | 3191b4a4 — Clôture (avec Gael, jamais seul) | — |
 
@@ -67,3 +68,11 @@ Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les au
 - Routes : `GET …/raw-explorer/{source}/application` (sur l'index, sans relire la branche — c'est la base des primitives du ticket 8) et `GET …/raw-explorer/{source}/module?file=` (lit les `.extend.yaml` du module et de ses objets) ; `…/tree` rend aussi `modules` (fichier, titre, dossier) pour le menu de gauche. Droits : `sources:read`.
 - Écran : `pages/RawApplication.tsx` (disposition calculée `applicationLayout` : colonnes par plus long chemin de dépendances, ordre alphabétique, projets de test et contrats sur une rangée à part en bas ; SVG maison, zoom +/−/Ajuster ; clic sur un bloc → aperçu ; « n classes » → dossier du module dans le menu de gauche), `pages/RawModulePreview.tsx` (aperçu), `RawExplorer.tsx` (4ᵉ mode « Application », grisé sans module ; objets `MOD` dans l'arbre, dont le clic ouvre la vue centrée sur le module ; paramètres d'adresse `view=application&module=`).
 - Pas encore vérifié dans un vrai navigateur.
+
+## Notes techniques (primitives MCP, 72ce32b3)
+
+- `mcp_surface/application.py` : `list_modules`, `get_module` (module par chemin ou titre), `get_functions` (méthodes d'un objet, avec visibilité — les méthodes `private` ne sont pas collectées), `list_entry_points` (filtre `contract_status` = `linked` | `absent` ; un point d'entrée non encore comparé vaut `not_compared` et ne répond à aucun filtre). Domaine `sources`, lecture, capacité `sources:read`, `idempotent`.
+- Même vérité que l'écran : `application_view` / `module_detail` sur l'index de l'Explorateur (en base pour une personne, en mémoire pour une clé d'API, via `space_entries`) ; seuls les `.extend.yaml` utiles sont lus dans la vue (`BranchView.read`, une lecture groupée).
+- Erreurs nommées : `module_not_found`, `schema_not_found`, `source_not_found` ; source sans module → liste vide. Listes bornées à 200, `truncated: true` au-delà.
+- Libellés des primitives (écran des profils agents) dans `frontend/src/locales`.
+- Tests : `backend/tests/test_mcp_application.py` (six modules, dépendances dans les deux sens, module, fonctions, routes absentes du contrat, erreurs, troncature, vue brouillon par OAuth et vue publiée par clé d'API).
