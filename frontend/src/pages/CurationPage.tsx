@@ -144,6 +144,22 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
   }, [domainList.data])
   const session = useSession()
   const canWrite = sessionCapabilities(session.data).includes('curation:write')
+  // Assets qu'un domaine référence mais qui ne sont plus retenus (bug 206d434c,
+  // Gael : « on ne voit plus les assets, même quand je sélectionne un domaine »).
+  // Cause rencontrée : la source supprimée puis redéclarée efface ses assets, et
+  // le domaine pointe toujours vers eux. Sans ce signalement, la liste est vide
+  // sans explication. Seulement le dire : ni reconstruction ni garde (choix de Gael).
+  const missing = useMemo(() => {
+    if (!listing.data) return []
+    const present = new Set(assets.map((a) => `${a.source}/${a.path}`))
+    return (domainList.data?.domains ?? [])
+      .map((d) => ({
+        name: d.name,
+        label: d.label,
+        assets: d.assets.filter((a) => !present.has(`${a.source}/${a.path}`)),
+      }))
+      .filter((d) => d.assets.length > 0 && (!domainFilter || d.name === domainFilter))
+  }, [listing.data, assets, domainList.data, domainFilter])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [grouping, setGrouping] = useState(false)
 
@@ -270,6 +286,19 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
           />
         ) : null}
         <ErrorList messages={listing.error ? errorMessages(t, listing.error) : []} />
+        {missing.map((d) => (
+          <div key={d.name} className="banner banner-warn stack stack-tight" role="status">
+            <strong>
+              {d.label} : {t('curationDomainMissing', { count: d.assets.length })}
+            </strong>
+            <span className="small">{t('curationDomainMissingHint')}</span>
+            <ul className="list-plain small mono">
+              {d.assets.map((a) => (
+                <li key={`${a.source}/${a.path}`}>{`${a.source} / ${a.path}`}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
         {listing.isLoading ? <p className="muted">{t('loading')}</p> : null}
         {!listing.isLoading && assets.length === 0 ? (
           <div className="empty-note">
