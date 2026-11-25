@@ -379,6 +379,23 @@ describe('CurationPage', () => {
     expect(screen.getByText('Pudo au colis : 2 assets référencés absents de la Curation')).toBeInTheDocument()
   })
 
+  it('asset orphelin (raw disparu) : marqué dans la liste, filtre « Orphelins » (ticket ce21a9e8)', async () => {
+    mockApi(undefined, [SUMMARY, { ...CLIENT, orphan: true }])
+    const user = userEvent.setup()
+    renderPage()
+    expect(await screen.findByText('orphelin')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Orphelins (1)' }))
+    expect(screen.queryByText('Commande')).not.toBeInTheDocument()
+    expect(screen.getByText('Client')).toBeInTheDocument()
+  })
+
+  it('sans orphelin : pas de filtre « Orphelins »', async () => {
+    mockApi()
+    renderPage()
+    expect(await screen.findByText('Client')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Orphelins/ })).not.toBeInTheDocument()
+  })
+
   it('filtre par niveau : un asset apparaît si l’un de ses niveaux (champs compris) correspond', async () => {
     mockApi()
     const user = userEvent.setup()

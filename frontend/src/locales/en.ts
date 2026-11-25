@@ -2007,7 +2007,7 @@ export const en = {
       'The secret never appears in a manifest: it is carried by the chosen connection.',
     editSource: 'Edit',
     deleteSourceConfirm:
-      'Delete this source? The sources/<slug>/ directory and its raw/ schemas will be removed from the branch (recoverable from Git history).',
+      'Delete this source? Its manifest and raw/ schemas will be removed from your draft. Its assets are kept: they will show as orphans in Curation, and find their raw again if you declare the source again.',
     newGitSource: 'New Git source',
     editGitSource: 'Edit Git source',
     newSqlSource: 'New source — database',
@@ -2192,6 +2192,8 @@ export const en = {
     curationFilter_all: 'All ({{count}})',
     curationFilter_undescribed: 'Without description ({{count}})',
     curationFilter_modified: 'Changed in raw ({{count}})',
+    curationFilter_orphan: 'Orphans ({{count}})',
+    curationOrphanBadge: 'orphan',
     curationEmpty: 'No retained asset on this branch.',
     curationDomainMissing_one: "{{count}} referenced asset missing from Curation",
     curationDomainMissing_other: "{{count}} referenced assets missing from Curation",
