@@ -86,33 +86,88 @@ def load_schema(text: str | bytes) -> Any:
     except yaml.YAMLError as exc:
         raise SchemaReadError(str(exc)) from None
 
+
 # Vocabulaire JSON Schema 2020-12 (mots-clefs standard). Toute autre clef doit
 # commencer par `$` (noyau) ou `x-` (extension), sinon elle est refusée.
 STANDARD_KEYWORDS: frozenset[str] = frozenset(
     {
         # noyau
-        "$schema", "$id", "$ref", "$defs", "$anchor", "$dynamicRef",
-        "$dynamicAnchor", "$vocabulary", "$comment",
+        "$schema",
+        "$id",
+        "$ref",
+        "$defs",
+        "$anchor",
+        "$dynamicRef",
+        "$dynamicAnchor",
+        "$vocabulary",
+        "$comment",
         # applicateurs
-        "allOf", "anyOf", "oneOf", "not", "if", "then", "else",
-        "dependentSchemas", "prefixItems", "items", "contains",
-        "properties", "patternProperties", "additionalProperties",
-        "propertyNames", "unevaluatedItems", "unevaluatedProperties",
+        "allOf",
+        "anyOf",
+        "oneOf",
+        "not",
+        "if",
+        "then",
+        "else",
+        "dependentSchemas",
+        "prefixItems",
+        "items",
+        "contains",
+        "properties",
+        "patternProperties",
+        "additionalProperties",
+        "propertyNames",
+        "unevaluatedItems",
+        "unevaluatedProperties",
         # validation
-        "type", "enum", "const", "multipleOf", "maximum", "exclusiveMaximum",
-        "minimum", "exclusiveMinimum", "maxLength", "minLength", "pattern",
-        "maxItems", "minItems", "uniqueItems", "maxContains", "minContains",
-        "maxProperties", "minProperties", "required", "dependentRequired",
+        "type",
+        "enum",
+        "const",
+        "multipleOf",
+        "maximum",
+        "exclusiveMaximum",
+        "minimum",
+        "exclusiveMinimum",
+        "maxLength",
+        "minLength",
+        "pattern",
+        "maxItems",
+        "minItems",
+        "uniqueItems",
+        "maxContains",
+        "minContains",
+        "maxProperties",
+        "minProperties",
+        "required",
+        "dependentRequired",
         # annotations et format
-        "title", "description", "default", "deprecated", "readOnly", "writeOnly",
-        "examples", "format", "contentEncoding", "contentMediaType", "contentSchema",
+        "title",
+        "description",
+        "default",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+        "examples",
+        "format",
+        "contentEncoding",
+        "contentMediaType",
+        "contentSchema",
     }
 )
 
 # Clefs dont la valeur est un (ou des) sous-schéma(s) : on y descend pour valider.
 _SCHEMA_VALUE = (
-    "items", "contains", "additionalProperties", "propertyNames", "not",
-    "if", "then", "else", "unevaluatedItems", "unevaluatedProperties", "contentSchema",
+    "items",
+    "contains",
+    "additionalProperties",
+    "propertyNames",
+    "not",
+    "if",
+    "then",
+    "else",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+    "contentSchema",
 )
 _SCHEMA_LIST = ("allOf", "anyOf", "oneOf", "prefixItems")
 _SCHEMA_MAP = ("properties", "patternProperties", "$defs", "dependentSchemas")
@@ -124,7 +179,9 @@ VISIBILITY_KEY = "x-visibility"
 
 class ConventionError(Exception):
     """Schéma non conforme aux conventions, porté par un code de règle stable
-    (missing_id, unknown_key, not_object, visibility_missing, visibility_invalid)."""
+    (missing_id, unknown_key, not_object, visibility_missing, visibility_invalid,
+    functions_in_schema, module_invalid ; functions_invalid et view_invalid pour
+    les fichiers voisins de la cartographie applicative)."""
 
     def __init__(self, rule: str, detail: str = "") -> None:
         super().__init__(rule)
@@ -165,6 +222,19 @@ def validate_schema(schema: dict[str, Any]) -> None:
     if not isinstance(identity, str) or not identity.strip():
         raise ConventionError("missing_id")
     _walk(schema)
+    # Cartographie applicative (enabler 6c97ad98) : les fonctions vivent dans le
+    # `<clé>.extend.yaml`, jamais dans le schéma ; un module a sa propre forme et
+    # pas de visibilité. Import tardif : `application` s'appuie sur ce module.
+    from ossie_studio.parsers.application import FUNCTION_KEYS, is_module, validate_module
+
+    for node in (schema, *(v for v in (schema.get("properties") or {}).values())):
+        if isinstance(node, dict):
+            found = sorted(FUNCTION_KEYS & set(node))
+            if found:
+                raise ConventionError("functions_in_schema", found[0])
+    if is_module(schema):
+        validate_module(schema)
+        return
     # Visibilité obligatoire pour un objet issu d'un parseur de code.
     if CODE_LANGUAGE_KEY in schema:
         _check_visibility(schema, "visibility_missing", "visibility_invalid")

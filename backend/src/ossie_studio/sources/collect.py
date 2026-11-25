@@ -27,6 +27,7 @@ from ossie_studio.parsers.openapi import FoundContract, inspect_contract
 from ossie_studio.parsers.registry import openapi_plugin, select_code_plugins
 from ossie_studio.sources.collect_core import RAW_DIR, checksum
 from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
+from ossie_studio.sources.module_views import sync_module_views
 from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
 from ossie_studio.sources.progress import CollectProgress
 from ossie_studio.sources.schema_resolve import (
@@ -343,6 +344,9 @@ class SourceCollector:
         writes, resolved = await asyncio.to_thread(
             resolve_source_schemas, raw_files, writes, deletes, source_files
         )
+        # Cartographie applicative : les `.view` des modules suivent les modules et
+        # leurs dépendances, par ajouts et suppressions (jamais réécrits en entier).
+        writes, deletes = await asyncio.to_thread(sync_module_views, raw_files, writes, deletes)
 
         # 5. Écriture unique + commit local unique.
         descripteur = commit_descriptor or (

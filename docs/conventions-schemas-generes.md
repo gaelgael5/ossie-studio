@@ -83,7 +83,7 @@ x-visibility: public
 valeur normalisée parmi `public`, `internal`, `protected`, `private`.
 `x-visibility-source` garde le mot-clef d'origine tel qu'écrit
 (`protected internal`, `package-private`…). La visibilité est **absente** pour les
-tables SQL et les schémas de contrats.
+tables SQL, les schémas de contrats et les objets module (`x-kind: module`).
 
 Les parseurs **lisent tous les types**, quelle que soit leur visibilité : on veut
 voir un objet `internal` ou `private`, pas le perdre.
@@ -145,6 +145,137 @@ fields:
 Dans le schéma de l'asset, toute clé (standard, ou `x-` venue du parseur comme
 `x-source`, `x-annotations`) est en lecture seule côté curation. `x-origin` donne
 le chemin du schéma brut d'origine.
+
+## Cartographie applicative : modules, fonctions, vue
+
+Epic « Cartographie applicative dans raw » (enabler 6c97ad98, décisions de Gael
+du 25/11/2026) : la couche **Application** d'ArchiMate, en matière brute. Trois
+formes, chacune avec son **JSON Schema de validation**
+(`backend/src/ossie_studio/parsers/formats/`) et l'écrivain déterministe des
+schémas. Code : `ossie_studio.parsers.application`.
+
+### Objet module : `module-<chemin>.schema.yaml`
+
+Un **module** = un fichier de projet (`.csproj`, `.sqlproj`, module Gradle ou
+Maven, `package.json`, `pyproject.toml`). C'est un objet raw **comme les autres**
+(il apparaît dans l'Explorateur, la recherche, la lecture MCP), repéré par
+`x-kind: module`, rangé dans le dossier de son fichier de projet (`x-source`).
+Sa clé dérive du **chemin** du fichier de projet (unique dans la source, même pour
+deux projets homonymes). Pas de visibilité.
+
+```yaml
+$id: module-src-boutique-api-boutique-api.schema.yaml
+title: Boutique.Api
+x-kind: module
+x-language: csharp
+x-module:
+  dependencies:
+  - module: module-src-boutique-domain-boutique-domain.schema.yaml
+    project: src/Boutique.Domain/Boutique.Domain.csproj
+  - project: ../Partage/Outils.csproj
+  nature: web
+  project: src/Boutique.Api/Boutique.Api.csproj
+  targets:
+  - net8.0
+x-source:
+- file: src/Boutique.Api/Boutique.Api.csproj
+```
+
+- `nature` : `library`, `web`, `worker`, `console`, `test`, `sql`, `application`
+  (application d'un autre langage : Spring Boot, Node, FastAPI…) ;
+- une dépendance porte le chemin du projet référencé, et `module` (le `$id` de son
+  module) quand ce projet est dans la source ; sans `module`, elle est **externe,
+  non résolue** ;
+- **appartenance** : un objet raw appartient au module dont le fichier de projet
+  est **le plus proche en remontant** l'arborescence de son fichier d'origine (la
+  règle du compilateur .NET). Elle n'est **pas écrite** (le module serait réécrit
+  à chaque classe ajoutée) : l'Explorateur et les primitives l'appliquent à la
+  lecture (`module_of`).
+
+### Fonctions : `<clé>.extend.yaml` (dans `raw/`)
+
+Écrit par le **parseur**, à côté du schéma de la classe (ses méthodes) ou du
+module (ses **fonctions libres** : Python, TypeScript, minimal API C#),
+**régénéré à chaque collecte**. Le `<clé>.schema.yaml` d'une classe reste du JSON
+Schema standard : il ne contient **aucune méthode** (le validateur refuse
+`x-methods`, `x-functions`, `x-entry-point`, `x-entry-points`). Ce n'est pas un
+objet de l'Explorateur. À ne pas confondre avec le `<clé>.extend.yaml` d'un
+**asset** (travail humain, dans `assets/`) : la curation ne recopie jamais celui
+de `raw/`.
+
+```yaml
+methods:
+- async: true
+  entryPoint:
+    kind: http
+    route: /api/commandes/{id}
+    verb: GET
+  name: Lire
+  parameters:
+  - name: id
+    schema:
+      format: uuid
+      type: string
+    type: Guid
+  returns:
+    schema:
+      $ref: boutique-api-commande.schema.yaml
+    type: Commande
+  source:
+    file: src/Boutique.Api/Controllers/CommandesController.cs
+    line: 18
+  static: false
+  visibility: public
+- name: Calculer
+  parameters:
+  - name: lignes
+    schema:
+      items:
+        x-unresolved-type: LigneExterne
+      type: array
+    type: List<LigneExterne>
+  visibility: internal
+```
+
+- **méthodes** : nom, paramètres (`type` tel qu'écrit, `schema` son équivalent JSON
+  Schema comme pour un champ : `$ref` vers l'objet raw quand il est résolu,
+  `x-unresolved-type` sinon), retour, `visibility` (mêmes valeurs que les champs),
+  `static`, `async`, emplacement (`source`) ; les méthodes `private` ne sont pas
+  écrites ;
+- **point d'entrée** (`entryPoint`, sur une méthode, une fonction, ou sur la classe
+  elle-même pour un service d'arrière-plan) : `kind` (`http`, `task`, `message`),
+  `verb` et `route` pour HTTP (`route: null` = route impossible à calculer),
+  `contract` une fois rapproché des contrats OpenAPI de la source (`status` :
+  `linked` avec les `operations`, ou `absent`) ;
+- ordre déterministe (nom, types des paramètres, ligne) : deux collectes
+  identiques donnent les mêmes octets.
+
+### Vue d'un module : `module-<chemin>.view.yaml`
+
+La **personnalisation de l'affichage** du module dans la vue « Application » :
+pour commencer, les **ancres des connecteurs** de chaque lien qui part du module
+(indexé par le `$id` du module d'arrivée).
+
+```yaml
+links:
+  module-src-boutique-domain-boutique-domain.schema.yaml:
+    from: auto
+    to:
+      at: 0.5
+      side: top
+  module-src-boutique-infra-boutique-infra.schema.yaml:
+    from: auto
+    to: auto
+```
+
+- `auto` = ancre calculée par la vue ; sinon `side` (`top`, `right`, `bottom`,
+  `left`) et `at` (position le long du côté, de 0 à 1) ;
+- **jamais régénéré en entier** : à la collecte, les entrées d'un lien disparu
+  sont retirées, celles d'un lien nouveau ajoutées avec `auto`, les autres
+  gardées telles quelles ; le `.view` d'un module disparu est retiré avec lui ;
+  un `.view` illisible n'est jamais écrasé ;
+- un `.view` absent n'empêche rien : la vue prend les valeurs par défaut ;
+- écrit dans le brouillon de la personne quand elle déplace une ancre à l'écran.
 
 ## Exception : `raw/docs/`
 

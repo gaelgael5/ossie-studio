@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ossie:raw/functions",
+  "title": "Fonctions d'un objet ou d'un module de raw (<clé>.extend.yaml)",
+  "description": "Écrit par le parseur à côté du schéma de la classe (méthodes) ou du module (fonctions libres), régénéré à chaque collecte. Le <clé>.schema.yaml de la classe reste du JSON Schema standard, sans aucune méthode.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "entryPoint": {"$ref": "#/$defs/entryPoint"},
+    "methods": {"type": "array", "items": {"$ref": "#/$defs/function"}},
+    "functions": {"type": "array", "items": {"$ref": "#/$defs/function"}}
+  },
+  "$defs": {
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "visibility"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "visibility": {"enum": ["public", "internal", "protected", "private"]},
+        "visibilitySource": {"type": "string"},
+        "static": {"type": "boolean"},
+        "async": {"type": "boolean"},
+        "parameters": {"type": "array", "items": {"$ref": "#/$defs/parameter"}},
+        "returns": {"$ref": "#/$defs/typeRef"},
+        "description": {"type": "string"},
+        "annotations": {"type": "array", "items": {"type": "string"}},
+        "source": {"$ref": "#/$defs/source"},
+        "entryPoint": {"$ref": "#/$defs/entryPoint"}
+      }
+    },
+    "parameter": {
+      "description": "`type` : le type tel qu'écrit dans le code ; `schema` : son équivalent JSON Schema, comme pour un champ ($ref vers un objet raw quand il est résolu, x-unresolved-type sinon).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "type": {"type": "string"},
+        "schema": {"type": "object"},
+        "optional": {"type": "boolean"}
+      }
+    },
+    "typeRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {"type": "string"},
+        "schema": {"type": "object"}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": {"type": "string", "minLength": 1},
+        "line": {"type": "integer", "minimum": 1}
+      }
+    },
+    "entryPoint": {
+      "description": "Point d'entrée exposé. `route: null` = route impossible à calculer (gabarit dynamique). `contract` : rempli par le rapprochement avec les contrats OpenAPI de la source ; absent tant qu'il n'y a rien à comparer.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["http", "task", "message"]},
+        "verb": {"enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]},
+        "route": {"type": ["string", "null"]},
+        "topic": {"type": "string"},
+        "contract": {"$ref": "#/$defs/contract"}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"const": "http"}}}, "then": {"required": ["verb", "route"]}}
+      ]
+    },
+    "contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {"enum": ["linked", "absent"]},
+        "operations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file", "verb", "path"],
+            "properties": {
+              "file": {"type": "string", "minLength": 1},
+              "operationId": {"type": "string"},
+              "verb": {"type": "string"},
+              "path": {"type": "string"}
+            }
+          }
+        }
+      }
+    }
+  }
+}
