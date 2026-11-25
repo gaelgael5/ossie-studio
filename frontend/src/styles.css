@@ -2861,6 +2861,30 @@ td .raw-ref-menu {
 .ref-item.active {
   background: var(--muted-bg);
 }
+.ref-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+/* Crayon discret : visible au survol de la ligne, sur la ligne active, et au clavier. */
+.ref-edit {
+  opacity: 0.35;
+}
+.ref-item:hover .ref-edit,
+.ref-item.active .ref-edit,
+.ref-edit:focus-visible,
+.ref-edit.active {
+  opacity: 1;
+}
+.ref-filter {
+  width: 100%;
+  margin-top: 8px;
+}
+.ref-view-head {
+  align-items: center;
+  gap: 10px;
+}
 .ref-main {
   min-width: 0;
 }
