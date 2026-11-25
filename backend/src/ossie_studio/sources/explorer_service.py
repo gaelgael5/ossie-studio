@@ -25,7 +25,10 @@ from ossie_studio.governance.builtin_classification_rules import (
     BUILTIN_CLASSIFICATION_RULES_VERSION,
 )
 from ossie_studio.governance.builtin_tag_rules import BUILTIN_RULES_VERSION
-from ossie_studio.governance.classification_rules import active_classification_rules
+from ossie_studio.governance.classification_rules import (
+    active_classification_rules,
+    read_classification_removals,
+)
 from ossie_studio.governance.repo import read_schemes
 from ossie_studio.governance.tag_rules import active_rules, read_tag_removals
 from ossie_studio.models import GitSpace
@@ -82,7 +85,13 @@ def _read_sources(wc: Path) -> list[SourceEntries]:
     # Classification des champs (ticket cfc33d51) : après les tags, que la
     # condition « tag » regarde ; règles et schémas sont dans le dépôt, donc
     # dans la signature de l'index.
-    return apply_classification_rules(tagged, active_classification_rules(wc), read_schemes(wc))
+    # Retraits mémorisés (ticket 77ce0d79) : dans le dépôt, donc dans la signature.
+    return apply_classification_rules(
+        tagged,
+        active_classification_rules(wc),
+        read_schemes(wc),
+        {r.key for r in read_classification_removals(wc)},
+    )
 
 
 async def ensure_index(

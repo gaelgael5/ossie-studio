@@ -16,6 +16,9 @@ from ossie_studio.api.agent_profiles import router as api_agent_profiles_router
 from ossie_studio.api.api_keys import router as api_api_keys_router
 from ossie_studio.api.audit import router as api_audit_router
 from ossie_studio.api.branches import router as api_branches_router
+from ossie_studio.api.classification_rules import (
+    removals_router as api_classification_removals_router,
+)
 from ossie_studio.api.classification_rules import router as api_classification_rules_router
 from ossie_studio.api.classifications import router as api_classifications_router
 from ossie_studio.api.connections import router as api_connections_router
@@ -189,6 +192,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_governance_router)
     app.include_router(api_tag_rules_router)
     app.include_router(api_classification_rules_router)
+    app.include_router(api_classification_removals_router)
     app.include_router(api_tag_removals_router)
     app.include_router(api_certifications_router)
     app.include_router(api_classifications_router)

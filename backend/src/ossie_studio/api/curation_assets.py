@@ -27,8 +27,10 @@ from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.curation_assets import (
     AssetSummary,
+    RuleValues,
     asset_view,
     read_curation_view,
+    rule_values,
     summarize,
 )
 from ossie_studio.sources.explorer import DEFAULT_MODE
@@ -162,15 +164,18 @@ async def get_curation_asset(
         "description": view.description,
         "business_name": view.business_name,
         "properties": [asdict(p) for p in view.properties],
-        "governance": _classification_payload(asset, schemes),
+        "governance": _classification_payload(asset, schemes, rule_values(graph, (source, path))),
     }
 
 
-def _classification_payload(asset: dict[str, Any], schemes: list[Scheme]) -> dict[str, object]:
+def _classification_payload(
+    asset: dict[str, Any], schemes: list[Scheme], rules: RuleValues | None = None
+) -> dict[str, object]:
     """Onglet « Gouvernance » de l'asset (ticket 5e8680d7) : par schéma, la
     valeur effective de l'asset (déclarée ou dérivée, « +N », écart) et les
-    valeurs déclarées de chaque champ."""
-    c = classify(asset, schemes)
+    valeurs effectives de chaque champ — déclarées, ou posées par une règle
+    (`rules`, marquées « par règle » : ticket 568a0547)."""
+    c = classify(asset, schemes, rules)
     props = asset.get("properties")
     names = [n for n, p in props.items() if isinstance(p, dict)] if isinstance(props, dict) else []
     return {
@@ -189,7 +194,16 @@ def _classification_payload(asset: dict[str, Any], schemes: list[Scheme]) -> dic
             for v in c.object
         ],
         "fields": [
-            {"name": n, "values": {sc: list(vals) for sc, vals in c.fields.get(n, {}).items()}}
+            {
+                "name": n,
+                "values": {sc: list(vals) for sc, vals in c.fields.get(n, {}).items()},
+                # Schéma → règle, pour les valeurs posées par règle (aucune
+                # déclaration ne les remplace).
+                "rules": {
+                    sc: {"rule": rv.rule, "rule_name": rv.rule_name}
+                    for sc, rv in c.by_rule.get(n, {}).items()
+                },
+            }
             for n in names
         ],
         "invalid": [asdict(i) for i in c.invalid],

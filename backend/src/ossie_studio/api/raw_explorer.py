@@ -32,6 +32,10 @@ from ossie_studio.drafts.store import db_get_draft, db_list_object_states
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.links import forge_file_url
+from ossie_studio.governance.classification_rules import (
+    CLASSIFICATION_REMOVALS_FILE,
+    parse_classification_removals,
+)
 from ossie_studio.governance.tag_rules import parse_rule
 from ossie_studio.parsers.base import STATUT_ERREUR
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
@@ -738,6 +742,19 @@ async def get_explorer_object(
         t.tag: dependents_losing(graph.sources, f"{slug}/{file}", t.tag) for t in obj.tags
     }
     detail["removed_tags"] = [_tag_payload(t) for t in obj.removed_tags]
+    # Classifications retirées des champs de l'objet (ticket 77ce0d79), pour
+    # « Rétablir » : lues dans le dépôt, sans matérialiser la vue.
+    try:
+        removals_text = await workdir.read_file(
+            space.id, branch_ref, space.repo_url, username, token, CLASSIFICATION_REMOVALS_FILE
+        )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    detail["removed_classes"] = [
+        asdict(r)
+        for r in parse_classification_removals(removals_text)
+        if r.object == f"{slug}/{file}"
+    ]
     origin = detail["origin"]
     detail["forge_url"] = await _forge_link(conn, manifest_text, obj.origin, origin["line"])
     return detail

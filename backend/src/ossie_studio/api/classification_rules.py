@@ -6,7 +6,7 @@ l'index de l'explorateur raw (`api/raw_explorer.py`)."""
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import structlog
@@ -20,15 +20,19 @@ from ossie_studio.errors import ApiError
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
 from ossie_studio.governance.classification_rules import (
     MATCH_ALL,
+    ClassificationRemoval,
     ClassificationRule,
     delete_classification_rule,
     effect_errors,
     is_valid_rule_id,
     parse_rule,
     read_builtin_disabled,
+    read_classification_removals,
     read_classification_rules,
+    removal_counts,
     rule_document,
     write_builtin_disabled,
+    write_classification_removals,
     write_classification_rule,
 )
 from ossie_studio.governance.repo import Scheme, read_schemes
@@ -95,17 +99,23 @@ async def list_classification_rules(
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
-    files, schemes, disabled = await ctx.read(
+    files, schemes, disabled, removals = await ctx.read(
         lambda root: (
             read_classification_rules(root),
             read_schemes(root),
             read_builtin_disabled(root),
+            read_classification_removals(root),
         )
     )
     rows = [_builtin_payload(r, disabled, schemes) for r in builtin_classification_rules()]
     for f in files:
         errors = list(f.errors) or (effect_errors(f.rule, schemes) if f.rule else [])
         rows.append(_payload(f.rel, f.rule, errors, f.rel.rsplit("/", 1)[-1][:-5]))
+    # Retraits mémorisés par règle (ticket 77ce0d79) : « la page de la règle
+    # indique le nombre de retraits ».
+    counts = removal_counts(removals)
+    for row in rows:
+        row["removals"] = counts.get(str(row["id"]), 0)
     return {"rules": rows}
 
 
@@ -196,3 +206,99 @@ async def remove_classification_rule(
     ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
     await ctx.write(user.email, f"supprime la règle de classification {rule_id}", write)
     log.info("classification_rule_deleted", rule_id=rule_id)
+
+
+# --- Retraits (ticket 77ce0d79) ------------------------------------------------------
+
+removals_router = APIRouter(
+    prefix="/api/spaces/{space_id}/branches/{branch_id}/governance/classification-removals"
+)
+
+
+class ClassificationRemovalBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    object: str  # « source/fichier » de l'objet raw (ou de l'asset : même fichier)
+    field: str
+    scheme: str
+    rule: str = ""
+    title: str = ""
+
+
+def _removal(body: ClassificationRemovalBody) -> ClassificationRemoval:
+    slug, _, file = body.object.partition("/")
+    if not slug or not file or "/" in file or not body.field.strip() or not body.scheme.strip():
+        raise ApiError(
+            "invalid_request", status_code=400, fields=["classification_removal_invalid"]
+        )
+    return ClassificationRemoval(
+        body.object, body.field.strip(), body.scheme.strip(), body.rule.strip(), body.title.strip()
+    )
+
+
+@removals_router.get("")
+async def list_classification_removals(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: GovernanceRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    removals: list[ClassificationRemoval] = await ctx.read(read_classification_removals)
+    return {"removals": [asdict(r) for r in removals]}
+
+
+@removals_router.post("")
+async def remove_field_classification(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: ClassificationRemovalBody,
+) -> dict[str, object]:
+    """Retire la valeur posée par règle sur un champ ; la règle ne la repose plus
+    (idempotent : un second retrait ne duplique rien). Brouillon, publiable."""
+    removal = _removal(body)
+
+    def write(root: Path) -> None:
+        current = read_classification_removals(root)
+        if any(r.key == removal.key for r in current):
+            return
+        write_classification_removals(root, [*current, removal])
+
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    where = f"{removal.object}.{removal.field}"
+    await ctx.write(user.email, f"retire la classification {removal.scheme} de {where}", write)
+    log.info("classification_removed", object=removal.object, field=removal.field,
+             scheme=removal.scheme)  # fmt: skip
+    return asdict(removal)
+
+
+@removals_router.post("/restore")
+async def restore_field_classification(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: ClassificationRemovalBody,
+) -> dict[str, object]:
+    """« Rétablir » : annule un retrait (idempotent)."""
+    removal = _removal(body)
+
+    def write(root: Path) -> None:
+        current = read_classification_removals(root)
+        kept = [r for r in current if r.key != removal.key]
+        if len(kept) != len(current):
+            write_classification_removals(root, kept)
+
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    where = f"{removal.object}.{removal.field}"
+    await ctx.write(user.email, f"rétablit la classification {removal.scheme} de {where}", write)
+    log.info("classification_restored", object=removal.object, field=removal.field,
+             scheme=removal.scheme)  # fmt: skip
+    return asdict(removal)

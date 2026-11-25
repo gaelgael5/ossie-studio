@@ -289,6 +289,10 @@ export function GovernanceClassificationRulesPage() {
                         <RuleStatus file={f} />
                         <EffectBadge file={f} schemes={schemeList} />
                         <span className="muted small">{t('classRuleFieldsCount', { n: countOf(f.id) })}</span>
+                        {f.removals ? (
+                          // Retraits mémorisés (ticket 77ce0d79).
+                          <span className="muted small">{t('classRuleRemovals', { count: f.removals })}</span>
+                        ) : null}
                       </span>
                     </button>
                   </li>
@@ -487,6 +491,7 @@ function RuleDetail({
             </tbody>
           </table>
           <p className="panel-label">{t('classRuleFieldsTitle')}</p>
+          {file.removals ? <p className="small muted">{t('classRuleRemovalsHint', { count: file.removals })}</p> : null}
           {count === null ? (
             <p className="muted">{t('tagRuleUsageUnavailable')}</p>
           ) : count === 0 ? (

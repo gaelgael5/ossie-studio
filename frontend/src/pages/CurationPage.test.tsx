@@ -91,7 +91,7 @@ const GOVERNANCE = {
   ],
   fields: [
     { name: 'Numero', values: { classification: ['Restreint'] } },
-    { name: 'Client', values: { classification: ['Interne'] } },
+    { name: 'Client', values: { classification: ['Interne'] }, rules: { classification: { rule: 'clients', rule_name: 'Clients' } } },
     { name: 'CreeLe', values: {} },
   ],
   invalid: [],
@@ -311,6 +311,44 @@ describe('CurationPage', () => {
         fields: { CreeLe: { classification: ['Restreint'] } },
       }),
     )
+  })
+
+  it('valeur posée par règle : marquée « par règle », déclarer une autre valeur (ticket 568a0547)', async () => {
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml&tab=governance')
+    expect(await screen.findByText('par règle')).toBeInTheDocument()
+    expect(screen.getByTitle('par la règle « Clients »')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Déclarer une autre valeur pour Client (Classification)' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Classer Client pour Classification' }), 'Restreint')
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path.endsWith('/curation/classify')).map((c) => JSON.parse(c.body!))).toContainEqual({
+        path: 'commande.schema.yaml',
+        fields: { Client: { classification: ['Restreint'] } },
+      }),
+    )
+  })
+
+  it('valeur posée par règle : la retirer (droit gouvernance, ticket 77ce0d79)', async () => {
+    const calls = mockApi(['curation:read', 'curation:write', 'governance:write'])
+    const user = userEvent.setup()
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml&tab=governance')
+    await user.click(await screen.findByRole('button', { name: 'Retirer la valeur posée par règle sur Client (Classification)' }))
+    await waitFor(() => expect(calls.some((c) => c.path.endsWith('/governance/classification-removals'))).toBe(true))
+    const sent = calls.find((c) => c.path.endsWith('/governance/classification-removals'))!
+    expect(JSON.parse(sent.body!)).toMatchObject({
+      object: 'api-boutique/commande.schema.yaml',
+      field: 'Client',
+      scheme: 'classification',
+      rule: 'clients',
+    })
+  })
+
+  it('valeur posée par règle : sans droit gouvernance, pas de « Retirer »', async () => {
+    mockApi()
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml&tab=governance')
+    expect(await screen.findByText('par règle')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Retirer la valeur posée par règle/ })).not.toBeInTheDocument()
   })
 
   it('filtre par niveau : un asset apparaît si l’un de ses niveaux (champs compris) correspond', async () => {

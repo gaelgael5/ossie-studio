@@ -59,6 +59,8 @@ from ossie_studio.sources.contracts import (
 )
 from ossie_studio.sources.curation_assets import source_classifications
 from ossie_studio.sources.download import SourceDownloader
+from ossie_studio.sources.explorer import DEFAULT_MODE
+from ossie_studio.sources.explorer_service import ensure_index, reference_graph
 from ossie_studio.sources.jobs import DONE, FAILED, CollectJobs, JobKey
 from ossie_studio.sources.manifest import (
     DB_TYPES,
@@ -280,9 +282,17 @@ async def list_branch_sources(
     try:
         entries = await list_sources(workdir, space, slug, username, token)
         # Niveau de classification de chaque source, dérivé de ses assets
-        # (ticket 5e8680d7, critère 9).
+        # (ticket 5e8680d7, critère 9), valeurs posées par règle comprises
+        # (ticket 568a0547) : lues dans l'index de l'explorateur, à jour.
+        key, signature = await ensure_index(conn, workdir, space, branch_id, slug, username, token)
+        graph = await reference_graph(conn, key, DEFAULT_MODE, signature)
         levels = await workdir.read_branch(
-            space.id, slug, space.repo_url, username, token, source_classifications
+            space.id,
+            slug,
+            space.repo_url,
+            username,
+            token,
+            lambda root: source_classifications(root, graph),
         )
     except WorkdirError as exc:
         raise _workdir_http_error(exc) from None
