@@ -857,7 +857,12 @@ export interface AssetSchemeValue extends ClassBadgeValue {
 export interface AssetGovernance {
   schemes: ClassScheme[]
   object: AssetSchemeValue[]
-  fields: { name: string; values: Record<string, string[]> }[]
+  fields: {
+    name: string
+    values: Record<string, string[]>
+    /** Schéma → règle, pour les valeurs posées par règle (ticket 568a0547). */
+    rules?: Record<string, { rule: string; rule_name: string }>
+  }[]
   invalid: { field: string; scheme: string; value: string; reason: string }[]
 }
 export interface InvalidClassification {

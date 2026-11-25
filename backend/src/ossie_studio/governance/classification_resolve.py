@@ -1,8 +1,10 @@
 """Valeur effective des classifications d'un asset (ticket docflow 5e8680d7).
 
 Repris d'Entropy Data, à la demande de Gael (17/11/2026) :
-- **champ** : la valeur déclarée sur le champ (plus tard, à défaut, celle du
-  concept métier lié — c'est ici que l'étape viendra se brancher) ;
+- **champ** : la valeur déclarée sur le champ ; à défaut, celle posée par une
+  **règle de classification** sur le champ raw (ticket 568a0547, Gael : « la
+  personne gagne ») — calculée, jamais écrite dans le `.extend.yaml` ; plus tard,
+  à défaut, celle du concept métier lié (l'étape viendra se brancher ici) ;
 - **asset** : une valeur déclarée sur l'asset l'emporte ; sinon elle est
   **dérivée** de ses champs : le niveau de rang le plus élevé (le plus sensible),
   ou l'**union** pour un schéma multi-valeurs ;
@@ -18,7 +20,7 @@ Le travail humain vit dans `<clé>.extend.yaml` (clé `classification`, ticket
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -61,12 +63,26 @@ class SchemeValue:
     invalid: bool  # déclaration invalide : aucun badge
 
 
+@dataclass(frozen=True)
+class RuleValue:
+    """Valeur posée sur un champ par une règle de classification (calculée par
+    l'index de l'explorateur raw, déjà validée contre les schémas)."""
+
+    values: tuple[str, ...]
+    rule: str  # identifiant(s) de règle, séparés par des virgules (union multi-valeurs)
+    rule_name: str
+
+
 @dataclass
 class AssetClassification:
     object: list[SchemeValue]  # un par schéma, dans l'ordre des schémas
-    fields: dict[str, dict[str, tuple[str, ...]]]  # champ → schéma → valeurs valides
+    # champ → schéma → valeurs effectives (déclarées, sinon par règle)
+    fields: dict[str, dict[str, tuple[str, ...]]]
     levels: set[tuple[str, str]]  # (schéma, niveau) effectifs, champs compris (filtre)
     invalid: list[InvalidValue] = field(default_factory=list)
+    # Valeurs par règle en vigueur (aucune déclaration ne les remplace) : badge
+    # marqué « par règle » à l'écran (ticket 568a0547).
+    by_rule: dict[str, dict[str, RuleValue]] = field(default_factory=dict)
 
 
 def _as_list(value: Any) -> list[str]:
@@ -119,19 +135,35 @@ def _rank(scheme: Scheme, name: str) -> int:
     return next((lv.rank for lv in scheme.levels if lv.name == name), 0)
 
 
-def classify(asset: dict[str, Any], schemes: Sequence[Scheme]) -> AssetClassification:
-    """Classification effective d'un asset (en mémoire, voir le module)."""
+def classify(
+    asset: dict[str, Any],
+    schemes: Sequence[Scheme],
+    rules: Mapping[str, Mapping[str, RuleValue]] | None = None,
+) -> AssetClassification:
+    """Classification effective d'un asset (en mémoire, voir le module).
+    `rules` : valeurs posées par règle sur les champs raw (champ → schéma)."""
     by_id = {s.id: s for s in schemes}
     invalid: list[InvalidValue] = []
 
     fields: dict[str, dict[str, tuple[str, ...]]] = {}
+    by_rule: dict[str, dict[str, RuleValue]] = {}
     props = asset.get("properties")
     if isinstance(props, dict):
         for name, prop in props.items():
             if not isinstance(prop, dict):
                 continue
-            valid, _raw, bad = _validate(prop.get(CLASSIFICATION_KEY), by_id, str(name))
+            valid, raw, bad = _validate(prop.get(CLASSIFICATION_KEY), by_id, str(name))
             invalid.extend(bad)
+            # Ordre d'un champ : déclarée à la main > par règle > rien. Une
+            # déclaration, même invalide, écarte la règle (jamais de repli).
+            for scheme_id, rv in (rules or {}).get(str(name), {}).items():
+                scheme = by_id.get(scheme_id)
+                if scheme is None or scheme_id in raw:
+                    continue
+                values = _ordered(scheme, rv.values)
+                if values:
+                    valid[scheme_id] = values if scheme.multi_value else values[:1]
+                    by_rule.setdefault(str(name), {})[scheme_id] = rv
             if valid:
                 fields[str(name)] = valid
 
@@ -185,7 +217,9 @@ def classify(asset: dict[str, Any], schemes: Sequence[Scheme]) -> AssetClassific
                 )
             )
         levels.update((scheme.id, v) for v in results[-1].values)
-    return AssetClassification(object=results, fields=fields, levels=levels, invalid=invalid)
+    return AssetClassification(
+        object=results, fields=fields, levels=levels, invalid=invalid, by_rule=by_rule
+    )
 
 
 def source_levels(

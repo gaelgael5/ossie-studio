@@ -91,7 +91,7 @@ const GOVERNANCE = {
   ],
   fields: [
     { name: 'Numero', values: { classification: ['Restreint'] } },
-    { name: 'Client', values: { classification: ['Interne'] } },
+    { name: 'Client', values: { classification: ['Interne'] }, rules: { classification: { rule: 'clients', rule_name: 'Clients' } } },
     { name: 'CreeLe', values: {} },
   ],
   invalid: [],
@@ -309,6 +309,22 @@ describe('CurationPage', () => {
       expect(calls.filter((c) => c.path.endsWith('/curation/classify')).map((c) => JSON.parse(c.body!))).toContainEqual({
         path: 'commande.schema.yaml',
         fields: { CreeLe: { classification: ['Restreint'] } },
+      }),
+    )
+  })
+
+  it('valeur posée par règle : marquée « par règle », déclarer une autre valeur (ticket 568a0547)', async () => {
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml&tab=governance')
+    expect(await screen.findByText('par règle')).toBeInTheDocument()
+    expect(screen.getByTitle('par la règle « Clients »')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Déclarer une autre valeur pour Client (Classification)' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Classer Client pour Classification' }), 'Restreint')
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path.endsWith('/curation/classify')).map((c) => JSON.parse(c.body!))).toContainEqual({
+        path: 'commande.schema.yaml',
+        fields: { Client: { classification: ['Restreint'] } },
       }),
     )
   })

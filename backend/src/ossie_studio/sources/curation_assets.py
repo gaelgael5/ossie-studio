@@ -22,6 +22,7 @@ from typing import Any
 
 from ossie_studio.governance.classification_resolve import (
     AssetClassification,
+    RuleValue,
     classify,
     source_levels,
 )
@@ -117,10 +118,29 @@ class AssetSummary:
     referentiel_issues: int = 0
 
 
-def _class_fields(asset: dict[str, Any], schemes: Sequence[Scheme]) -> dict[str, Any]:
+# Valeurs posées par règle sur les champs raw d'un asset : champ → schéma → valeur.
+RuleValues = dict[str, dict[str, RuleValue]]
+
+
+def rule_values(graph: ReferenceGraph, key: AssetKey) -> RuleValues:
+    """Classifications posées par règle sur les champs de l'objet raw d'un asset
+    (ticket 568a0547) : lues dans l'index de l'explorateur, où elles sont déjà
+    calculées. Vide si l'objet raw a disparu."""
+    located = graph.located(key)
+    if located is None:
+        return {}
+    out: RuleValues = {}
+    for c in located[1].field_classes:
+        out.setdefault(c.field, {})[c.scheme] = RuleValue(c.values, c.rule, c.rule_name)
+    return out
+
+
+def _class_fields(
+    asset: dict[str, Any], schemes: Sequence[Scheme], rules: RuleValues | None = None
+) -> dict[str, Any]:
     if not schemes:
         return {}
-    c = classify(asset, schemes)
+    c = classify(asset, schemes, rules)
     return {
         "classification": tuple(
             ClassBadge(scheme=v.scheme, values=v.values, declared=v.declared, extra=v.extra)
@@ -160,7 +180,7 @@ def summarize(
                 property_names=tuple(
                     sorted({n for k, p in props.items() for n in (k, p.get("x-businessName")) if n})
                 ),
-                **_class_fields(asset, schemes),
+                **_class_fields(asset, schemes, rule_values(graph, (slug, name))),
                 referentiel_issues=issues(asset, targets) if targets is not None else 0,
             )
         )
@@ -304,14 +324,18 @@ def invalid_classifications(workdir: Path) -> list[InvalidClassification]:
     return out
 
 
-def source_classifications(workdir: Path) -> dict[str, list[dict[str, object]]]:
+def source_classifications(
+    workdir: Path, graph: ReferenceGraph | None = None
+) -> dict[str, list[dict[str, object]]]:
     """Niveau de chaque source par schéma : le plus sensible de ses assets
     (l'union pour un multi-valeurs) — ticket 5e8680d7, critère 9. Schémas sans
-    valeur absents ; liste dans l'ordre des schémas."""
+    valeur absents ; liste dans l'ordre des schémas. `graph` (index de
+    l'explorateur) : valeurs posées par règle sur les champs (ticket 568a0547)."""
     assets, schemes = read_assets_and_schemes(workdir)
     by_source: dict[str, list[AssetClassification]] = {}
-    for (slug, _name), asset in assets.items():
-        by_source.setdefault(slug, []).append(classify(asset, schemes))
+    for key, asset in assets.items():
+        rules = rule_values(graph, key) if graph is not None else None
+        by_source.setdefault(key[0], []).append(classify(asset, schemes, rules))
     out: dict[str, list[dict[str, object]]] = {}
     for slug, found in by_source.items():
         levels = source_levels(found, schemes)

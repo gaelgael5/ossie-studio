@@ -970,9 +970,27 @@ function ClassificationPanel({
                       </td>
                     )
                   }
+                  // Valeur posée par une règle (ticket 568a0547) : badge non déclaré,
+                  // marqué « par règle » ; un clic propose d'en déclarer une autre.
+                  const rule = f.rules?.[sc.id]
                   return (
                     <td key={sc.id}>
-                      {values.length > 0 ? (
+                      {values.length > 0 && rule ? (
+                        <span className="row small" title={t('classRuleByRule', { rule: rule.rule_name })}>
+                          <ClassBadges scheme={sc} values={values} declared={false} />
+                          <span className="muted">{t('classByRule')}</span>
+                          {canWrite ? (
+                            <button
+                              type="button"
+                              className="btn-link"
+                              aria-label={t('classDeclareOther', { field: f.name, scheme: sc.name })}
+                              onClick={() => setEditing(key)}
+                            >
+                              {t('classDeclareOtherShort')}
+                            </button>
+                          ) : null}
+                        </span>
+                      ) : values.length > 0 ? (
                         <button
                           type="button"
                           className="btn-link"
