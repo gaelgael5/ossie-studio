@@ -30,6 +30,7 @@ from typing import Any
 
 import yaml
 
+from ossie_studio.parsers.application import custom_links
 from ossie_studio.parsers.conventions import (
     CODE_LANGUAGE_KEY,
     SCHEMA_SUFFIX,
@@ -57,7 +58,10 @@ GIT_SOURCE_TYPE = "git"
 # force la reconstruction des index existants à la livraison suivante.
 # 9 : badges « nouveau » / « modifié » par rapport à la tête publiée (aad1d3c6).
 # 10 : schémas en YAML, `<clé>.schema.yaml` (ticket 5cc1cb07).
-INDEX_FORMAT = "13"
+# 13 à 15 : modules, fonctions, liens au contrat, ancres (cartographie applicative).
+# 13 (dev) : relations virtuelles des références (ticket b5f333b4).
+# 16 : les deux réunis — tout index construit par l'une ou l'autre version est refait.
+INDEX_FORMAT = "16"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -95,6 +99,77 @@ class SchemaRef:
 
 
 @dataclass(frozen=True)
+class ModuleFacts:
+    """Ce que l'explorateur retient d'un objet module (cartographie applicative) :
+    son fichier de projet, sa nature, ses cibles, ses dépendances
+    (`(projet, $id du module ou "")`, "" pour une dépendance externe) et les
+    ancres choisies de ses liens, lues dans son `.view.yaml` (ticket a1fd0663) :
+    `(module d'arrivée, départ, arrivée)`, chaque ancre `auto` ou `côté:position`."""
+
+    project: str
+    nature: str
+    language: str
+    targets: tuple[str, ...] = ()
+    dependencies: tuple[tuple[str, str], ...] = ()
+    anchors: tuple[tuple[str, str, str], ...] = ()
+
+
+def anchor_text(anchor: Any) -> str:
+    """Une ancre du `.view.yaml` en texte d'index : `auto` ou `côté:position`."""
+    if isinstance(anchor, dict):
+        return f"{anchor.get('side')}:{anchor.get('at')}"
+    return "auto"
+
+
+def anchor_value(text: str) -> Any:
+    """L'inverse d'`anchor_text` : `auto` ou `{side, at}`."""
+    side, sep, at = text.partition(":")
+    if not sep:
+        return "auto"
+    return {"side": side, "at": float(at)}
+
+
+def view_anchors(path: Path) -> tuple[tuple[str, str, str], ...]:
+    """Les ancres choisies des liens d'un module (son `.view.yaml`, absent ou
+    illisible : aucune)."""
+    try:
+        text = path.read_text(encoding="utf-8") if path.is_file() else None
+    except (OSError, UnicodeDecodeError):
+        return ()
+    return tuple(
+        (target, anchor_text(link.get("from")), anchor_text(link.get("to")))
+        for target, link in custom_links(text).items()
+    )
+
+
+@dataclass(frozen=True)
+class FunctionCounts:
+    """Les fonctions d'un objet, lues dans son `<clé>.extend.yaml` : méthodes
+    publiques, points d'entrée (dont routes HTTP), fonctions libres (module) ;
+    points d'entrée reliés au contrat et opérations reliées (fichier du contrat
+    sous `contracts/`, verbe, chemin) — ticket 90ed0967."""
+
+    methods: int = 0
+    entry_points: int = 0
+    http: int = 0
+    functions: int = 0
+    linked: int = 0
+    operations: tuple[tuple[str, str, str], ...] = ()
+
+    @classmethod
+    def from_json(cls, row: list[Any]) -> FunctionCounts:
+        counts = [int(n) for n in row[:5]] + [0] * (5 - len(row[:5]))
+        return cls(
+            methods=counts[0],
+            entry_points=counts[1],
+            http=counts[2],
+            functions=counts[3],
+            linked=counts[4],
+            operations=tuple((o[0], o[1], o[2]) for o in row[5]) if len(row) > 5 else (),
+        )
+
+
+@dataclass(frozen=True)
 class SchemaSummary:
     """Ce que l'explorateur retient d'un schéma (relu seulement s'il change)."""
 
@@ -115,6 +190,7 @@ class SchemaSummary:
     namespace: str = ""  # x-namespace (détails d'une vignette au survol)
     # Types de chaque champ, dans l'ordre de `field_names` (règles de classification).
     field_types: tuple[tuple[str, ...], ...] = ()
+    module: ModuleFacts | None = None
 
 
 @dataclass(frozen=True)
@@ -183,6 +259,10 @@ class ExplorerObject:
     namespace: str = ""  # espace de noms d'origine (x-namespace) ; vide pour SQL, contrats
     field_classes: tuple[FieldClass, ...] = ()
     facts: ObjectFacts = field(default=ObjectFacts(), compare=False, repr=False)
+    # Cartographie applicative (0fa620be) : un objet module, et les fonctions de
+    # l'objet (son `.extend.yaml`).
+    module: ModuleFacts | None = None
+    functions: FunctionCounts = FunctionCounts()
 
 
 @dataclass(frozen=True)
@@ -247,6 +327,7 @@ def clear_caches() -> None:
     with _LOCK:
         _SCHEMA_CACHE.clear()
         _REVIEW_CACHE.clear()
+        _EXTEND_CACHE.clear()
 
 
 def git_blob_id(data: bytes) -> str:
@@ -365,7 +446,96 @@ def _summarize(data: bytes) -> SchemaSummary:
         field_types=tuple(type_candidates(p) for p in props.values())
         if isinstance(props, dict)
         else (),
+        module=module_facts(schema),
     )
+
+
+def module_facts(schema: dict[str, Any]) -> ModuleFacts | None:
+    """Les faits d'un objet module (`x-kind: module`), None pour tout autre objet."""
+    meta = schema.get("x-module")
+    if schema.get("x-kind") != "module" or not isinstance(meta, dict):
+        return None
+    deps = meta.get("dependencies")
+    return ModuleFacts(
+        project=str(meta.get("project") or ""),
+        nature=str(meta.get("nature") or ""),
+        language=str(schema.get("x-language") or ""),
+        targets=tuple(str(t) for t in meta.get("targets") or []),
+        dependencies=tuple(
+            (str(d.get("project") or ""), str(d.get("module") or ""))
+            for d in deps or []
+            if isinstance(d, dict)
+        ),
+    )
+
+
+def function_counts(document: Any) -> FunctionCounts:
+    """Compteurs d'un `.extend.yaml` : méthodes publiques, points d'entrée (ceux
+    des méthodes, des fonctions libres et de l'objet lui-même), routes HTTP,
+    fonctions libres."""
+    if not isinstance(document, dict):
+        return FunctionCounts()
+    methods = [m for m in document.get("methods") or [] if isinstance(m, dict)]
+    functions = [f for f in document.get("functions") or [] if isinstance(f, dict)]
+    entries = [f.get("entryPoint") for f in (*methods, *functions)]
+    entries.append(document.get("entryPoint"))
+    found = [e for e in entries if isinstance(e, dict)]
+    contracts = [c for c in (e.get("contract") for e in found) if isinstance(c, dict)]
+    linked = [c for c in contracts if c.get("status") == "linked"]
+    operations = {
+        (str(o.get("file", "")), str(o.get("verb", "")), str(o.get("path", "")))
+        for c in linked
+        for o in c.get("operations") or []
+        if isinstance(o, dict)
+    }
+    return FunctionCounts(
+        methods=sum(1 for m in methods if m.get("visibility") == "public"),
+        entry_points=len(found),
+        http=sum(1 for e in found if e.get("kind") == "http"),
+        functions=len(functions),
+        linked=len(linked),
+        operations=tuple(sorted(operations)),
+    )
+
+
+_EXTEND_CACHE: dict[str, tuple[int, int, FunctionCounts]] = {}
+
+
+def _extend_name(schema_name: str) -> str:
+    """`commande.schema.yaml` → `commande.extend.yaml` (fonctions de l'objet)."""
+    return f"{schema_name[: -len(SCHEMA_SUFFIX)]}.extend.yaml"
+
+
+def _view_name(schema_name: str) -> str:
+    """`module-x.schema.yaml` → `module-x.view.yaml` (ancres des liens du module)."""
+    return f"{schema_name[: -len(SCHEMA_SUFFIX)]}.view.yaml"
+
+
+def _with_anchors(module: ModuleFacts | None, view: Path) -> ModuleFacts | None:
+    """Les faits d'un module complétés des ancres de son `.view.yaml`."""
+    return replace(module, anchors=view_anchors(view)) if module else None
+
+
+def extend_counts(path: Path) -> FunctionCounts:
+    """Compteurs du `.extend.yaml` d'un objet (absent : zéro), relus seulement
+    si le fichier a changé."""
+    if not path.is_file():
+        return FunctionCounts()
+    stat = path.stat()
+    key = str(path)
+    with _LOCK:
+        cached = _EXTEND_CACHE.get(key)
+    if cached is not None and cached[0] == stat.st_size and cached[1] == stat.st_mtime_ns:
+        return cached[2]
+    try:
+        counts = function_counts(load_schema(path.read_text(encoding="utf-8")))
+    except (UnicodeDecodeError, SchemaReadError):
+        counts = FunctionCounts()
+    with _LOCK:
+        if len(_EXTEND_CACHE) >= _SCHEMA_CACHE_MAX:
+            _EXTEND_CACHE.clear()
+        _EXTEND_CACHE[key] = (stat.st_size, stat.st_mtime_ns, counts)
+    return counts
 
 
 def type_candidates(prop: Any) -> tuple[str, ...]:
@@ -705,6 +875,24 @@ class SourceEntries:
                         [c.field, c.scheme, list(c.values), c.rule, c.rule_name]
                         for c in o.field_classes
                     ],
+                    [
+                        o.module.project,
+                        o.module.nature,
+                        o.module.language,
+                        list(o.module.targets),
+                        [list(d) for d in o.module.dependencies],
+                        [list(a) for a in o.module.anchors],
+                    ]
+                    if o.module
+                    else None,
+                    [
+                        o.functions.methods,
+                        o.functions.entry_points,
+                        o.functions.http,
+                        o.functions.functions,
+                        o.functions.linked,
+                        [list(op) for op in o.functions.operations],
+                    ],
                 ]
                 for o in self.objects
             ],
@@ -760,6 +948,17 @@ class SourceEntries:
                     )
                     if len(o) > 20
                     else (),
+                    module=ModuleFacts(
+                        o[21][0],
+                        o[21][1],
+                        o[21][2],
+                        tuple(o[21][3]),
+                        tuple((d[0], d[1]) for d in o[21][4]),
+                        tuple((a[0], a[1], a[2]) for a in o[21][5]) if len(o[21]) > 5 else (),
+                    )
+                    if len(o) > 21 and o[21]
+                    else None,
+                    functions=FunctionCounts.from_json(o[22]) if len(o) > 22 else FunctionCounts(),
                 )
                 for o in data.get("objects") or []
             ],
@@ -844,6 +1043,8 @@ def collect_source_entries(
                 top_fields=summary.top_fields,
                 namespace=summary.namespace,
                 facts=ObjectFacts(summary.annotations, summary.field_names, summary.field_types),
+                module=_with_anchors(summary.module, raw_dir / _view_name(path.name)),
+                functions=extend_counts(raw_dir / _extend_name(path.name)),
             )
         )
     return SourceEntries(

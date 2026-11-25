@@ -6,6 +6,14 @@ venu d'un autre fichier ou d'une bibliothèque devient `x-unresolved-type` (la
 résolution croisée viendra du service de recherche de schéma commun). Les classes
 **partielles** (même espace de noms et même nom, dans plusieurs fichiers) sont
 fusionnées en un seul schéma.
+
+**Fonctions** (epic « Cartographie applicative dans raw », ticket f1cc03c4) : les
+méthodes `public`, `internal` et `protected` d'un type et ses **points d'entrée**
+(actions de contrôleur ASP.NET, service d'arrière-plan) vont dans son
+`<clé>.extend.yaml` ; le `.schema.yaml` ne change pas. Les points d'entrée
+**minimal API** (`MapGet`… avec le préfixe de `MapGroup`) sont des fonctions
+libres : rangés par fichier d'origine dans l'index `functions-csharp.yaml`, ils
+sont regroupés par module par le socle (`sources/module_functions.py`).
 """
 
 from __future__ import annotations
@@ -14,10 +22,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+import structlog
 from tree_sitter import Node
 
+from ossie_studio.parsers.application import dump_functions
 from ossie_studio.parsers.base import (
     CIBLE_RAW,
+    OutputAction,
     ParsedObject,
     ParserError,
     PluginContext,
@@ -25,12 +36,30 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import dump_schema, schema_file
+from ossie_studio.parsers.conventions import SchemaReadError, dump_schema, load_schema, schema_file
+from ossie_studio.parsers.csharp_entrypoints import (
+    CONTROLLER_BASES,
+    HTTP_ATTRIBUTES,
+    MAP_METHODS,
+    TASK_BASES,
+    controller_route,
+    join_routes,
+    literal,
+    template_of,
+)
 from ossie_studio.parsers.treesitter import grammar_version, node_text
 from ossie_studio.parsers.treesitter import parse as ts_parse
 
+log = structlog.get_logger(__name__)
+
 _GLOBS = ["**/*.cs"]
 _SLUG = re.compile(r"[^a-zA-Z0-9]+")
+# Index des fonctions libres (minimal API), par fichier d'origine.
+FUNCTIONS_INDEX = "functions-csharp.yaml"
+_FUNCTIONS_VERSION = "1"
+# Types de retour qui enveloppent le vrai résultat d'une méthode.
+_WRAPPERS = frozenset({"Task", "ValueTask", "ActionResult", "IAsyncEnumerable"})
+_NO_RESULT = frozenset({"void", "Task", "ValueTask", "IActionResult", "IResult", "ActionResult"})
 
 # Correspondance des types C# vers JSON Schema.
 _PRIMITIVES: dict[str, dict[str, Any]] = {
@@ -99,6 +128,35 @@ class _Member:
 
 
 @dataclass
+class _Param:
+    name: str
+    type_ref: _TypeRef
+    type_text: str
+    optional: bool
+
+
+@dataclass
+class _Method:
+    name: str
+    visibility: str
+    visibility_source: str | None
+    static: bool
+    is_async: bool
+    params: list[_Param]
+    result: _TypeRef | None  # le vrai résultat (Task<T> → T), None sans résultat
+    returns_text: str
+    doc: str
+    attributes: list[dict[str, Any]]
+    line: int
+    generics: list[str]
+    file: str = ""
+    entry: dict[str, Any] | None = None
+
+    def signature(self) -> tuple[str, tuple[str, ...]]:
+        return self.name, tuple(p.type_text for p in self.params)
+
+
+@dataclass
 class _Type:
     qualified: str
     name: str
@@ -113,6 +171,9 @@ class _Type:
     enum_members: list[str] = field(default_factory=list)
     namespace: str = ""
     usings: list[str] = field(default_factory=list)
+    methods: list[_Method] = field(default_factory=list)
+    # Point d'entrée porté par le type lui-même (service d'arrière-plan).
+    entry: dict[str, Any] | None = None
 
     def merge(self, other: _Type) -> None:
         seen = {m.name for m in self.members}
@@ -122,6 +183,9 @@ class _Type:
         if not self.doc:
             self.doc = other.doc
         self.usings += [u for u in other.usings if u not in self.usings]
+        signatures = {m.signature() for m in self.methods}
+        self.methods += [m for m in other.methods if m.signature() not in signatures]
+        self.entry = self.entry or other.entry
 
 
 # --- Navigation de l'arbre (utilise `src`, les octets du fichier courant) -----
@@ -360,6 +424,8 @@ def _build_type(src: bytes, node: Node, *, namespace: str, enclosing: str) -> _T
             ]
     else:
         info.members = _members(src, node)
+        info.methods = _methods(src, node, info)
+        _entry_points(info)
     return info
 
 
@@ -426,6 +492,327 @@ def _members(src: bytes, node: Node) -> list[_Member]:
                     )
                     members.append(_Member(_text(src, vname), type_ref, doc, attrs, req, maxlen))
     return members
+
+
+# --- Méthodes et points d'entrée (ticket f1cc03c4) ----------------------------
+
+
+def _methods(src: bytes, node: Node, info: _Type) -> list[_Method]:
+    """Les méthodes `public`, `internal` et `protected` d'un type (une méthode
+    `private` n'est pas écrite). Membre d'interface sans mot-clé : public."""
+    body = node.child_by_field_name("body")
+    if body is None:
+        return []
+    methods: list[_Method] = []
+    for decl in body.named_children:
+        if decl.type != "method_declaration":
+            continue
+        name = _text(src, decl.child_by_field_name("name"))
+        if not name:
+            continue
+        if decl.has_error:
+            # Tolérance du parseur : la méthode illisible est laissée de côté et
+            # signalée au journal, les autres sont écrites.
+            log.warning("csharp_method_unreadable", type=info.qualified, method=name,
+                        line=decl.start_point[0] + 1)  # fmt: skip
+            continue
+        mods = _modifiers(src, decl)
+        has_access = any(m in mods for m in ("public", "internal", "protected", "private", "file"))
+        if info.kind == "interface" and not has_access:
+            visibility, source = "public", None
+        else:
+            visibility, source = _visibility(mods, nested=True)
+        if visibility == "private":
+            continue
+        params: list[_Param] = []
+        plist = decl.child_by_field_name("parameters")
+        for param in plist.named_children if plist is not None else []:
+            if param.type != "parameter":
+                continue
+            ptype = param.child_by_field_name("type")
+            pname = param.child_by_field_name("name")
+            # Une valeur par défaut suit le nom : le paramètre est facultatif.
+            optional = pname is not None and any(
+                c.start_byte > pname.end_byte for c in param.named_children
+            )
+            params.append(
+                _Param(_text(src, pname), _type_ref(src, ptype), _text(src, ptype), optional)
+            )
+        returns = decl.child_by_field_name("returns")
+        attributes, _, _ = _attributes(src, decl)
+        generics = [
+            _text(src, tp.child_by_field_name("name"))
+            for container in decl.named_children
+            if container.type == "type_parameter_list"
+            for tp in container.named_children
+            if tp.type == "type_parameter"
+        ]
+        methods.append(
+            _Method(
+                name=name,
+                visibility=visibility,
+                visibility_source=source,
+                static="static" in mods,
+                is_async="async" in mods,
+                params=params,
+                result=_result_ref(src, returns),
+                returns_text=_text(src, returns),
+                doc=_doc_comment(src, decl),
+                attributes=attributes,
+                line=(decl.child_by_field_name("name") or decl).start_point[0] + 1,
+                generics=generics,
+            )
+        )
+    return methods
+
+
+def _short(name: str) -> str:
+    return name.rsplit(".", 1)[-1].removesuffix("Attribute")
+
+
+def _entry_points(info: _Type) -> None:
+    """Contrôleurs ASP.NET (actions `[HttpGet]`…, route = `[Route]` de la classe +
+    gabarit de la méthode) et services d'arrière-plan (point d'entrée « tâche »
+    porté par la classe)."""
+    attrs = {_short(a["nom"]): a["arguments"] for a in info.attributes}
+    if any(b in TASK_BASES for b in info.bases):
+        info.entry = {"kind": "task"}
+    is_controller = "ApiController" in attrs or any(b in CONTROLLER_BASES for b in info.bases)
+    if not is_controller:
+        return
+    class_template = template_of(attrs["Route"]) if "Route" in attrs else None
+    for method in info.methods:
+        if method.visibility != "public":
+            continue
+        own = {_short(a["nom"]): a["arguments"] for a in method.attributes}
+        verbs = [(HTTP_ATTRIBUTES[n], args) for n, args in own.items() if n in HTTP_ATTRIBUTES]
+        if not verbs:
+            continue
+        verb, args = verbs[0]
+        template = template_of(args)
+        if template is None and "Route" in own:
+            template = template_of(own["Route"])
+        method.entry = {
+            "kind": "http",
+            "verb": verb,
+            "route": controller_route(
+                class_template, template, controller=info.name, action=method.name
+            ),
+        }
+
+
+def _result_ref(src: bytes, node: Node | None) -> _TypeRef | None:
+    """Le vrai résultat d'une méthode : `Task<Commande>`, `ActionResult<Commande>`
+    → `Commande` ; `IAsyncEnumerable<T>` → liste de T ; None sans résultat (`void`,
+    `Task`, `IActionResult`…)."""
+    while node is not None and node.type == "generic_name":
+        ident = next((c for c in node.named_children if c.type == "identifier"), None)
+        base = _text(src, ident)
+        if base not in _WRAPPERS:
+            break
+        arglist = next((c for c in node.named_children if c.type == "type_argument_list"), None)
+        args = [c for c in (arglist.named_children if arglist else []) if c.type != "comment"]
+        if not args:
+            return None
+        if base == "IAsyncEnumerable":
+            return _TypeRef("array", inner=_type_ref(src, args[0]))
+        node = args[0]
+    if node is None or _text(src, node) in _NO_RESULT:
+        return None
+    return _type_ref(src, node)
+
+
+def _function_entry(method: _Method, info: _Type, known: dict[str, str]) -> dict[str, Any]:
+    generics = set(info.generics) | set(method.generics)
+    entry: dict[str, Any] = {"name": method.name, "visibility": method.visibility}
+    if method.visibility_source:
+        entry["visibilitySource"] = method.visibility_source
+    if method.static:
+        entry["static"] = True
+    if method.is_async:
+        entry["async"] = True
+    if method.params:
+        entry["parameters"] = []
+        for param in method.params:
+            schema, _, _ = _ref_schema(param.type_ref, generics=generics, known=known)
+            item: dict[str, Any] = {"name": param.name, "type": param.type_text, "schema": schema}
+            if param.optional:
+                item["optional"] = True
+            entry["parameters"].append(item)
+    if method.returns_text and method.returns_text != "void":
+        returns: dict[str, Any] = {"type": method.returns_text}
+        if method.result is not None:
+            schema, _, _ = _ref_schema(method.result, generics=generics, known=known)
+            returns["schema"] = schema
+        entry["returns"] = returns
+    if method.doc:
+        entry["description"] = method.doc
+    if method.attributes:
+        entry["annotations"] = [a["nom"] for a in method.attributes]
+    if method.file:
+        entry["source"] = {"file": method.file, "line": method.line}
+    if method.entry:
+        entry["entryPoint"] = dict(method.entry)
+    return entry
+
+
+def _functions_document(info: _Type, known: dict[str, str]) -> dict[str, Any] | None:
+    """Le `<clé>.extend.yaml` d'un type : ses méthodes et son point d'entrée ;
+    None s'il n'a ni l'un ni l'autre (pas de fichier)."""
+    if not info.methods and not info.entry:
+        return None
+    doc: dict[str, Any] = {}
+    if info.methods:
+        doc["methods"] = [_function_entry(m, info, known) for m in info.methods]
+    if info.entry:
+        doc["entryPoint"] = dict(info.entry)
+    return doc
+
+
+# --- Minimal API : fonctions libres, par fichier --------------------------------------------
+
+
+def _invocations(node: Node) -> list[Node]:
+    found: list[Node] = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current.type == "invocation_expression":
+            found.append(current)
+        stack.extend(current.named_children)
+    return found
+
+
+def _arguments(node: Node) -> list[Node]:
+    args = node.child_by_field_name("arguments")
+    return [
+        a.named_children[0]
+        for a in (args.named_children if args is not None else [])
+        if a.type == "argument" and a.named_children
+    ]
+
+
+def _member_call(src: bytes, node: Node) -> tuple[Node, str] | None:
+    """(récepteur, nom) d'un appel `récepteur.Nom(...)`."""
+    function = node.child_by_field_name("function")
+    if function is None or function.type != "member_access_expression":
+        return None
+    receiver = function.child_by_field_name("expression")
+    name = function.child_by_field_name("name")
+    if receiver is None or name is None:
+        return None
+    return receiver, _text(src, name).split("<", 1)[0]
+
+
+def _group_prefix(src: bytes, node: Node, variables: dict[str, Node], depth: int = 0) -> str | None:
+    """Le préfixe accumulé par les `MapGroup` d'un récepteur (directs ou par une
+    variable locale) ; None si un préfixe n'est pas un littéral."""
+    if depth > 20:
+        return None
+    if node.type == "identifier":
+        bound = variables.get(_text(src, node))
+        return _group_prefix(src, bound, variables, depth + 1) if bound is not None else ""
+    if node.type == "invocation_expression":
+        call = _member_call(src, node)
+        if call is not None:
+            receiver, name = call
+            outer = _group_prefix(src, receiver, variables, depth + 1)
+            if name == "MapGroup":
+                args = _arguments(node)
+                own = literal(_text(src, args[0])) if args else None
+                return join_routes(outer, own) if own is not None else None
+            return outer
+    if node.type == "member_access_expression":
+        inner = node.child_by_field_name("expression")
+        return _group_prefix(src, inner, variables, depth + 1) if inner is not None else ""
+    return ""
+
+
+def minimal_api(path: str, raw: bytes) -> list[dict[str, Any]]:
+    """Les points d'entrée minimal API d'un fichier : `MapGet`, `MapPost`,
+    `MapPut`, `MapPatch`, `MapDelete`, avec le préfixe des `MapGroup`. Le nom est
+    celui du gestionnaire (groupe de méthodes), sinon « VERBE route »."""
+    if b"Map" not in raw:
+        return []
+    tree = ts_parse("csharp", raw)
+    root = tree.root_node
+    variables: dict[str, Node] = {}
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        if current.type == "variable_declarator":
+            bound = current.child_by_field_name("name") or (
+                current.named_children[0] if current.named_children else None
+            )
+            value = next((c for c in current.named_children[1:] if c.is_named), None)
+            if bound is not None and value is not None:
+                variables[_text(raw, bound)] = value
+        stack.extend(current.named_children)
+    functions: list[dict[str, Any]] = []
+    for call_node in _invocations(root):
+        call = _member_call(raw, call_node)
+        if call is None or call[1] not in MAP_METHODS:
+            continue
+        receiver, method = call
+        args = _arguments(call_node)
+        if not args:
+            continue
+        verb = MAP_METHODS[method]
+        route = join_routes(_group_prefix(raw, receiver, variables), literal(_text(raw, args[0])))
+        handler = args[1] if len(args) > 1 else None
+        if handler is not None and handler.type == "identifier":
+            name = _text(raw, handler)
+        elif handler is not None and handler.type == "member_access_expression":
+            name = _text(raw, handler.child_by_field_name("name"))
+        else:
+            name = f"{verb} {route or '?'}"
+        function: dict[str, Any] = {
+            "name": name,
+            "visibility": "public",
+            "entryPoint": {"kind": "http", "verb": verb, "route": route},
+            "source": {"file": path, "line": call_node.start_point[0] + 1},
+        }
+        if handler is not None and handler.type == "lambda_expression":
+            plist = handler.child_by_field_name("parameters")
+            params = []
+            for param in plist.named_children if plist is not None else []:
+                if param.type != "parameter":
+                    continue
+                ptype = param.child_by_field_name("type")
+                item: dict[str, Any] = {"name": _text(raw, param.child_by_field_name("name"))}
+                if ptype is not None:
+                    schema, _, _ = _ref_schema(_type_ref(raw, ptype), generics=set(), known={})
+                    item.update(type=_text(raw, ptype), schema=schema)
+                params.append(item)
+            if params:
+                function["parameters"] = params
+        functions.append(function)
+    return functions
+
+
+def _functions_index(
+    previous_text: str | None, files: dict[str, bytes], crcs: dict[str, str], force: bool
+) -> str:
+    """L'index `functions-csharp.yaml` : par fichier d'origine, son empreinte et
+    ses fonctions libres. Un fichier inchangé reprend son entrée."""
+    previous: dict[str, Any] = {}
+    if previous_text:
+        try:
+            data = load_schema(previous_text)
+        except SchemaReadError:
+            data = None
+        if isinstance(data, dict) and data.get("version") == _FUNCTIONS_VERSION:
+            previous = data.get("files") or {}
+    entries: dict[str, Any] = {}
+    for path in sorted(files):
+        old = previous.get(path)
+        if not force and isinstance(old, dict) and old.get("checksum") == crcs.get(path):
+            entries[path] = old
+            continue
+        functions = minimal_api(path, files[path])
+        if functions:
+            entries[path] = {"checksum": crcs.get(path, ""), "functions": functions}
+    return dump_schema({"language": "csharp", "version": _FUNCTIONS_VERSION, "files": entries})
 
 
 # --- Construction du schéma --------------------------------------------------
@@ -536,7 +923,8 @@ class CSharpParser:
     id = "csharp"
     cible = CIBLE_RAW
     label = "C#"
-    version = f"1.3-ts{grammar_version('csharp')}"
+    # 1.4 : méthodes et points d'entrée (ticket f1cc03c4) — tout est relu une fois.
+    version = f"1.4-ts{grammar_version('csharp')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)
@@ -547,7 +935,15 @@ class CSharpParser:
     def run(self, context: PluginContext) -> PluginResult:
         from ossie_studio.sources.collect_core import schema_plugin_run
 
-        return schema_plugin_run(context, self)
+        result = schema_plugin_run(context, self)
+        # Fonctions libres (minimal API) : l'index du plugin, par fichier ; le
+        # socle les range dans le `.extend.yaml` de leur module.
+        previous = context.raw.read_index(FUNCTIONS_INDEX)
+        crcs = {row.path: row.crc for row in context.files}
+        text = _functions_index(previous, context.contents, crcs, context.force)
+        if text != previous:
+            result.writes.append(OutputAction(path=FUNCTIONS_INDEX, content=text))
+        return result
 
     def handles(self, path: str) -> bool:
         return matches_globs(_GLOBS, path)
@@ -561,6 +957,8 @@ class CSharpParser:
             except Exception as exc:  # pragma: no cover - tree-sitter ne lève pas
                 raise ParserError("syntax") from exc
             for info in _extract_file(raw, tree.root_node):
+                for method in info.methods:
+                    method.file = path
                 if info.qualified in merged:
                     merged[info.qualified].merge(info)
                 else:
@@ -569,11 +967,13 @@ class CSharpParser:
         known = {info.name: info.qualified for info in merged.values()}
         objects: list[ParsedObject] = []
         for qualified, info in sorted(merged.items()):
+            functions = _functions_document(info, known)
             objects.append(
                 ParsedObject(
                     key=_slug(qualified),
                     sources=sorted(sources[qualified]),
                     schema=dump_schema(_build_schema(info, known)),
+                    extend=dump_functions(functions) if functions else None,
                 )
             )
         return objects

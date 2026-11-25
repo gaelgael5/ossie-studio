@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import uuid
 
-import asyncpg
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -241,23 +240,23 @@ async def test_schemas_d_une_connexion(admin: AsyncClient, app: FastAPI) -> None
     # eebe6994 : liste à cocher des schémas d'une source, lue avec le secret.
     await _pg_secret(admin)
     cid = (await _create_pg(admin, "pg")).json()["id"]
-    # La connexion vise la base « postgres » (PG_PARAMS), pas la base de l'app.
-    pg = await asyncpg.connect(
-        host=PG_PARAMS["host"], port=int(PG_PARAMS["port"]), database="postgres",
-        user=PG_PARAMS["username"], password=PG_PASSWORD,
-    )
-    await pg.execute("CREATE SCHEMA IF NOT EXISTS sch_test")
-    await pg.execute("CREATE TABLE IF NOT EXISTS sch_test.t1 (id int)")
+    # Le schéma est créé dans la base jetable du test (son propriétaire peut y
+    # créer), pas dans « postgres », où ce droit dépend de la machine ; la lecture
+    # vise cette base par le paramètre `database`.
+    async with app.state.pool.acquire() as pg:
+        database = await pg.fetchval("SELECT current_database()")
+        await pg.execute("CREATE SCHEMA IF NOT EXISTS sch_test")
+        await pg.execute("CREATE TABLE IF NOT EXISTS sch_test.t1 (id int)")
     try:
-        r = await admin.get(f"/api/db-connections/{cid}/schemas")
+        r = await admin.get(f"/api/db-connections/{cid}/schemas", params={"database": database})
         assert r.status_code == 200, r.text
         names = [s["name"] for s in r.json()["schemas"]]
         assert names == sorted(names)
         assert {"name": "sch_test", "tables": 1} in r.json()["schemas"]
         assert "information_schema" not in names and "pg_catalog" not in names
     finally:
-        await pg.execute("DROP SCHEMA sch_test CASCADE")
-        await pg.close()
+        async with app.state.pool.acquire() as pg:
+            await pg.execute("DROP SCHEMA sch_test CASCADE")
 
 
 async def test_schemas_connexion_inconnue(admin: AsyncClient) -> None:

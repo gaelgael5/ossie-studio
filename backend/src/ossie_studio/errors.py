@@ -124,6 +124,9 @@ ERROR_CODES: tuple[str, ...] = (
     "raw_explorer_mode_invalid",
     "raw_explorer_folder_not_found",
     "raw_explorer_object_not_found",
+    # Ancres des liens de la vue « Application » (ticket a1fd0663).
+    "module_link_not_found",
+    "view_unreadable",
     "asset_not_retained",
     # Classification d'un asset refusée (ticket 5e8680d7).
     "classification_unknown_level",

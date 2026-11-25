@@ -1221,3 +1221,78 @@ describe('RawExplorer', () => {
     expect(screen.getByTestId('loc').textContent).toContain('open=status.schema.yaml')
   })
 })
+
+describe('RawExplorer — objets module et vue « Application » (ticket 0fa620be)', () => {
+  const DOMAIN_MODULE = { file: 'module-src-domain.schema.yaml', title: 'Boutique.Domain', folder: 'src/Domain' }
+  const APPLICATION = {
+    modules: [
+      {
+        id: DOMAIN_MODULE.file,
+        file: DOMAIN_MODULE.file,
+        title: 'Boutique.Domain',
+        language: 'csharp',
+        nature: 'library',
+        targets: ['net8.0'],
+        project: 'src/Domain/Boutique.Domain.csproj',
+        folder: 'src/Domain',
+        dependencies: [],
+        dependents: [],
+        counts: { classes: 2, entry_points: 0, http: 0, methods: 3, functions: 0 },
+      },
+    ],
+    contracts: [],
+  }
+  const MODULE_DETAIL = { ...APPLICATION.modules[0], dependents: [], entry_points: [], classes: [] }
+
+  function withModules() {
+    const calls = mockApi()
+    const base = globalThis.fetch as unknown as (url: string, init?: RequestInit) => Promise<{ text: () => Promise<string> }>
+    const reply = (body: unknown) =>
+      Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const u = new URL(url, 'http://test')
+        calls.push(url)
+        if (u.pathname.endsWith('/application')) return reply(APPLICATION)
+        if (u.pathname.endsWith('/module')) return reply(MODULE_DETAIL)
+        if (u.pathname.endsWith('/tree')) {
+          const body = JSON.parse(await (await base(url, init)).text())
+          return reply({ ...body, modules: [DOMAIN_MODULE] })
+        }
+        return base(url, init)
+      }),
+    )
+    return calls
+  }
+
+  it('sans module dans la source : le mode « Application » est grisé', async () => {
+    mockApi()
+    renderExplorer('/sources?tab=raw&source=app')
+    // (La source de démonstration s'appelle aussi « Application » : on prend le bouton de vue.)
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('button', { name: 'Application' }).find((b) => b.hasAttribute('aria-pressed')),
+      ).toBeDisabled(),
+    )
+  })
+
+  it('clic sur l’objet MOD du menu de gauche : vue « Application » centrée sur lui', async () => {
+    withModules()
+    const user = userEvent.setup()
+    renderExplorer('/sources?tab=raw&source=app&path=src%2FDomain')
+    await user.click(await screen.findByRole('button', { name: /^MOD\s*Boutique\.Domain/ }))
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).toContain('view=application'))
+    expect(screen.getByTestId('loc').textContent).toContain(`module=${DOMAIN_MODULE.file}`)
+    const block = await screen.findByRole('button', { name: 'Module Boutique.Domain' })
+    expect(block).toHaveAttribute('aria-pressed', 'true')
+    // L'aperçu de droite montre le module.
+    await waitFor(() =>
+      expect(screen.getAllByText('src/Domain/Boutique.Domain.csproj').some((e) => e.tagName === 'DD')).toBe(true),
+    )
+    // « n classes » : retour au menu de gauche, sur le dossier du module.
+    await user.click(screen.getByRole('link', { name: /2 classe\(s\) de Boutique\.Domain/ }))
+    await waitFor(() => expect(screen.getByTestId('loc').textContent).not.toContain('view=application'))
+    expect(screen.getByTestId('loc').textContent).toContain('path=src%2FDomain')
+  })
+})

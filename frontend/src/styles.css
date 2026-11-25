@@ -3212,3 +3212,119 @@ td.cell-error {
   color: var(--warn-fg);
   font-size: 0.7rem;
 }
+
+/* ---------- Vue « Application » (cartographie applicative, couche raw) ---------- */
+.raw-app-zoom {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.raw-app-canvas svg {
+  display: block;
+}
+.raw-app-block rect {
+  fill: var(--panel);
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+}
+.raw-app-block[role='button'] {
+  cursor: pointer;
+}
+.raw-app-block[role='button']:focus-visible rect,
+.raw-app-block.selected rect {
+  stroke: var(--primary);
+  stroke-width: 2.4;
+}
+.raw-app-block.contract rect {
+  stroke-dasharray: 5 4;
+}
+.raw-app-title {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--text);
+}
+.raw-app-sub {
+  font-size: 10.5px;
+  fill: var(--muted);
+}
+.raw-app-tag {
+  fill: var(--primary);
+  font-size: 10px;
+}
+.raw-app-link {
+  font-size: 10.5px;
+  fill: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.raw-app-edge[role='button'] {
+  cursor: pointer;
+}
+.raw-app-edge .raw-app-hit {
+  stroke: transparent;
+  stroke-width: 12;
+}
+.raw-app-edge.selected path:not(.raw-app-hit),
+.raw-app-edge[role='button']:focus-visible path:not(.raw-app-hit) {
+  stroke: var(--primary);
+  stroke-width: 2.6;
+}
+.raw-app-slot {
+  fill: var(--panel);
+  stroke: var(--primary);
+  stroke-width: 1.4;
+  cursor: pointer;
+}
+.raw-app-slot.current {
+  fill: var(--primary);
+}
+.raw-app-slot:focus-visible {
+  stroke-width: 3;
+}
+.raw-app-handle {
+  fill: var(--primary);
+  stroke: var(--panel);
+  stroke-width: 2;
+  cursor: grab;
+  touch-action: none;
+}
+.raw-app-link-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.raw-app-edge.contract path {
+  stroke-dasharray: 3 4;
+}
+.raw-tree-module .raw-glyph-sm {
+  margin-right: 4px;
+}
+.raw-module .raw-preview-title > p {
+  margin: 2px 0 0;
+}
+.raw-module-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+.raw-module-facts dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+}
+.raw-module-entries li {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.raw-verb {
+  font-family: var(--mono);
+}
+.raw-module-class summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
