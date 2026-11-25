@@ -50,7 +50,7 @@ function setup(
       calls.push({ method, path, body: init?.body as string | undefined })
       let body: unknown = {}
       let status = method === 'DELETE' ? 204 : 200
-      if (path.startsWith(`${BASE}/expedition/datasets`) && method !== 'DELETE') {
+      if (path.startsWith(`${BASE}/expedition/datasets`) && !path.includes('/referentiel-link') && method !== 'DELETE') {
         const sent = JSON.parse(String(init?.body))
         if (impacts && !sent.confirm) {
           impacts = false
@@ -60,6 +60,15 @@ function setup(
             error_args: { impacts: [{ kind: 'relationship', name: 'sac_tarif', effect: 'follows' }] },
           }
         } else body = { dataset: { ...MANUAL, ...sent }, impacts: [] }
+      } else if (path.endsWith('/curation-assets/referentiels')) {
+        body = {
+          readonly: false,
+          referentiels: [
+            { name: 'pays', title: 'Pays', schema: 'referentiels/pays/modele.schema.yaml', key: ['code'], properties: [{ name: 'code', type: 'string' }] },
+          ],
+        }
+      } else if (path.includes('/referentiel-link')) {
+        body = { ok: true, fields: ['code'] }
       } else if (path === '/api/session') body = { authenticated: true, capabilities: ['curation:read', 'curation:write'] }
       else if (path === BASE && method === 'GET') body = { domains }
       else if (path === BASE) body = { ...DETAIL, datasets: undefined }
@@ -168,6 +177,42 @@ describe('Domaines (tickets a7baaaa3, 36d35a88)', () => {
     expect(screen.getAllByText('hérité de l’asset')).toHaveLength(2)
     // Lecture seule : aucun bouton pour lier ou délier sur un dataset dérivé.
     expect(screen.queryByRole('button', { name: /Lier/ })).not.toBeInTheDocument()
+  })
+
+  it('dataset manuel : lier un champ avec la popup de la Curation, délier (ticket 80bb56af)', async () => {
+    const linked = {
+      ...MANUAL,
+      fields: [
+        ...MANUAL.fields,
+        {
+          name: 'pays', expression: 'pays', description: '', label: '', datatype: 'String', property: '',
+          referentiel: { referentiel: 'pays', title: 'Pays', schema: 'referentiels/pays/modele.schema.yaml', property: 'code', group: '', key_index: 1, key_size: 1, linked_keys: 1, status: 'ok', missing: [], members: ['pays'], inherited: false },
+        },
+      ],
+    }
+    const calls = setup('/domaines/expedition', [], { detail: { ...DETAIL, consultable: 1, datasets: [linked] } })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Champs de Tarif' }))
+    await user.click(screen.getByRole('button', { name: 'Lier code à un référentiel' }))
+    const dialog = await screen.findByRole('dialog', { name: /référentiel/i })
+    expect(dialog).toBeInTheDocument()
+    await user.selectOptions(await screen.findByLabelText('Référentiel'), 'pays')
+    await user.selectOptions(screen.getByLabelText('Propriété'), 'code')
+    await user.click(screen.getByRole('button', { name: 'Lier' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.path.endsWith('/datasets/Tarif/referentiel-link'))).toBe(true))
+    expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toEqual({
+      referentiel: 'pays',
+      links: { code: 'code' },
+      replace: null,
+    })
+    // Le champ déjà lié : étiquette, puis Délier.
+    await user.click(screen.getByRole('button', { name: 'pays · code' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Délier' }))
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.method === 'DELETE' && c.path.endsWith('/datasets/Tarif/referentiel-link?field=pays')),
+      ).toBe(true),
+    )
   })
 
   it('dataset manuel : création consultable, types servis par le serveur (ticket 1c68a20a)', async () => {

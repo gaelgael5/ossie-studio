@@ -12,6 +12,8 @@ import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
 import { ManualDatasetDialog } from './ManualDatasetDialog'
+import { LinkReferentielDialog, ReferentielLinkCell } from '../curation/ReferentielLink'
+import type { LinkableProperty } from '../curation/ReferentielLink'
 
 // Domaines (tickets docflow a7baaaa3 et 36d35a88). Gael, 23/11/2026 : un
 // domaine = un modèle sémantique Ossie ; on y regroupe des assets retenus, un
@@ -342,6 +344,7 @@ function DatasetRows({
   pending,
   onRemove,
   onEdit,
+  where,
 }: {
   datasets: DomainDataset[]
   canWrite: boolean
@@ -349,6 +352,7 @@ function DatasetRows({
   onRemove: (name: string) => void
   /** Modifier un dataset manuel (un dérivé reste en lecture seule). */
   onEdit: (dataset: DomainDataset) => void
+  where: FieldsWhere
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState<Set<string>>(new Set())
@@ -405,7 +409,7 @@ function DatasetRows({
             </button>
           ) : null}
           </div>
-          {open.has(d.name) ? <DatasetFields dataset={d} /> : null}
+          {open.has(d.name) ? <DatasetFields dataset={d} canWrite={canWrite} where={where} /> : null}
         </li>
       ))}
     </ul>
@@ -436,9 +440,29 @@ function FieldLink({ link }: { link: NonNullable<DomainField['referentiel']> }) 
   )
 }
 
-/** Champs d'un dataset : type et lien de référentiel (hérité de l'asset pour un dérivé). */
-function DatasetFields({ dataset }: { dataset: DomainDataset }) {
+interface FieldsWhere {
+  spaceId: string
+  branchId: string
+  domain: string
+}
+
+const DOMAIN_REFRESH = ['domain', 'domains', 'draft', 'draftChanges']
+
+/**
+ * Champs d'un dataset : type et lien de référentiel. Dérivé : lien hérité de l'asset,
+ * en lecture seule (ticket 65235f64). Manuel : « + Lier », Modifier, Délier, avec la
+ * popup et les règles de la Curation (ticket 80bb56af).
+ */
+function DatasetFields({ dataset, canWrite, where }: { dataset: DomainDataset; canWrite: boolean; where: FieldsWhere }) {
   const { t } = useTranslation()
+  const [linking, setLinking] = useState<LinkableProperty | null>(null)
+  const { spaceId, branchId, domain } = where
+  const editable = canWrite && !dataset.derived
+  const linkable: LinkableProperty[] = dataset.fields.map((f) => ({
+    name: f.name,
+    business_name: '',
+    referentiel: f.referentiel ?? null,
+  }))
   if (dataset.fields.length === 0) return <p className="muted small">{t('domainNoFields')}</p>
   return (
     <div className="table-wrap">
@@ -451,15 +475,46 @@ function DatasetFields({ dataset }: { dataset: DomainDataset }) {
           </tr>
         </thead>
         <tbody>
-          {dataset.fields.map((f) => (
+          {dataset.fields.map((f, index) => (
             <tr key={f.name}>
               <td className="mono">{f.name}</td>
               <td>{f.datatype || <span className="muted">—</span>}</td>
-              <td>{f.referentiel ? <FieldLink link={f.referentiel} /> : <span className="muted">—</span>}</td>
+              <td>
+                {editable ? (
+                  <ReferentielLinkCell
+                    spaceId={spaceId}
+                    branchId={branchId}
+                    source=""
+                    path=""
+                    property={linkable[index]}
+                    canWrite
+                    onLink={setLinking}
+                    unlinkFn={() => api.unlinkDomainField(spaceId, branchId, domain, dataset.name, f.name)}
+                    refreshKeys={DOMAIN_REFRESH}
+                  />
+                ) : f.referentiel ? (
+                  <FieldLink link={f.referentiel} />
+                ) : (
+                  <span className="muted">—</span>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      {linking ? (
+        <LinkReferentielDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          source=""
+          path=""
+          property={linking}
+          properties={linkable}
+          onClose={() => setLinking(null)}
+          submit={(body) => api.linkDomainField(spaceId, branchId, domain, dataset.name, body)}
+          refreshKeys={DOMAIN_REFRESH}
+        />
+      ) : null}
     </div>
   )
 }
@@ -571,14 +626,14 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
             {consultable.length > 0 ? (
               <section className="panel stack stack-tight">
                 <h3>{t('domainConsultableTitle', { count: consultable.length })}</h3>
-                <DatasetRows datasets={consultable} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} />
+                <DatasetRows datasets={consultable} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} where={{ spaceId, branchId, domain: name }} />
               </section>
             ) : null}
             {virtual.length > 0 ? (
               <section className="panel stack stack-tight">
                 <h3>{t('domainVirtualTitle', { count: virtual.length })}</h3>
                 <p className="muted small">{t('domainVirtualHint')}</p>
-                <DatasetRows datasets={virtual} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} />
+                <DatasetRows datasets={virtual} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} where={{ spaceId, branchId, domain: name }} />
               </section>
             ) : null}
             <section className="panel stack stack-tight">

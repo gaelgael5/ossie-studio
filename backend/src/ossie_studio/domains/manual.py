@@ -209,6 +209,13 @@ def save_manual_dataset(
             # Interdit par le ticket : un dataset dérivé reste en lecture seule.
             raise DomainError("dataset_derived_readonly", current)
     new = _build(domain, data)
+    if old is not None:
+        # Le lien de référentiel d'un champ le suit quand il est renommé ; un champ
+        # supprimé l'emporte, et son groupe de clé composée devient partiel, signalé
+        # à l'écran (ticket 80bb56af, critère 4).
+        before = {f.name: f.referentiel for f in old.fields}
+        for f_in, f_new in zip(data.fields, new.fields, strict=True):
+            f_new.referentiel = before.get(f_in.previous if f_in.previous in before else f_new.name)
     # Les clés suivent les renommages de champs saisis dans la même modification :
     # l'écran les envoie avec les nouveaux noms, rien à traduire ici.
     renamed, removed = _renames(old, data)

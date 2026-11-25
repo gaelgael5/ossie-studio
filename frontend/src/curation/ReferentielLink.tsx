@@ -14,6 +14,16 @@ import { ErrorList } from '../components/ErrorList'
 
 const REFRESH = ['curationAsset', 'curationAssets', 'draft', 'draftChanges']
 
+/** Ce que la cellule et la popup lisent d'une propriété : un champ d'asset ou de dataset. */
+export type LinkableProperty = Pick<CurationAssetProperty, 'name' | 'business_name' | 'referentiel'>
+
+/** Corps d'une liaison : référentiel, `{propriété : propriété du référentiel}`, groupe remplacé. */
+export interface LinkSubmit {
+  referentiel: string
+  links: Record<string, string>
+  replace: string | null
+}
+
 export function useLinkTargets(spaceId: string, branchId: string) {
   return useQuery({
     queryKey: ['curationLinkTargets', spaceId, branchId],
@@ -37,14 +47,19 @@ export function ReferentielLinkCell({
   property,
   canWrite,
   onLink,
+  unlinkFn,
+  refreshKeys = REFRESH,
 }: {
   spaceId: string
   branchId: string
   source: string
   path: string
-  property: CurationAssetProperty
+  property: LinkableProperty
   canWrite: boolean
-  onLink: (property: CurationAssetProperty) => void
+  onLink: (property: LinkableProperty) => void
+  /** Délier ailleurs que sur un asset (champ d'un dataset manuel, ticket 80bb56af). */
+  unlinkFn?: () => Promise<unknown>
+  refreshKeys?: string[]
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -52,11 +67,11 @@ export function ReferentielLinkCell({
   const [confirming, setConfirming] = useState(false)
   const link = property.referentiel ?? null
   const unlink = useMutation({
-    mutationFn: () => api.unlinkReferentiel(spaceId, branchId, source, path, property.name),
+    mutationFn: () => unlinkFn?.() ?? api.unlinkReferentiel(spaceId, branchId, source, path, property.name),
     onSuccess: async () => {
       setConfirming(false)
       setMenu(false)
-      await Promise.all(REFRESH.map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
+      await Promise.all(refreshKeys.map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
     },
   })
   if (!link) {
@@ -138,14 +153,19 @@ export function LinkReferentielDialog({
   property,
   properties,
   onClose,
+  submit,
+  refreshKeys = REFRESH,
 }: {
   spaceId: string
   branchId: string
   source: string
   path: string
-  property: CurationAssetProperty
-  properties: CurationAssetProperty[]
+  property: LinkableProperty
+  properties: LinkableProperty[]
   onClose: () => void
+  /** Lier ailleurs que sur un asset (champ d'un dataset manuel, ticket 80bb56af). */
+  submit?: (body: LinkSubmit) => Promise<unknown>
+  refreshKeys?: string[]
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -172,18 +192,19 @@ export function LinkReferentielDialog({
   const missing = others.filter((k) => !companions[k])
   const ready = target !== undefined && targetProp !== '' && missing.length === 0
   const link = useMutation({
-    mutationFn: () =>
-      api.linkReferentiel(spaceId, branchId, source, {
-        path,
+    mutationFn: () => {
+      const body: LinkSubmit = {
         referentiel: name,
         links: {
           [property.name]: targetProp,
           ...Object.fromEntries(others.map((k) => [companions[k], k])),
         },
         replace: current ? property.name : null,
-      }),
+      }
+      return submit ? submit(body) : api.linkReferentiel(spaceId, branchId, source, { path, ...body })
+    },
     onSuccess: async () => {
-      await Promise.all(REFRESH.map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
+      await Promise.all(refreshKeys.map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
       onClose()
     },
   })

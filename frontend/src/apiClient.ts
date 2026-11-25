@@ -2165,6 +2165,23 @@ export const api = {
       }`,
       { method: current === null ? 'POST' : 'PUT', body: JSON.stringify(body) },
     ),
+  /** Lier des champs d'un dataset manuel (ticket 80bb56af), mêmes règles que pour un asset. */
+  linkDomainField: (
+    spaceId: string,
+    branchId: string,
+    name: string,
+    dataset: string,
+    body: { referentiel: string; links: Record<string, string>; replace: string | null },
+  ) =>
+    apiFetch<{ ok: boolean; fields: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/datasets/${encodeURIComponent(dataset)}/referentiel-link`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  unlinkDomainField: (spaceId: string, branchId: string, name: string, dataset: string, field: string) =>
+    apiFetch<{ ok: boolean; fields: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/datasets/${encodeURIComponent(dataset)}/referentiel-link?field=${encodeURIComponent(field)}`,
+      { method: 'DELETE' },
+    ),
   previewDomainAssets: (spaceId: string, branchId: string, name: string, body: DomainAddBody) =>
     apiFetch<DomainPlan>(
       `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/preview`,

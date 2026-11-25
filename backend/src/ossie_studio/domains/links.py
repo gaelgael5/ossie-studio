@@ -10,6 +10,9 @@ Ossie n'a pas cette notion, aucun document Ossie n'en porte trace.
 - **dataset dérivé** : le lien est **hérité** de l'asset, en lecture seule ; il le
   suit (`sync_domains_for_asset`, appelé à chaque lien ou déliement dans la
   Curation, dans le même enregistrement du brouillon) ;
+- **dataset manuel** (ticket 80bb56af) : on lie un champ comme une propriété
+  d'asset, avec les mêmes règles (un seul référentiel par champ, clé composée
+  complète obligatoire) : `link_manual_field`, `unlink_manual_field` ;
 - l'état d'un lien (complet, partiel « clé 1/2 », cassé) se calcule comme pour un
   asset, sur les champs du dataset : un groupe de clé composée dont le dataset ne
   reprend qu'une propriété est partiel, la propriété absente nommée.
@@ -29,7 +32,16 @@ from ossie_studio.domains.documents import (
     list_domains,
     write_domain,
 )
-from ossie_studio.sources.referentiel_links import LINK_X, LinkTarget, LinkView, link_of, link_views
+from ossie_studio.sources.referentiel_links import (
+    LINK_X,
+    LinkRefusedError,
+    LinkTarget,
+    LinkView,
+    link_group,
+    link_of,
+    link_views,
+    unlink,
+)
 
 
 def _pseudo_asset(ds: Dataset) -> dict[str, Any]:
@@ -80,4 +92,46 @@ def sync_domains_for_asset(root: Path, source: str, path: str, asset: dict[str, 
         except DomainError:
             continue
         touched.append(domain.name)
+    return touched
+
+
+def _manual(domain: Domain, dataset: str) -> Dataset:
+    ds = domain.dataset(dataset)
+    if ds is None:
+        raise LinkRefusedError("domain_dataset_not_found", 404, name=dataset)
+    if ds.derived:
+        # Lien hérité de l'asset, en lecture seule (ticket 65235f64).
+        raise LinkRefusedError("dataset_derived_readonly", 409, detail=dataset)
+    return ds
+
+
+def _write_back(ds: Dataset, pseudo: dict[str, Any]) -> None:
+    props = pseudo["properties"]
+    for f in ds.fields:
+        f.referentiel = link_of(props.get(f.name))
+
+
+def link_manual_field(
+    domain: Domain,
+    dataset: str,
+    target: LinkTarget,
+    links: Mapping[str, str],
+    replacing: str | None = None,
+) -> list[str]:
+    """Lie en une fois des champs d'un dataset manuel (`{champ : propriété du
+    référentiel}`, tout le groupe d'une clé composée) ; mêmes refus que sur un
+    asset (`link_group`). Rend les champs touchés."""
+    ds = _manual(domain, dataset)
+    pseudo = _pseudo_asset(ds)
+    touched = link_group(pseudo, target, links, replacing)
+    _write_back(ds, pseudo)
+    return touched
+
+
+def unlink_manual_field(domain: Domain, dataset: str, field_name: str) -> list[str]:
+    """Délie le champ et tout son groupe ; rend les champs déliés."""
+    ds = _manual(domain, dataset)
+    pseudo = _pseudo_asset(ds)
+    touched = unlink(pseudo, field_name)
+    _write_back(ds, pseudo)
     return touched

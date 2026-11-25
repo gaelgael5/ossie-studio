@@ -37,7 +37,7 @@ from ossie_studio.domains.documents import (
     read_domain,
     write_domain,
 )
-from ossie_studio.domains.links import field_link_views
+from ossie_studio.domains.links import field_link_views, link_manual_field, unlink_manual_field
 from ossie_studio.domains.manual import DatasetInput, FieldInput, Impact, save_manual_dataset
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
@@ -46,7 +46,7 @@ from ossie_studio.sources.curation_assets import read_assets
 from ossie_studio.sources.explorer import DEFAULT_MODE
 from ossie_studio.sources.explorer_graph import ReferenceGraph
 from ossie_studio.sources.explorer_service import ensure_index, reference_graph
-from ossie_studio.sources.referentiel_links import LinkTarget, read_targets
+from ossie_studio.sources.referentiel_links import LinkRefusedError, LinkTarget, read_targets
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
 
@@ -134,6 +134,17 @@ class ManualDatasetBody(BaseModel):
             primary_key=self.primary_key,
             unique_keys=self.unique_keys,
         )
+
+
+class FieldLinkBody(BaseModel):
+    """Lier des champs d'un dataset manuel (ticket 80bb56af) : même forme que pour
+    un asset (`{champ : propriété du référentiel}`, tout le groupe d'une clé
+    composée en une fois ; `replace` : champ dont le groupe actuel est remplacé)."""
+
+    model_config = ConfigDict(extra="forbid")
+    referentiel: str = ""
+    links: dict[str, str] = {}
+    replace: str | None = None
 
 
 class _Ctx:
@@ -604,3 +615,75 @@ async def add_domain_assets(
         raise _domain_error(exc) from None
     log.info("domain_assets_added", name=name, author=user.email, commit=commit)
     return {"commit": commit, **result}
+
+
+async def _change_links(
+    ctx: _Ctx, user_email: str, name: str, intent: str, change: Any
+) -> list[str]:
+    touched: list[str] = []
+
+    def write(root: Path) -> None:
+        domain = _read_or_raise(root, name)
+        touched[:] = change(root, domain)
+        write_domain(root, domain)
+
+    try:
+        await ctx.write(user_email, f"domaine {name} : {intent}", write)
+    except _NotFound:
+        raise ApiError("domain_not_found", status_code=404, name=name) from None
+    except LinkRefusedError as exc:
+        raise ApiError(exc.code, status_code=exc.status, **exc.detail) from None
+    except DomainError as exc:
+        raise _domain_error(exc) from None
+    return touched
+
+
+@router.put("/{name}/datasets/{dataset}/referentiel-link")
+async def link_manual_dataset_field(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    dataset: str,
+    body: FieldLinkBody,
+) -> dict[str, object]:
+    """Lier un champ d'un dataset manuel à une propriété de référentiel (ticket
+    80bb56af), mêmes règles que dans la Curation ; refusé sur un dataset dérivé."""
+    ctx, _ref = await _ctx(conn, crypto, workdir, space_id, branch_id)
+
+    def change(root: Path, domain: Domain) -> list[str]:
+        target = read_targets(root).get(body.referentiel)
+        if target is None:
+            raise LinkRefusedError("referentiel_not_found", 404, name=body.referentiel)
+        return link_manual_field(domain, dataset, target, body.links, body.replace)
+
+    fields = await _change_links(
+        ctx, user.email, name, f"lier {dataset} à {body.referentiel}", change
+    )
+    log.info("domain_field_link", name=name, dataset=dataset, fields=fields, author=user.email)
+    return {"ok": True, "fields": fields}
+
+
+@router.delete("/{name}/datasets/{dataset}/referentiel-link")
+async def unlink_manual_dataset_field(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    dataset: str,
+    field: str,
+) -> dict[str, object]:
+    """Délier un champ d'un dataset manuel : tout son groupe est délié avec lui."""
+    ctx, _ref = await _ctx(conn, crypto, workdir, space_id, branch_id)
+    fields = await _change_links(
+        ctx, user.email, name, f"délier {dataset}.{field}",
+        lambda _root, domain: unlink_manual_field(domain, dataset, field),
+    )  # fmt: skip
+    log.info("domain_field_unlink", name=name, dataset=dataset, fields=fields, author=user.email)
+    return {"ok": True, "fields": fields}

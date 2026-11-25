@@ -109,3 +109,86 @@ async def test_dataset_derive_herite_du_lien_et_le_suit(sp: ApiSpace, app: FastA
         f"{api}/ventes/datasets/Order", json={"name": "Order", "consultable": False}
     )
     assert (refused.status_code, refused.json()["error"]) == (409, "dataset_derived_readonly")
+
+
+# --- Ticket 80bb56af : dataset manuel ------------------------------------------
+
+
+async def test_dataset_manuel_lier_delier_renommer(sp: ApiSpace, app: FastAPI) -> None:  # noqa: F811
+    api = f"{sp.base}/domains"
+    assert (await sp.client.post(api, json={"name": "ventes"})).status_code == 201
+    manual = {
+        "name": "Tarif",
+        "consultable": False,
+        "fields": [{"name": n} for n in ("statut", "pays", "canal", "prix")],
+    }
+    assert (await sp.client.post(f"{api}/ventes/datasets", json=manual)).status_code == 201
+    link = f"{api}/ventes/datasets/Tarif/referentiel-link"
+
+    r = await sp.client.put(
+        link, json={"referentiel": "statuts-commande", "links": {"statut": "code"}}
+    )
+    assert r.status_code == 200, r.text
+    # Clé composée : un seul champ associé est refusé, la propriété manquante nommée.
+    r = await sp.client.put(
+        link, json={"referentiel": "delais-pays-canal", "links": {"pays": "pays"}}
+    )
+    assert (r.status_code, r.json()["error"]) == (400, "referentiel_link_incomplete")
+    assert r.json()["error_args"]["missing"] == ["canal"]
+    r = await sp.client.put(
+        link, json={"referentiel": "delais-pays-canal", "links": {"pays": "pays", "canal": "canal"}}
+    )
+    assert r.status_code == 200, r.text
+    # Un seul référentiel par champ.
+    r = await sp.client.put(
+        link, json={"referentiel": "statuts-commande", "links": {"pays": "code"}}
+    )
+    assert (r.status_code, r.json()["error"]) == (409, "referentiel_link_taken")
+
+    detail = (await sp.client.get(f"{api}/ventes")).json()
+    statut = _field(detail, "statut")["referentiel"]
+    assert (statut["referentiel"], statut["status"], statut["inherited"]) == (
+        "statuts-commande",
+        "ok",
+        False,
+    )
+    extend = load_schema(await _read(app, sp, "domaines/ventes.extend.yaml") or "")
+    group = extend["datasets"]["Tarif"]["fields"]["pays"]["referentiel"]["group"]
+    assert extend["datasets"]["Tarif"]["fields"]["canal"]["referentiel"]["group"] == group
+    assert "referentiel" not in (await _read(app, sp, "domaines/ventes.virtuel.ossie.yaml") or "")
+
+    # Renommer un champ lié : son lien suit. Supprimer `canal` : le groupe devient partiel.
+    edited = {
+        "name": "Tarif",
+        "consultable": False,
+        "fields": [
+            {"name": "code_statut", "previous": "statut"},
+            {"name": "pays", "previous": "pays"},
+            {"name": "prix", "previous": "prix"},
+        ],
+        "confirm": True,
+    }
+    r = await sp.client.put(f"{api}/ventes/datasets/Tarif", json=edited)
+    assert r.status_code == 200, r.text
+    detail = (await sp.client.get(f"{api}/ventes")).json()
+    assert _field(detail, "code_statut")["referentiel"]["property"] == "code"
+    pays = _field(detail, "pays")["referentiel"]
+    assert (pays["status"], pays["missing"]) == ("partial", ["canal"])
+
+    # Délier : le lien disparaît du `.extend.yaml`.
+    r = await sp.client.delete(link, params={"field": "code_statut"})
+    assert r.status_code == 200, r.text
+    extend = load_schema(await _read(app, sp, "domaines/ventes.extend.yaml") or "")
+    assert "code_statut" not in (extend["datasets"]["Tarif"].get("fields") or {})
+
+
+async def test_lier_un_champ_de_dataset_derive_refuse(sp: ApiSpace) -> None:  # noqa: F811
+    api = f"{sp.base}/domains"
+    assert (await sp.client.post(api, json={"name": "ventes"})).status_code == 201
+    body = {"assets": [{"source": "app", "path": ASSET}]}
+    assert (await sp.client.post(f"{api}/ventes/assets", json=body)).status_code == 200
+    r = await sp.client.put(
+        f"{api}/ventes/datasets/Order/referentiel-link",
+        json={"referentiel": "statuts-commande", "links": {"statut": "code"}},
+    )
+    assert (r.status_code, r.json()["error"]) == (409, "dataset_derived_readonly")
