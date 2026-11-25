@@ -2130,6 +2130,8 @@ export const en = {
     curationFilter_all: 'All ({{count}})',
     curationFilter_undescribed: 'Without description ({{count}})',
     curationFilter_modified: 'Changed in raw ({{count}})',
+    curationFilter_orphan: 'Orphans ({{count}})',
+    curationOrphanBadge: 'orphan',
     curationEmpty: 'No retained asset on this branch.',
     curationDomainMissing_one: "{{count}} referenced asset missing from Curation",
     curationDomainMissing_other: "{{count}} referenced assets missing from Curation",

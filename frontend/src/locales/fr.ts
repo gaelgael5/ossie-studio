@@ -2134,6 +2134,8 @@ export const fr = {
     curationFilter_all: 'Tous ({{count}})',
     curationFilter_undescribed: 'Sans description ({{count}})',
     curationFilter_modified: 'Modifiés dans raw ({{count}})',
+    curationFilter_orphan: 'Orphelins ({{count}})',
+    curationOrphanBadge: 'orphelin',
     curationEmpty: 'Aucun asset retenu sur cette branche.',
     curationDomainMissing_one: "{{count}} asset référencé absent de la Curation",
     curationDomainMissing_other: "{{count}} assets référencés absents de la Curation",

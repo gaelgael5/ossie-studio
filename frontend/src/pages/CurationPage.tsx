@@ -34,7 +34,9 @@ import { LinkReferentielDialog, ReferentielLinkCell, useLinkTargets } from '../c
 // L'éditeur (BlockNote + Mantine) pèse lourd : chargé à l'ouverture de la fenêtre.
 const MarkdownEditor = lazy(() => import('../components/MarkdownEditor'))
 
-type Filter = 'all' | 'undescribed' | 'modified'
+// « orphan » : l'objet raw de l'asset a disparu (ticket ce21a9e8, Gael : « si je
+// supprime les raws, je dois voir les orphelins sur les assets »).
+type Filter = 'all' | 'undescribed' | 'modified' | 'orphan'
 type Tab = 'properties' | 'description' | 'governance' | 'history'
 
 // Nombre d'assets montrés par source avant « + N autres ».
@@ -79,6 +81,7 @@ function excerpt(text: string, max = 140): string {
 function matches(asset: CurationAssetSummary, filter: Filter): boolean {
   if (filter === 'undescribed') return asset.undescribed > 0
   if (filter === 'modified') return asset.modified
+  if (filter === 'orphan') return asset.orphan
   return true
 }
 
@@ -194,6 +197,7 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
     all: assets.length,
     undescribed: assets.filter((a) => a.undescribed > 0).length,
     modified: assets.filter((a) => a.modified).length,
+    orphan: assets.filter((a) => a.orphan).length,
   }
   const current = assets.find((a) => a.source === source && a.path === path)
   const toggleSelected = (key: string) =>
@@ -220,7 +224,10 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
           onChange={(e) => setQuery(e.target.value)}
         />
         <div className="curation-filters" role="group" aria-label={t('curationFilters')}>
-          {(['all', 'undescribed', 'modified'] as Filter[]).map((f) => (
+          {(['all', 'undescribed', 'modified', 'orphan'] as Filter[])
+            // « Orphelins » seulement s'il y en a : le cas est rare.
+            .filter((f) => f !== 'orphan' || counts.orphan > 0)
+            .map((f) => (
             <button
               key={f}
               type="button"
@@ -337,6 +344,11 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
                         {glyph(a)}
                       </span>
                       <span className="curation-item-title">{a.title}</span>
+                      {a.orphan ? (
+                        <span className="badge badge-warn" title={t('curationOrphan')}>
+                          {t('curationOrphanBadge')}
+                        </span>
+                      ) : null}
                       {a.classification.slice(0, 1).map((b) => (
                         <ClassBadges
                           key={b.scheme}
