@@ -9,6 +9,7 @@ référence d'héritage.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -67,7 +68,14 @@ class SpaceObjects:
 
     def by_table(self, table: str) -> Target | None:
         key = table.casefold()
-        return self._by_table.get(key) or self._by_table.get(key.replace("_", "-"))
+        # Le fichier d'une table SQL est `_slug("SCHEMA.TABLE")` : tout ce qui
+        # n'est ni lettre ni chiffre devient « - » (carrier-dim-account). Sans
+        # cette normalisation, `CARRIER.DIM_ACCOUNT` ne se résolvait pas.
+        return (
+            self._by_table.get(key)
+            or self._by_table.get(key.replace("_", "-"))
+            or self._by_table.get(re.sub(r"[^a-z0-9]+", "-", key).strip("-"))
+        )
 
     def by_title(self, title: str) -> list[Target]:
         return self._by_title.get(title, [])
@@ -274,10 +282,24 @@ def object_detail(
                 "classification": classes.get(name, []),
             }
         )
-    cardinality = {(r.field, r.kind): r.cardinality for r in obj.refs}
+    cardinality = {(r.field, r.kind): r.cardinality for r in obj.refs if not r.virtual}
     references = [
         {**ref, "cardinality": cardinality.get((ref["field"], ref["kind"]), "")}
         for ref in _references(schema, space)
+    ]
+    # Relations virtuelles (ticket b5f333b4) : absentes du schéma, posées par un
+    # profil à la construction de l'index ; marquées pour l'affichage.
+    references += [
+        {
+            "field": r.field,
+            "kind": REF_FOREIGN_KEY,
+            "label": f"{r.target}.{r.column}" if r.column else r.target,
+            "target": _target_payload(space.by_table(r.target)),
+            "cardinality": r.cardinality,
+            "virtual": r.virtual,
+        }
+        for r in obj.refs
+        if r.virtual
     ]
     return {
         "file": obj.file,

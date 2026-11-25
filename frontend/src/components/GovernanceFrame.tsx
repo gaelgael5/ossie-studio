@@ -8,6 +8,7 @@ export type GovernanceTab =
   | 'certifications'
   | 'classifications'
   | 'classificationRules'
+  | 'relationProfiles'
   | 'invalid'
 
 const TABS: { id: GovernanceTab; to: string; key: string }[] = [
@@ -17,6 +18,8 @@ const TABS: { id: GovernanceTab; to: string; key: string }[] = [
   { id: 'classifications', to: '/governance/classifications', key: 'tabClassifications' },
   // Ticket cfc33d51 : juste après les schémas qu'elles utilisent.
   { id: 'classificationRules', to: '/governance/classification-rules', key: 'tabClassificationRules' },
+  // Ticket b5f333b4 : conventions de nommage des sources SQL.
+  { id: 'relationProfiles', to: '/governance/relation-profiles', key: 'tabRelationProfiles' },
   { id: 'invalid', to: '/governance/invalid-values', key: 'tabInvalidValues' },
 ]
 

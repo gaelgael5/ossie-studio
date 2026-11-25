@@ -58,8 +58,10 @@ GIT_SOURCE_TYPE = "git"
 # force la reconstruction des index existants à la livraison suivante.
 # 9 : badges « nouveau » / « modifié » par rapport à la tête publiée (aad1d3c6).
 # 10 : schémas en YAML, `<clé>.schema.yaml` (ticket 5cc1cb07).
-# 13 : modules et compteurs de fonctions (cartographie applicative, 0fa620be).
-INDEX_FORMAT = "15"
+# 13 à 15 : modules, fonctions, liens au contrat, ancres (cartographie applicative).
+# 13 (dev) : relations virtuelles des références (ticket b5f333b4).
+# 16 : les deux réunis — tout index construit par l'une ou l'autre version est refait.
+INDEX_FORMAT = "16"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -90,6 +92,10 @@ class SchemaRef:
     target: str
     cardinality: str  # 1 | 0..1 | 1..N | 0..N | "" (héritage)
     external: bool = False
+    # Relation virtuelle (ticket b5f333b4) : nom du profil qui l'a posée, et
+    # colonne visée ; "" pour une référence que le schéma déclare.
+    virtual: str = ""
+    column: str = ""
 
 
 @dataclass(frozen=True)
@@ -844,7 +850,11 @@ class SourceEntries:
                     o.branch,
                     o.visibility,
                     o.visibility_source,
-                    [[r.field, r.kind, r.target, r.cardinality, r.external] for r in o.refs],
+                    [
+                        [r.field, r.kind, r.target, r.cardinality, r.external]
+                        + ([r.virtual, r.column] if r.virtual else [])
+                        for r in o.refs
+                    ],
                     o.description,
                     list(o.top_fields),
                     [

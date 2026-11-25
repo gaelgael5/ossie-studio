@@ -137,6 +137,7 @@ class ReferenceGraph:
                     "field": ref.field,
                     "kind": ref.kind,
                     "cardinality": ref.cardinality,
+                    "virtual": ref.virtual,
                     "target": {
                         "slug": source[0],
                         "file": source[1],
@@ -218,6 +219,7 @@ class ReferenceGraph:
                     "kind": ref.kind,
                     "cardinality": ref.cardinality,
                     "direction": direction,
+                    "virtual": ref.virtual,
                 },
             )
 

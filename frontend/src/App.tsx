@@ -17,6 +17,7 @@ import { PublishPage } from './pages/PublishPage'
 import { DraftChangesPage } from './pages/DraftChangesPage'
 import { GovernanceTagsPage } from './pages/GovernanceTagsPage'
 import { GovernanceTagRulesPage } from './pages/GovernanceTagRulesPage'
+import { GovernanceRelationProfilesPage } from './pages/GovernanceRelationProfilesPage'
 import { GovernanceClassificationRulesPage } from './pages/GovernanceClassificationRulesPage'
 import { GovernanceCertificationsPage } from './pages/GovernanceCertificationsPage'
 import { GovernanceClassificationsPage } from './pages/GovernanceClassificationsPage'
@@ -151,6 +152,10 @@ function AppRoutes() {
         <Route
           path="/governance/tag-rules"
           element={gate('governance:read', <GovernanceTagRulesPage />)}
+        />
+        <Route
+          path="/governance/relation-profiles"
+          element={gate('governance:read', <GovernanceRelationProfilesPage />)}
         />
         <Route
           path="/governance/classification-rules"

@@ -33,6 +33,7 @@ import { RawPreview, TagBadges, VisibilityBadge, isObjectSelection } from './Raw
 import { RawApplication } from './RawApplication'
 import { RawModulePreview } from './RawModulePreview'
 import { RefMenu } from './RawRefMenu'
+import { setReadingMode, useReadingMode } from '../readingMode'
 import { RawGraph } from './RawGraph'
 import { RawDocumentPage, RawExclusive } from './RawExclusive'
 import { FULL_CONTRACT_NAME, RawContractPage, isContractSelection } from './RawContractPage'
@@ -220,6 +221,7 @@ export function RawExplorer({
   // et le contenu défilent chacun de leur côté, sans faire défiler la page (un
   // arbre de centaines de dossiers repoussait sinon les vignettes hors de vue).
   const frame = useRef<HTMLDivElement>(null)
+  const reading = useReadingMode()
   const [frameHeight, setFrameHeight] = useState<number | null>(null)
   useLayoutEffect(() => {
     const measure = () => {
@@ -679,6 +681,17 @@ export function RawExplorer({
       <div
         ref={frame}
         className={`raw-explorer${previewOpen && current?.collected ? ' with-preview' : ''}`}
+        // Mode lecture (4e287004) : travailler dans l'explorateur (clic sur
+        // l'arbre, une vignette, l'aperçu, ou défilement) replie le haut de
+        // page. Le repli suit le clic (cadre suivant) : l'élément cliqué ne
+        // bouge pas sous le curseur pendant le clic.
+        onClick={(e) => {
+          if (reading || (e.target as HTMLElement).closest('[data-reading-toggle]')) return
+          requestAnimationFrame(() => setReadingMode(true))
+        }}
+        onWheel={(e) => {
+          if (!reading && e.deltaY > 0) setReadingMode(true)
+        }}
         style={
           {
             '--raw-tree-width': `${treeWidth}px`,
@@ -787,6 +800,16 @@ export function RawExplorer({
               })}
             </nav>
             <div className="raw-view-toggle" role="group" aria-label={t('rawViewLabel')}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                data-reading-toggle=""
+                aria-expanded={!reading}
+                title={reading ? t('readingUnfoldHint') : t('readingFoldHint')}
+                onClick={() => setReadingMode(!reading)}
+              >
+                {reading ? `⌄ ${t('readingUnfold')}` : `⌃ ${t('readingFold')}`}
+              </button>
               {!previewOpen && current?.collected ? (
                 <button type="button" className="btn btn-sm" onClick={() => togglePreview(true)}>
                   {t('rawPreviewOpen')}

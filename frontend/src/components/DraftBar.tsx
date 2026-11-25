@@ -13,7 +13,15 @@ const MODES: DraftViewMode[] = ['merged', 'published', 'draft']
 // Barre du brouillon, sur tous les écrans d'une branche, seulement si j'ai un
 // brouillon : choix de la vue, et signal des objets qui ont changé côté publié
 // depuis le début de mon brouillon (comparaison objet par objet).
-export function DraftBar({ spaceId, branchId }: { spaceId: string; branchId: string }) {
+export function DraftBar({
+  spaceId,
+  branchId,
+  folded = false,
+}: {
+  spaceId: string
+  branchId: string
+  folded?: boolean
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<DraftViewMode>(() => readDraftView(branchId))
@@ -24,6 +32,10 @@ export function DraftBar({ spaceId, branchId }: { spaceId: string; branchId: str
   })
   const data = draft.data
   if (!data || data.count === 0) return null
+  // Repliée en mode lecture (4e287004), sauf si elle signale un changement côté
+  // publié, ou si une fusion ou la vue « brouillon » est ouverte : on ne cache
+  // jamais ce qui demande une action.
+  if (folded && data.changed_upstream_count === 0 && !opened && mode !== 'draft') return null
 
   const choose = (next: DraftViewMode) => {
     writeDraftView(branchId, next)

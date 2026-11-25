@@ -31,6 +31,9 @@ describe('SourcesPage — modifier une source base (0d85e746)', () => {
     } as never)
     vi.spyOn(api, 'listDbSchemas').mockResolvedValue({ schemas: [] })
     vi.spyOn(api, 'getCurationRules').mockResolvedValue({ rules: [] } as never)
+    vi.spyOn(api, 'listRelationProfiles').mockResolvedValue({
+      profiles: [{ id: 'ossie-datavault', path: '', errors: [], builtin: true, profile: { id: 'ossie-datavault', name: 'Data Vault 2.0', rules: [] } }],
+    })
     const update = vi.spyOn(api, 'updateSource').mockResolvedValue(SF as never)
     const collect = vi.spyOn(api, 'collectSource').mockResolvedValue({} as never)
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -52,8 +55,11 @@ describe('SourcesPage — modifier une source base (0d85e746)', () => {
     expect(within(dialog).queryByRole('button', { name: 'Déclarer' })).not.toBeInTheDocument()
     const both = within(dialog).getByRole('button', { name: 'Enregistrer et collecter' })
     await waitFor(() => expect(both).toBeEnabled())
+    // Profils de relations choisis dans la popup (b5f333b4).
+    await userEvent.click(within(dialog).getByRole('checkbox', { name: 'Data Vault 2.0' }))
     await userEvent.click(both)
     await waitFor(() => expect(collect).toHaveBeenCalledWith('s1', 'b1', 'dv', false))
+    expect(update.mock.calls[0][3].parameters).toMatchObject({ relation_profiles: ['ossie-datavault'] })
     expect(update).toHaveBeenCalled()
     expect(await screen.findByText('page de la source')).toBeInTheDocument()
   })

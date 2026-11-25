@@ -23,6 +23,7 @@ import {
   FieldType,
   TargetLink,
   Technical,
+  VirtualBadge,
   VisibilityBadge,
 } from './RawPreview'
 
@@ -420,7 +421,7 @@ function ReferencesGrid({
   onOpen,
 }: {
   references: RawReference[]
-  incoming: { field: string; kind: string; cardinality: string; target: RawTarget }[]
+  incoming: { field: string; kind: string; cardinality: string; target: RawTarget; virtual?: string }[]
   onOpen: (t: RawTarget) => void
 }) {
   const { t } = useTranslation()
@@ -453,6 +454,7 @@ function ReferencesGrid({
               <TargetLink target={r.target} label={r.label} onOpen={onOpen} />
             )}{' '}
             <span className="mono small muted">{r.cardinality}</span>
+            {r.virtual ? <VirtualBadge profile={r.virtual} /> : null}
           </li>
         )),
       )}
@@ -463,6 +465,7 @@ function ReferencesGrid({
             <TargetLink target={r.target} label={r.target.title} onOpen={onOpen} />
             <span className="mono"> .{r.field}</span>{' '}
             <span className="mono small muted">{r.cardinality}</span>
+            {r.virtual ? <VirtualBadge profile={r.virtual} /> : null}
           </li>
         )),
       )}
