@@ -1319,6 +1319,32 @@ export interface DomainDataset {
   description: string
   fields: DomainField[]
   primary_key: string[]
+  unique_keys: string[][]
+}
+// Dataset manuel (ticket 1c68a20a).
+export interface ManualFieldBody {
+  name: string
+  expression: string
+  datatype: string
+  description: string
+  /** Nom avant modification : un renommage (les liens suivent), pas un remplacement. */
+  previous: string
+}
+export interface ManualDatasetBody {
+  name: string
+  consultable: boolean
+  source: string
+  description: string
+  fields: ManualFieldBody[]
+  primary_key: string[]
+  unique_keys: string[][]
+  /** Appliquer même si des liens du domaine sont touchés (sinon 409 qui les liste). */
+  confirm?: boolean
+}
+export interface DomainImpact {
+  kind: 'relationship' | 'reference'
+  name: string
+  effect: 'follows' | 'removed'
 }
 export interface DomainSummary {
   /** Slug : nom des fichiers et du modèle Ossie. */
@@ -1350,6 +1376,8 @@ export interface DomainDetail extends DomainSummary {
   datasets: DomainDataset[]
   relationships: DomainRelationship[]
   references: DomainReference[]
+  /** Types de champ proposés (liste d'Ossie 0.3), servis par le serveur. */
+  datatypes: string[]
 }
 export interface DomainLink {
   id: string
@@ -2121,6 +2149,19 @@ export const api = {
     apiFetch<void>(
       `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/datasets/${encodeURIComponent(dataset)}`,
       { method: 'DELETE' },
+    ),
+  saveManualDataset: (
+    spaceId: string,
+    branchId: string,
+    name: string,
+    current: string | null,
+    body: ManualDatasetBody,
+  ) =>
+    apiFetch<{ dataset: DomainDataset; impacts: DomainImpact[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/datasets${
+        current === null ? '' : `/${encodeURIComponent(current)}`
+      }`,
+      { method: current === null ? 'POST' : 'PUT', body: JSON.stringify(body) },
     ),
   previewDomainAssets: (spaceId: string, branchId: string, name: string, body: DomainAddBody) =>
     apiFetch<DomainPlan>(

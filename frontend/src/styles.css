@@ -2569,6 +2569,21 @@ td .raw-ref-menu {
   width: min(720px, 100%);
   margin-top: 24px;
 }
+/* Fenêtre à tableau (dataset manuel, ticket 1c68a20a) : les champs tiennent sur une ligne. */
+.dialog-panel.dialog-wide {
+  width: min(1040px, 100%);
+}
+.manual-actions {
+  white-space: nowrap;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .dialog-head {
   justify-content: space-between;
 }

@@ -11,11 +11,13 @@ import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
+import { ManualDatasetDialog } from './ManualDatasetDialog'
 
 // Domaines (tickets docflow a7baaaa3 et 36d35a88). Gael, 23/11/2026 : un
 // domaine = un modèle sémantique Ossie ; on y regroupe des assets retenus, un
 // asset donne un dataset (dérivé, en lecture seule : le travail humain se fait
-// sur l'asset, dans la Curation).
+// sur l'asset, dans la Curation). Un dataset peut aussi être construit à la main
+// (ticket 1c68a20a), et modifié ici : voir `ManualDatasetDialog`.
 
 
 function useBranch(): { spaceId: string; branchId: string } | null {
@@ -339,11 +341,14 @@ function DatasetRows({
   canWrite,
   pending,
   onRemove,
+  onEdit,
 }: {
   datasets: DomainDataset[]
   canWrite: boolean
   pending: boolean
   onRemove: (name: string) => void
+  /** Modifier un dataset manuel (un dérivé reste en lecture seule). */
+  onEdit: (dataset: DomainDataset) => void
 }) {
   const { t } = useTranslation()
   return (
@@ -360,6 +365,16 @@ function DatasetRows({
             >
               {t('domainSeeAsset')}
             </Link>
+          ) : null}
+          {canWrite && !d.derived ? (
+            <button
+              type="button"
+              className="btn btn-sm"
+              aria-label={t('manualEditNamed', { name: d.name })}
+              onClick={() => onEdit(d)}
+            >
+              {t('domainEdit')}
+            </button>
           ) : null}
           {canWrite ? (
             <button
@@ -387,6 +402,8 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
   const [messages, setMessages] = useState<string[]>([])
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [editing, setEditing] = useState(false)
+  // Dataset manuel : `null` fermé, `'new'` création, sinon le dataset modifié.
+  const [manual, setManual] = useState<DomainDataset | 'new' | null>(null)
   const detail = useQuery({
     queryKey: ['domain', spaceId, branchId, name],
     queryFn: () => api.getDomain(spaceId, branchId, name),
@@ -430,6 +447,11 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
             {t('domainAddFromCuration')}
           </Link>
           {canWrite && domain ? (
+            <button type="button" className="btn btn-primary" onClick={() => setManual('new')}>
+              {t('manualNew')}
+            </button>
+          ) : null}
+          {canWrite && domain ? (
             <button type="button" className="btn" onClick={() => setEditing(true)}>
               {t('domainEdit')}
             </button>
@@ -444,6 +466,16 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
       <ErrorList messages={detail.error ? errorMessages(t, detail.error) : messages} />
       {editing && domain ? (
         <EditDomainDialog spaceId={spaceId} branchId={branchId} domain={domain} onClose={() => setEditing(false)} />
+      ) : null}
+      {manual && domain ? (
+        <ManualDatasetDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          domain={name}
+          datatypes={domain.datatypes ?? []}
+          dataset={manual === 'new' ? undefined : manual}
+          onClose={() => setManual(null)}
+        />
       ) : null}
       {confirmDelete ? (
         <div className="banner row" role="alertdialog" aria-label={t('domainDelete')}>
@@ -468,14 +500,14 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
             {consultable.length > 0 ? (
               <section className="panel stack stack-tight">
                 <h3>{t('domainConsultableTitle', { count: consultable.length })}</h3>
-                <DatasetRows datasets={consultable} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} />
+                <DatasetRows datasets={consultable} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} />
               </section>
             ) : null}
             {virtual.length > 0 ? (
               <section className="panel stack stack-tight">
                 <h3>{t('domainVirtualTitle', { count: virtual.length })}</h3>
                 <p className="muted small">{t('domainVirtualHint')}</p>
-                <DatasetRows datasets={virtual} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} />
+                <DatasetRows datasets={virtual} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} />
               </section>
             ) : null}
             <section className="panel stack stack-tight">

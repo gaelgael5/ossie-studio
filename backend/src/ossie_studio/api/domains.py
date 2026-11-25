@@ -24,6 +24,7 @@ from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
 from ossie_studio.domains.derive import AddPlan, Link, apply_plan, plan_add, remove_dataset
 from ossie_studio.domains.documents import (
+    DATATYPES,
     Dataset,
     Domain,
     DomainError,
@@ -34,6 +35,7 @@ from ossie_studio.domains.documents import (
     read_domain,
     write_domain,
 )
+from ossie_studio.domains.manual import DatasetInput, FieldInput, Impact, save_manual_dataset
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.models import GitSpace
@@ -94,6 +96,42 @@ class AddBody(BaseModel):
     description: str = ""
 
 
+class ManualFieldBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = ""
+    expression: str = ""
+    datatype: str = ""
+    description: str = ""
+    label: str = ""
+    previous: str = ""  # nom avant modification : un renommage, pas un remplacement
+
+
+class ManualDatasetBody(BaseModel):
+    """Dataset manuel (ticket 1c68a20a). `confirm` : appliquer même si des liens
+    du domaine sont touchés ; sans lui, la réponse les liste et rien n'est écrit."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = ""
+    consultable: bool = True
+    source: str = ""
+    description: str = ""
+    fields: list[ManualFieldBody] = []
+    primary_key: list[str] = []
+    unique_keys: list[list[str]] = []
+    confirm: bool = False
+
+    def as_input(self) -> DatasetInput:
+        return DatasetInput(
+            name=self.name,
+            consultable=self.consultable,
+            source=self.source,
+            description=self.description,
+            fields=[FieldInput(**f.model_dump()) for f in self.fields],
+            primary_key=self.primary_key,
+            unique_keys=self.unique_keys,
+        )
+
+
 class _Ctx:
     def __init__(
         self,
@@ -141,6 +179,16 @@ def _domain_error(exc: DomainError) -> ApiError:
         "dataset_name_taken": 409,
         "relationship_cross_document": 400,
         "relationship_columns_mismatch": 400,
+        # Dataset manuel (ticket 1c68a20a).
+        "dataset_name_invalid": 400,
+        "dataset_source_required": 400,
+        "field_name_required": 400,
+        "field_name_taken": 400,
+        "field_expression_required": 400,
+        "field_datatype_invalid": 400,
+        "key_field_missing": 400,
+        "dataset_derived_readonly": 409,
+        "dataset_not_found": 404,
     }
     code = exc.code if exc.code in known else "domain_invalid"
     return ApiError(code, status_code=known.get(exc.code, 400), detail=exc.detail)
@@ -152,6 +200,12 @@ class _NotFound(Exception):
 
 class _Taken(Exception):
     pass
+
+
+class _NeedsConfirm(Exception):
+    def __init__(self, impacts: list[Impact]) -> None:
+        super().__init__("confirm")
+        self.impacts = impacts
 
 
 class _NotRetained(Exception):
@@ -194,6 +248,7 @@ def _dataset_payload(ds: Dataset) -> dict[str, object]:
         "description": ds.description,
         "fields": [asdict(f) for f in ds.fields],
         "primary_key": ds.primary_key,
+        "unique_keys": ds.unique_keys,
     }
 
 
@@ -216,6 +271,9 @@ def _detail(domain: Domain) -> dict[str, object]:
         "datasets": [_dataset_payload(d) for d in domain.datasets],
         "relationships": [asdict(r) for r in domain.relationships],
         "references": [asdict(r) for r in domain.references],
+        # Types proposés par le formulaire du dataset manuel : servis d'ici pour que
+        # l'écran n'ait pas sa propre liste (ticket 9bfa21d7 : une liste unique).
+        "datatypes": list(DATATYPES),
     }
 
 
@@ -382,6 +440,72 @@ async def remove_domain_dataset(
         raise ApiError("domain_dataset_not_found", status_code=404, name=dataset) from None
     except DomainError as exc:
         raise _domain_error(exc) from None
+
+
+def _impacts(impacts: list[Impact]) -> list[dict[str, str]]:
+    return [asdict(i) for i in impacts]
+
+
+async def _save_manual(
+    ctx: _Ctx, user_email: str, name: str, body: ManualDatasetBody, current: str | None
+) -> dict[str, object]:
+    result: dict[str, object] = {}
+
+    def write(root: Path) -> None:
+        domain = _read_or_raise(root, name)
+        dataset, impacts = save_manual_dataset(domain, body.as_input(), current)
+        if impacts and not body.confirm:
+            # Rien n'est écrit : l'écran montre ce qui sera touché (critère 7).
+            raise _NeedsConfirm(impacts)
+        write_domain(root, domain)
+        result.update(dataset=_dataset_payload(dataset), impacts=_impacts(impacts))
+
+    verb = "créer" if current is None else "modifier"
+    try:
+        await ctx.write(user_email, f"domaine {name} : {verb} le dataset manuel {body.name}", write)
+    except _NotFound:
+        raise ApiError("domain_not_found", status_code=404, name=name) from None
+    except _NeedsConfirm as exc:
+        raise ApiError(
+            "dataset_change_impacts", status_code=409, impacts=_impacts(exc.impacts)
+        ) from None
+    except DomainError as exc:
+        raise _domain_error(exc) from None
+    log.info("domain_manual_dataset_saved", name=name, dataset=body.name, author=user_email)
+    return result
+
+
+@router.post("/{name}/datasets", status_code=201)
+async def create_manual_dataset(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    body: ManualDatasetBody,
+) -> dict[str, object]:
+    """Crée un dataset à la main, sans lien avec raw (ticket 1c68a20a)."""
+    ctx, _ref = await _ctx(conn, crypto, workdir, space_id, branch_id)
+    return await _save_manual(ctx, user.email, name, body, None)
+
+
+@router.put("/{name}/datasets/{dataset}")
+async def edit_manual_dataset(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    dataset: str,
+    body: ManualDatasetBody,
+) -> dict[str, object]:
+    """Modifie un dataset manuel ; un dataset dérivé est refusé (lecture seule)."""
+    ctx, _ref = await _ctx(conn, crypto, workdir, space_id, branch_id)
+    return await _save_manual(ctx, user.email, name, body, dataset)
 
 
 def _keys(body: AddBody) -> list[tuple[str, str]]:
