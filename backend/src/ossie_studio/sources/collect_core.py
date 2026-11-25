@@ -6,6 +6,7 @@ from typing import Any
 
 import yaml
 
+from ossie_studio.parsers.application import extend_file, is_extend_name, validate_functions
 from ossie_studio.parsers.base import (
     STATUT_ERREUR,
     STATUT_INCHANGE,
@@ -221,6 +222,8 @@ def run_collection(
         try:
             for obj in objects:
                 validate_schema(load_schema(obj.schema))
+                if obj.extend is not None:
+                    validate_functions(load_schema(obj.extend))
         except ConventionError as exc:
             for source in sorted(group):
                 plan.errors.append(
@@ -240,8 +243,17 @@ def run_collection(
             dest = _destination_name(obj.key)
             produced_dest.add(dest)
             plan.writes[dest] = obj.schema
+            outputs = [dest]
+            # Les fonctions de l'objet (cartographie applicative) : une sortie de
+            # plus, suivie comme le schéma (supprimée avec lui, ou seule si
+            # l'objet n'a plus de fonction).
+            if obj.extend is not None:
+                functions = extend_file(obj.key)
+                produced_dest.add(functions)
+                plan.writes[functions] = obj.extend
+                outputs.append(functions)
             for s in obj.sources:
-                by_source.setdefault(s, []).append(dest)
+                by_source.setdefault(s, []).extend(outputs)
         for source in sorted(group):
             plan.manifest.entries[source] = TechEntry(
                 checksum=checks[source],
@@ -251,8 +263,11 @@ def run_collection(
             )
             plan.statuses[source] = STATUT_TRAITE
 
-    # Comptage ajouts / modifications sur les destinations produites.
+    # Comptage ajouts / modifications sur les destinations produites (les objets :
+    # un `.extend.yaml` accompagne son schéma, il ne compte pas à part).
     for dest, content in plan.writes.items():
+        if not is_schema_name(dest):
+            continue
         before = old_dest_content.get(dest)
         if before is None:
             plan.added += 1
@@ -262,17 +277,24 @@ def run_collection(
             # Régénéré à l'identique (sortie déterministe) : rien à signaler.
             pass
 
-    # Destinations des sources disparues : supprimées si plus aucune source
-    # présente ne les produit.
+    # Destinations des sources disparues, et celles qu'une source relue ne produit
+    # plus (un objet retiré du fichier, une classe qui n'a plus de méthode) :
+    # supprimées si plus aucune source présente ne les produit.
     dead_dests: set[str] = set()
     for source in deleted_sources:
         for dest in previous.entries[source].destinations:
             dead_dests.add(dest)
+    for source in regenerated:
+        old_entry = previous.entries.get(source)
+        new_entry = plan.manifest.entries.get(source)
+        if old_entry is not None and new_entry is not None:
+            dead_dests |= set(old_entry.destinations) - set(new_entry.destinations)
     for dest in sorted(dead_dests):
         still_used = any(dest in e.destinations for s, e in plan.manifest.entries.items())
-        if not still_used and dest in existing_schemas:
+        if not still_used and dest in existing_schemas and dest not in produced_dest:
             plan.deletes.append(dest)
-            plan.deleted += 1
+            if is_schema_name(dest):
+                plan.deleted += 1
 
     return plan
 
@@ -297,7 +319,7 @@ def schema_plugin_run(
     existing = {
         path: content
         for path, content in context.raw.list_outputs().items()
-        if is_schema_name(path)
+        if is_schema_name(path) or is_extend_name(path)
     }
     plan = run_collection(
         context.contents,

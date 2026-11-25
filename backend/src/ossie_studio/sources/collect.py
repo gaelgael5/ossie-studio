@@ -28,6 +28,7 @@ from ossie_studio.parsers.registry import openapi_plugin, select_code_plugins
 from ossie_studio.sources.collect_core import RAW_DIR, checksum
 from ossie_studio.sources.csharp_modules import csharp_module_actions
 from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
+from ossie_studio.sources.module_functions import sync_module_functions
 from ossie_studio.sources.module_views import sync_module_views
 from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
 from ossie_studio.sources.progress import CollectProgress
@@ -352,11 +353,13 @@ class SourceCollector:
         agg.added += modules.added
         agg.modified += modules.modified
         agg.deleted += modules.deleted
+        # Les fonctions libres (minimal API…) vont dans le `.extend.yaml` de leur module.
+        writes, deletes = await asyncio.to_thread(
+            sync_module_functions, raw_files, modules.writes, modules.deletes
+        )
         writes, resolved = await asyncio.to_thread(
-            resolve_source_schemas, raw_files, modules.writes, modules.deletes, source_files,
-            projects,
-        )  # fmt: skip
-        deletes = modules.deletes
+            resolve_source_schemas, raw_files, writes, deletes, source_files, projects
+        )
         # Cartographie applicative : les `.view` des modules suivent les modules et
         # leurs dépendances, par ajouts et suppressions (jamais réécrits en entier).
         writes, deletes = await asyncio.to_thread(sync_module_views, raw_files, writes, deletes)

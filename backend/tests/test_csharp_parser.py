@@ -184,7 +184,7 @@ def test_fichier_sans_type_ne_produit_rien() -> None:
 
 
 def test_version_inclut_la_grammaire() -> None:
-    assert CSharpParser().version.startswith("1.3-ts")
+    assert CSharpParser().version.startswith("1.4-ts")
 
 
 def test_namespace_d_origine() -> None:

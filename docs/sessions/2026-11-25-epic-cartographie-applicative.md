@@ -8,6 +8,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 ## Décisions de Gael (25 novembre)
 
+- Plan du ticket 3 (méthodes et points d'entrée C#) validé (« oui, vas-y »).
 - Plan du ticket 2 (modules C#) : présenté ; Gael : « reprends la branche dev avant de démarrer » (démarrage validé).
 - Plan de l'enabler validé (« 1. oui … 3. ok 4. ok 5. ok ») : **module = un `<clé>.schema.yaml` avec `x-kind: module`**, `<clé>.extend.yaml` pour les fonctions, `<clé>.view.yaml` mis à jour par ajouts et suppressions, conventions + JSON Schema + tests.
 - **Appartenance d'un objet à un module** : calculée à la lecture (fichier de projet le plus proche en remontant le chemin du fichier d'origine, règle du compilateur .NET), **pas écrite** dans le module. Gael a demandé de quel calcul il s'agissait ; l'explication lui a été donnée, la liste écrite reste possible s'il la préfère.
@@ -18,7 +19,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 |---|---|
 | 6c97ad98 — Format raw des modules, des fonctions et du fichier `.view` (enabler) | En review |
 | e0fa8519 — Modules C# (`.csproj` → objets module) | En review |
-| f1cc03c4 — Méthodes publiques et points d'entrée C# | Prêt pour dev |
+| f1cc03c4 — Méthodes publiques et points d'entrée C# | En review |
 | 90ed0967 — Relier les points d'entrée au contrat OpenAPI | Prêt pour dev |
 | 30c55418 — Projet SQL Server comme module | Prêt pour dev |
 | 0fa620be — Explorateur raw : objets module et vue « Application » | Prêt pour dev |
@@ -48,3 +49,12 @@ Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les au
 - Nature (`nature_of`) : test (`IsTestProject` ou paquet `Microsoft.NET.Test.Sdk`, xunit, NUnit, MSTest), puis web (`Microsoft.NET.Sdk.Web`, Blazor WebAssembly), worker (`Microsoft.NET.Sdk.Worker`), console (`OutputType` `Exe` / `WinExe`), sinon bibliothèque.
 - Un module n'est jamais la cible d'une référence de type (`SchemaIndex` l'ignore) : un projet « Domain » ne répond pas à une classe `Domain`.
 - Tests : `backend/tests/test_csharp_modules.py` (six projets : natures, dépendances internes et externe, appartenance d'une classe, compte rendu, incrémental, projet modifié puis supprimé, `.csproj` illisible, source sans `.csproj`).
+
+## Notes techniques (méthodes et points d'entrée C#, f1cc03c4)
+
+- Parseur `parsers/csharp.py` (version **1.4** : toutes les sources C# sont relues une fois) : méthodes `public` / `internal` / `protected` (membre d'interface sans mot-clé : public ; `private` non écrite ; méthode illisible laissée de côté et signalée au journal `csharp_method_unreadable`) ; paramètres (type tel qu'écrit + schéma, facultatif si valeur par défaut), retour (`Task<T>`, `ValueTask<T>`, `ActionResult<T>` déballés ; `IAsyncEnumerable<T>` → liste), `static`, `async`, doc, attributs, fichier et ligne du nom.
+- Points d'entrée (`parsers/csharp_entrypoints.py`, fonctions pures) : contrôleur = base `ControllerBase` / `Controller` ou `[ApiController]` ; actions `[HttpGet]`… ; route = `[Route]` de la classe + gabarit (un gabarit en `/` ou `~/` remplace celui de la classe ; `[controller]`, `[action]` en minuscules) ; gabarit non littéral → `route: null`. `BackgroundService` / `IHostedService` → `entryPoint: {kind: task}` sur la classe.
+- Minimal API (`minimal_api`) : `MapGet` / `MapPost` / `MapPut` / `MapPatch` / `MapDelete`, préfixes `MapGroup` directs ou par variable locale ; nom = gestionnaire (groupe de méthodes) sinon « VERBE route ». Index du plugin `functions-csharp.yaml` (par fichier, empreinte), rangé par module par le socle (`sources/module_functions.py`).
+- Moteur incrémental (`sources/collect_core.py`) : `ParsedObject.extend` écrit `<clé>.extend.yaml` à côté du schéma, suivi dans le manifeste ; une sortie qu'une source relue ne produit plus (classe retirée du fichier, classe sans méthode) est supprimée ; les compteurs ne comptent que les schémas.
+- Résolution (`schema_resolve.resolve_source_schemas`) : les types des `.extend.yaml` se résolvent comme les champs, dans le contexte de l'objet qui les porte.
+- Tests : `backend/tests/test_csharp_functions.py` (critères 1 à 7, collecte de bout en bout : retour résolu, fonctions du module, incrémental, suppressions).

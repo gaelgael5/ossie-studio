@@ -39,12 +39,14 @@ from typing import Any
 
 import yaml
 
+from ossie_studio.parsers.application import is_extend_name, key_of
 from ossie_studio.parsers.base import OutputAction
 from ossie_studio.parsers.conventions import (
     SchemaReadError,
     dump_schema,
     is_schema_name,
     load_schema,
+    schema_file,
 )
 
 UNRESOLVED_KEY = "x-unresolved-type"
@@ -369,6 +371,24 @@ def resolve_source_schemas(
             continue
         before = counter[0]
         resolved = _resolve_node(data, index, counter, index.contexts.get(path))
+        if counter[0] > before:
+            new_content = dump_schema(resolved)
+            if new_content != content:
+                rewritten[path] = new_content
+
+    # Les fonctions (`<clé>.extend.yaml`, cartographie applicative) : les types
+    # des paramètres et des retours se résolvent comme les champs, dans le
+    # contexte de l'objet qui les porte (homonymes compris).
+    extends = {path: content for path, content in current.items() if is_extend_name(path)}
+    extends.update({a.path: a.content for a in writes if is_extend_name(a.path)})
+    for path, content in extends.items():
+        try:
+            data = load_schema(content)
+        except SchemaReadError:
+            continue
+        before = counter[0]
+        context = index.contexts.get(schema_file(key_of(path)))
+        resolved = _resolve_node(data, index, counter, context)
         if counter[0] > before:
             new_content = dump_schema(resolved)
             if new_content != content:

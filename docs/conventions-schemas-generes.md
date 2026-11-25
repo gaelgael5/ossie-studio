@@ -249,6 +249,10 @@ methods:
   `linked` avec les `operations`, ou `absent`) ;
 - ordre déterministe (nom, types des paramètres, ligne) : deux collectes
   identiques donnent les mêmes octets.
+- **fonctions libres** : un parseur ne connaît pas les modules ; il les note par
+  fichier d'origine dans son index `functions-<parseur>.yaml` (par exemple
+  `functions-csharp.yaml` pour la minimal API), et le socle les range dans le
+  `.extend.yaml` du module qui contient le fichier (même langage).
 
 ### Vue d'un module : `module-<chemin>.view.yaml`
 

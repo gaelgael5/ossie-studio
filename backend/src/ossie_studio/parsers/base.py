@@ -40,6 +40,9 @@ class ParsedObject:
     key: str
     sources: list[str]
     schema: str
+    # Ses fonctions (`<clé>.extend.yaml` : méthodes, points d'entrée), texte
+    # déterministe ; None s'il n'en a pas (cartographie applicative).
+    extend: str | None = None
 
 
 def decode_error_detail(exc: UnicodeDecodeError) -> str:
