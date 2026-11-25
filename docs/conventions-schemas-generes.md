@@ -298,6 +298,15 @@ methods:
   alors retiré ;
 - le `.extend.yaml` n'est réécrit que si l'état au contrat change.
 
+### Quels modules pour une source
+
+Un module de langage n'est produit que si le **parseur de ce langage est choisi
+pour la source** : `csharp` (`.csproj`), `kotlin-java` (Gradle, Maven),
+`typescript` (`package.json`), `sqlserver-projet` (`.sqlproj`). Une source
+« contrats OpenAPI » n'a donc pas de module npm même si son dépôt contient un
+`package.json`. Retirer un parseur du choix retire ses modules à la collecte
+suivante.
+
 ### Kotlin / Java : modules Gradle et Maven, méthodes, points d'entrée Spring
 
 Ticket e34e5c29, sur le modèle C# (les fichiers de build sont lus, jamais

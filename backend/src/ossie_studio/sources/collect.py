@@ -36,6 +36,7 @@ from ossie_studio.sources.npm_modules import npm_module_actions, read_npm_projec
 from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
 from ossie_studio.sources.progress import CollectProgress
 from ossie_studio.sources.schema_resolve import (
+    ProjectMap,
     SchemaIndex,
     is_schema_path,
     read_project_map,
@@ -348,16 +349,32 @@ class SourceCollector:
         # seule fois : elle départage les homonymes entre projets d'une solution
         # et décrit chaque projet, qui devient un objet module (cartographie).
         projects = await asyncio.to_thread(read_project_map, source_files)
+        # Un module de langage n'est produit que si le parseur de ce langage est
+        # choisi pour la source ; retiré du choix, ses modules partent (l'étape
+        # tourne sans projet).
+        selected = {plugin.id for plugin in plugins}
         modules = await asyncio.to_thread(
-            csharp_module_actions, raw_files, list(agg.writes), list(agg.deletes), projects
+            csharp_module_actions,
+            raw_files,
+            list(agg.writes),
+            list(agg.deletes),
+            projects if "csharp" in selected else ProjectMap(),
         )
         # Projets Gradle et Maven : un objet module chacun (Kotlin / Java).
-        jvm_projects = await asyncio.to_thread(read_jvm_projects, source_files)
+        jvm_projects = (
+            await asyncio.to_thread(read_jvm_projects, source_files)
+            if "kotlin-java" in selected
+            else {}
+        )
         jvm = await asyncio.to_thread(
             jvm_module_actions, raw_files, modules.writes, modules.deletes, jvm_projects
         )
         # Paquets npm (`package.json`) : un objet module chacun (TypeScript / JavaScript).
-        npm_projects = await asyncio.to_thread(read_npm_projects, source_files)
+        npm_projects = (
+            await asyncio.to_thread(read_npm_projects, source_files)
+            if "typescript" in selected
+            else {}
+        )
         npm = await asyncio.to_thread(
             npm_module_actions, raw_files, jvm.writes, jvm.deletes, npm_projects
         )

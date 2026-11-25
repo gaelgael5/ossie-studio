@@ -279,3 +279,40 @@ async def test_collecte_modules_et_fonctions(
     await _collect(collector, space, url)
     assert not (raw / schema_file(module_key(WEB))).exists()
     assert (raw / api_id).is_file()
+
+
+async def test_modules_seulement_avec_le_parseur_du_langage(
+    setup: tuple[SourceCollector, GitSpace, Path, Path],
+) -> None:
+    """Un module de langage n'est produit que si le parseur de ce langage est choisi
+    pour la source ; retiré du choix, ses modules partent."""
+    collector, space, tmp_path, _ = setup
+    await _base_branch(collector, space)
+    files = {path: content.decode() for path, content in MONOREPO.items()}
+    files["packages/api/src/main.ts"] = "export function demarrer() {}\n"
+    url, _work = _make_bare_with(tmp_path, "src", files)
+    await _collect(collector, space, url)
+    api_module = _raw(tmp_path, space) / schema_file(module_key(API))
+    assert api_module.is_file()
+
+    async def collect_with(parsers: list[str]):  # type: ignore[no-untyped-def]
+        return await collector.collect(
+            space=space,
+            branch_slug="work/principale",
+            branch_label="principale",
+            space_username="x",
+            space_token=None,
+            source_slug="api",
+            source_clone_url=url,
+            source_branch="main",
+            source_username="x",
+            source_token=None,
+            author_name="a@a",
+            author_email="a@a",
+            force=False,
+            parsers=parsers,
+        )
+
+    report = await collect_with(["openapi"])
+    assert not api_module.exists()
+    assert {f.path: f.statut for f in report.files}[API] == "ignoré"
