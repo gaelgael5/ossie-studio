@@ -197,8 +197,16 @@ def test_docstring_description() -> None:
 
 
 def test_classe_sans_attribut_annote_ne_produit_rien() -> None:
-    schemas = _parse("class Service:\n    x = 5\n    def do(self):\n        pass\n")
+    # Ni attribut annoté, ni méthode publique : pas d'objet.
+    schemas = _parse("class Service:\n    x = 5\n    def _do(self):\n        pass\n")
     assert schemas == {}
+
+
+def test_classe_a_methode_publique_produit_un_objet() -> None:
+    # Cartographie applicative (ticket 3343afe4) : ses méthodes ont besoin d'un objet.
+    schemas = _parse("class Service:\n    x = 5\n    def do(self):\n        pass\n")
+    assert schemas["a-service"]["x-kind"] == "class"
+    assert "properties" not in schemas["a-service"]
 
 
 def test_classe_imbriquee() -> None:
@@ -228,7 +236,7 @@ def test_fichier_sans_classe_ne_produit_rien() -> None:
 
 
 def test_version_inclut_la_grammaire() -> None:
-    assert PythonParser().version.startswith("1.1-ts")
+    assert PythonParser().version.startswith("1.2-ts")
 
 
 def test_module_comme_espace_de_noms() -> None:

@@ -262,7 +262,7 @@ def test_fichier_invalide_tolere() -> None:
 
 def test_version_inclut_les_grammaires() -> None:
     version = KotlinJavaParser().version
-    assert version.startswith("1.1-java") and "-kt" in version
+    assert version.startswith("1.2-java") and "-kt" in version
 
 
 def test_paquet_comme_espace_de_noms() -> None:

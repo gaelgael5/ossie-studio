@@ -7,6 +7,13 @@ Analyse **syntaxique** (tree-sitter), jamais d'exécution ni d'import du code lu
 bibliothèque devient `x-unresolved-type` ; la résolution croisée viendra du
 service de recherche de schéma commun. Les références au sein du même groupe de
 fichiers sont résolues en `$ref`.
+
+Cartographie applicative (ticket 3343afe4) : toute classe publique qui a des
+méthodes publiques (nom sans `_` initial) a aussi son objet ; ses méthodes vont
+dans son `<clé>.extend.yaml`. Les fonctions publiques de niveau module et les
+points d'entrée (FastAPI, Flask, Celery : `parsers.py_entrypoints`) sont notés par
+fichier dans l'index `functions-python.yaml`, rangé par le socle dans le
+`.extend.yaml` du module.
 """
 
 from __future__ import annotations
@@ -17,8 +24,10 @@ from typing import Any
 
 from tree_sitter import Node
 
+from ossie_studio.parsers.application import dump_functions
 from ossie_studio.parsers.base import (
     CIBLE_RAW,
+    OutputAction,
     ParsedObject,
     ParserError,
     PluginContext,
@@ -26,11 +35,27 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import dump_schema, schema_file
+from ossie_studio.parsers.conventions import (
+    SchemaReadError,
+    dump_schema,
+    load_schema,
+    schema_file,
+)
+from ossie_studio.parsers.py_entrypoints import (
+    Decorator,
+    Router,
+    entry_points,
+    router_from_call,
+)
 from ossie_studio.parsers.treesitter import grammar_version, node_text
 from ossie_studio.parsers.treesitter import parse as ts_parse
 
 _GLOBS = ["**/*.py"]
+# Fonctions publiques de module et points d'entrée, par fichier (rangés par le socle).
+FUNCTIONS_INDEX = "functions-python.yaml"
+_FUNCTIONS_VERSION = 1
+_STATIC_DECORATORS = frozenset({"staticmethod", "classmethod"})
+_ACCESSOR_DECORATORS = frozenset({"property", "cached_property", "setter", "deleter"})
 _SLUG = re.compile(r"[^a-zA-Z0-9]+")
 
 # Correspondance des types Python vers JSON Schema.
@@ -148,6 +173,32 @@ class _Type:
     members: list[_Member] = field(default_factory=list)
     enum_members: list[str] = field(default_factory=list)
     namespace: str = ""
+    methods: list[_Func] = field(default_factory=list)
+
+
+@dataclass
+class _Param:
+    name: str
+    type_text: str
+    type_ref: _TypeRef
+    optional: bool
+
+
+@dataclass
+class _Func:
+    """Une méthode ou une fonction : signature, emplacement, point d'entrée."""
+
+    name: str
+    params: list[_Param]
+    returns_text: str
+    result: _TypeRef | None
+    static: bool
+    is_async: bool
+    doc: str
+    decorators: list[str]
+    line: int
+    entry: dict[str, Any] | None = None
+    file: str = ""
 
 
 # --- Navigation de l'arbre ---------------------------------------------------
@@ -374,10 +425,229 @@ def _emit_class(
         info.enum_members = _enum_members(src, body)
     else:
         info.members = _members(src, body)
+    info.methods = _methods(src, body)
     out.append(info)
     if body is not None:
         deeper = f"{enclosing}.{name}" if enclosing else name
         _walk(src, body, enclosing=deeper, decorators=[], out=out)
+
+
+# --- Méthodes, fonctions, points d'entrée (cartographie applicative) ---------
+
+
+def _type_text(src: bytes, node: Node | None) -> str:
+    return re.sub(r"\s+", " ", _text(src, node)).strip().strip("\"'")
+
+
+def _params(src: bytes, node: Node | None, *, skip_first: bool) -> list[_Param]:
+    """Les paramètres (sans `self` / `cls` pour une méthode)."""
+    params: list[_Param] = []
+    first = True
+    for param in node.named_children if node is not None else []:
+        type_node: Node | None = None
+        optional = False
+        if param.type == "identifier":
+            name = _text(src, param)
+        elif param.type == "typed_parameter":
+            ident = param.named_children[0] if param.named_children else None
+            name = _text(src, ident)
+            type_node = param.child_by_field_name("type")
+        elif param.type in ("default_parameter", "typed_default_parameter"):
+            name = _text(src, param.child_by_field_name("name"))
+            type_node = param.child_by_field_name("type")
+            optional = True
+        elif param.type in ("list_splat_pattern", "dictionary_splat_pattern"):
+            name = _text(src, param)
+            optional = True
+        else:
+            continue
+        if first and skip_first:
+            first = False
+            continue
+        first = False
+        params.append(
+            _Param(name, _type_text(src, type_node), _type_ref(src, type_node), optional)
+        )
+    return params
+
+
+def _parse_decorator(src: bytes, node: Node) -> Decorator:
+    """`@objet.attribut(…)` / `@nom(…)` / `@nom`, arguments tels qu'écrits."""
+    expr = node.named_children[0] if node.named_children else None
+    call_args = None
+    if expr is not None and expr.type == "call":
+        call_args = expr.child_by_field_name("arguments")
+        expr = expr.child_by_field_name("function")
+    target, name = "", _text(src, expr)
+    if expr is not None and expr.type == "attribute":
+        target = _text(src, expr.child_by_field_name("object"))
+        name = _text(src, expr.child_by_field_name("attribute"))
+    positional: list[str] = []
+    named: dict[str, str] = {}
+    for arg in call_args.named_children if call_args is not None else []:
+        if arg.type == "keyword_argument":
+            named[_text(src, arg.child_by_field_name("name"))] = _text(
+                src, arg.child_by_field_name("value")
+            )
+        elif arg.type != "comment":
+            positional.append(_text(src, arg))
+    return Decorator(target, name, tuple(positional), named)
+
+
+def _definitions(src: bytes, body: Node | None) -> list[tuple[Node, list[Decorator]]]:
+    """Les `def` d'un bloc, avec leurs décorateurs."""
+    out: list[tuple[Node, list[Decorator]]] = []
+    for child in body.named_children if body is not None else []:
+        if child.type == "function_definition":
+            out.append((child, []))
+        elif child.type == "decorated_definition":
+            definition = child.child_by_field_name("definition")
+            if definition is not None and definition.type == "function_definition":
+                decos = [
+                    _parse_decorator(src, d) for d in child.named_children if d.type == "decorator"
+                ]
+                out.append((definition, decos))
+    return out
+
+
+def _func(src: bytes, node: Node, decorators: list[Decorator], *, method: bool) -> _Func:
+    names = {d.name for d in decorators if not d.target}
+    static = method and bool(names & _STATIC_DECORATORS)
+    returns = node.child_by_field_name("return_type")
+    result = _type_ref(src, returns) if returns is not None else None
+    if result is not None and result.kind == "named" and result.name == "None":
+        result = None
+    name_node = node.child_by_field_name("name")
+    return _Func(
+        name=_text(src, name_node),
+        params=_params(
+            src, node.child_by_field_name("parameters"), skip_first=method and not static
+        ),
+        returns_text=_type_text(src, returns) if result is not None else "",
+        result=result,
+        static=static,
+        is_async=any(c.type == "async" for c in node.children),
+        doc=_docstring(src, node.child_by_field_name("body")),
+        decorators=[f"{d.target}.{d.name}" if d.target else d.name for d in decorators],
+        line=(name_node or node).start_point[0] + 1,
+    )
+
+
+def _methods(src: bytes, body: Node | None) -> list[_Func]:
+    """Les méthodes publiques d'une classe (nom sans `_` initial, hors accesseurs)."""
+    methods: list[_Func] = []
+    for node, decorators in _definitions(src, body):
+        name = _text(src, node.child_by_field_name("name"))
+        if name.startswith("_") or {d.name for d in decorators} & _ACCESSOR_DECORATORS:
+            continue
+        methods.append(_func(src, node, decorators, method=True))
+    return methods
+
+
+def _routers(src: bytes, root: Node) -> dict[str, Router]:
+    """Les applications et routeurs créés au niveau du module (`router = APIRouter(…)`)."""
+    found: dict[str, Router] = {}
+    for stmt in root.named_children:
+        is_expr = stmt.type == "expression_statement" and bool(stmt.named_children)
+        assign = stmt.named_children[0] if is_expr else None
+        if assign is None or assign.type != "assignment":
+            continue
+        left, right = assign.child_by_field_name("left"), assign.child_by_field_name("right")
+        if left is None or left.type != "identifier" or right is None or right.type != "call":
+            continue
+        factory = _text(src, right.child_by_field_name("function")).rsplit(".", 1)[-1]
+        args = right.child_by_field_name("arguments")
+        named = {
+            _text(src, a.child_by_field_name("name")): _text(src, a.child_by_field_name("value"))
+            for a in (args.named_children if args is not None else [])
+            if a.type == "keyword_argument"
+        }
+        router = router_from_call(factory, named)
+        if router is not None:
+            found[_text(src, left)] = router
+    return found
+
+
+def file_functions(path: str, raw: bytes) -> list[dict[str, Any]]:
+    """Les fonctions publiques de niveau module et les points d'entrée d'un fichier,
+    au format de raw (une entrée par verbe pour une route à plusieurs verbes)."""
+    root = ts_parse("python", raw).root_node
+    routers = _routers(raw, root)
+    out: list[dict[str, Any]] = []
+    for node, decorators in _definitions(raw, root):
+        fn = _func(raw, node, decorators, method=False)
+        fn.file = path
+        points = [p for d in decorators for p in entry_points(d, routers)]
+        if not points and fn.name.startswith("_"):
+            continue
+        # Tâche Celery liée (`bind=True`) : le premier paramètre est la tâche elle-même.
+        bound = any(
+            d.name in ("task", "shared_task") and d.named.get("bind") == "True" for d in decorators
+        )
+        if bound:
+            fn.params = fn.params[1:]
+        targets: list[dict[str, Any] | None] = list(points) or [None]
+        for point in targets:
+            fn.entry = point
+            out.append(_function_entry(fn, known={}))
+    return out
+
+
+def _function_entry(fn: _Func, *, known: dict[str, str]) -> dict[str, Any]:
+    entry: dict[str, Any] = {"name": fn.name, "visibility": "public"}
+    if fn.static:
+        entry["static"] = True
+    if fn.is_async:
+        entry["async"] = True
+    if fn.params:
+        entry["parameters"] = []
+        for param in fn.params:
+            item: dict[str, Any] = {"name": param.name}
+            if param.type_text:
+                item["type"] = param.type_text
+                item["schema"] = _ref_schema(param.type_ref, known=known)[0]
+            if param.optional:
+                item["optional"] = True
+            entry["parameters"].append(item)
+    if fn.result is not None:
+        entry["returns"] = {
+            "type": fn.returns_text,
+            "schema": _ref_schema(fn.result, known=known)[0],
+        }
+    if fn.doc:
+        entry["description"] = fn.doc
+    if fn.decorators:
+        entry["annotations"] = fn.decorators
+    if fn.file:
+        entry["source"] = {"file": fn.file, "line": fn.line}
+    if fn.entry:
+        entry["entryPoint"] = dict(fn.entry)
+    return entry
+
+
+def _functions_index(
+    previous_text: str | None, files: dict[str, bytes], crcs: dict[str, str], force: bool
+) -> str:
+    """L'index `functions-python.yaml` : par fichier, son empreinte et ses
+    fonctions. Un fichier inchangé reprend son entrée."""
+    previous: dict[str, Any] = {}
+    if previous_text:
+        try:
+            data = load_schema(previous_text)
+        except SchemaReadError:
+            data = None
+        if isinstance(data, dict) and data.get("version") == _FUNCTIONS_VERSION:
+            previous = data.get("files") or {}
+    entries: dict[str, Any] = {}
+    for path in sorted(files):
+        old = previous.get(path)
+        if not force and isinstance(old, dict) and old.get("checksum") == crcs.get(path):
+            entries[path] = old
+            continue
+        functions = file_functions(path, files[path])
+        if functions:
+            entries[path] = {"checksum": crcs.get(path, ""), "functions": functions}
+    return dump_schema({"language": "python", "version": _FUNCTIONS_VERSION, "files": entries})
 
 
 def _bases_and_total(src: bytes, superclasses: Node | None) -> tuple[list[str], bool]:
@@ -629,7 +899,8 @@ class PythonParser:
     id = "python"
     cible = CIBLE_RAW
     label = "Python"
-    version = f"1.1-ts{grammar_version('python')}"
+    # 1.2 : méthodes, fonctions et points d'entrée (cartographie applicative).
+    version = f"1.2-ts{grammar_version('python')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)
@@ -640,7 +911,15 @@ class PythonParser:
     def run(self, context: PluginContext) -> PluginResult:
         from ossie_studio.sources.collect_core import schema_plugin_run
 
-        return schema_plugin_run(context, self)
+        result = schema_plugin_run(context, self)
+        # Fonctions de module et points d'entrée : l'index du plugin, par fichier ;
+        # le socle les range dans le `.extend.yaml` de leur module.
+        previous = context.raw.read_index(FUNCTIONS_INDEX)
+        crcs = {row.path: row.crc for row in context.files}
+        text = _functions_index(previous, context.contents, crcs, context.force)
+        if text != previous:
+            result.writes.append(OutputAction(path=FUNCTIONS_INDEX, content=text))
+        return result
 
     def handles(self, path: str) -> bool:
         return matches_globs(_GLOBS, path)
@@ -657,6 +936,8 @@ class PythonParser:
             except Exception as exc:  # pragma: no cover - tree-sitter ne lève pas
                 raise ParserError("syntax") from exc
             for info in _extract_file(raw, tree.root_node):
+                for method in info.methods:
+                    method.file = path
                 qualified = f"{module}.{info.qualified}" if module else info.qualified
                 info.qualified = qualified
                 info.namespace = module
@@ -671,13 +952,16 @@ class PythonParser:
             known[qualified] = qualified
         objects: list[ParsedObject] = []
         for qualified, info, total in sorted(collected, key=lambda t: t[0]):
-            if info.kind != "enum" and not info.members:
-                continue  # classe sans attribut annoté → pas de schéma
+            public = bool(info.methods) and _obj_visibility(info.name) == "public"
+            if info.kind != "enum" and not info.members and not public:
+                continue  # ni attribut annoté, ni méthode publique → pas de schéma
+            methods = {"methods": [_function_entry(m, known=known) for m in info.methods]}
             objects.append(
                 ParsedObject(
                     key=_slug(qualified),
                     sources=sorted(sources[qualified]),
                     schema=dump_schema(_build_schema(info, total=total, known=known)),
+                    extend=dump_functions(methods) if public else None,
                 )
             )
         return objects

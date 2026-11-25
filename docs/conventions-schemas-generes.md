@@ -298,6 +298,99 @@ methods:
   alors retiré ;
 - le `.extend.yaml` n'est réécrit que si l'état au contrat change.
 
+### Quels modules pour une source
+
+Un module de langage n'est produit que si le **parseur de ce langage est choisi
+pour la source** : `csharp` (`.csproj`), `kotlin-java` (Gradle, Maven),
+`typescript` (`package.json`), `python` (`pyproject.toml`, `setup.cfg`,
+`setup.py`), `sqlserver-projet` (`.sqlproj`). Une source
+« contrats OpenAPI » n'a donc pas de module npm même si son dépôt contient un
+`package.json`. Retirer un parseur du choix retire ses modules à la collecte
+suivante.
+
+### Kotlin / Java : modules Gradle et Maven, méthodes, points d'entrée Spring
+
+Ticket e34e5c29, sur le modèle C# (les fichiers de build sont lus, jamais
+exécutés) :
+
+- **modules** (étape du socle `sources/jvm_modules.py`) : un par sous-projet
+  Gradle déclaré dans `settings.gradle(.kts)` qui a son `build.gradle(.kts)`, un
+  par build Gradle sans `settings`, un par `pom.xml` qui n'est pas un agrégateur
+  (`packaging pom`) ; la racine d'un build multi-projets n'est un module que si
+  elle a son propre `src/`. Dépendances : `project(":x")`, `projects.x`, et côté
+  Maven une dépendance vers le `groupId:artifactId` d'un autre pom de la source.
+  Nature : Spring Boot → `web` (avec `spring-boot-starter-web` / `webflux`) ou
+  `application`, sinon `library`. Cible : `java17`… Langage : `kotlin` (plugin
+  Kotlin ou fichiers `.kt`) ou `java`. Fichier de build illisible :
+  `build_file_unreadable` dans le compte rendu, module précédent gardé ;
+- **méthodes** (parseur `kotlin-java` 1.2) : `public`, `protected`, visibilité de
+  paquet (`internal`) en Java, `internal` en Kotlin ; jamais `private`. Retour
+  déballé (`ResponseEntity<T>`, `Mono<T>`, `Optional<T>`… → `T` ; `Flux<T>` →
+  liste) ; `suspend` → `async` ; paramètre Kotlin avec valeur par défaut →
+  `optional` ;
+- **points d'entrée** : HTTP dans une classe `@RestController` / `@Controller`
+  seulement (un client Feign n'en est pas un) — `@GetMapping`… et
+  `@RequestMapping(method = …)`, route = chemin de la classe + chemin de la
+  méthode, `route: null` pour une constante ou `${…}` ; `@Scheduled` → `task` ;
+  `@KafkaListener` / `@RabbitListener` → `message` avec le sujet.
+
+### TypeScript : modules npm, méthodes, fonctions, points d'entrée NestJS et Express
+
+Ticket f619f4a7, sur le même modèle :
+
+- **modules** (étape du socle `sources/npm_modules.py`, écriture commune
+  `sources/project_modules.py`) : un par `package.json` hors `node_modules/` ; la
+  racine d'un monorepo (`workspaces`, `pnpm-workspace.yaml`, `lerna.json`) est un
+  agrégateur, pas un module, sauf si elle a son propre `src/`. Dépendances : les
+  noms des `dependencies` / `devDependencies` / `peerDependencies` /
+  `optionalDependencies` qui sont ceux d'un autre paquet de la source (les
+  paquets npm externes sont ignorés). Nature : framework serveur ou front dans
+  `dependencies` → `web`, script `start` ou `bin` → `application`, sinon
+  `library`. Langage `typescript` ou `javascript` ; cible `node20`… ;
+- **méthodes** (parseur `typescript` 1.2) des classes **exportées** : jamais
+  `private`, `#privées`, accesseurs ni constructeur ; `Promise<T>` → `T` et
+  `async` ; paramètre `?` ou avec valeur par défaut → `optional` ;
+- **fonctions exportées** (`export function`, `export const f = () => …`) et
+  **routes Express** : notées dans l'index `functions-typescript.yaml`, rangées
+  par le socle dans le `.extend.yaml` du module ; une route est nommée d'après son
+  gestionnaire, sinon « VERBE route » ;
+- **points d'entrée** : NestJS (`@Controller('commandes')` + `@Get(':id')` →
+  `GET /commandes/{id}` ; `@Cron` / `@Interval` / `@Timeout` → `task` ;
+  `@MessagePattern` / `@EventPattern` → `message`) ; Express et routeurs
+  semblables (`router.post('/paniers', creer)`) sur un objet nommé comme un
+  routeur ou créé par `express()`, `Router()`, `fastify()`, `new Hono()`… Les
+  `:id` deviennent `{id}` ; une route non littérale garde son point d'entrée avec
+  `route: null`. Le préfixe d'un `app.use('/api', router)` posé dans un autre
+  fichier n'est pas recomposé (limite connue).
+
+### Python : modules pyproject, méthodes, fonctions, points d'entrée FastAPI, Flask, Celery
+
+Ticket 3343afe4, sur le même modèle :
+
+- **modules** (étape du socle `sources/python_modules.py`) : un projet par
+  dossier — `pyproject.toml`, sinon `setup.cfg`, sinon `setup.py` (lu comme du
+  texte, jamais exécuté) ; la racine d'un espace de travail uv sans projet à elle
+  est un agrégateur. Dépendances par nom (normalisé PEP 503 : `My_Pkg` = `my-pkg`)
+  ou par chemin (sources uv et Poetry `{ path = "../x" }`) ; paquets externes
+  ignorés. Nature : FastAPI, Flask, Django… → `web`, Celery… → `worker`, script
+  déclaré → `application`, sinon `library`. Cible `python3.12`… ;
+- **objets** : en plus des classes de données, **toute classe publique qui a des
+  méthodes publiques** a son objet (`x-kind: class`), pour porter ses méthodes ;
+- **méthodes** (parseur `python` 1.2) : nom sans `_` initial (ni `__init__`, ni
+  `_privee`), hors `@property` ; `self` / `cls` omis ; `@staticmethod` /
+  `@classmethod` → `static` ;
+- **fonctions publiques de module** et **points d'entrée** : notés dans l'index
+  `functions-python.yaml`, rangés par le socle dans le `.extend.yaml` du module.
+  FastAPI (`@router.get("/{id}")` avec le `prefix` de l'`APIRouter(...)` du
+  fichier ; `api_route(methods=[...])`), Flask (`@app.route(..., methods=[...])`,
+  GET par défaut, `@bp.get`, `url_prefix` du `Blueprint(...)` ; `<int:id>` →
+  `{id}`), Celery (`@shared_task`, `@app.task` → `task` ; `bind=True` : premier
+  paramètre omis). Une route à plusieurs verbes donne une entrée par verbe ; une
+  route non littérale garde son point d'entrée avec `route: null` ; seul un objet
+  créé dans le fichier par `FastAPI()`, `APIRouter()`, `Flask()`, `Blueprint()`,
+  `Celery()` ou nommé comme une application ou un routeur compte. Le préfixe d'un
+  `include_router(..., prefix=...)` posé dans un autre fichier n'est pas recomposé.
+
 ### Projet SQL Server : module `sql`, procédures et fonctions
 
 Ticket 30c55418. Le parseur `sqlserver-projet` produit un **objet module** par
