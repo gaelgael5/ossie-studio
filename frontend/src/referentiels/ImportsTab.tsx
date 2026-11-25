@@ -20,7 +20,8 @@ import { TemplateEditor } from './TemplateEditor'
 
 type Sub = 'example' | 'template'
 const SEPARATORS = [';', ',', '\t', '|']
-const ENCODINGS = ['utf-8', 'latin-1', 'cp1252']
+// utf-16 : ce qu'Excel écrit en « Texte Unicode » ; détecté au dépôt par son BOM (ticket 123631e5).
+const ENCODINGS = ['utf-8', 'cp1252', 'latin-1', 'utf-16']
 
 function AddImportDialog({
   spaceId,
@@ -101,6 +102,7 @@ function ExampleTab({
   detail,
   readOnly,
   preview,
+  previewError,
   reading,
   onReading,
 }: {
@@ -110,6 +112,8 @@ function ExampleTab({
   detail: ReferentielImportDetail
   readOnly: boolean
   preview: ImportPreview | undefined
+  /** Le fichier ne se lit pas avec ces réglages : dit ici, où l'on peut les changer. */
+  previewError: unknown
   reading: ImportReading
   onReading: (next: ImportReading) => void
 }) {
@@ -133,7 +137,7 @@ function ExampleTab({
     reading.separator !== detail.separator || reading.encoding !== detail.encoding || reading.header !== detail.header
   return (
     <div className="stack">
-      <ErrorList messages={[upload.error, saveReading.error].flatMap((e) => (e ? errorMessages(t, e) : []))} />
+      <ErrorList messages={[upload.error, saveReading.error, previewError].flatMap((e) => (e ? errorMessages(t, e) : []))} />
       <p className="muted">
         {detail.example_size > 0
           ? t('refImportExampleCurrent', { name: detail.example_name, size: detail.example_size })
@@ -415,6 +419,7 @@ function ImportView({
           detail={data}
           readOnly={readOnly}
           preview={preview.data}
+          previewError={preview.error}
           reading={effective}
           onReading={setReading}
         />
@@ -422,6 +427,13 @@ function ImportView({
         <>
         <div className="ref-import-result">
           <div className="stack">
+            {preview.isError ? (
+              // Sans lecture du fichier, l'éditeur n'a aucune colonne à proposer après « $. » :
+              // le dire, sinon la complétion paraît simplement en panne (ticket 123631e5).
+              <p className="muted" role="note">
+                {t('refImportPathsUnreadable')}
+              </p>
+            ) : null}
             <TemplateEditor
               value={template ?? ''}
               onChange={setTemplate}

@@ -911,6 +911,7 @@ export const fr = {
     refImportRunBusy: 'Exécution…',
     refImportTemplateSave: 'Enregistrer le template',
     refImportResult: 'Résultat sur le fichier d’exemple',
+    refImportPathsUnreadable: 'Pas de complétion des colonnes : le fichier d’exemple ne se lit pas avec ces réglages. Corrigez l’encodage ou le séparateur dans « 1. Fichier d’exemple ».',
     refImportResultHint: 'Exécutez le template pour voir le résultat (rien n’est écrit).',
     refImportLines: '{{count}} ligne(s)',
     refImportNew: '{{count}} nouvelle(s)',

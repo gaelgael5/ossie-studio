@@ -125,6 +125,61 @@ async def test_exemple_csv_apercu_et_chemins(space: ApiSpace) -> None:
     assert comma["columns"] == ["Pays;Mode;Delai"]
 
 
+async def test_depot_detecte_encodage_et_separateur_cp1252(space: ApiSpace) -> None:
+    """Ticket 123631e5 : fichier Excel de Gael (cp1252, « ; », espace insécable) ;
+    sans détection, l'import restait en utf-8 / « , » et rien ne se lisait."""
+    await space.client.post(
+        _url(space), json={"label": "Carriers", "slug": "carriers", "format": "csv"}
+    )
+    raw = "_id;Label\r\nDPD\xa0 Switzerland;DPD\xa0 Switzerland\r\nUPS;UPS\r\n".encode("cp1252")
+    detail = (
+        await space.client.put(
+            _url(space, "/carriers/exemple"), files={"file": ("c.csv", raw, "text/csv")}
+        )
+    ).json()
+    assert (detail["encoding"], detail["separator"]) == ("cp1252", ";")
+    view = (await space.client.post(_url(space, "/carriers/apercu"))).json()
+    assert [p["path"] for p in view["paths"]] == ["$._id", "$.Label"]
+    assert view["rows"][0]["Label"] == "DPD\xa0 Switzerland"
+
+
+async def test_depot_utf8_bom_virgule_sans_bom_dans_la_colonne(space: ApiSpace) -> None:
+    await space.client.post(_url(space), json={"label": "B", "slug": "bom", "format": "csv"})
+    raw = "\ufeffcode,nom\nDHL,DHL Express\n".encode()
+    detail = (
+        await space.client.put(
+            _url(space, "/bom/exemple"), files={"file": ("b.csv", raw, "text/csv")}
+        )
+    ).json()
+    assert (detail["encoding"], detail["separator"]) == ("utf-8", ",")
+    view = (await space.client.post(_url(space, "/bom/apercu"))).json()
+    assert view["columns"] == ["code", "nom"]
+
+
+async def test_depot_une_colonne_garde_le_separateur(space: ApiSpace) -> None:
+    await _csv_import(space)
+    detail = (
+        await space.client.put(
+            _url(space, "/transporteur/exemple"),
+            files={"file": ("u.csv", b"code\nDHL\nUPS\n", "text/csv")},
+        )
+    ).json()
+    assert (detail["encoding"], detail["separator"]) == ("utf-8", ";")
+
+
+async def test_depot_json_ne_touche_pas_la_lecture(space: ApiSpace) -> None:
+    created = await space.client.post(
+        _url(space), json={"label": "J", "slug": "j", "format": "json"}
+    )
+    before = created.json()
+    detail = (
+        await space.client.put(
+            _url(space, "/j/exemple"), files={"file": ("j.json", b'[{"a";1}]', "application/json")}
+        )
+    ).json()
+    assert (detail["encoding"], detail["separator"]) == (before["encoding"], before["separator"])
+
+
 # --- Critères 3 et 4 : essayer le template, erreurs rattachées à la ligne -------------------
 
 

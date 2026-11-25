@@ -41,6 +41,7 @@ from ossie_studio.referentiels.importing import (
     Example,
     ExampleError,
     check_template,
+    detect_reading,
     imported_values,
     preview,
     read_example,
@@ -272,8 +273,17 @@ async def upload_example(
     return await _update(
         conn, crypto, workdir, space_id, branch_id, user, name, slug,
         f"exemple de l'import {slug} de {name}",
-        lambda imp: (imp.declaration, imp.template, raw),
+        lambda imp: (_detected(imp.declaration, raw), imp.template, raw),
     )  # fmt: skip
+
+
+def _detected(decl: ImportDeclaration, raw: bytes) -> ImportDeclaration:
+    """Les réglages de lecture devinés sur le fichier déposé (ticket 123631e5) ;
+    la personne les corrige ensuite dans « Fichier d'exemple » si besoin."""
+    if decl.format != "csv" or not raw:
+        return decl
+    encoding, separator = detect_reading(raw)
+    return replace(decl, encoding=encoding, separator=separator or decl.separator)
 
 
 @router.put("/{slug}/lecture")

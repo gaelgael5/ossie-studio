@@ -909,6 +909,7 @@ export const en = {
     refImportRunBusy: 'Running…',
     refImportTemplateSave: 'Save the template',
     refImportResult: 'Result on the sample file',
+    refImportPathsUnreadable: 'No column completion: the sample file cannot be read with these settings. Fix the encoding or separator in “1. Sample file”.',
     refImportResultHint: 'Run the template to see the result (nothing is written).',
     refImportLines: '{{count}} line(s)',
     refImportNew: '{{count}} new',

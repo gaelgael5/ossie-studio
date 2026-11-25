@@ -78,7 +78,11 @@ def read_example(decl: ImportDeclaration, raw: bytes) -> Example:
         return Example([])
     if decl.format == "csv":
         try:
-            text = raw.decode(decl.encoding)
+            # « utf-8 » lu en « utf-8-sig » : un fichier enregistré par Excel commence
+            # par un BOM, qui se collerait sinon au nom de la première colonne.
+            utf8 = decl.encoding.lower().replace("_", "-") in ("utf-8", "utf8")
+            encoding = "utf-8-sig" if utf8 else decl.encoding
+            text = raw.decode(encoding)
         except (UnicodeDecodeError, LookupError) as exc:
             raise ExampleError("example_encoding", str(exc)) from None
         rows = list(csv.reader(io.StringIO(text), delimiter=decl.separator))
@@ -107,6 +111,55 @@ def read_example(decl: ImportDeclaration, raw: bytes) -> Example:
     if isinstance(data, list):
         return Example([Record(item, f"élément [{i}]") for i, item in enumerate(data)])
     return Example([Record(data, "élément")])
+
+
+SNIFF_LINES = 20
+SEPARATOR_CANDIDATES = (";", ",", "\t", "|")
+
+
+def detect_encoding(raw: bytes) -> str:
+    """L'encodage probable d'un CSV déposé (ticket 123631e5) : UTF-16 s'il porte
+    son BOM, UTF-8 s'il se décode ainsi, sinon cp1252.
+
+    cp1252 en dernier recours, et non latin-1 : c'est ce qu'écrit Excel sous
+    Windows en Europe de l'Ouest (Gael, fichier `carriers`), et il décode aussi
+    les guillemets typographiques et l'euro que latin-1 lirait de travers."""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return "utf-16"
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return "cp1252"
+    return "utf-8"
+
+
+def detect_separator(text: str) -> str | None:
+    """Le séparateur présent sur toutes les premières lignes, le même nombre de fois
+    de préférence ; `None` si aucun ne se dégage (fichier d'une colonne, vide) :
+    on garde alors le réglage en place plutôt que d'en imposer un au hasard.
+
+    Compté à la main plutôt qu'avec `csv.Sniffer`, qui choisit parfois une lettre
+    ou un espace comme délimiteur sur des fichiers courts."""
+    lines = [line for line in text.splitlines() if line.strip()][:SNIFF_LINES]
+    best: tuple[bool, int] | None = None
+    chosen: str | None = None
+    for sep in SEPARATOR_CANDIDATES:
+        counts = [len(next(csv.reader([line], delimiter=sep), [])) - 1 for line in lines]
+        if not counts or min(counts) < 1:
+            continue
+        score = (len(set(counts)) == 1, min(counts))
+        if best is None or score > best:
+            best, chosen = score, sep
+    return chosen
+
+
+def detect_reading(raw: bytes) -> tuple[str, str | None]:
+    """Encodage et séparateur d'un CSV déposé, posés dans l'import au dépôt : sans
+    cela, un fichier Excel (cp1252, « ; ») ne se lit pas avec les réglages par
+    défaut, et le template n'a ni aperçu ni complétion des colonnes."""
+    encoding = detect_encoding(raw)
+    text = raw.decode("utf-8-sig" if encoding == "utf-8" else encoding, errors="replace")
+    return encoding, detect_separator(text)
 
 
 def _kind(value: Any) -> str:

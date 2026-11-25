@@ -83,6 +83,7 @@ function setup(
     trial?: unknown
     detail?: Record<string, unknown>
     run?: { status: number; body: unknown }
+    previewFails?: boolean
   } = {},
 ) {
   const detail = { ...DETAIL, ...options.detail }
@@ -97,7 +98,10 @@ function setup(
       let status = 200
       if (path === BASE && method === 'GET') body = { imports }
       else if (path === BASE) body = { ...DETAIL, ...JSON.parse(String(init?.body)), example_size: 0 }
-      else if (path === `${BASE}/transporteur/apercu`) {
+      else if (path === `${BASE}/transporteur/apercu` && options.previewFails) {
+        status = 400
+        body = { error: 'example_encoding', detail: "'utf-8' codec can't decode byte 0xa0" }
+      } else if (path === `${BASE}/transporteur/apercu`) {
         const reading = init?.body ? JSON.parse(String(init.body)) : { separator: ';' }
         body =
           reading.separator === ';'
@@ -204,6 +208,15 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     // Enregistrer le template.
     await user.click(screen.getByRole('button', { name: 'Enregistrer le template' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.path.endsWith('/template'))).toBe(true))
+  })
+
+  it('fichier illisible avec ces réglages : dit dans les deux sous-onglets (ticket 123631e5)', async () => {
+    setup({ previewFails: true })
+    expect(await screen.findByText('Le fichier ne se lit pas avec cet encodage.')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: '2. Template JSLT' }))
+    expect(screen.getByRole('note')).toHaveTextContent('Pas de complétion des colonnes')
+    expect(screen.getByTestId('paths')).toHaveTextContent('')
   })
 
   it('template faux : message du moteur et ligne surlignée', async () => {
