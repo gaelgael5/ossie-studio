@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
-
-from ossie_studio.parsers.conventions import validate_schema
+from ossie_studio.parsers.conventions import load_schema, validate_schema
 from ossie_studio.parsers.kotlin_java import KotlinJavaParser
 
 
@@ -10,7 +8,7 @@ def _parse(files: dict[str, str]) -> dict[str, dict]:
     objects = KotlinJavaParser().parse({p: c.encode("utf-8") for p, c in files.items()})
     out: dict[str, dict] = {}
     for obj in objects:
-        schema = json.loads(obj.schema)
+        schema = load_schema(obj.schema)
         validate_schema(schema)  # critère 5 : tout passe le validateur des conventions
         out[obj.key] = schema
     return out
@@ -115,8 +113,8 @@ def test_java_heritage_allof() -> None:
         }
     )
     child = schemas["child"]
-    assert {"$ref": "base.json"} in child["allOf"]
-    assert {"$ref": "named.json"} in child["allOf"]
+    assert {"$ref": "base.schema.yaml"} in child["allOf"]
+    assert {"$ref": "named.schema.yaml"} in child["allOf"]
 
 
 def test_java_entite_jpa_manytoone_ref() -> None:
@@ -136,7 +134,7 @@ def test_java_entite_jpa_manytoone_ref() -> None:
     order = schemas["com-ex-order"]
     assert any(a["nom"] == "Table" for a in order["x-annotations"])
     customer = order["properties"]["customer"]
-    assert customer["$ref"] == "com-ex-customer.json"
+    assert customer["$ref"] == "com-ex-customer.schema.yaml"
     assert any(a["nom"] == "ManyToOne" for a in customer["x-annotations"])
 
 
@@ -224,7 +222,7 @@ def test_kotlin_heritage_allof() -> None:
         }
     )
     child = schemas["child"]
-    assert {"$ref": "base.json"} in child["allOf"]
+    assert {"$ref": "base.schema.yaml"} in child["allOf"]
     assert {"x-unresolved-type": "Named"} in child["allOf"]
 
 
@@ -264,4 +262,11 @@ def test_fichier_invalide_tolere() -> None:
 
 def test_version_inclut_les_grammaires() -> None:
     version = KotlinJavaParser().version
-    assert version.startswith("1.0-java") and "-kt" in version
+    assert version.startswith("1.2-java") and "-kt" in version
+
+
+def test_paquet_comme_espace_de_noms() -> None:
+    java = _java("package com.acme.orders;\npublic class Order { public int id; }")
+    assert java["com-acme-orders-order"]["x-namespace"] == "com.acme.orders"
+    kt = _parse({"a.kt": "package com.acme.kt\ndata class Line(val id: Int)"})
+    assert next(iter(kt.values()))["x-namespace"] == "com.acme.kt"

@@ -4,6 +4,9 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
 import type { DbEngineSpec } from '../apiClient'
 import { errorMessages } from '../errors'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { ConnectionStatus } from '../components/ConnectionStatus'
+import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 
 function engineName(t: (k: string) => string, e: string): string {
@@ -24,14 +27,13 @@ function DbEnginePopup({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [label, setLabel] = useState('')
+  const conn = useLabelSlug()
   const [params, setParams] = useState<Record<string, string>>(
     Object.fromEntries(spec.fields.map((f) => [f.name, f.default])),
   )
   const [secretSlug, setSecretSlug] = useState('')
   const [showNew, setShowNew] = useState(false)
-  const [nsLabel, setNsLabel] = useState('')
-  const [nsSlug, setNsSlug] = useState('')
+  const ns = useLabelSlug()
   const [nsValue, setNsValue] = useState('')
   const [nsKeyFile, setNsKeyFile] = useState('')
   const [nsPassphrase, setNsPassphrase] = useState('')
@@ -44,25 +46,41 @@ function DbEnginePopup({
   const isKeyfile = spec.secret_kind === 'keyfile'
 
   const create = useMutation({
-    mutationFn: () => api.createDbConnection({ label, engine: spec.engine, params, secret_slug: secretSlug }),
+    mutationFn: () => api.createDbConnection({
+        label: conn.label,
+        slug: conn.finalSlug,
+        engine: spec.engine,
+        params,
+        secret_slug: secretSlug,
+      }),
     onSuccess: async () => {
       await invalidate()
       onClose()
     },
     onError,
   })
+  const [nsVerified, setNsVerified] = useState('')
+  // La connexion est éprouvée avec les paramètres déjà saisis avant que le
+  // secret soit enregistré (0d575422) : un secret faux n'est jamais stocké.
+  const verify = { engine: spec.engine, params }
   const createSecret = useMutation({
     mutationFn: () =>
-      api.createSecret(
-        isKeyfile
-          ? { slug: nsSlug.trim(), label: nsLabel, category: spec.secret_category, key_file: nsKeyFile, passphrase: nsPassphrase }
-          : { slug: nsSlug.trim(), label: nsLabel, category: spec.secret_category, value: nsValue },
-      ),
-    onSuccess: async () => {
-      setSecretSlug(nsSlug.trim())
+      api.createSecret({
+        verify,
+        ...(isKeyfile
+          ? // Clé privée facultative (dc22b381) : sans fichier, la valeur saisie
+            // (mot de passe ou jeton d'accès programmatique) est envoyée à la place.
+            nsKeyFile
+            ? { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, key_file: nsKeyFile, passphrase: nsPassphrase }
+            : { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, value: nsValue }
+          : { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, value: nsValue }),
+      }),
+    onMutate: () => setNsVerified(''),
+    onSuccess: async (res) => {
+      setNsVerified(t('secretVerified', { identity: res.identity ?? '', version: res.server_version ?? '' }))
+      setSecretSlug(ns.finalSlug)
       setShowNew(false)
-      setNsLabel('')
-      setNsSlug('')
+      ns.reset()
       setNsValue('')
       setNsKeyFile('')
       setNsPassphrase('')
@@ -99,12 +117,7 @@ function DbEnginePopup({
           create.mutate()
         }}
       >
-        <div className="field">
-          <label className="field-label" htmlFor="db-label">
-            {t('colLabel')}
-          </label>
-          <input id="db-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-        </div>
+        <LabelSlugFields idPrefix="db" state={conn} labelText={t('colLabel')} slugText={t('slugLabel')} />
         {spec.fields.map((f) => (
           <div key={f.name} className="field">
             <label className="field-label" htmlFor={`db-${f.name}`}>
@@ -155,23 +168,12 @@ function DbEnginePopup({
         {showNew ? (
           <fieldset className="fieldset">
             <legend>{t('newSecretTitle')}</legend>
-            <div className="field">
-              <label className="field-label" htmlFor="db-ns-label">
-                {t('colLabel')}
-              </label>
-              <input id="db-ns-label" className="input" value={nsLabel} onChange={(e) => setNsLabel(e.target.value)} />
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="db-ns-slug">
-                {t('slugLabel')}
-              </label>
-              <input id="db-ns-slug" className="input" value={nsSlug} onChange={(e) => setNsSlug(e.target.value)} />
-            </div>
+            <LabelSlugFields idPrefix="db-ns" state={ns} labelText={t('colLabel')} slugText={t('slugLabel')} />
             {isKeyfile ? (
               <>
                 <div className="field">
                   <label className="field-label" htmlFor="db-ns-key">
-                    {t('keyFileLabel')}
+                    {t('keyFileOptionalLabel')}
                   </label>
                   <input id="db-ns-key" type="file" onChange={(e) => onKeyFile(e.target.files?.[0])} />
                 </div>
@@ -186,6 +188,20 @@ function DbEnginePopup({
                     value={nsPassphrase}
                     onChange={(e) => setNsPassphrase(e.target.value)}
                   />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="db-ns-password">
+                    {t('keyfilePasswordLabel')}
+                  </label>
+                  <input
+                    id="db-ns-password"
+                    className="input"
+                    type="password"
+                    value={nsValue}
+                    disabled={!!nsKeyFile}
+                    onChange={(e) => setNsValue(e.target.value)}
+                  />
+                  <p className="field-hint">{t('keyfilePasswordHelp')}</p>
                 </div>
               </>
             ) : (
@@ -203,21 +219,24 @@ function DbEnginePopup({
               </div>
             )}
             <div>
-              <button
+              <BusyButton
                 type="button"
                 className="btn"
-                disabled={createSecret.isPending || !nsSlug.trim() || (isKeyfile ? !nsKeyFile : !nsValue)}
+                busy={createSecret.isPending}
+                busyText={t('verifyRunning')}
+                disabled={!ns.finalSlug || (isKeyfile ? !nsKeyFile && !nsValue : !nsValue)}
                 onClick={() => createSecret.mutate()}
               >
-                {t('createAndSelect')}
-              </button>
+                {t('testAndCreate')}
+              </BusyButton>
             </div>
           </fieldset>
         ) : null}
+        {nsVerified ? <p className="badge badge-ok">{nsVerified}</p> : null}
         <div>
-          <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+          <BusyButton type="submit" className="btn btn-primary" busy={create.isPending} busyText={t('verifyRunning')}>
             {t('verifyAndSave')}
-          </button>
+          </BusyButton>
         </div>
       </form>
     </section>
@@ -331,7 +350,10 @@ export function DatabasesSection() {
             <tbody>
               {connections.map((c) => (
                 <tr key={c.id}>
-                  <td>{c.label}</td>
+                  <td>
+                    {c.label}
+                    <div className="mono muted small">{c.slug}</div>
+                  </td>
                   <td>{engineName(t, c.engine)}</td>
                   <td>
                     <code>{c.target}</code>
@@ -339,20 +361,20 @@ export function DatabasesSection() {
                   <td>{c.identity}</td>
                   <td>{c.server_version}</td>
                   <td>
-                    {c.last_status === 'valid' ? (
-                      <span className="text-ok">{t('statusValid')}</span>
-                    ) : (
-                      <span className="text-danger">
-                        {t(`errors.${c.last_error_code}`, { defaultValue: t('statusError') })}
-                      </span>
-                    )}
+                    <ConnectionStatus status={c.last_status} errorCode={c.last_error_code} />
                   </td>
                   <td>{formatDate(c.last_checked_at)}</td>
                   <td>
                     <div className="actions">
-                      <button type="button" className="btn btn-sm" onClick={() => test.mutate(c.id)}>
+                      <BusyButton
+                        type="button"
+                        className="btn btn-sm"
+                        busy={test.isPending && test.variables === c.id}
+                        busyText={t('testRunning')}
+                        onClick={() => test.mutate(c.id)}
+                      >
                         {t('test')}
-                      </button>
+                      </BusyButton>
                       {deleting === c.id ? (
                         <div className="stack stack-tight">
                           {c.secret_used_by_others > 0 ? (

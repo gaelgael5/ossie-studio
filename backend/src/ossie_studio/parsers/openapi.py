@@ -16,6 +16,7 @@ en v2 donnent deux schémas distincts, parce que les deux versions coexistent.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -33,11 +34,17 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import STANDARD_KEYWORDS, dump_schema
+from ossie_studio.parsers.conventions import STANDARD_KEYWORDS, dump_schema, schema_file
 
 OPENAPI_PARSER_ID = "openapi"
-OPENAPI_PARSER_VERSION = "1.0"
+# 1.1 : `x-source` porte `file` / `pointer` (au lieu de `fichier` / `pointeur`).
+# Le changement de version force la régénération des schémas déjà collectés.
+OPENAPI_PARSER_VERSION = "1.1"
 _GLOBS = ["*.yaml", "*.yml", "*.json"]
+# Dans un dépôt Git, les contrats peuvent être n'importe où : mêmes extensions,
+# à toute profondeur. L'extension ne suffit pas (configuration, CI, Kubernetes,
+# package.json…) : le contenu tranche (`sniff_contract`).
+_REPO_GLOBS = ["**/*.yaml", "**/*.yml", "**/*.json"]
 
 _SCHEMA_REF_PREFIX = "#/components/schemas/"
 _HTTP_METHODS = ("get", "put", "post", "delete", "patch", "options", "head", "trace")
@@ -84,6 +91,94 @@ def proposed_version_name(declared: str) -> str:
     first = re.split(r"[.\-]", head, maxsplit=1)[0]
     major = re.sub(r"[^0-9]", "", first)
     return f"v{major}" if major else "v1"
+
+
+# Clé `openapi` / `swagger` à la RACINE d'un YAML : en colonne 0, éventuellement
+# entre guillemets. Une clé indentée appartient à un sous-objet et ne compte pas.
+_YAML_OPENAPI = re.compile(r"""^["']?openapi["']?[ \t]*:[ \t]*["']?3\.""", re.MULTILINE)
+_YAML_SWAGGER = re.compile(r"""^["']?swagger["']?[ \t]*:""", re.MULTILINE)
+_JSON_OPENAPI = re.compile(r'"openapi"\s*:\s*"3\.')
+
+CONTRACT_OPENAPI = "openapi"
+CONTRACT_SWAGGER = "swagger"
+
+
+def sniff_contract(path: str, raw: bytes) -> str | None:
+    """Ce fichier est-il un contrat ? `openapi` (3.x, pris en charge), `swagger`
+    (2.0, trouvé mais non pris en charge) ou None (autre YAML / JSON, ignoré).
+
+    Ticket 56be38c6 : un fichier est un contrat si sa **racine** porte la clé
+    `openapi` en version 3.x — l'extension seule ne suffit pas. Le YAML est lu par
+    expression régulière (clé en colonne 0) plutôt que chargé : un dépôt contient
+    beaucoup de YAML, souvent gros, et seuls les contrats méritent un chargement.
+    Le JSON est chargé (rapide, en C) pour ne regarder que la racine ; s'il est
+    illisible mais porte la clé, c'est un contrat **mal formé** : il est retenu
+    pour que la collecte le signale avec sa cause au lieu de le taire."""
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return None
+    if path.lower().endswith(".json"):
+        try:
+            doc = json.loads(text)
+        except ValueError:
+            return CONTRACT_OPENAPI if _JSON_OPENAPI.search(text) else None
+        if not isinstance(doc, dict):
+            return None
+        if "swagger" in doc:
+            return CONTRACT_SWAGGER
+        version = doc.get("openapi")
+        return CONTRACT_OPENAPI if isinstance(version, str) and version.startswith("3.") else None
+    if _YAML_OPENAPI.search(text):
+        return CONTRACT_OPENAPI
+    if _YAML_SWAGGER.search(text):
+        return CONTRACT_SWAGGER
+    return None
+
+
+@dataclass(frozen=True)
+class FoundContract:
+    """Un contrat trouvé dans un dépôt, pour « Rechercher les contrats »."""
+
+    path: str
+    status: str  # supported | unsupported (Swagger 2.0) | invalid (mal formé)
+    title: str = ""
+    version: str = ""  # info.version
+    openapi: str = ""  # version d'OpenAPI (ou de Swagger)
+    error: str = ""  # code de refus pour un contrat mal formé
+
+
+def inspect_contract(path: str, raw: bytes) -> FoundContract | None:
+    """Décrit un fichier de dépôt s'il est un contrat (sans rien écrire), None
+    sinon."""
+    kind = sniff_contract(path, raw)
+    if kind is None:
+        return None
+    if kind == CONTRACT_SWAGGER:
+        try:
+            doc = yaml.safe_load(raw.decode("utf-8-sig"))
+        except (UnicodeDecodeError, yaml.YAMLError):
+            doc = None
+        info = doc.get("info") if isinstance(doc, dict) else None
+        info = info if isinstance(info, dict) else {}
+        return FoundContract(
+            path=path,
+            status="unsupported",
+            title=str(info.get("title", "")),
+            version=str(info.get("version", "")),
+            openapi=str(doc.get("swagger", "")) if isinstance(doc, dict) else "",
+        )
+    try:
+        analysis = analyze(raw)
+    except OpenApiError as exc:
+        return FoundContract(path=path, status="invalid", error=exc.code)
+    return FoundContract(
+        path=path,
+        status="supported",
+        title=analysis.title,
+        version=analysis.declared_version,
+        openapi=analysis.openapi,
+    )
 
 
 def _slug(name: str) -> str:
@@ -201,7 +296,7 @@ def analyze(raw: bytes) -> Analysis:
 
 def _dest_name(version: str, schema_name: str) -> str:
     """Nom du fichier schéma dans `raw/`, préfixé par la version du contrat."""
-    return f"{_slug(version)}-{_slug(schema_name)}.json"
+    return schema_file(f"{_slug(version)}-{_slug(schema_name)}")
 
 
 def _convert(node: Any, *, major: str, version: str, names: set[str]) -> Any:
@@ -267,8 +362,19 @@ def _convert(node: Any, *, major: str, version: str, names: set[str]) -> Any:
 
 # Positions de (sous-)schémas, pour descendre sans toucher aux noms de propriétés
 # ni aux valeurs de données (enum, const, type, required…).
-_SCHEMA_VALUE = ("items", "additionalProperties", "not", "if", "then", "else", "contains",
-                 "propertyNames", "unevaluatedItems", "unevaluatedProperties", "contentSchema")
+_SCHEMA_VALUE = (
+    "items",
+    "additionalProperties",
+    "not",
+    "if",
+    "then",
+    "else",
+    "contains",
+    "propertyNames",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+    "contentSchema",
+)
 _SCHEMA_LIST = ("allOf", "anyOf", "oneOf", "prefixItems")
 _SCHEMA_MAP = ("properties", "patternProperties", "$defs", "dependentSchemas")
 
@@ -311,14 +417,62 @@ def _apply_null(schema: dict[str, Any]) -> dict[str, Any]:
     return {"anyOf": [schema, {"type": "null"}]}
 
 
-def _contract_schemas(filename: str, raw: bytes) -> list[ParsedObject]:
-    """Les schémas tirés d'un contrat. `filename` nomme la version (son radical :
-    `v1.yaml` → `v1`)."""
+def repo_prefix(path: str, declared_version: str) -> str:
+    """Préfixe des schémas d'un contrat trouvé dans un dépôt : son chemin (sans
+    extension) et sa version déclarée. Ticket 56be38c6 : deux contrats qui
+    définissent chacun `Commande` doivent donner deux schémas distincts — dans un
+    dépôt, deux `openapi.yaml` de dossiers différents sont courants, le nom de
+    fichier seul (identité des contrats déposés) ne suffit donc pas."""
+    stem = str(PurePosixPath(path).with_suffix(""))
+    version = _slug(declared_version) if declared_version.strip() else ""
+    return f"{_slug(stem)}-{version}" if version else _slug(stem)
+
+
+def _schema_version(filename: str, doc: dict[str, Any], *, repository: bool) -> str:
+    """Préfixe d'identité des schémas d'un contrat (voir `_contract_schemas`)."""
+    if not repository:
+        return PurePosixPath(filename).stem
+    raw_info = doc.get("info")
+    declared = str(raw_info.get("version", "")) if isinstance(raw_info, dict) else ""
+    return repo_prefix(filename, declared)
+
+
+def schema_files_of(filename: str, doc: dict[str, Any], *, repository: bool) -> dict[str, str]:
+    """Nom d'objet de `components/schemas` → fichier schéma découpé dans `raw/`
+    (ticket e79d008f : la vue du contrat complet ouvre ses objets)."""
+    version = _schema_version(filename, doc, repository=repository)
+    return {name: _dest_name(version, name) for name in _schemas(doc)}
+
+
+def _valid_contract(filename: str, raw: bytes, *, repository: bool) -> dict[str, Any] | None:
+    """Document chargé si le contrat est collectable (mêmes refus que
+    `_contract_schemas`), None sinon."""
+    try:
+        doc = load_document(raw)
+        if repository:
+            _check_internal_refs(_schemas(doc))
+    except OpenApiError:
+        return None
+    return doc
+
+
+def _contract_schemas(filename: str, raw: bytes, *, repository: bool = False) -> list[ParsedObject]:
+    """Les schémas tirés d'un contrat. Contrat déposé : `filename` nomme la
+    version (son radical : `v1.yaml` → `v1`). Contrat d'un dépôt : chemin et
+    `info.version` (`repo_prefix`)."""
     try:
         doc = load_document(raw)
     except OpenApiError as exc:
-        raise ParserError("syntax") from exc
-    version = PurePosixPath(filename).stem
+        raise ParserError("syntax", exc.detail or exc.code) from exc
+    if repository:
+        # Contrat trouvé dans un dépôt : il n'a pas été validé à un dépôt. Une
+        # référence interne vers un objet absent le rend mal formé, comme dans
+        # « Rechercher les contrats » — il est signalé, pas collecté à moitié.
+        try:
+            _check_internal_refs(_schemas(doc))
+        except OpenApiError as exc:
+            raise ParserError("syntax", f"{exc.code}: {exc.detail}") from exc
+    version = _schema_version(filename, doc, repository=repository)
     major = _major(doc)
     schemas = _schemas(doc)
     names = set(schemas)
@@ -334,7 +488,7 @@ def _contract_schemas(filename: str, raw: bytes) -> list[ParsedObject]:
         if not isinstance(body, dict):
             body = {"allOf": [body]}
         body["$id"] = _dest_name(version, name)
-        body["x-source"] = {"fichier": filename, "pointeur": f"{_SCHEMA_REF_PREFIX}{name}"}
+        body["x-source"] = {"file": filename, "pointer": f"{_SCHEMA_REF_PREFIX}{name}"}
         if name in used_by:
             body["x-used-by"] = sorted(used_by[name])
         objects.append(
@@ -348,32 +502,67 @@ def _contract_schemas(filename: str, raw: bytes) -> list[ParsedObject]:
 
 
 class OpenApiParser:
-    """Parseur `openapi` : d'un contrat déposé, tire un schéma par objet de
+    """Parseur `openapi` : d'un contrat, tire un schéma par objet de
     `components/schemas`, converti en JSON Schema 2020-12 et marqué de son origine.
-    Appliqué aux seules sources de type `openapi` (fichiers de `contrats/`)."""
+
+    Deux usages, un seul identifiant (`openapi`) :
+    - source `openapi` : les contrats déposés dans `contrats/` (tous des contrats,
+      validés au dépôt) ;
+    - source Git (`repository=True`, ticket 56be38c6) : choisi dans le manifeste à
+      côté des parseurs de code, il cherche les contrats parmi les YAML / JSON du
+      dépôt, les reconnaît par leur contenu (`claims`) et les identifie par leur
+      chemin et leur version."""
 
     id = OPENAPI_PARSER_ID
     version = OPENAPI_PARSER_VERSION
     label = "Contrats OpenAPI"
     cible = CIBLE_RAW
 
+    def __init__(self, *, repository: bool = False) -> None:
+        self.repository = repository
+
     def globs(self) -> list[str]:
-        return list(_GLOBS)
+        return list(_REPO_GLOBS if self.repository else _GLOBS)
 
     def parameters(self) -> list[PluginParam]:
         return []
 
     def run(self, context: PluginContext) -> PluginResult:
         # Import tardif : évite un cycle base ← collect_core ← openapi.
+        from ossie_studio.parsers.openapi_full import CONTRACTS_INDEX, full_contract_actions
         from ossie_studio.sources.collect_core import schema_plugin_run
 
-        return schema_plugin_run(context, self)
+        result = schema_plugin_run(context, self)
+        # Ticket e79d008f : à côté du découpage, la copie intégrale de chaque
+        # contrat valide (`contrat.full.openapi.yaml`). Hors du moteur
+        # incrémental : le nom d'une copie dépend des autres contrats du dossier.
+        contracts: dict[str, tuple[bytes, dict[str, Any]]] = {}
+        for path, raw in context.contents.items():
+            if not (self.handles(path) and self.claims(path, raw)):
+                continue
+            doc = _valid_contract(path, raw, repository=self.repository)
+            if doc is not None:
+                contracts[path] = (raw, doc)
+        writes, deletes = full_contract_actions(
+            contracts, context.raw.read_index(CONTRACTS_INDEX), repository=self.repository
+        )
+        result.writes.extend(writes)
+        result.deletes.extend(deletes)
+        return result
 
     def handles(self, path: str) -> bool:
-        return matches_globs(_GLOBS, path.lower())
+        return matches_globs(self.globs(), path.lower())
+
+    def claims(self, path: str, content: bytes) -> bool:
+        """Reconnaissance par contenu (voir `claims` du socle). Dans un dépôt,
+        seuls les contrats OpenAPI 3.x sont pris ; les autres YAML / JSON et les
+        Swagger 2.0 restent « ignorés », sans erreur. Un contrat déposé est
+        toujours pris : il a été validé au dépôt, et un fichier devenu illisible
+        doit être signalé."""
+        return not self.repository or sniff_contract(path, content) == CONTRACT_OPENAPI
 
     def parse(self, files: dict[str, bytes]) -> list[ParsedObject]:
         objects: list[ParsedObject] = []
         for filename, raw in sorted(files.items()):
-            objects.extend(_contract_schemas(filename, raw))
+            objects.extend(_contract_schemas(filename, raw, repository=self.repository))
         return objects

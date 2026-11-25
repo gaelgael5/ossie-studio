@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
-
-from ossie_studio.parsers.conventions import validate_schema
+from ossie_studio.parsers.conventions import load_schema, validate_schema
 from ossie_studio.parsers.csharp import CSharpParser
 
 
@@ -10,7 +8,7 @@ def _parse(code: str, path: str = "a.cs") -> dict[str, dict]:
     objects = CSharpParser().parse({path: code.encode("utf-8")})
     out: dict[str, dict] = {}
     for obj in objects:
-        schema = json.loads(obj.schema)
+        schema = load_schema(obj.schema)
         validate_schema(schema)  # critère 6 : tout passe le validateur
         out[obj.key] = schema
     return out
@@ -107,7 +105,7 @@ def test_heritage_allof_sans_aplatir() -> None:
     )
     fille = schemas["app-fille"]
     # allOf + $ref vers le parent (résolu, même source) ; pas d'aplatissement.
-    assert fille["allOf"] == [{"$ref": "app-base.json"}]
+    assert fille["allOf"] == [{"$ref": "app-base.schema.yaml"}]
     assert set(fille["properties"]) == {"Nom"}
 
 
@@ -121,7 +119,7 @@ def test_reference_resolue_vs_externe() -> None:
         " }"
     )
     props = schemas["app-commande"]["properties"]
-    assert props["L"]["$ref"] == "app-ligne.json"
+    assert props["L"]["$ref"] == "app-ligne.schema.yaml"
     assert props["A"]["x-unresolved-type"] == "Autre"
 
 
@@ -176,7 +174,7 @@ def test_classes_partielles_fusionnees() -> None:
     obj = objects[0]
     assert obj.key == "app-foo"
     assert sorted(obj.sources) == ["f1.cs", "f2.cs"]
-    schema = json.loads(obj.schema)
+    schema = load_schema(obj.schema)
     assert set(schema["properties"]) == {"A", "B"}
 
 
@@ -186,4 +184,59 @@ def test_fichier_sans_type_ne_produit_rien() -> None:
 
 
 def test_version_inclut_la_grammaire() -> None:
-    assert CSharpParser().version.startswith("1.0-ts")
+    assert CSharpParser().version.startswith("1.4-ts")
+
+
+def test_namespace_d_origine() -> None:
+    schemas = _parse(
+        "namespace Colis.Api.Models {\n public class Outer { public class Inner {} } }\n"
+        "namespace Colis.Core;\n"
+    )
+    assert schemas["colis-api-models-outer"]["x-namespace"] == "Colis.Api.Models"
+    # Une classe imbriquée garde le namespace, pas la classe englobante.
+    assert schemas["colis-api-models-outer-inner"]["x-namespace"] == "Colis.Api.Models"
+    sans = _parse("public class Libre { public int A { get; set; } }")
+    assert "x-namespace" not in sans["libre"]
+
+
+def test_commentaire_xml_balises_internes_nettoyees() -> None:
+    schemas = _parse(
+        "namespace App;\n"
+        "/// <summary>\n"
+        '/// Voir <see cref="Parcel"/> et <c>Track</c>, <see cref="T:App.Other"/>.\n'
+        '/// <para>Vaut <see langword="null"/> si &lt;vide&gt;.</para>\n'
+        "/// </summary>\n"
+        "/// <remarks>Ignoré.</remarks>\n"
+        "public class C {\n"
+        '  /// <summary>Poids en <b>grammes</b> (<paramref name="x"/>).</summary>\n'
+        "  public int Weight { get; set; }\n"
+        "}\n"
+    )
+    c = schemas["app-c"]
+    assert c["description"] == "Voir Parcel et Track, App.Other. Vaut null si <vide>."
+    assert c["properties"]["Weight"]["description"] == "Poids en grammes (x)."
+
+
+def test_record_positionnel_doc_des_parametres() -> None:
+    schemas = _parse(
+        "namespace App;\n"
+        "/// <summary>Adresse.</summary>\n"
+        '/// <param name="Street">La <c>rue</c>.</param>\n'
+        '/// <param name="City">La ville.</param>\n'
+        "public record Address(string Street, string City, string Zip);\n"
+    )
+    props = schemas["app-address"]["properties"]
+    assert props["Street"]["description"] == "La rue."
+    assert props["City"]["description"] == "La ville."
+    assert "description" not in props["Zip"]
+    assert schemas["app-address"]["description"] == "Adresse."
+
+
+def test_usings_du_fichier_et_du_namespace() -> None:
+    schemas = _parse(
+        "using System;\nusing static System.Math;\nusing Alias = Colis.Other;\n"
+        "using Colis.Shipment;\n"
+        "namespace Colis.Api {\n  using Colis.Model;\n"
+        "  public class C { public int A {get;set;} }\n}\n"
+    )
+    assert schemas["colis-api-c"]["x-usings"] == ["System", "Colis.Shipment", "Colis.Model"]

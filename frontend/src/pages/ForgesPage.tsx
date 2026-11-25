@@ -6,194 +6,10 @@ import type { Connection, ForgeSpec } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
+import { ForgePopup, forgeName } from '../components/ForgePopup'
+import { ConnectionStatus } from '../components/ConnectionStatus'
+import { BusyButton } from '../components/BusyButton'
 import { DatabasesSection } from './DatabasesSection'
-
-function forgeName(t: (k: string) => string, f: string): string {
-  return f === 'github' ? t('githubName') : f === 'gitlab' ? t('gitlabName') : t('azureName')
-}
-
-// Popup dédiée à une forge, construite à partir de sa description de formulaire.
-function ForgePopup({
-  spec,
-  onClose,
-  invalidate,
-  onError,
-}: {
-  spec: ForgeSpec
-  onClose: () => void
-  invalidate: () => Promise<void>
-  onError: (err: unknown) => void
-}) {
-  const { t } = useTranslation()
-  const queryClient = useQueryClient()
-  const [label, setLabel] = useState('')
-  const [url, setUrl] = useState(spec.default_url)
-  const [secretSlug, setSecretSlug] = useState('')
-  const [showNewSecret, setShowNewSecret] = useState(false)
-  const [nsLabel, setNsLabel] = useState('')
-  const [nsSlug, setNsSlug] = useState('')
-  const [nsValue, setNsValue] = useState('')
-
-  const secrets = useQuery({
-    queryKey: ['secrets', spec.secret_category],
-    queryFn: () => api.listSecrets(spec.secret_category),
-  })
-  const forgeSecrets = secrets.data?.secrets ?? []
-
-  const create = useMutation({
-    mutationFn: () =>
-      api.createConnection({ label, forge: spec.forge, url, secret_slug: secretSlug }),
-    onSuccess: async () => {
-      await invalidate()
-      onClose()
-    },
-    onError,
-  })
-  const createSecret = useMutation({
-    mutationFn: () =>
-      api.createSecret({
-        slug: nsSlug.trim(),
-        label: nsLabel,
-        category: spec.secret_category,
-        value: nsValue,
-      }),
-    onSuccess: async () => {
-      setSecretSlug(nsSlug.trim())
-      setShowNewSecret(false)
-      setNsLabel('')
-      setNsSlug('')
-      setNsValue('')
-      await queryClient.invalidateQueries({ queryKey: ['secrets'] })
-    },
-    onError,
-  })
-
-  const scopeRights = (usage: string) => t(`scope_${spec.forge}_${usage}`)
-
-  return (
-    <section
-      role="dialog"
-      aria-label={t('newConnectionFor', { forge: forgeName(t, spec.forge) })}
-      className="panel panel-form stack"
-    >
-      <div className="panel-head">
-        <h3 className="panel-title">{t('newConnectionFor', { forge: forgeName(t, spec.forge) })}</h3>
-        <button type="button" className="btn btn-sm" onClick={onClose}>
-          {t('cancel')}
-        </button>
-      </div>
-      <form
-        className="stack"
-        onSubmit={(e) => {
-          e.preventDefault()
-          create.mutate()
-        }}
-      >
-        <div className="field">
-          <label className="field-label" htmlFor="p-label">
-            {t('colLabel')}
-          </label>
-          <input id="p-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="p-url">
-            {t('urlLabel')}
-          </label>
-          <input
-            id="p-url"
-            className="input"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder={spec.url_required ? t('azureOrgPlaceholder') : ''}
-          />
-        </div>
-        <div className="field">
-          <label className="field-label" htmlFor="p-secret">
-            {t('tokenLabel')}
-          </label>
-          <div className="field-inline">
-            <select id="p-secret" className="select" value={secretSlug} onChange={(e) => setSecretSlug(e.target.value)}>
-              <option value="">{forgeSecrets.length > 0 ? t('chooseSecret') : t('noSecretForForge')}</option>
-              {forgeSecrets.map((s) => (
-                <option key={s.slug} value={s.slug}>
-                  {s.label} ({s.slug})
-                </option>
-              ))}
-            </select>
-            <button type="button" className="btn" onClick={() => setShowNewSecret((v) => !v)}>
-              +
-            </button>
-          </div>
-        </div>
-        {showNewSecret ? (
-          <fieldset className="fieldset">
-            <legend>{t('newSecretTitle')}</legend>
-            <div className="field">
-              <label className="field-label" htmlFor="ns-label">
-                {t('colLabel')}
-              </label>
-              <input id="ns-label" className="input" value={nsLabel} onChange={(e) => setNsLabel(e.target.value)} />
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="ns-slug">
-                {t('slugLabel')}
-              </label>
-              <input id="ns-slug" className="input" value={nsSlug} onChange={(e) => setNsSlug(e.target.value)} />
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="ns-value">
-                {t('valueLabel')}
-              </label>
-              <input
-                id="ns-value"
-                className="input"
-                type="password"
-                value={nsValue}
-                onChange={(e) => setNsValue(e.target.value)}
-              />
-            </div>
-            <div>
-              <button
-                type="button"
-                className="btn"
-                disabled={createSecret.isPending || !nsSlug.trim() || !nsValue}
-                onClick={() => createSecret.mutate()}
-              >
-                {t('createAndSelect')}
-              </button>
-            </div>
-          </fieldset>
-        ) : null}
-        <div>
-          <p className="panel-label">{t('scopesTableTitle')}</p>
-          <table className="table">
-            <thead>
-              <tr>
-                <th>{t('colUsage')}</th>
-                <th>{t('colRights')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>{t('scopeReadUsage')}</td>
-                <td>{scopeRights('read')}</td>
-              </tr>
-              <tr>
-                <td>{t('scopeWriteUsage')}</td>
-                <td>{scopeRights('write')}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div>
-          <button type="submit" className="btn btn-primary" disabled={create.isPending}>
-            {t('verifyAndSave')}
-          </button>
-        </div>
-      </form>
-    </section>
-  )
-}
 
 // Panneau de la connexion sélectionnée : dépôts lisibles et « utilisée par ».
 function ConnectionPanel({ connection }: { connection: Connection }) {
@@ -261,6 +77,7 @@ export function ForgesPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuSearch, setMenuSearch] = useState('')
   const [popupForge, setPopupForge] = useState<ForgeSpec | null>(null)
+  const [editing, setEditing] = useState<Connection | null>(null)
   const [selected, setSelected] = useState('')
   const [deleting, setDeleting] = useState('')
   const [alsoDeleteSecret, setAlsoDeleteSecret] = useState(false)
@@ -294,6 +111,14 @@ export function ForgesPage() {
   )
   const connections = list.data?.connections ?? []
   const selectedConnection = connections.find((c) => c.id === selected)
+  const openEdit = (c: Connection) => {
+    setMessages([])
+    setPopupForge(null)
+    setMenuOpen(false)
+    setSelected(c.id)
+    setEditing(c)
+  }
+  const editingSpec = editing ? forgeSpecs.find((f) => f.forge === editing.forge) : undefined
 
   return (
     <main>
@@ -310,6 +135,7 @@ export function ForgesPage() {
               onClick={() => {
                 setMenuOpen((v) => !v)
                 setPopupForge(null)
+                setEditing(null)
               }}
             >
               {t('addForge')}
@@ -332,6 +158,7 @@ export function ForgesPage() {
                         onClick={() => {
                           setMessages([])
                           setPopupForge(f)
+                          setEditing(null)
                           setMenuOpen(false)
                           setMenuSearch('')
                         }}
@@ -354,6 +181,16 @@ export function ForgesPage() {
             onError={onError}
           />
         ) : null}
+        {editing && editingSpec ? (
+          <ForgePopup
+            key={editing.id}
+            spec={editingSpec}
+            editing={editing}
+            onClose={() => setEditing(null)}
+            invalidate={invalidate}
+            onError={onError}
+          />
+        ) : null}
 
         {connections.length > 0 ? (
           <div className="panel table-wrap">
@@ -371,11 +208,21 @@ export function ForgesPage() {
               </thead>
               <tbody>
                 {connections.map((c) => (
-                  <tr key={c.id}>
+                  // Toute la ligne ouvre la modification (et le panneau des dépôts) ;
+                  // les boutons d'action arrêtent la propagation.
+                  <tr
+                    key={c.id}
+                    className={editing?.id === c.id ? 'row-clickable selected' : 'row-clickable'}
+                    tabIndex={0}
+                    aria-label={t('editConnectionNamed', { label: c.label })}
+                    onClick={() => openEdit(c)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.target === e.currentTarget) openEdit(c)
+                    }}
+                  >
                     <td>
-                      <button type="button" className="btn-link" onClick={() => setSelected(c.id)}>
-                        {c.label}
-                      </button>
+                      <span className="link-like">{c.label}</span>
+                      <div className="mono muted small">{c.slug}</div>
                     </td>
                     <td>{forgeName(t, c.forge)}</td>
                     <td>
@@ -383,20 +230,21 @@ export function ForgesPage() {
                     </td>
                     <td>{c.identity}</td>
                     <td>
-                      {c.last_status === 'valid' ? (
-                        <span className="text-ok">{t('statusValid')}</span>
-                      ) : (
-                        <span className="text-danger">
-                          {t(`errors.${c.last_error_code}`, { defaultValue: t('statusError') })}
-                        </span>
-                      )}
+                      <ConnectionStatus status={c.last_status} errorCode={c.last_error_code} />
                     </td>
                     <td>{formatDate(c.last_checked_at)}</td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <div className="actions">
-                        <button type="button" className="btn btn-sm" onClick={() => test.mutate(c.id)}>
+                        <BusyButton
+                          type="button"
+                          className="btn btn-sm"
+                          busy={test.isPending && test.variables === c.id}
+                          busyText={t('testRunning')}
+                          onClick={() => test.mutate(c.id)}
+                        >
                           {t('test')}
-                        </button>
+                        </BusyButton>
+
                         {deleting === c.id ? (
                           <div className="stack stack-tight">
                             {c.secret_used_by_others > 0 ? (

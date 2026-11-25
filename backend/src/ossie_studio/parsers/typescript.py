@@ -26,7 +26,7 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import dump_schema, schema_file
 from ossie_studio.parsers.treesitter import grammar_version, node_text
 from ossie_studio.parsers.treesitter import parse as ts_parse
 
@@ -115,6 +115,7 @@ class _Decl:
     decorators: list[dict[str, Any]]
     enum_values: list[Any] = field(default_factory=list)
     alias_ref: _TypeRef | None = None  # alias de type non objet (résolution inline)
+    namespace: str = ""
 
 
 # --- Navigation --------------------------------------------------------------
@@ -563,7 +564,7 @@ def _core_schema(ref: _TypeRef, res: _Resolver, *, depth: int) -> tuple[dict[str
     if name in res.aliases:
         return _ref_schema(res.aliases[name], res, depth=depth + 1)
     if name in res.known:
-        return {"$ref": f"{_slug(res.known[name])}.json"}, False, False
+        return {"$ref": schema_file(_slug(res.known[name]))}, False, False
     return {"x-unresolved-type": name}, False, False
 
 
@@ -621,12 +622,16 @@ def _prop_schema(prop: _Prop, res: _Resolver, *, depth: int = 0) -> tuple[dict[s
 
 def _build_schema(decl: _Decl, res: _Resolver) -> dict[str, Any]:
     schema: dict[str, Any] = {
-        "$id": f"{_slug(decl.qualified)}.json",
+        "$id": schema_file(_slug(decl.qualified)),
         "title": decl.name,
         "x-language": "typescript",
         "x-kind": decl.kind,
         "x-visibility": decl.visibility,
     }
+    # Espace de noms d'origine (namespace C#, paquet Java/Kotlin, module TS/Python),
+    # affiché tel quel par l'explorateur raw : le `$id`, slugifié, ne le rend pas.
+    if decl.namespace:
+        schema["x-namespace"] = decl.namespace
     if decl.doc:
         schema["description"] = decl.doc
     if decl.decorators:
@@ -654,7 +659,7 @@ def _build_schema(decl: _Decl, res: _Resolver) -> dict[str, Any]:
         schema["required"] = sorted(required)
     if decl.bases:
         schema["allOf"] = [
-            {"$ref": f"{_slug(res.known[b])}.json"} if b in res.known
+            {"$ref": schema_file(_slug(res.known[b]))} if b in res.known
             else {"x-unresolved-type": b}
             for b in decl.bases
         ]
@@ -671,7 +676,7 @@ class TypeScriptParser:
     id = "typescript"
     cible = CIBLE_RAW
     label = "TypeScript"
-    version = f"1.0-ts{grammar_version('typescript')}"
+    version = f"1.1-ts{grammar_version('typescript')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)
@@ -702,6 +707,7 @@ class TypeScriptParser:
             for decl in _extract_file(raw, tree.root_node):
                 qualified = f"{module}.{decl.qualified}" if module else decl.qualified
                 decl.qualified = qualified
+                decl.namespace = module
                 if qualified not in seen:
                     seen.add(qualified)
                     decls.append(decl)

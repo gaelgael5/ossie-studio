@@ -2,18 +2,30 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 
-export type GovernanceTab = 'tags' | 'certifications' | 'classifications' | 'invalid'
+export type GovernanceTab =
+  | 'tags'
+  | 'tagRules'
+  | 'certifications'
+  | 'classifications'
+  | 'classificationRules'
+  | 'relationProfiles'
+  | 'invalid'
 
 const TABS: { id: GovernanceTab; to: string; key: string }[] = [
   { id: 'tags', to: '/governance/tags', key: 'tabTags' },
+  { id: 'tagRules', to: '/governance/tag-rules', key: 'tabTagRules' },
   { id: 'certifications', to: '/governance/certifications', key: 'tabCertifications' },
   { id: 'classifications', to: '/governance/classifications', key: 'tabClassifications' },
+  // Ticket cfc33d51 : juste après les schémas qu'elles utilisent.
+  { id: 'classificationRules', to: '/governance/classification-rules', key: 'tabClassificationRules' },
+  // Ticket b5f333b4 : conventions de nommage des sources SQL.
+  { id: 'relationProfiles', to: '/governance/relation-profiles', key: 'tabRelationProfiles' },
   { id: 'invalid', to: '/governance/invalid-values', key: 'tabInvalidValues' },
 ]
 
 /**
  * Cadre partagé par les pages Gouvernance : fil d'Ariane, titre, sous-titre
- * propre à l'onglet, actions à droite, et la barre des quatre onglets.
+ * propre à l'onglet, actions à droite, et la barre des onglets.
  */
 export function GovernanceFrame({
   active,

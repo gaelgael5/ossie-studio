@@ -18,6 +18,27 @@ class ForgeIdentity:
 
 
 @dataclass(frozen=True)
+class WriteCheck:
+    """Résultat du test d'un jeton personnel sur un dépôt : à quel compte il
+    appartient, et s'il peut pousser. `can_write` None = non vérifiable sur
+    cette forge (affiché tel quel, jamais deviné)."""
+
+    login: str
+    can_write: bool | None
+
+
+def repo_path(base_url: str, repo_url: str) -> str:
+    """Chemin d'un dépôt (`owner/repo`, `groupe/sous/projet`) à partir de son URL
+    de clone et de l'URL de la forge."""
+    path = repo_url.strip().rstrip("/")
+    base = base_url.strip().rstrip("/")
+    if path.startswith(base):
+        path = path[len(base) :]
+    path = path.strip("/")
+    return path.removesuffix(".git")
+
+
+@dataclass(frozen=True)
 class ForgeRepo:
     full_name: str
     url: str
@@ -69,6 +90,20 @@ class ForgeStrategy(Protocol):
     ) -> list[str]:
         """Liste les noms des branches d'un dépôt (identifié par son full_name).
         Sert à proposer la « branche suivie » d'une source Git."""
+        ...
+
+    async def default_branch(
+        self, client: httpx.AsyncClient, url: str, token: str, repo: str
+    ) -> str | None:
+        """Branche par défaut déclarée par la forge pour ce dépôt, ou None si elle
+        est inconnue ou illisible (l'appelant se rabat alors sur main / root)."""
+        ...
+
+    async def verify_write(
+        self, client: httpx.AsyncClient, url: str, repo: str, token: str
+    ) -> WriteCheck:
+        """Identité du jeton et droit d'écriture sur le dépôt `repo` (chemin), ou
+        ForgeError si le jeton est refusé ou la forge injoignable."""
         ...
 
     def git_username(self) -> str:

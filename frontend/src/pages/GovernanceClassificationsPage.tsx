@@ -6,6 +6,7 @@ import type { ClassificationLevel, ClassificationScheme, LevelInput } from '../a
 import { CLASSIFICATION_PRESETS, presetToScheme } from '../governancePresets'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { GovernanceFrame } from '../components/GovernanceFrame'
 
 const EMPTY_LEVEL: LevelInput = {
@@ -270,7 +271,8 @@ function NewSchemeForm({
   setMessages: (m: string[]) => void
 }) {
   const { t } = useTranslation()
-  const [name, setName] = useState('')
+  // Nom puis identifiant du schéma (son slug), déduit du nom et corrigeable.
+  const pair = useLabelSlug()
   const [description, setDescription] = useState('')
   const [badgePrefix, setBadgePrefix] = useState('')
   const [multiValue, setMultiValue] = useState(false)
@@ -278,7 +280,8 @@ function NewSchemeForm({
   const create = useMutation({
     mutationFn: () =>
       api.createScheme({
-        name,
+        id: pair.finalSlug,
+        name: pair.label,
         description,
         badge_prefix: badgePrefix,
         multi_value: multiValue,
@@ -299,12 +302,7 @@ function NewSchemeForm({
         }}
       >
         <div className="form-grid">
-          <div className="field">
-            <label className="field-label" htmlFor="s-name">
-              {t('schemeNameLabel')}
-            </label>
-            <input id="s-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
+          <LabelSlugFields idPrefix="s" state={pair} labelText={t('schemeNameLabel')} slugText={t('schemeIdLabel')} />
           <div className="field">
             <label className="field-label" htmlFor="s-prefix">
               {t('badgePrefixLabel')}
@@ -570,7 +568,9 @@ function SchemeDetail({
                       <button type="button" className="btn btn-sm" onClick={() => startEditLevel(lv)}>
                         {t('editTag')}
                       </button>
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => removeLevel.mutate(lv.id)}>
+                      <button type="button" className="btn btn-sm btn-danger" onClick={() => {
+                          if (window.confirm(t('deleteLevelConfirm', { name: lv.name }))) removeLevel.mutate(lv.id)
+                        }}>
                         {t('delete')}
                       </button>
                     </div>

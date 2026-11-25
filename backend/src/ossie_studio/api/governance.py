@@ -1,40 +1,41 @@
+"""Tags gouvernés et certifications d'un espace, dans son dépôt (par branche).
+Lectures : la branche vue par la personne ; écritures : son brouillon."""
+
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
-from ossie_studio.api.common import GovernanceRead, require_capability
+from ossie_studio.api.common import GovernanceRead, GovernanceWrite
+from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep, gov_ctx
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
-from ossie_studio.governance.certifications import PRESETS, validate_certification
-from ossie_studio.governance.service import (
-    CertificationNotFoundError,
-    CertificationTagTakenError,
-    TagIdTakenError,
-    TagNotFoundError,
-    db_create_certification,
-    db_create_certification_presets,
-    db_create_tag,
-    db_delete_certification,
-    db_delete_tag,
-    db_list_certifications,
-    db_list_tags,
-    db_update_certification,
-    db_update_tag,
-    db_upsert_tag,
+from ossie_studio.governance import actions
+from ossie_studio.governance.certifications import PRESETS
+from ossie_studio.governance.repo import (
+    Cert,
+    Tag,
+    new_id,
+    read_certs,
+    read_tags,
+    write_cert,
+    write_tag,
 )
-from ossie_studio.governance.tags import normalize_tag_id, validate_tag_fields
+from ossie_studio.governance.tag_rules import rule_tag_sources
+from ossie_studio.governance.tags import normalize_tag_id
 from ossie_studio.governance.yaml_io import TagImportError, export_tags_yaml, parse_tags_yaml
-from ossie_studio.models import Certification, GovernedTag
+from ossie_studio.slugs import slugify
 
 log = structlog.get_logger(__name__)
 
-router = APIRouter(prefix="/api/governance/tags")
-certifications_router = APIRouter(prefix="/api/governance/certifications")
+_BASE = "/api/spaces/{space_id}/branches/{branch_id}/governance"
+router = APIRouter(prefix=f"{_BASE}/tags")
+certifications_router = APIRouter(prefix=f"{_BASE}/certifications")
 
 
 class TagCreate(BaseModel):
@@ -59,97 +60,146 @@ class ImportBody(BaseModel):
     yaml: str = ""
 
 
-def _payload(tag: GovernedTag) -> dict[str, object]:
+def _payload(tag: Tag) -> dict[str, object]:
     return {
         "id": tag.id,
         "owner": tag.owner,
         "description": tag.description,
         "links": tag.links,
         "properties": tag.properties,
-        "created_at": tag.created_at.isoformat(),
-        "updated_at": tag.updated_at.isoformat(),
     }
 
 
 @router.get("")
-async def list_tags(conn: ConnDep, _: GovernanceRead) -> dict[str, object]:
-    tags = await db_list_tags(conn)
-    return {"tags": [_payload(t) for t in tags]}
+async def list_tags(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: GovernanceRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    tags, sources = await ctx.read(lambda root: (read_tags(root), rule_tag_sources(root)))
+    known = {t.id for t in tags}
+    # Tags posés par les règles actives sans être enregistrés (bug 44931826) :
+    # montrés avec leurs règles ; « stored » faux tant qu'on ne les a pas modifiés.
+    rows = [{**_payload(t), "stored": True, "rules": sources.get(t.id, [])} for t in tags]
+    rows += [
+        {**_payload(Tag(tag_id)), "stored": False, "rules": names}
+        for tag_id, names in sorted(sources.items())
+        if tag_id not in known
+    ]
+    rows.sort(key=lambda r: str(r["id"]))
+    return {"tags": rows}
 
 
 @router.post("", status_code=201)
-async def create_tag(request: Request, conn: ConnDep, body: TagCreate) -> dict[str, object]:
-    user = await require_capability("governance:write")(request, conn)
-    tag_id = normalize_tag_id(body.id)
-    errors = validate_tag_fields(tag_id, body.links, body.properties)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    try:
-        tag = await db_create_tag(
-            conn, tag_id, body.owner.strip(), body.description.strip(),
-            body.links, dict(body.properties),
-        )
-    except TagIdTakenError:
-        raise ApiError("tag_id_taken", status_code=409, tag_id=tag_id) from None
-    log.info("governed_tag_created", tag_id=tag_id, author=user.email)
+async def create_tag(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: TagCreate,
+) -> dict[str, object]:
+    values = body.model_dump(exclude={"id"})
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    tag = await ctx.write(
+        user.email,
+        f"tag {normalize_tag_id(body.id)}",
+        lambda root: actions.create_tag(root, body.id, values),
+    )
+    log.info("governed_tag_created", tag_id=tag.id)
     return _payload(tag)
 
 
 @router.get("/export")
-async def export_tags(conn: ConnDep, _: GovernanceRead) -> dict[str, str]:
-    tags = await db_list_tags(conn)
-    return {"yaml": export_tags_yaml(tags)}
+async def export_tags(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: GovernanceRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, str]:
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    return {"yaml": export_tags_yaml(await ctx.read(read_tags))}
 
 
 @router.post("/import")
-async def import_tags(request: Request, conn: ConnDep, body: ImportBody) -> dict[str, int]:
-    user = await require_capability("governance:write")(request, conn)
+async def import_tags(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: ImportBody,
+) -> dict[str, int]:
     try:
         parsed = parse_tags_yaml(body.yaml)
     except TagImportError as exc:
         raise ApiError("tag_import_invalid", status_code=400, detail=str(exc)) from None
-    async with conn.transaction():
-        for tag in parsed:
-            await db_upsert_tag(conn, tag.id, tag.owner, tag.description, tag.links, tag.properties)
-    log.info("governed_tags_imported", count=len(parsed), author=user.email)
+
+    def write(root: Path) -> None:
+        for p in parsed:
+            write_tag(root, Tag(p.id, p.owner, p.description, p.links, p.properties))
+
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    await ctx.write(user.email, f"import de {len(parsed)} tag(s)", write)
     return {"imported": len(parsed)}
 
 
 @router.put("/{tag_id:path}")
 async def update_tag(
-    request: Request, conn: ConnDep, tag_id: str, body: TagUpdate
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    tag_id: str,
+    body: TagUpdate,
 ) -> dict[str, object]:
-    user = await require_capability("governance:write")(request, conn)
-    normalized = normalize_tag_id(tag_id)
-    errors = validate_tag_fields(normalized, body.links, body.properties)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    try:
-        tag = await db_update_tag(
-            conn, normalized, body.owner.strip(), body.description.strip(),
-            body.links, dict(body.properties),
-        )
-    except TagNotFoundError:
-        raise ApiError("tag_not_found", status_code=404, tag_id=normalized) from None
-    log.info("governed_tag_updated", tag_id=normalized, author=user.email)
+    # L'écran remplace le tag : il donne tous les champs.
+    changes = body.model_dump()
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    tag = await ctx.write(
+        user.email,
+        f"tag {normalize_tag_id(tag_id)}",
+        lambda root: actions.update_tag(root, tag_id, changes, frozenset(rule_tag_sources(root))),
+    )
     return _payload(tag)
 
 
 @router.delete("/{tag_id:path}", status_code=204)
-async def delete_tag(request: Request, conn: ConnDep, tag_id: str) -> None:
-    user = await require_capability("governance:write")(request, conn)
-    normalized = normalize_tag_id(tag_id)
-    # Le refus « tag utilisé par des assets » (critère 6) arrivera avec les
-    # assets (epic Curation) ; sans assets, aucun usage ne bloque encore.
-    deleted = await db_delete_tag(conn, normalized)
-    if not deleted:
-        raise ApiError("tag_not_found", status_code=404, tag_id=normalized)
-    log.info("governed_tag_deleted", tag_id=normalized, author=user.email)
+async def remove_tag(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    tag_id: str,
+) -> None:
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    await ctx.write(
+        user.email,
+        f"supprime le tag {normalize_tag_id(tag_id)}",
+        lambda root: actions.delete_tag(root, tag_id),
+    )
+
+
+# --- Certifications ---------------------------------------------------------------
 
 
 class CertificationBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = ""
+    # À la création seulement (déduit du nom par l'écran, modifiable) ; figé ensuite.
+    slug: str = ""
     rank: int = 1
     description: str = ""
     criteria: str = ""
@@ -158,9 +208,10 @@ class CertificationBody(BaseModel):
     restricted: bool = False
 
 
-def _cert_payload(cert: Certification) -> dict[str, object]:
+def _cert_payload(cert: Cert) -> dict[str, object]:
     return {
-        "id": str(cert.id),
+        "id": cert.id,
+        "slug": cert.slug,
         "name": cert.name,
         "rank": cert.rank,
         "description": cert.description,
@@ -168,74 +219,113 @@ def _cert_payload(cert: Certification) -> dict[str, object]:
         "tag": cert.tag,
         "icon": cert.icon,
         "restricted": cert.restricted,
-        "created_at": cert.created_at.isoformat(),
-        "updated_at": cert.updated_at.isoformat(),
     }
 
 
 @certifications_router.get("")
-async def list_certifications(conn: ConnDep, _: GovernanceRead) -> dict[str, object]:
-    certs = await db_list_certifications(conn)
-    return {"certifications": [_cert_payload(c) for c in certs]}
+async def list_certifications(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    _: GovernanceRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    return {"certifications": [_cert_payload(c) for c in await ctx.read(read_certs)]}
 
 
 @certifications_router.post("", status_code=201)
 async def create_certification(
-    request: Request, conn: ConnDep, body: CertificationBody
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    body: CertificationBody,
 ) -> dict[str, object]:
-    user = await require_capability("governance:write")(request, conn)
-    tag = normalize_tag_id(body.tag)
-    errors = validate_certification(body.name, body.rank, tag)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    try:
-        cert = await db_create_certification(
-            conn, body.name.strip(), body.rank, body.description.strip(),
-            body.criteria, tag, body.icon.strip(), body.restricted,
-        )
-    except CertificationTagTakenError:
-        raise ApiError("certification_tag_taken", status_code=409, tag=tag) from None
-    log.info("certification_created", cert_id=str(cert.id), tag=tag, author=user.email)
+    values = body.model_dump(exclude={"slug"})
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    cert = await ctx.write(
+        user.email,
+        f"certification {body.name.strip()}",
+        lambda root: actions.create_certification(root, values, body.slug),
+    )
     return _cert_payload(cert)
 
 
 @certifications_router.post("/presets")
-async def create_presets(request: Request, conn: ConnDep) -> dict[str, object]:
-    user = await require_capability("governance:write")(request, conn)
-    await db_create_certification_presets(conn, PRESETS)
-    log.info("certification_presets_created", author=user.email)
-    certs = await db_list_certifications(conn)
-    return {"certifications": [_cert_payload(c) for c in certs]}
+async def create_presets(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    def write(root: Path) -> None:
+        existing = read_certs(root)
+        taken = {c.tag for c in existing}
+        slugs = {c.slug for c in existing}
+        for preset in PRESETS:
+            if str(preset["tag"]) in taken or slugify(str(preset["name"])) in slugs:
+                continue
+            write_cert(
+                root,
+                Cert(
+                    new_id(),
+                    str(preset["name"]),
+                    int(str(preset["rank"])),
+                    str(preset.get("description", "")),
+                    str(preset.get("criteria", "")),
+                    str(preset["tag"]),
+                    str(preset.get("icon", "")),
+                    bool(preset.get("restricted", False)),
+                    slugify(str(preset["name"])),
+                ),
+            )
+
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    await ctx.write(user.email, "certifications prédéfinies", write)
+    return {"certifications": [_cert_payload(c) for c in await ctx.read(read_certs)]}
 
 
 @certifications_router.put("/{cert_id}")
 async def update_certification(
-    request: Request, conn: ConnDep, cert_id: uuid.UUID, body: CertificationBody
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    cert_id: str,
+    body: CertificationBody,
 ) -> dict[str, object]:
-    user = await require_capability("governance:write")(request, conn)
-    tag = normalize_tag_id(body.tag)
-    errors = validate_certification(body.name, body.rank, tag)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
-    try:
-        cert = await db_update_certification(
-            conn, cert_id, body.name.strip(), body.rank, body.description.strip(),
-            body.criteria, tag, body.icon.strip(), body.restricted,
-        )
-    except CertificationTagTakenError:
-        raise ApiError("certification_tag_taken", status_code=409, tag=tag) from None
-    except CertificationNotFoundError:
-        raise ApiError("certification_not_found", status_code=404) from None
-    log.info("certification_updated", cert_id=str(cert_id), author=user.email)
+    # L'écran remplace la certification (tous les champs) ; le slug reste figé.
+    changes = body.model_dump(exclude={"slug"})
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    cert = await ctx.write(
+        user.email,
+        f"certification {body.name.strip()}",
+        lambda root: actions.update_certification(root, cert_id, changes),
+    )
     return _cert_payload(cert)
 
 
 @certifications_router.delete("/{cert_id}", status_code=204)
-async def delete_certification(request: Request, conn: ConnDep, cert_id: uuid.UUID) -> None:
-    user = await require_capability("governance:write")(request, conn)
-    # Le refus « certification assignée à des assets » (critère 5) arrivera avec
-    # les assets (epic Curation) ; sans assets, aucune assignation ne bloque.
-    deleted = await db_delete_certification(conn, cert_id)
-    if not deleted:
-        raise ApiError("certification_not_found", status_code=404)
-    log.info("certification_deleted", cert_id=str(cert_id), author=user.email)
+async def remove_certification(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: GovernanceWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    cert_id: str,
+) -> None:
+    ctx = await gov_ctx(conn, crypto, workdir, space_id, branch_id)
+    await ctx.write(
+        user.email,
+        "supprime une certification",
+        lambda root: actions.delete_certification(root, cert_id),
+    )

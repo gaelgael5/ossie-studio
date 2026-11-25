@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
 
+from ossie_studio.parsers.application import extend_file, is_extend_name, validate_functions
 from ossie_studio.parsers.base import (
     STATUT_ERREUR,
     STATUT_INCHANGE,
@@ -17,10 +17,20 @@ from ossie_studio.parsers.base import (
     PluginContext,
     PluginError,
     PluginResult,
+    claims,
 )
-from ossie_studio.parsers.conventions import ConventionError, validate_schema
+from ossie_studio.parsers.conventions import (
+    ConventionError,
+    SchemaReadError,
+    is_schema_name,
+    load_schema,
+    schema_file,
+    validate_schema,
+)
 
-TECH_MANIFEST_VERSION = 1
+# Version 2 : clés en anglais. La version 1 (clés françaises : parseurs, entrees,
+# branche, parseur) se relit en repli ; on réécrit toujours en version 2.
+TECH_MANIFEST_VERSION = 2
 RAW_DIR = "raw"
 TECH_MANIFEST_NAME = "manifest.yaml"
 
@@ -33,8 +43,8 @@ def checksum(data: bytes) -> str:
 class TechEntry:
     checksum: str
     destinations: list[str]
-    branche: str
-    parseur: str
+    branch: str
+    parser: str
 
 
 @dataclass
@@ -42,20 +52,20 @@ class TechManifest:
     """Le manifeste technique de `raw/` : versions des parseurs + une entrée par
     fichier original lu."""
 
-    parseurs: dict[str, str] = field(default_factory=dict)
+    parsers: dict[str, str] = field(default_factory=dict)
     entries: dict[str, TechEntry] = field(default_factory=dict)
 
     def to_mapping(self) -> dict[str, Any]:
         return {
             "version": TECH_MANIFEST_VERSION,
-            "parseurs": dict(sorted(self.parseurs.items())),
-            "entrees": [
+            "parsers": dict(sorted(self.parsers.items())),
+            "entries": [
                 {
                     "source": source,
                     "checksum": e.checksum,
                     "destination": list(e.destinations),
-                    "branche": e.branche,
-                    "parseur": e.parseur,
+                    "branch": e.branch,
+                    "parser": e.parser,
                 }
                 for source, e in sorted(self.entries.items())
             ],
@@ -64,16 +74,18 @@ class TechManifest:
 
 def parse_tech_manifest(text: str) -> TechManifest:
     data = yaml.safe_load(text) or {}
-    parseurs = dict(data.get("parseurs") or {})
+    # Repli sur les clés françaises de la version 1 : un `raw/` déjà collecté reste
+    # lisible, et la collecte suivante le réécrit en anglais.
+    parsers = dict(data.get("parsers") or data.get("parseurs") or {})
     entries: dict[str, TechEntry] = {}
-    for row in data.get("entrees") or []:
+    for row in data.get("entries") or data.get("entrees") or []:
         entries[str(row["source"])] = TechEntry(
             checksum=str(row.get("checksum", "")),
             destinations=[str(d) for d in (row.get("destination") or [])],
-            branche=str(row.get("branche", "")),
-            parseur=str(row.get("parseur", "")),
+            branch=str(row.get("branch", row.get("branche", ""))),
+            parser=str(row.get("parser", row.get("parseur", ""))),
         )
-    return TechManifest(parseurs=parseurs, entries=entries)
+    return TechManifest(parsers=parsers, entries=entries)
 
 
 def dump_tech_manifest(manifest: TechManifest) -> str:
@@ -86,6 +98,7 @@ def dump_tech_manifest(manifest: TechManifest) -> str:
 class CollectError:
     source: str
     cause: str
+    detail: str = ""
 
 
 @dataclass
@@ -107,7 +120,7 @@ class CollectionPlan:
 
 
 def _destination_name(key: str) -> str:
-    return f"{key}.json"
+    return schema_file(key)
 
 
 def run_collection(
@@ -116,20 +129,20 @@ def run_collection(
     previous: TechManifest,
     existing_schemas: dict[str, str],
     *,
-    branche: str = "",
+    branch: str = "",
     force: bool = False,
 ) -> CollectionPlan:
     """Cœur pur de la collecte. `source_files` : fichiers originaux présents
     (chemin → contenu) ; `existing_schemas` : schémas déjà dans `raw/`
     (chemin relatif → contenu). Ne touche à aucun disque : rend un plan."""
     versions = {p.id: p.version for p in parsers}
-    version_changed = {pid for pid, ver in versions.items() if previous.parseurs.get(pid) != ver}
+    version_changed = {pid for pid, ver in versions.items() if previous.parsers.get(pid) != ver}
 
     # Fichiers pris en charge et leur parseur (le premier qui les reconnaît).
     handled: dict[str, Parser] = {}
     for path in source_files:
         for parser in parsers:
-            if parser.handles(path):
+            if parser.handles(path) and claims(parser, path, source_files[path]):
                 handled[path] = parser
                 break
 
@@ -141,7 +154,7 @@ def run_collection(
         old = previous.entries.get(path)
         if old is None or old.checksum != checks[path]:
             return True
-        return old.parseur in version_changed
+        return old.parser in version_changed
 
     dirty = {path for path in handled if is_dirty(path)}
     deleted_sources = [s for s in previous.entries if s not in handled]
@@ -180,7 +193,7 @@ def run_collection(
         groups.append(group)
         seen |= group
 
-    plan = CollectionPlan(writes={}, deletes=[], manifest=TechManifest(parseurs=versions))
+    plan = CollectionPlan(writes={}, deletes=[], manifest=TechManifest(parsers=versions))
     plan.retained = len(handled)
     # On repart des entrées inchangées (sources non régénérées, toujours présentes).
     regenerated: set[str] = set(s for g in groups for s in g)
@@ -201,22 +214,28 @@ def run_collection(
             objects = parser.parse(files)
         except ParserError as exc:
             for source in sorted(group):
-                plan.errors.append(CollectError(source=source, cause=exc.code))
+                plan.errors.append(CollectError(source=source, cause=exc.code, detail=exc.detail))
                 plan.statuses[source] = STATUT_ERREUR
             continue
         # Validateur partagé des conventions : un schéma non conforme fait échouer
         # la lecture du fichier concerné ; il n'est jamais écrit.
         try:
             for obj in objects:
-                validate_schema(json.loads(obj.schema))
+                validate_schema(load_schema(obj.schema))
+                if obj.extend is not None:
+                    validate_functions(load_schema(obj.extend))
         except ConventionError as exc:
             for source in sorted(group):
-                plan.errors.append(CollectError(source=source, cause=f"convention:{exc.rule}"))
+                plan.errors.append(
+                    CollectError(source=source, cause=f"convention:{exc.rule}", detail=exc.detail)
+                )
                 plan.statuses[source] = STATUT_ERREUR
             continue
-        except json.JSONDecodeError:
+        except SchemaReadError as exc:
             for source in sorted(group):
-                plan.errors.append(CollectError(source=source, cause="convention:not_json"))
+                plan.errors.append(
+                    CollectError(source=source, cause="convention:unreadable", detail=str(exc))
+                )
                 plan.statuses[source] = STATUT_ERREUR
             continue
         by_source: dict[str, list[str]] = {s: [] for s in group}
@@ -224,19 +243,31 @@ def run_collection(
             dest = _destination_name(obj.key)
             produced_dest.add(dest)
             plan.writes[dest] = obj.schema
+            outputs = [dest]
+            # Les fonctions de l'objet (cartographie applicative) : une sortie de
+            # plus, suivie comme le schéma (supprimée avec lui, ou seule si
+            # l'objet n'a plus de fonction).
+            if obj.extend is not None:
+                functions = extend_file(obj.key)
+                produced_dest.add(functions)
+                plan.writes[functions] = obj.extend
+                outputs.append(functions)
             for s in obj.sources:
-                by_source.setdefault(s, []).append(dest)
+                by_source.setdefault(s, []).extend(outputs)
         for source in sorted(group):
             plan.manifest.entries[source] = TechEntry(
                 checksum=checks[source],
                 destinations=sorted(set(by_source.get(source, []))),
-                branche=branche,
-                parseur=parser.id,
+                branch=branch,
+                parser=parser.id,
             )
             plan.statuses[source] = STATUT_TRAITE
 
-    # Comptage ajouts / modifications sur les destinations produites.
+    # Comptage ajouts / modifications sur les destinations produites (les objets :
+    # un `.extend.yaml` accompagne son schéma, il ne compte pas à part).
     for dest, content in plan.writes.items():
+        if not is_schema_name(dest):
+            continue
         before = old_dest_content.get(dest)
         if before is None:
             plan.added += 1
@@ -246,19 +277,24 @@ def run_collection(
             # Régénéré à l'identique (sortie déterministe) : rien à signaler.
             pass
 
-    # Destinations des sources disparues : supprimées si plus aucune source
-    # présente ne les produit.
+    # Destinations des sources disparues, et celles qu'une source relue ne produit
+    # plus (un objet retiré du fichier, une classe qui n'a plus de méthode) :
+    # supprimées si plus aucune source présente ne les produit.
     dead_dests: set[str] = set()
     for source in deleted_sources:
         for dest in previous.entries[source].destinations:
             dead_dests.add(dest)
+    for source in regenerated:
+        old_entry = previous.entries.get(source)
+        new_entry = plan.manifest.entries.get(source)
+        if old_entry is not None and new_entry is not None:
+            dead_dests |= set(old_entry.destinations) - set(new_entry.destinations)
     for dest in sorted(dead_dests):
-        still_used = any(
-            dest in e.destinations for s, e in plan.manifest.entries.items()
-        )
-        if not still_used and dest in existing_schemas:
+        still_used = any(dest in e.destinations for s, e in plan.manifest.entries.items())
+        if not still_used and dest in existing_schemas and dest not in produced_dest:
             plan.deletes.append(dest)
-            plan.deleted += 1
+            if is_schema_name(dest):
+                plan.deleted += 1
 
     return plan
 
@@ -274,7 +310,7 @@ def schema_plugin_run(
     context: PluginContext, parser: Parser, *, index_name: str = ""
 ) -> PluginResult:
     """Adapte le moteur incrémental de schémas au contrat de plugin : lit l'index
-    du plugin et ses sorties `.json` dans `raw/`, applique `run_collection`, et
+    du plugin et ses sorties `.schema.yaml` dans `raw/`, applique `run_collection`, et
     rend des actions d'écriture (dont l'index régénéré). Les plugins de schémas
     (démo, OpenAPI, C#…) délèguent ici ; chacun garde **son** fichier d'index."""
     index_name = index_name or schema_index_name(parser.id)
@@ -283,14 +319,14 @@ def schema_plugin_run(
     existing = {
         path: content
         for path, content in context.raw.list_outputs().items()
-        if path.endswith(".json") and "/" not in path
+        if is_schema_name(path) or is_extend_name(path)
     }
     plan = run_collection(
         context.contents,
         (parser,),
         previous,
         existing,
-        branche=context.branche,
+        branch=context.branch,
         force=context.force,
     )
     writes = [OutputAction(path=dest, content=content) for dest, content in plan.writes.items()]
@@ -299,7 +335,7 @@ def schema_plugin_run(
         writes=writes,
         deletes=list(plan.deletes),
         statuses=dict(plan.statuses),
-        errors=[PluginError(source=e.source, cause=e.cause) for e in plan.errors],
+        errors=[PluginError(source=e.source, cause=e.cause, detail=e.detail) for e in plan.errors],
         added=plan.added,
         modified=plan.modified,
         deleted=plan.deleted,

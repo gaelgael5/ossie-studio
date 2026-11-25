@@ -5,7 +5,10 @@ import { api } from '../apiClient'
 import type { OidcConnectorItem, ProfileItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
+import { CopyButton } from '../components/CopyButton'
 
 function ConnectorMappings({
   connector,
@@ -115,7 +118,9 @@ function ConnectorMappings({
                       <button
                         type="button"
                         className="btn btn-sm btn-danger"
-                        onClick={() => removeMapping.mutate(m.id)}
+                        onClick={() => {
+                          if (window.confirm(t('deleteMappingConfirm', { role: m.role_value }))) removeMapping.mutate(m.id)
+                        }}
                       >
                         {t('delete')}
                       </button>
@@ -174,6 +179,86 @@ function ConnectorMappings({
 
       <p className="muted">{t('roleMappingOrderHint')}</p>
       <p className="muted">{t('roleMappingPinnedHint', { count: pinnedCount })}</p>
+    </section>
+  )
+}
+
+// Orientation à la connexion (ticket 145b1414) : les emails de ces domaines sont
+// envoyés vers ce connecteur, et la phrase s'affiche sur l'écran de connexion.
+// Gael : « pour Pickup je mettrais "@pickup-services.com" et en phrase je
+// mettrais « Continuez avec Pickup » ».
+const showDomains = (domains: string[]) => domains.map((d) => `@${d}`).join(', ')
+
+function ConnectorLoginRouting({
+  connector,
+  invalidate,
+  onError,
+}: {
+  connector: OidcConnectorItem
+  invalidate: () => void
+  onError: (err: unknown) => void
+}) {
+  const { t } = useTranslation()
+  const [domains, setDomains] = useState(showDomains(connector.email_domains))
+  const [prompt, setPrompt] = useState(connector.login_prompt)
+  const [saved, setSaved] = useState(false)
+
+  const save = useMutation({
+    mutationFn: () => api.setLoginRouting(connector.id, domains, prompt),
+    onMutate: () => setSaved(false),
+    onSuccess: (r) => {
+      setDomains(showDomains(r.email_domains))
+      setPrompt(r.login_prompt)
+      setSaved(true)
+      invalidate()
+    },
+    onError,
+  })
+
+  return (
+    <section className="panel stack">
+      <h3 className="panel-title">{`${t('loginRoutingTitle')} — ${connector.label}`}</h3>
+      <p className="muted measure">{t('loginRoutingHint')}</p>
+      <form
+        className="stack measure"
+        onSubmit={(e) => {
+          e.preventDefault()
+          save.mutate()
+        }}
+      >
+        <div className="field">
+          <label className="field-label" htmlFor={`domains-${connector.id}`}>
+            {t('emailDomainsLabel')}
+          </label>
+          <input
+            id={`domains-${connector.id}`}
+            className="input"
+            placeholder="@pickup-services.com"
+            value={domains}
+            onChange={(e) => setDomains(e.target.value)}
+          />
+          <span className="field-hint">{t('emailDomainsHint')}</span>
+        </div>
+        <div className="field">
+          <label className="field-label" htmlFor={`prompt-${connector.id}`}>
+            {t('loginPromptLabel')}
+          </label>
+          <input
+            id={`prompt-${connector.id}`}
+            className="input"
+            placeholder={t('loginWith', { label: connector.label })}
+            maxLength={120}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+        </div>
+        <div className="row">
+          <button type="submit" className="btn" disabled={save.isPending}>
+            {t('save')}
+          </button>
+          {saved ? <span className="text-ok small">{t('loginRoutingSaved')}</span> : null}
+        </div>
+      </form>
     </section>
   )
 }
@@ -247,14 +332,25 @@ export function ConnectorsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
-  const [label, setLabel] = useState('')
+  const [creating, setCreating] = useState(false)
+  const openCreate = () => {
+    setMessages([])
+    setCreating(true)
+  }
+  const closeCreate = () => {
+    setCreating(false)
+    connector.reset()
+    setIssuer('')
+    setClientId('')
+    setSecretSlug('')
+  }
+  const connector = useLabelSlug()
   const [issuer, setIssuer] = useState('')
   const [clientId, setClientId] = useState('')
   const [secretSlug, setSecretSlug] = useState('')
   const [scopes, setScopes] = useState('')
   const [showNewSecret, setShowNewSecret] = useState(false)
-  const [newSecretLabel, setNewSecretLabel] = useState('')
-  const [newSecretSlug, setNewSecretSlug] = useState('')
+  const newSecret = useLabelSlug()
   const [newSecretValue, setNewSecretValue] = useState('')
   const [deleting, setDeleting] = useState('')
   const [alsoDeleteSecret, setAlsoDeleteSecret] = useState(false)
@@ -281,17 +377,15 @@ export function ConnectorsPage() {
   const create = useMutation({
     mutationFn: () =>
       api.createConnector({
-        label,
+        label: connector.label,
+        slug: connector.finalSlug,
         issuer,
         client_id: clientId,
         client_secret_slug: secretSlug,
         scopes,
       }),
     onSuccess: async () => {
-      setLabel('')
-      setIssuer('')
-      setClientId('')
-      setSecretSlug('')
+      closeCreate()
       await invalidate()
     },
     onError,
@@ -299,16 +393,15 @@ export function ConnectorsPage() {
   const createSecret = useMutation({
     mutationFn: () =>
       api.createSecret({
-        slug: newSecretSlug.trim(),
-        label: newSecretLabel,
+        slug: newSecret.finalSlug,
+        label: newSecret.label,
         category: 'oidc',
         value: newSecretValue,
       }),
     onSuccess: async () => {
-      setSecretSlug(newSecretSlug.trim())
+      setSecretSlug(newSecret.finalSlug)
       setShowNewSecret(false)
-      setNewSecretLabel('')
-      setNewSecretSlug('')
+      newSecret.reset()
       setNewSecretValue('')
       await queryClient.invalidateQueries({ queryKey: ['secrets'] })
     },
@@ -340,8 +433,146 @@ export function ConnectorsPage() {
 
   return (
     <main>
-      <PageHeader breadcrumb={<SettingsCrumb />} title={t('connectorsTitle')} subtitle={t('connectorsIntro')} />
+      <PageHeader
+        breadcrumb={<SettingsCrumb />}
+        title={t('connectorsTitle')}
+        subtitle={t('connectorsIntro')}
+        actions={
+          <CreateButton open={creating} onOpen={openCreate}>
+            {t('newConnectorButton')}
+          </CreateButton>
+        }
+      />
       <ErrorList messages={messages} />
+      {creating ? (
+        <div className="page-section">
+          <CreatePanel title={t('addConnector')} onCancel={closeCreate}>
+            <form
+              className="panel stack measure"
+              onSubmit={(e) => {
+                e.preventDefault()
+                setMessages([])
+                create.mutate()
+              }}
+            >
+              <LabelSlugFields idPrefix="connector" state={connector} labelText={t('labelFieldLabel')} slugText={t('slugLabel')} />
+              <div className="field">
+                <label className="field-label" htmlFor="issuer">
+                  {t('issuerLabel')}
+                </label>
+                <input id="issuer" className="input" value={issuer} onChange={(e) => setIssuer(e.target.value)} />
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="clientId">
+                  {t('clientIdLabel')}
+                </label>
+                <input
+                  id="clientId"
+                  className="input"
+                  value={clientId}
+                  onChange={(e) => setClientId(e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label className="field-label" htmlFor="secretSlug">
+                  {t('clientSecretLabel')}
+                </label>
+                <div className="field-inline">
+                  <select
+                    id="secretSlug"
+                    className="select"
+                    value={secretSlug}
+                    onChange={(e) => setSecretSlug(e.target.value)}
+                  >
+                    <option value="">
+                      {oidcSecrets.length > 0 ? t('chooseSecret') : t('noOidcSecret')}
+                    </option>
+                    {oidcSecrets.map((s) => (
+                      <option key={s.slug} value={s.slug}>
+                        {s.label} ({s.slug})
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="btn" onClick={() => setShowNewSecret((v) => !v)}>
+                    +
+                  </button>
+                </div>
+              </div>
+              {showNewSecret ? (
+                <fieldset className="fieldset">
+                  <legend>{t('newSecretBlockTitle')}</legend>
+                  <LabelSlugFields
+                    idPrefix="ns"
+                    state={newSecret}
+                    labelText={t('colLabel')}
+                    slugText={t('slugLabel')}
+                  />
+                  <div className="field">
+                    <label className="field-label" htmlFor="nsValue">
+                      {t('valueLabel')}
+                    </label>
+                    <input
+                      id="nsValue"
+                      className="input"
+                      type="password"
+                      value={newSecretValue}
+                      onChange={(e) => setNewSecretValue(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <button
+                      type="button"
+                      className="btn"
+                      disabled={createSecret.isPending || !newSecret.finalSlug || !newSecretValue}
+                      onClick={() => {
+                        setMessages([])
+                        createSecret.mutate()
+                      }}
+                    >
+                      {t('createAndSelect')}
+                    </button>
+                  </div>
+                </fieldset>
+              ) : null}
+              <div className="field">
+                <label className="field-label" htmlFor="scopes">
+                  {t('scopesLabel')}
+                </label>
+                <input id="scopes" className="input" value={scopes} onChange={(e) => setScopes(e.target.value)} />
+              </div>
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={check.isPending || !issuer.trim()}
+                  onClick={() => {
+                    setCheckResult(null)
+                    check.mutate()
+                  }}
+                >
+                  {t('checkDiscovery')}
+                </button>
+                {checkResult === 'ok' ? (
+                  <span className="text-ok">{t('discoveryVerified')}</span>
+                ) : checkResult === 'ko' ? (
+                  <span className="text-danger">{t('discoveryFailed')}</span>
+                ) : null}
+              </div>
+              {callbackUrl ? (
+                <p className="muted">
+                  {t('callbackUrlHint')} <code>{callbackUrl}</code>{' '}
+                  <CopyButton text={callbackUrl} />
+                </p>
+              ) : null}
+              <div>
+                <button type="submit" className="btn btn-primary" disabled={create.isPending}>
+                  {t('verifyAndSave')}
+                </button>
+              </div>
+            </form>
+          </CreatePanel>
+        </div>
+      ) : null}
 
       <div className="page-body">
         {list.data && list.data.connectors.length > 0 ? (
@@ -362,6 +593,7 @@ export function ConnectorsPage() {
                     <tr key={c.id}>
                       <td>
                         {c.label}
+                        <div className="mono muted small">{c.slug}</div>
                         {discoveryStatus[c.id] ? (
                           <>
                             {' '}
@@ -443,6 +675,9 @@ export function ConnectorsPage() {
               </table>
             </div>
             {list.data.connectors.map((c) => (
+              <ConnectorLoginRouting key={c.id} connector={c} invalidate={invalidate} onError={onError} />
+            ))}
+            {list.data.connectors.map((c) => (
               <ConnectorMappings
                 key={c.id}
                 connector={c}
@@ -461,161 +696,6 @@ export function ConnectorsPage() {
         )}
       </div>
 
-      <section className="page-section">
-        <div className="section-head">
-          <h2 className="section-title">{t('addConnector')}</h2>
-        </div>
-        <form
-          className="panel stack measure"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setMessages([])
-            create.mutate()
-          }}
-        >
-          <div className="field">
-            <label className="field-label" htmlFor="label">
-              {t('labelFieldLabel')}
-            </label>
-            <input id="label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="issuer">
-              {t('issuerLabel')}
-            </label>
-            <input id="issuer" className="input" value={issuer} onChange={(e) => setIssuer(e.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="clientId">
-              {t('clientIdLabel')}
-            </label>
-            <input
-              id="clientId"
-              className="input"
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="secretSlug">
-              {t('clientSecretLabel')}
-            </label>
-            <div className="field-inline">
-              <select
-                id="secretSlug"
-                className="select"
-                value={secretSlug}
-                onChange={(e) => setSecretSlug(e.target.value)}
-              >
-                <option value="">
-                  {oidcSecrets.length > 0 ? t('chooseSecret') : t('noOidcSecret')}
-                </option>
-                {oidcSecrets.map((s) => (
-                  <option key={s.slug} value={s.slug}>
-                    {s.label} ({s.slug})
-                  </option>
-                ))}
-              </select>
-              <button type="button" className="btn" onClick={() => setShowNewSecret((v) => !v)}>
-                +
-              </button>
-            </div>
-          </div>
-          {showNewSecret ? (
-            <fieldset className="fieldset">
-              <legend>{t('newSecretBlockTitle')}</legend>
-              <div className="field">
-                <label className="field-label" htmlFor="nsLabel">
-                  {t('colLabel')}
-                </label>
-                <input
-                  id="nsLabel"
-                  className="input"
-                  value={newSecretLabel}
-                  onChange={(e) => setNewSecretLabel(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label className="field-label" htmlFor="nsSlug">
-                  {t('slugLabel')}
-                </label>
-                <input
-                  id="nsSlug"
-                  className="input"
-                  value={newSecretSlug}
-                  onChange={(e) => setNewSecretSlug(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label className="field-label" htmlFor="nsValue">
-                  {t('valueLabel')}
-                </label>
-                <input
-                  id="nsValue"
-                  className="input"
-                  type="password"
-                  value={newSecretValue}
-                  onChange={(e) => setNewSecretValue(e.target.value)}
-                />
-              </div>
-              <div>
-                <button
-                  type="button"
-                  className="btn"
-                  disabled={createSecret.isPending || !newSecretSlug.trim() || !newSecretValue}
-                  onClick={() => {
-                    setMessages([])
-                    createSecret.mutate()
-                  }}
-                >
-                  {t('createAndSelect')}
-                </button>
-              </div>
-            </fieldset>
-          ) : null}
-          <div className="field">
-            <label className="field-label" htmlFor="scopes">
-              {t('scopesLabel')}
-            </label>
-            <input id="scopes" className="input" value={scopes} onChange={(e) => setScopes(e.target.value)} />
-          </div>
-          <div className="row">
-            <button
-              type="button"
-              className="btn"
-              disabled={check.isPending || !issuer.trim()}
-              onClick={() => {
-                setCheckResult(null)
-                check.mutate()
-              }}
-            >
-              {t('checkDiscovery')}
-            </button>
-            {checkResult === 'ok' ? (
-              <span className="text-ok">{t('discoveryVerified')}</span>
-            ) : checkResult === 'ko' ? (
-              <span className="text-danger">{t('discoveryFailed')}</span>
-            ) : null}
-          </div>
-          {callbackUrl ? (
-            <p className="muted">
-              {t('callbackUrlHint')} <code>{callbackUrl}</code>{' '}
-              <button
-                type="button"
-                className="btn-link"
-                onClick={() => navigator.clipboard?.writeText(callbackUrl)}
-              >
-                {t('copy')}
-              </button>
-            </p>
-          ) : null}
-          <div>
-            <button type="submit" className="btn btn-primary" disabled={create.isPending}>
-              {t('verifyAndSave')}
-            </button>
-          </div>
-        </form>
-      </section>
     </main>
   )
 }

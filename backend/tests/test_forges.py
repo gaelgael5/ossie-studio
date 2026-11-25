@@ -137,3 +137,122 @@ def test_erreurs_de_forge_ne_portent_jamais_le_jeton() -> None:
     # Le message d'une ForgeError est le code seul, jamais une valeur sensible.
     err = ForgeError("connection_token_invalid")
     assert json.dumps(str(err)) == '"connection_token_invalid"'
+
+
+# --- Droit d'écriture d'un jeton personnel sur un dépôt -------------------------
+
+
+def test_repo_path_depuis_l_url_de_clone() -> None:
+    from ossie_studio.forges.base import repo_path
+
+    assert repo_path("https://github.com", "https://github.com/octocat/r.git") == "octocat/r"
+    assert repo_path("https://gitlab.x.org/", "https://gitlab.x.org/g/sous/p") == "g/sous/p"
+
+
+async def test_github_depot_invisible_pas_d_ecriture() -> None:
+    async with _client(_github_handler) as client:  # /repos/... → 404
+        check = await GitHubStrategy().verify_write(client, "https://github.com", "o/r", "good")
+    assert (check.login, check.can_write) == ("octocat", False)
+
+
+def _gitlab_access_handler(level: int) -> object:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v4/user":
+            return httpx.Response(200, json={"username": "gl-user"})
+        if request.url.path.startswith("/api/v4/projects/"):
+            assert request.url.raw_path.endswith(b"/projects/g%2Fp")
+            return httpx.Response(
+                200,
+                json={
+                    "permissions": {"project_access": None, "group_access": {"access_level": level}}
+                },
+            )
+        return httpx.Response(404)
+
+    return handler
+
+
+@pytest.mark.parametrize(("level", "expected"), [(30, True), (40, True), (20, False)])
+async def test_gitlab_niveau_d_acces_developer(level: int, expected: bool) -> None:
+    async with _client(_gitlab_access_handler(level)) as client:
+        check = await GitLabStrategy().verify_write(client, "https://gitlab.x.org", "g/p", "t")
+    assert (check.login, check.can_write) == ("gl-user", expected)
+
+
+async def test_azure_droit_non_verifiable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"authenticatedUser": {"providerDisplayName": "Alice Azure"}}
+        )
+
+    async with _client(handler) as client:
+        check = await AzureDevOpsStrategy().verify_write(
+            client, "https://dev.azure.com/o", "p/r", "t"
+        )
+    assert (check.login, check.can_write) == ("Alice Azure", None)
+
+
+async def test_azure_connection_data_en_preversion() -> None:
+    # Azure refuse connectionData en version non « preview » (400) : la
+    # vérification du jeton doit demander une préversion.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if not request.url.params.get("api-version", "").endswith("-preview.1"):
+            return httpx.Response(400, json={"message": "version under preview"})
+        return httpx.Response(200, json={"authenticatedUser": {"providerDisplayName": "Gaël"}})
+
+    async with _client(handler) as client:
+        identity = await AzureDevOpsStrategy().verify(client, "https://dev.azure.com/o", "t")
+    assert identity.username == "Gaël"
+
+
+async def test_azure_redirection_vers_la_connexion_jeton_refuse() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"location": "https://login"}, text="<html>moved</html>")
+
+    async with _client(handler) as client:
+        with pytest.raises(ForgeError) as exc:
+            await AzureDevOpsStrategy().verify(client, "https://dev.azure.com/o", "mauvais")
+    assert exc.value.code == "connection_token_invalid"
+
+
+async def test_gitlab_portee_insuffisante_distinguee_du_jeton_invalide() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("PRIVATE-TOKEN") == "sans-portee":
+            return httpx.Response(403, json={"error": "insufficient_scope"})
+        return httpx.Response(401, json={"message": "401 Unauthorized"})
+
+    async with _client(handler) as client:
+        with pytest.raises(ForgeError) as scope:
+            await GitLabStrategy().verify(client, "https://gitlab.com", "sans-portee")
+        with pytest.raises(ForgeError) as invalid:
+            await GitLabStrategy().verify(client, "https://gitlab.com", "expire")
+    assert scope.value.code == "connection_token_scope_insufficient"
+    assert invalid.value.code == "connection_token_invalid"
+
+
+def test_branche_par_defaut_declaree_puis_main_master_root() -> None:
+    from ossie_studio.api.connections import pick_default_branch
+
+    assert pick_default_branch(["dev", "main", "release"], "release") == "release"
+    # Déclarée mais absente de la liste (ou inconnue) : main, puis master, puis root.
+    assert pick_default_branch(["dev", "main"], "disparue") == "main"
+    assert pick_default_branch(["dev", "master", "root"], None) == "master"
+    assert pick_default_branch(["dev", "root"], None) == "root"
+    assert pick_default_branch(["dev", "feature"], None) == ""
+
+
+async def test_github_branche_par_defaut_lue_ou_none() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/repos/acme/app"):
+            return httpx.Response(200, json={"default_branch": "develop"})
+        return httpx.Response(404)
+
+    async with _client(handler) as client:
+        assert (
+            await GitHubStrategy().default_branch(client, "https://github.com", "t", "acme/app")
+            == "develop"
+        )
+        assert (
+            await GitHubStrategy().default_branch(client, "https://github.com", "t", "acme/x")
+            is None
+        )

@@ -83,13 +83,15 @@ test('login : des identifiants faux affichent le message traduit', async () => {
   await i18n.changeLanguage('fr')
   mockFetch({
     '/api/session': { body: { bootstrap_required: false, authenticated: false, user: null } },
-    '/api/auth/connectors': { body: [] },
+    'POST /api/auth/login/analyze': { body: { next: 'password', connectors: [] } },
     'POST /api/login': { status: 401, body: { error: 'invalid_credentials' } },
   })
   renderAt('/login')
   await screen.findByText('Connexion')
+  // Connexion en deux temps (ticket 145b1414) : l'email, la flèche, puis le mot de passe.
   await userEvent.type(screen.getByLabelText('Adresse email'), 'x@example.org')
-  await userEvent.type(screen.getByLabelText('Mot de passe'), 'mauvais-mot-de-passe')
+  await userEvent.click(screen.getByRole('button', { name: 'Continuer' }))
+  await userEvent.type(await screen.findByLabelText('Mot de passe'), 'mauvais-mot-de-passe')
   await userEvent.click(screen.getByRole('button', { name: 'Se connecter' }))
   await waitFor(() =>
     expect(screen.getByText('Email ou mot de passe incorrect.')).toBeInTheDocument(),
@@ -138,6 +140,7 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
     '/api/secrets?category=snowflake': {
       body: { secrets: [], categories: { snowflake: 'Snowflake' }, category_inputs: { snowflake: 'keyfile' } },
     },
+    'POST /api/secrets': { status: 201, body: { slug: 'sf-mdp', identity: 'AGENT', server_version: '9.1.0' } },
   })
   renderAt('/forges')
   await screen.findByText('Forges et connexions')
@@ -159,7 +162,99 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
   await userEvent.click(await screen.findByRole('button', { name: /Snowflake —/ }))
   const sfDialog = await screen.findByRole('dialog', { name: 'Nouvelle connexion Snowflake' })
   await userEvent.click(within(sfDialog).getByRole('button', { name: '+' }))
-  expect(within(sfDialog).getByLabelText('Fichier de clé privée')).toBeInTheDocument()
+  expect(within(sfDialog).getByLabelText('Fichier de clé privée (facultatif)')).toBeInTheDocument()
+  // Sans fichier de clé, un mot de passe (ou un jeton) suffit à créer le secret.
+  const create = within(sfDialog).getByRole('button', { name: 'Tester et créer' })
+  await userEvent.type(within(sfDialog).getAllByLabelText('Libellé')[1], 'SF mdp')
+  expect(create).toBeDisabled()
+  await userEvent.type(within(sfDialog).getByLabelText("Ou mot de passe / jeton d'accès programmatique"), 'pw')
+  expect(create).toBeEnabled()
+  // Le secret est éprouvé avec les paramètres saisis avant d'être enregistré.
+  await userEvent.click(create)
+  expect(await within(sfDialog).findByText('Connexion réussie : AGENT — 9.1.0')).toBeInTheDocument()
+  const post = vi.mocked(fetch).mock.calls.find(([u, i]) => u === '/api/secrets' && i?.method === 'POST')
+  expect(JSON.parse(String(post?.[1]?.body)).verify).toEqual({ engine: 'snowflake', params: { account: '' } })
+})
+
+test('forges : une connexion se réédite, slug figé, valeurs reprises', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: { bootstrap_required: false, authenticated: true, user: { email: 'g@example.org', role: 'admin' }, capabilities: ADMIN_CAPS },
+    },
+    '/api/connections': {
+      body: {
+        connections: [
+          {
+            id: 'c1', label: 'gitlab gael', slug: 'gitlab-gael', forge: 'gitlab', url: 'https://gitlab.com',
+            identity: 'gael', last_status: 'error', last_error_code: 'connection_token_invalid',
+            last_checked_at: null, secret_slug: 'gl-old', secret_label: 'Ancien', secret_used_by_others: 0,
+            used_by_spaces: 0, used_by_sources: 0,
+          },
+        ],
+      },
+    },
+    '/api/connections/forges': {
+      body: { forges: [{ forge: 'gitlab', default_url: 'https://gitlab.com', url_required: false, secret_category: 'gitlab' }] },
+    },
+    '/api/secrets?category=gitlab': {
+      body: {
+        secrets: [
+          { slug: 'gl-old', label: 'Ancien', category: 'gitlab', updated_at: '2026-01-01T00:00:00Z', used_by: 1 },
+          { slug: 'gl-new', label: 'Nouveau', category: 'gitlab', updated_at: '2026-01-01T00:00:00Z', used_by: 0 },
+        ],
+        categories: { gitlab: 'GitLab' },
+        category_inputs: { gitlab: 'masked' },
+      },
+    },
+    'PUT /api/connections/c1': { body: {} },
+    '/api/db-connections': { body: { connections: [] } },
+    '/api/db-connections/engines': { body: { engines: [] } },
+  })
+  renderAt('/forges')
+  // Toute la ligne est cliquable.
+  await userEvent.click(await screen.findByText('https://gitlab.com'))
+  const dialog = await screen.findByRole('dialog', { name: 'Modifier la connexion GitLab' })
+  expect(within(dialog).getByLabelText('Libellé')).toHaveValue('gitlab gael')
+  expect(within(dialog).getByDisplayValue('gitlab-gael')).toBeDisabled()
+  await waitFor(() => expect(within(dialog).getByLabelText("Jeton d'accès personnel")).toHaveValue('gl-old'))
+  await userEvent.selectOptions(within(dialog).getByLabelText("Jeton d'accès personnel"), 'gl-new')
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Vérifier et enregistrer' }))
+  const fetchMock = vi.mocked(fetch)
+  await waitFor(() => {
+    const put = fetchMock.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(JSON.parse(String(put?.[1]?.body))).toEqual({
+      label: 'gitlab gael',
+      url: 'https://gitlab.com',
+      secret_slug: 'gl-new',
+    })
+  })
+})
+
+test('espaces : toute la ligne ouvre l’espace, sans bouton « Ouvrir »', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: { bootstrap_required: false, authenticated: true, user: { email: 'g@example.org', role: 'admin' }, capabilities: ADMIN_CAPS },
+    },
+    '/api/spaces': {
+      body: {
+        spaces: [
+          {
+            id: 's1', name: 'test', slug: 'test', connection_id: 'c1', repo_url: 'https://github.com/a/b.git',
+            last_probe_status: 'valid', last_probe_at: null, created_at: '2026-01-01T00:00:00Z',
+          },
+        ],
+      },
+    },
+    '/api/connections': { body: { connections: [] } },
+    '/api/spaces/s1/branches': { body: { branches: [], viewed_branch_id: null } },
+  })
+  renderAt('/spaces')
+  const row = await screen.findByRole('row', { name: 'Ouvrir l’espace test' })
+  expect(screen.queryByRole('link', { name: 'Ouvrir' })).not.toBeInTheDocument()
+  await userEvent.click(within(row).getByText('https://github.com/a/b.git'))
+  await screen.findByText('Branches de travail')
 })
 
 test('espaces : un droit en échec affiche le droit et la cause traduits', async () => {
@@ -177,6 +272,15 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
     '/api/connections': {
       body: { connections: [{ id: 'c1', label: 'GitHub', forge: 'github', url: 'https://github.com', identity: 'octocat', last_status: 'valid', last_error_code: null, last_checked_at: null }] },
     },
+    '/api/connections/c1/repositories': {
+      body: {
+        repositories: [
+          { full_name: 'acme/app', url: 'https://github.com/acme/app', clone_url: 'https://github.com/acme/app.git' },
+          { full_name: 'acme/autre', url: 'https://github.com/acme/autre', clone_url: 'https://github.com/acme/autre.git' },
+        ],
+        total: 2,
+      },
+    },
     'POST /api/spaces': {
       status: 400,
       body: { error: 'space_probe_failed', error_args: { right: 'push_commit', cause: 'write_denied', residuals: [] } },
@@ -184,12 +288,36 @@ test('espaces : un droit en échec affiche le droit et la cause traduits', async
   })
   renderAt('/spaces')
   await screen.findByText('Espaces Git')
+  // Le formulaire n'est pas affiché d'office : le bouton en haut à droite l'ouvre.
+  expect(screen.queryByLabelText("Nom de l'espace")).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '+ Nouvel espace' }))
   await userEvent.type(screen.getByLabelText("Nom de l'espace"), 'modele')
-  await userEvent.type(screen.getByLabelText('URL du dépôt'), 'https://github.com/acme/app')
+  // Le dépôt se choisit dans la liste filtrable de la connexion, sans taper d'URL.
+  // Liste déroulante : un clic la déplie, quelques lettres filtrent, Entrée choisit.
+  const picker = screen.getByRole('button', { name: 'Dépôt' })
+  expect(picker).toHaveTextContent('Choisir un dépôt…')
+  await userEvent.click(picker)
+  await screen.findByRole('option', { name: 'acme/autre' })
+  // Liste chargée : plus d'indicateur d'attente.
+  expect(picker).toHaveAttribute('aria-busy', 'false')
+  await userEvent.type(screen.getByPlaceholderText('Filtrer les dépôts…'), 'app')
+  expect(screen.queryByRole('option', { name: 'acme/autre' })).not.toBeInTheDocument()
+  await userEvent.keyboard('{Enter}')
+  expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  expect(picker).toHaveTextContent('acme/app')
   await userEvent.click(screen.getByRole('button', { name: 'Éprouver les cinq droits et créer' }))
   // Le message compose le droit et la cause traduits.
   await waitFor(() => expect(screen.getByText(/pousser un commit/)).toBeInTheDocument())
   expect(screen.getByText(/droit d'écriture absent/)).toBeInTheDocument()
+  // Sans toucher la liste, la connexion affichée (la première) est bien envoyée,
+  // avec le slug déduit du nom.
+  const post = vi.mocked(fetch).mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'POST')
+  expect(JSON.parse(String((post?.[1] as RequestInit).body))).toMatchObject({
+    name: 'modele',
+    slug: 'modele',
+    connection_id: 'c1',
+    repo_url: 'https://github.com/acme/app.git',
+  })
 })
 
 test('détail espace : liste les branches et propose la création de fille', async () => {
@@ -212,10 +340,20 @@ test('détail espace : liste les branches et propose la création de fille', asy
   })
   renderAt('/spaces/s1')
   await screen.findByText('Branches de travail')
-  // La base existe → on propose la création d'une fille.
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Créer une branche fille' })).toBeInTheDocument(),
-  )
+  // La base existe → le bouton propose une branche fille, qui ouvre son formulaire.
+  await userEvent.click(await screen.findByRole('button', { name: '+ Nouvelle branche' }))
+  // Pas de slug : un seul champ, le nom git, pré-rempli « work/ ».
+  expect(screen.queryByLabelText(/Slug/)).not.toBeInTheDocument()
+  const name = screen.getByLabelText('Nom de la branche')
+  expect(name).toHaveValue('work/')
+  await userEvent.type(name, 'fonction-a')
+  await userEvent.click(screen.getByRole('button', { name: 'Créer une branche fille' }))
+  await waitFor(() => {
+    const post = vi
+      .mocked(fetch)
+      .mock.calls.find(([url, init]) => String(url).endsWith('/branches/child') && init?.method === 'POST')
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({ new_ref: 'work/fonction-a' })
+  })
   expect(screen.getAllByText('Principale').length).toBeGreaterThan(0)
 })
 
@@ -236,23 +374,22 @@ test('détail espace : liste les commits non publiés et les publie', async () =
         viewed_branch_id: 'b1',
       },
     },
-    '/api/spaces/s1/branches/b1/unpublished': {
-      body: {
-        commits: [
-          { sha: 'abc', author: 'Alice', date: '2026-01-02T10:00:00Z', message: 'ossie: ajoute data' },
-        ],
-        count: 1,
-      },
+    '/api/spaces/s1/branches/b1/draft': {
+      body: { count: 1, revision: 1, objects: [{ path: 'sources/data.txt', state: 'modified' }] },
     },
-    'POST /api/spaces/s1/branches/b1/publish': { body: { published: 1 } },
   })
   renderAt('/spaces/s1')
-  await screen.findByText('Commits non publiés')
-  // Le commit en attente apparaît avec son message préfixé.
-  await waitFor(() => expect(screen.getByText('ossie: ajoute data')).toBeInTheDocument())
-  await userEvent.click(screen.getByRole('button', { name: 'Publier' }))
+  await screen.findByText('Mon brouillon')
+  // Le brouillon se résume par son nombre d'objets ; le détail est dans la vue
+  // « Modifications » (ticket aad1d3c6).
+  // (La barre du brouillon affiche aussi le compteur et le lien.)
+  const section = (await screen.findByText('Mon brouillon')).closest('section')!
   await waitFor(() =>
-    expect(screen.getByText('1 commit(s) publié(s) sur la forge.')).toBeInTheDocument(),
+    expect(within(section).getByText('1 objet(s) modifié(s).')).toBeInTheDocument(),
+  )
+  expect(within(section).getByRole('link', { name: 'Voir les modifications' })).toHaveAttribute(
+    'href',
+    '/spaces/s1/branches/b1/changes',
   )
 })
 
@@ -273,7 +410,7 @@ test('détail espace : enregistre une version et liste les versions', async () =
         viewed_branch_id: 'b1',
       },
     },
-    '/api/spaces/s1/branches/b1/unpublished': { body: { commits: [], count: 0 } },
+    '/api/spaces/s1/branches/b1/draft': { body: { count: 0, revision: 0, objects: [] } },
     '/api/spaces/s1/branches/b1/versions': {
       body: {
         versions: [
@@ -328,6 +465,9 @@ test('détail espace : affiche le diagramme réseau ferroviaire', async () => {
     },
   })
   renderAt('/spaces/s1')
+  // Le diagramme vit dans l’onglet « Historique », calculé seulement à son ouverture.
+  expect(screen.queryByText('Diagramme des versions')).not.toBeInTheDocument()
+  await userEvent.click(await screen.findByRole('tab', { name: 'Historique' }))
   await screen.findByText('Diagramme des versions')
   // La gare (version 1) et la légende de ligne sont rendues.
   await waitFor(() => expect(screen.getAllByText(/Première/).length).toBeGreaterThan(0))
@@ -338,6 +478,8 @@ test('détail espace : affiche le diagramme réseau ferroviaire', async () => {
 })
 
 test('gouvernance tags : liste, filtre et création', async () => {
+  localStorage.setItem('ossie.space', 's1')
+  localStorage.setItem('ossie.branch', 'b1')
   await i18n.changeLanguage('fr')
   mockFetch({
     '/api/session': {
@@ -348,14 +490,16 @@ test('gouvernance tags : liste, filtre et création', async () => {
         capabilities: ADMIN_CAPS,
       },
     },
-    '/api/governance/tags': {
+    '/api/spaces/s1/branches/b1/governance/tags': {
       body: {
         tags: [
           { id: 'gouvernance/pii', owner: 'equipe-data', description: 'PII', links: {}, properties: {}, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
+          // Bug 44931826 : tag posé par une règle fournie, pas encore enregistré.
+          { id: 'technique/service', owner: '', description: '', links: {}, properties: {}, created_at: '', updated_at: '', stored: false, rules: ['C# — contrôleurs ASP.NET'] },
         ],
       },
     },
-    'POST /api/governance/tags': {
+    'POST /api/spaces/s1/branches/b1/governance/tags': {
       status: 201,
       body: { id: 'gouvernance/rgpd', owner: '', description: '', links: {}, properties: {}, created_at: '2026-01-02T00:00:00Z', updated_at: '2026-01-02T00:00:00Z' },
     },
@@ -364,6 +508,10 @@ test('gouvernance tags : liste, filtre et création', async () => {
   await screen.findByText('Gouvernance › Tags')
   // L'arbre liste le tag géré (feuille « pii » sous le groupe « gouvernance »).
   await waitFor(() => expect(screen.getByText('pii')).toBeInTheDocument())
+  // Le tag posé par une règle apparaît aussi, marqué, sans bouton Supprimer.
+  await userEvent.click(screen.getByText('service'))
+  expect(screen.getByText(/Posé par les règles : C# — contrôleurs ASP.NET/)).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Supprimer' })).not.toBeInTheDocument()
   // Filtre par préfixe : un préfixe qui ne matche pas vide la liste.
   await userEvent.type(screen.getByLabelText('Filtrer par préfixe'), 'reseau')
   await waitFor(() => expect(screen.getByText('Aucun tag géré.')).toBeInTheDocument())
@@ -376,6 +524,8 @@ test('gouvernance tags : liste, filtre et création', async () => {
 })
 
 test('gouvernance certifications : liste et presets', async () => {
+  localStorage.setItem('ossie.space', 's1')
+  localStorage.setItem('ossie.branch', 'b1')
   await i18n.changeLanguage('fr')
   mockFetch({
     '/api/session': {
@@ -386,7 +536,7 @@ test('gouvernance certifications : liste et presets', async () => {
         capabilities: ADMIN_CAPS,
       },
     },
-    '/api/governance/certifications': {
+    '/api/spaces/s1/branches/b1/governance/certifications': {
       body: {
         certifications: [
           { id: 'c1', name: 'Or', rank: 1, description: 'top', criteria: '', tag: 'certification/or', icon: '🥇', restricted: false, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' },
@@ -404,6 +554,8 @@ test('gouvernance certifications : liste et presets', async () => {
 })
 
 test('gouvernance classifications : schéma principal, presets et niveaux', async () => {
+  localStorage.setItem('ossie.space', 's1')
+  localStorage.setItem('ossie.branch', 'b1')
   await i18n.changeLanguage('fr')
   mockFetch({
     '/api/session': {
@@ -414,7 +566,7 @@ test('gouvernance classifications : schéma principal, presets et niveaux', asyn
         capabilities: ADMIN_CAPS,
       },
     },
-    '/api/governance/classifications': {
+    '/api/spaces/s1/branches/b1/governance/classifications': {
       body: {
         schemes: [
           {
@@ -476,12 +628,13 @@ test('profils : grille des capacités, admin verrouillé, création', async () =
   await screen.findByText('Profils')
   // Le profil administrateur est verrouillé, et la grille montre les domaines.
   await waitFor(() => expect(screen.getByText(/🔒 administrateur/)).toBeInTheDocument())
+  // Création : le bouton ouvre le formulaire (avec la grille), qui se referme après succès.
+  await userEvent.click(screen.getByRole('button', { name: '+ Nouveau profil' }))
   expect(screen.getByText('Espaces Git')).toBeInTheDocument()
   expect(screen.getByText('Travailler dans une branche')).toBeInTheDocument()
-  // Création : après succès, le champ nom se réinitialise.
   await userEvent.type(screen.getByLabelText('Nom du profil'), 'Lecteur')
   await userEvent.click(screen.getByRole('button', { name: 'Créer le profil' }))
-  await waitFor(() => expect(screen.getByLabelText('Nom du profil')).toHaveValue(''))
+  await waitFor(() => expect(screen.queryByLabelText('Nom du profil')).not.toBeInTheDocument())
 })
 
 test('utilisateurs : liste, recherche et assignation de profil', async () => {
@@ -506,7 +659,7 @@ test('utilisateurs : liste, recherche et assignation de profil', async () => {
     '/api/users?q=&profile_id=&team_id=&limit=50&offset=0': {
       body: {
         users: [
-          { id: 'u1', email: 'jose@example.org', display_name: 'José Pérez', is_oidc: true, last_login_at: '2026-01-02T00:00:00Z', profile_id: 'p1', profile_name: 'Lecteur', profile_pinned: false, teams: [{ id: 't1', name: 'equipe-data', origin: 'oidc' }] },
+          { id: 'u1', email: 'jose@example.org', display_name: 'José Pérez', is_oidc: true, last_login_at: '2026-01-02T00:00:00Z', profile_id: 'p1', profile_name: 'Lecteur', profile_pinned: false, teams: [{ id: 't1', name: 'equipe-data', origin: 'oidc' }], space_rights: [{ space_id: 's1', space_name: 'Entrepôt', profile_name: 'Contributeur', team_name: 'equipe-data' }] },
         ],
         total: 1,
       },
@@ -524,6 +677,7 @@ test('utilisateurs : liste, recherche et assignation de profil', async () => {
   renderAt('/users')
   await screen.findByText('Utilisateurs')
   await waitFor(() => expect(screen.getByText(/José Pérez — jose@example.org/)).toBeInTheDocument())
+  expect(screen.getByText('Entrepôt : Contributeur (via equipe-data)')).toBeInTheDocument()
   expect(screen.getByLabelText('Rechercher (nom ou email)')).toBeInTheDocument()
   // La fiche propose d'assigner un profil (select avec le profil Lecteur).
   expect(screen.getAllByRole('option', { name: 'Lecteur' }).length).toBeGreaterThan(0)
@@ -557,6 +711,8 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
             mappings: [{ id: 'm1', role_value: 'ossie-admins', profile_id: 'p1', profile_name: 'Admins' }],
             team_claim: 'department',
             teams: [{ id: 't1', name: 'equipe-data', slug: 'equipe-data' }],
+            email_domains: ['pickup-services.com'],
+            login_prompt: 'Continuez avec Pickup',
           },
         ],
         default_scopes: 'openid email profile',
@@ -595,8 +751,13 @@ test('connecteurs OIDC : bloc des correspondances rôle → profil', async () =>
   await screen.findByText('Équipe — IdP')
   expect(screen.getByText('affichage seulement, ne donne aucun droit')).toBeInTheDocument()
   expect(screen.getByText('equipe-data')).toBeInTheDocument()
+  // Connexion par domaine (ticket 145b1414) : domaines affichés avec « @ », phrase.
+  expect(screen.getByText('Connexion par domaine — IdP')).toBeInTheDocument()
+  expect(screen.getByLabelText("Domaines d'email attendus")).toHaveValue('@pickup-services.com')
+  expect(screen.getByLabelText('Phrase sur l’écran de connexion')).toHaveValue('Continuez avec Pickup')
   // Client secret par son slug + choix d'un secret oidc dans la liste.
   expect(screen.getByText(/Pour la remplacer/)).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '+ Nouveau connecteur' }))
   await waitFor(() =>
     expect(screen.getByRole('option', { name: /Secret IdP \(oidc-idp\)/ })).toBeInTheDocument(),
   )
@@ -647,8 +808,8 @@ test('sources : liste les sources déclarées de la branche regardée', async ()
             ok: true,
             label: 'API boutique',
             type: 'git',
-            connexion: { id: 'c1', label: 'GitHub', kind: 'forge', forge: 'github' },
-            parametres: { depot: 'org/api', branche: 'main', repertoires: ['src'] },
+            connection: { id: 'c1', label: 'GitHub', kind: 'forge', forge: 'github' },
+            parameters: { repository: 'org/api', branch: 'main', directories: ['src'], parsers: ['markdown'] },
           },
         ],
       },
@@ -657,8 +818,19 @@ test('sources : liste les sources déclarées de la branche regardée', async ()
   renderAt('/sources')
   await screen.findByText('Sources déclarées')
   await waitFor(() => expect(screen.getByText('API boutique')).toBeInTheDocument())
+  // Ce qui est lu vient des paramètres (clés anglaises du manifeste version 2).
+  expect(screen.getByText('org/api @ main · src')).toBeInTheDocument()
+  // Toute la ligne ouvre la source ; « Modifier » garde sa propre action (plus bas).
+  expect(screen.getByText('API boutique').closest('tr')).toHaveClass('row-clickable')
   // Le sélecteur d'espace de l'en-tête est fonctionnel.
   expect(screen.getByRole('option', { name: 'Espace : modele' })).toBeInTheDocument()
+  // L'aperçu du manifeste montre la version 2 et uniquement des clés anglaises.
+  await userEvent.click(screen.getByRole('button', { name: 'Modifier' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Modifier la source Git' })
+  const preview = within(dialog).getByText(/^version: 2/).textContent ?? ''
+  expect(preview).toContain('connection: ')
+  expect(preview).toContain('parameters:\n  repository: org/api\n  branch: main\n  parsers: [markdown]\n  directories: [src]')
+  expect(preview).not.toMatch(/connexion|parametres|depot|branche|parseurs|repertoires/)
 })
 
 test('détail source : collecte une source Git et affiche le rapport', async () => {
@@ -695,14 +867,18 @@ test('détail source : collecte une source Git et affiche le rapport', async () 
             ok: true,
             label: 'API boutique',
             type: 'git',
-            connexion: { slug: 'github', label: 'GitHub', kind: 'forge', forge: 'github' },
-            parametres: { depot: 'org/api', branche: 'main' },
+            connection: { slug: 'github', label: 'GitHub', kind: 'forge', forge: 'github' },
+            parameters: { repository: 'org/api', branch: 'main' },
           },
         ],
       },
     },
     '/api/spaces/sp1/branches/br1/sources/api-boutique/collections': {
-      body: { collections: [] },
+      body: {
+        collections: [
+          { sha: '1234567abc', author: 'Alice', date: '2026-01-02T10:00:00Z', message: 'ossie: collecte api-boutique' },
+        ],
+      },
     },
     'POST /api/spaces/sp1/branches/br1/sources/api-boutique/collect?force=false': {
       body: {
@@ -722,13 +898,17 @@ test('détail source : collecte une source Git et affiche le rapport', async () 
   renderAt('/sources/api-boutique')
   // L'en-tête nomme la source ; l'onglet Collectes est actif par défaut.
   await screen.findByText('API boutique')
-  await waitFor(() => expect(screen.getByText('Aucune collecte enregistrée pour cette source.')).toBeInTheDocument())
+  // L'historique vient de Git : les commits publiés qui ont touché la source.
+  await waitFor(() => expect(screen.getByText('ossie: collecte api-boutique')).toBeInTheDocument())
   // Lancer la collecte affiche le rapport (étapes + commit source).
   await userEvent.click(screen.getByRole('button', { name: 'Collecter' }))
   await waitFor(() => expect(screen.getByText('Dernière collecte')).toBeInTheDocument())
   expect(screen.getByText(/Code source au commit abcdef1/)).toBeInTheDocument()
-  // Un commit local a été écrit → l'action « Publier la branche » est proposée.
-  expect(screen.getByRole('button', { name: 'Publier la branche' })).toBeInTheDocument()
+  // La collecte est allée dans le brouillon → un lien mène à l'écran de publication.
+  expect(screen.getByRole('link', { name: 'Publier la branche' })).toHaveAttribute(
+    'href',
+    '/spaces/sp1/branches/br1/publish',
+  )
 })
 
 test('détail source OpenAPI : dépôt d’un contrat, analyse avant enregistrement', async () => {
@@ -765,23 +945,23 @@ test('détail source OpenAPI : dépôt d’un contrat, analyse avant enregistrem
             ok: true,
             label: 'API paiement',
             type: 'openapi',
-            connexion: { kind: 'none' },
-            parametres: {},
+            connection: { kind: 'none' },
+            parameters: {},
           },
         ],
       },
     },
-    '/api/spaces/sp1/branches/br1/sources/api-paiement/contracts': { body: { contrats: [] } },
+    '/api/spaces/sp1/branches/br1/sources/api-paiement/contracts': { body: { contracts: [] } },
     '/api/spaces/sp1/branches/br1/sources/api-paiement/collections': { body: { collections: [] } },
     'POST /api/spaces/sp1/branches/br1/sources/api-paiement/contracts/analyze': {
       body: {
         openapi: '3.1.0',
-        titre: 'API paiement',
-        version_declaree: '2.0.0',
-        nb_schemas: 2,
-        nb_operations: 1,
-        refs_externes: [],
-        version_proposee: 'v2',
+        title: 'API paiement',
+        declared_version: '2.0.0',
+        schema_count: 2,
+        operation_count: 1,
+        external_refs: [],
+        proposed_version: 'v2',
       },
     },
   })
@@ -847,4 +1027,27 @@ test('plugins de parsing : liste et réglage d’un paramètre', async () => {
   await userEvent.type(input, '256')
   await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
   await waitFor(() => expect(screen.getByText('Paramètre enregistré.')).toBeInTheDocument())
+})
+
+test('menu : « Référentiels » juste après « Espaces » (epic Référentiels)', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: [...ADMIN_CAPS, 'referentiels:read', 'curation:read'],
+      },
+    },
+  })
+  renderAt('/')
+  const nav = await screen.findByRole('navigation', { name: 'Ossie Studio' })
+  await waitFor(() => expect(within(nav).getByRole('link', { name: 'Référentiels' })).toBeInTheDocument())
+  const labels = within(nav)
+    .getAllByRole('link')
+    .map((a) => a.textContent ?? '')
+    .filter((text) => ['Espaces', 'Référentiels', 'Sources', 'Curation', 'Gouvernance'].includes(text))
+  expect(labels.slice(0, 3)).toEqual(['Espaces', 'Référentiels', 'Sources'])
+  expect(labels).toContain('Gouvernance')
 })

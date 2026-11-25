@@ -1,11 +1,15 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import type { TFunction } from 'i18next'
 import { api } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { RepoPicker } from '../components/RepoPicker'
+import { BusyButton } from '../components/BusyButton'
+import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { PageHeader } from '../components/PageHeader'
 
 function probeFailureMessages(t: TFunction, err: unknown): string[] {
@@ -28,21 +32,36 @@ function probeFailureMessages(t: TFunction, err: unknown): string[] {
 
 export function SpacesPage() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
-  const [name, setName] = useState('')
+  const pair = useLabelSlug()
   const [connectionId, setConnectionId] = useState('')
   const [repoUrl, setRepoUrl] = useState('')
+  const [creating, setCreating] = useState(false)
+  const openCreate = () => {
+    setMessages([])
+    setCreating(true)
+  }
+  const closeCreate = () => {
+    setCreating(false)
+    pair.reset()
+    setRepoUrl('')
+  }
 
   const spaces = useQuery({ queryKey: ['spaces'], queryFn: api.listSpaces })
   const connections = useQuery({ queryKey: ['connections'], queryFn: api.listConnections })
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['spaces'] })
+  const conns = connections.data?.connections ?? []
+  const selected = connectionId || conns[0]?.id || ''
 
   const create = useMutation({
-    mutationFn: () => api.createSpace({ name, connection_id: connectionId, repo_url: repoUrl }),
+    // Envoie la connexion AFFICHÉE (la première par défaut), pas seulement celle
+    // choisie à la main : sinon, sans toucher la liste, l'id partait vide.
+    mutationFn: () =>
+      api.createSpace({ name: pair.label, slug: pair.finalSlug, connection_id: selected, repo_url: repoUrl }),
     onSuccess: async () => {
-      setName('')
-      setRepoUrl('')
+      closeCreate()
       await invalidate()
     },
     onError: (err) => setMessages(probeFailureMessages(t, err)),
@@ -54,8 +73,6 @@ export function SpacesPage() {
     onError: (err) => setMessages(errorMessages(t, err)),
   })
 
-  const conns = connections.data?.connections ?? []
-  const selected = connectionId || conns[0]?.id || ''
   const formatDate = (iso: string | null) =>
     iso ? new Intl.DateTimeFormat(i18n.resolvedLanguage).format(new Date(iso)) : '—'
   const connLabel = (id: string) => conns.find((c) => c.id === id)?.label ?? id
@@ -66,8 +83,56 @@ export function SpacesPage() {
         breadcrumb={<Link to="/">{t('home')}</Link>}
         title={t('spacesTitle')}
         subtitle={t('spacesIntro')}
+        actions={
+          <CreateButton open={creating} onOpen={openCreate}>
+            {t('newSpaceButton')}
+          </CreateButton>
+        }
       />
       <ErrorList messages={messages} />
+      {creating ? (
+        <div className="page-section">
+          <CreatePanel title={t('addSpace')} onCancel={closeCreate}>
+            <p className="muted">{t('probeHint')}</p>
+            <form
+              className="stack"
+              onSubmit={(e) => {
+                e.preventDefault()
+                setMessages([])
+                create.mutate()
+              }}
+            >
+              <LabelSlugFields idPrefix="space" state={pair} labelText={t('spaceNameLabel')} slugText={t('slugLabel')} />
+              <div className="field">
+                <label className="field-label" htmlFor="connection">
+                  {t('connectionSelectLabel')}
+                </label>
+                <select
+                  id="connection"
+                  className="select"
+                  value={selected}
+                  onChange={(e) => {
+                    setConnectionId(e.target.value)
+                    setRepoUrl('') // un dépôt se choisit dans la liste de SA connexion
+                  }}
+                >
+                  {conns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <RepoPicker connectionId={selected} value={repoUrl} onChange={setRepoUrl} />
+              <div>
+                <BusyButton type="submit" className="btn btn-primary" busy={create.isPending} busyText={t('probeRunning')}>
+                  {t('createSpace')}
+                </BusyButton>
+              </div>
+            </form>
+          </CreatePanel>
+        </div>
+      ) : null}
 
       <div className="page-body">
         {spaces.data && spaces.data.spaces.length > 0 ? (
@@ -85,8 +150,21 @@ export function SpacesPage() {
               </thead>
               <tbody>
                 {spaces.data.spaces.map((s) => (
-                  <tr key={s.id}>
-                    <td>{s.name}</td>
+                  // Toute la ligne ouvre l'espace ; les boutons d'action arrêtent la propagation.
+                  <tr
+                    key={s.id}
+                    className="row-clickable"
+                    tabIndex={0}
+                    aria-label={t('openSpaceNamed', { name: s.name })}
+                    onClick={() => navigate(`/spaces/${s.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && e.target === e.currentTarget) navigate(`/spaces/${s.id}`)
+                    }}
+                  >
+                    <td>
+                      <span className="link-like">{s.name}</span>
+                      <div className="mono muted small">{s.slug}</div>
+                    </td>
                     <td>{connLabel(s.connection_id)}</td>
                     <td>
                       <code>{s.repo_url}</code>
@@ -99,14 +177,17 @@ export function SpacesPage() {
                       )}
                     </td>
                     <td>{formatDate(s.last_probe_at)}</td>
-                    <td>
+                    <td onClick={(e) => e.stopPropagation()}>
                       <div className="actions">
-                        <Link to={`/spaces/${s.id}`} className="btn btn-sm">
-                          {t('openSpace')}
-                        </Link>
-                        <button type="button" className="btn btn-sm" onClick={() => prove.mutate(s.id)}>
+                        <BusyButton
+                          type="button"
+                          className="btn btn-sm"
+                          busy={prove.isPending && prove.variables === s.id}
+                          busyText={t('probeRunningShort')}
+                          onClick={() => prove.mutate(s.id)}
+                        >
                           {t('prove')}
-                        </button>
+                        </BusyButton>
                         <button
                           type="button"
                           className="btn btn-sm btn-danger"
@@ -128,55 +209,6 @@ export function SpacesPage() {
         )}
       </div>
 
-      <section className="page-section">
-        <div className="section-head">
-          <h2 className="section-title">{t('addSpace')}</h2>
-        </div>
-        <p className="muted">{t('probeHint')}</p>
-        <form
-          className="panel panel-form stack"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setMessages([])
-            create.mutate()
-          }}
-        >
-          <div className="field">
-            <label className="field-label" htmlFor="name">
-              {t('spaceNameLabel')}
-            </label>
-            <input id="name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="connection">
-              {t('connectionSelectLabel')}
-            </label>
-            <select
-              id="connection"
-              className="select"
-              value={selected}
-              onChange={(e) => setConnectionId(e.target.value)}
-            >
-              {conns.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="repo">
-              {t('repoUrlLabel')}
-            </label>
-            <input id="repo" className="input" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} />
-          </div>
-          <div>
-            <button type="submit" className="btn btn-primary" disabled={create.isPending}>
-              {t('createSpace')}
-            </button>
-          </div>
-        </form>
-      </section>
     </main>
   )
 }

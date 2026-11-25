@@ -189,9 +189,85 @@ async def user_client(admin_client: AsyncClient, app: FastAPI) -> AsyncIterator[
 
 
 async def test_non_admin_refus_403(user_client: AsyncClient) -> None:
-    assert (await user_client.get("/api/spaces")).status_code == 403
+    # Droits par espace : la liste est filtrée (vide sans aucun droit), plus refusée.
+    listing = await user_client.get("/api/spaces")
+    assert listing.status_code == 200
+    assert listing.json()["spaces"] == []
     creation = await user_client.post(
         "/api/spaces",
         json={"name": "x", "connection_id": str(uuid.uuid4()), "repo_url": REPO},
     )
     assert creation.status_code == 403
+
+
+# --- Slug de l'espace : saisi (déduit du libellé côté écran), validé, unique ----
+
+
+async def test_slug_fourni_enregistre(admin_client: AsyncClient, app: FastAPI) -> None:
+    wire_git_probe(app, _ok_probe())
+    connection_id = await _make_connection(admin_client)
+    created = await admin_client.post(
+        "/api/spaces",
+        json={
+            "name": "Colis 21",
+            "slug": "colis",
+            "connection_id": connection_id,
+            "repo_url": REPO,
+        },
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["slug"] == "colis"
+    listing = (await admin_client.get("/api/spaces")).json()["spaces"]
+    assert listing[0]["slug"] == "colis"
+
+
+async def test_slug_absent_deduit_du_nom(admin_client: AsyncClient, app: FastAPI) -> None:
+    wire_git_probe(app, _ok_probe())
+    connection_id = await _make_connection(admin_client)
+    created = await admin_client.post(
+        "/api/spaces", json={"name": "Colis 21", "connection_id": connection_id, "repo_url": REPO}
+    )
+    assert created.json()["slug"] == "colis-21"
+
+
+async def test_slug_invalide_refuse_avant_l_epreuve(
+    admin_client: AsyncClient, app: FastAPI
+) -> None:
+    wire_git_probe(app, _ko_probe())  # ne doit pas être atteinte
+    connection_id = await _make_connection(admin_client)
+    response = await admin_client.post(
+        "/api/spaces",
+        json={"name": "X", "slug": "Pas Valide", "connection_id": connection_id, "repo_url": REPO},
+    )
+    assert response.status_code == 400
+    assert "space_slug_invalid" in response.json()["error_args"]["fields"]
+
+
+async def test_slug_deja_pris_refuse(admin_client: AsyncClient, app: FastAPI) -> None:
+    wire_git_probe(app, _ok_probe())
+    connection_id = await _make_connection(admin_client)
+    await admin_client.post(
+        "/api/spaces",
+        json={"name": "Premier", "slug": "colis", "connection_id": connection_id, "repo_url": REPO},
+    )
+    second = await admin_client.post(
+        "/api/spaces",
+        json={
+            "name": "Second",
+            "slug": "colis",
+            "connection_id": connection_id,
+            "repo_url": REPO + "-2",
+        },
+    )
+    assert second.status_code == 409
+    assert second.json()["error"] == "space_slug_taken"
+
+
+def test_url_de_depot_sans_identifiant_integre() -> None:
+    from ossie_studio.spaces.forms import normalize_repo_url
+
+    assert (
+        normalize_repo_url(" https://pickupsa@dev.azure.com/pickupsa/Pickup/_git/Colis21/ ")
+        == "https://dev.azure.com/pickupsa/Pickup/_git/Colis21"
+    )
+    assert normalize_repo_url("https://github.com/o/r.git") == "https://github.com/o/r.git"

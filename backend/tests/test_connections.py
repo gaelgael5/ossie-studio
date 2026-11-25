@@ -154,9 +154,7 @@ async def test_tester_remet_a_jour_l_etat(admin_client: AsyncClient, app: FastAP
     assert response.json()["last_status"] == "valid"
 
 
-async def test_suppression_sans_secret_le_conserve(
-    admin_client: AsyncClient, app: FastAPI
-) -> None:
+async def test_suppression_sans_secret_le_conserve(admin_client: AsyncClient, app: FastAPI) -> None:
     await _create(admin_client, secret_slug=await _secret(admin_client, "gh-garde"))
     connection_id = await db_fetchval(app, "SELECT id FROM connections")
     response = await admin_client.delete(f"/api/connections/{connection_id}")
@@ -168,16 +166,12 @@ async def test_suppression_sans_secret_le_conserve(
 async def test_suppression_avec_secret_le_retire(admin_client: AsyncClient, app: FastAPI) -> None:
     await _create(admin_client, secret_slug=await _secret(admin_client, "gh-jette"))
     connection_id = await db_fetchval(app, "SELECT id FROM connections")
-    response = await admin_client.delete(
-        f"/api/connections/{connection_id}?delete_secret=true"
-    )
+    response = await admin_client.delete(f"/api/connections/{connection_id}?delete_secret=true")
     assert response.status_code == 204
     assert await db_fetchval(app, "SELECT count(*) FROM secrets WHERE slug = 'gh-jette'") == 0
 
 
-async def test_suppression_secret_partage_conserve(
-    admin_client: AsyncClient, app: FastAPI
-) -> None:
+async def test_suppression_secret_partage_conserve(admin_client: AsyncClient, app: FastAPI) -> None:
     slug = await _secret(admin_client, "gh-partage")
     await _create(admin_client, label="A", secret_slug=slug)
     # Une seconde connexion partage le secret (même forge, URL, identité différente).
@@ -189,9 +183,7 @@ async def test_suppression_secret_partage_conserve(
             slug,
         )
     connection_id = await db_fetchval(app, "SELECT id FROM connections WHERE label = 'A'")
-    response = await admin_client.delete(
-        f"/api/connections/{connection_id}?delete_secret=true"
-    )
+    response = await admin_client.delete(f"/api/connections/{connection_id}?delete_secret=true")
     assert response.status_code == 204
     # Encore utilisé par la connexion B → conservé.
     assert await db_fetchval(app, "SELECT count(*) FROM secrets WHERE slug = 'gh-partage'") == 1
@@ -231,6 +223,7 @@ async def test_non_admin_refus_403(user_client: AsyncClient) -> None:
 
 # --- Alignement sur les maquettes : menu, dépôts, « utilisée par » -----------
 
+
 async def test_menu_des_forges_liste_les_strategies(admin_client: AsyncClient) -> None:
     body = (await admin_client.get("/api/connections/forges")).json()
     specs = {f["forge"]: f for f in body["forges"]}
@@ -264,6 +257,8 @@ async def test_depots_lisibles_pagines(admin_client: AsyncClient, app: FastAPI) 
     # Le faux GitHub pagine : 100 + 1 → la pagination est gérée de bout en bout.
     assert body["total"] == 101
     assert any(r["full_name"].endswith("/last") for r in body["repositories"])
+    # Adresse de clone fournie : c'est elle qu'un espace rattache (choisie dans la liste).
+    assert body["repositories"][0]["clone_url"].startswith("https://github.com/")
 
 
 async def test_payload_utilisee_par(admin_client: AsyncClient) -> None:
@@ -271,3 +266,140 @@ async def test_payload_utilisee_par(admin_client: AsyncClient) -> None:
     c = (await admin_client.get("/api/connections")).json()["connections"][0]
     assert c["used_by_spaces"] == 0
     assert c["used_by_sources"] == 0
+
+
+# --- Slug de la connexion : saisi (déduit du libellé côté interface) -------------
+
+
+async def test_slug_fourni_est_enregistre_tel_quel(admin_client: AsyncClient, app: FastAPI) -> None:
+    secret_slug = await _secret(admin_client, "gh-slug")
+    response = await admin_client.post(
+        "/api/connections",
+        json={
+            "label": "GitHub perso",
+            "slug": "forge-maison",
+            "forge": "github",
+            "url": URL,
+            "secret_slug": secret_slug,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["slug"] == "forge-maison"
+    assert await db_fetchval(app, "SELECT slug FROM connections") == "forge-maison"
+
+
+async def test_slug_absent_deduit_du_libelle(admin_client: AsyncClient, app: FastAPI) -> None:
+    await _create(admin_client, label="Forge Équipe Data")
+    assert await db_fetchval(app, "SELECT slug FROM connections") == "forge-equipe-data"
+
+
+@pytest.mark.parametrize("slug", ["Majuscules", "avec espace", "-bord", "double--tiret", "a_b"])
+async def test_slug_invalide_refuse_avant_toute_verification(
+    admin_client: AsyncClient, app: FastAPI, slug: str
+) -> None:
+    secret_slug = await _secret(admin_client, "gh-invalide")
+    response = await admin_client.post(
+        "/api/connections",
+        json={
+            "label": "X",
+            "slug": slug,
+            "forge": "github",
+            "url": URL,
+            "secret_slug": secret_slug,
+        },
+    )
+    assert response.status_code == 400
+    assert "connection_slug_invalid" in response.json()["error_args"]["fields"]
+    assert await db_fetchval(app, "SELECT count(*) FROM connections") == 0
+
+
+async def test_slug_deja_pris_refuse(admin_client: AsyncClient, app: FastAPI) -> None:
+    await _create(admin_client, label="GitHub perso")  # slug déduit : github-perso
+    secret_slug = await _secret(admin_client, "gh-autre")
+    response = await admin_client.post(
+        "/api/connections",
+        json={
+            "label": "Autre",
+            "slug": "github-perso",
+            "forge": "github",
+            "url": "https://github.example.org",
+            "secret_slug": secret_slug,
+        },
+    )
+    assert response.status_code == 409
+    assert response.json()["error"] == "connection_slug_taken"
+    assert await db_fetchval(app, "SELECT count(*) FROM connections") == 1
+
+
+async def test_modification_reverifie_et_garde_slug_et_forge(
+    admin_client: AsyncClient, app: FastAPI
+) -> None:
+    await _create(admin_client, label="GitHub perso")
+    connection_id = await db_fetchval(app, "SELECT id FROM connections")
+    nouveau = await _secret(admin_client, "gh-nouveau")
+    await db_execute_sql(app, "UPDATE connections SET last_status = 'error', last_error_code = 'x'")
+    response = await admin_client.put(
+        f"/api/connections/{connection_id}",
+        json={"label": "GitHub pro", "url": URL + "/", "secret_slug": nouveau},
+    )
+    assert response.status_code == 200, response.text
+    row = await db_fetchrow(
+        app, "SELECT label, slug, forge, url, secret_slug, last_status FROM connections"
+    )
+    assert row is not None
+    assert (row["label"], row["slug"], row["forge"]) == ("GitHub pro", "github-perso", "github")
+    assert (row["url"], row["secret_slug"], row["last_status"]) == (URL, nouveau, "valid")
+
+
+async def test_modification_refusee_par_la_forge_ne_change_rien(
+    admin_client: AsyncClient, app: FastAPI
+) -> None:
+    ancien = await _create(admin_client, label="GitHub perso")
+    connection_id = await db_fetchval(app, "SELECT id FROM connections")
+    mauvais = await _secret(admin_client, "gh-mauvais-edit", value="mauvais")
+    response = await admin_client.put(
+        f"/api/connections/{connection_id}",
+        json={"label": "Autre", "url": URL, "secret_slug": mauvais},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "connection_token_invalid"
+    row = await db_fetchrow(app, "SELECT label, secret_slug FROM connections")
+    assert row is not None
+    assert (row["label"], row["secret_slug"]) == ("GitHub perso", ancien)
+
+
+async def test_modification_connexion_inconnue_404(admin_client: AsyncClient) -> None:
+    response = await admin_client.put(
+        f"/api/connections/{uuid.uuid4()}",
+        json={"label": "X", "url": URL, "secret_slug": "gh"},
+    )
+    assert response.status_code == 404
+
+
+async def db_execute_sql(app: FastAPI, sql: str) -> None:
+    async with app.state.pool.acquire() as conn:
+        await conn.execute(sql)
+
+
+async def test_audit_creation_modification_suppression(admin_client: AsyncClient) -> None:
+    # Ticket cf4434da : chaque écriture d'une connexion laisse une ligne d'audit.
+    await _create(admin_client)
+    connection_id = (await admin_client.get("/api/connections")).json()["connections"][0]["id"]
+    secret = (await admin_client.get("/api/connections")).json()["connections"][0]["secret_slug"]
+    r = await admin_client.put(
+        f"/api/connections/{connection_id}",
+        json={"label": "Renommée", "url": URL, "secret_slug": secret},
+    )
+    assert r.status_code == 200, r.text
+    r = await admin_client.delete(f"/api/connections/{connection_id}?delete_secret=true")
+    assert r.status_code == 204
+    events = (await admin_client.get("/api/audit")).json()["events"]
+    assert [(e["action"], e["object_type"]) for e in events] == [
+        ("deleted", "secret"),
+        ("deleted", "connection"),
+        ("updated", "connection"),
+        ("created", "connection"),
+        ("created", "secret"),
+    ]
+    assert events[1]["object_label"] == "Renommée"
+    assert GOOD_TOKEN not in (await admin_client.get("/api/audit")).text

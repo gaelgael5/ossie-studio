@@ -9,12 +9,15 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import ConnectionsRead, ConnectionsWrite
+from ossie_studio.audit.service import CREATED, DELETED, audited, audited_secret_removal
 from ossie_studio.crypto import CryptoService
 from ossie_studio.databases.base import VERIFY_TIMEOUT_SECONDS, DbEngineError
 from ossie_studio.databases.registry import get_engine, is_known_engine, list_engine_specs
 from ossie_studio.databases.service import (
     DbConnectionDuplicateError,
+    DbConnectionSlugTakenError,
     db_create_db_connection,
+    db_db_connection_slug_exists,
     db_delete_db_connection,
     db_get_db_connection,
     db_list_db_connections,
@@ -25,10 +28,12 @@ from ossie_studio.errors import ApiError
 from ossie_studio.models import DbConnection
 from ossie_studio.secretstore.service import db_get_secret, resolve_secret_value
 from ossie_studio.secretstore.usages import db_count_secret_usages, db_delete_secret_if_unused
+from ossie_studio.slugs import is_valid_slug
 
 
 def _str_params(params: dict[str, object]) -> dict[str, str]:
     return {k: str(v) for k, v in params.items()}
+
 
 log = structlog.get_logger(__name__)
 
@@ -40,6 +45,8 @@ CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 class DbConnectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
+    # Optionnel : l'interface le déduit du libellé et le laisse corriger.
+    slug: str = ""
     engine: str = ""
     params: dict[str, str] = {}
     secret_slug: str = ""
@@ -109,13 +116,19 @@ async def list_engines(_: ConnectionsRead) -> dict[str, object]:
 async def create_db_connection(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: ConnectionsWrite,
+    user: ConnectionsWrite,
     body: DbConnectionCreate,
 ) -> dict[str, object]:
     if not body.label.strip():
         raise ApiError("invalid_request", status_code=400, fields=["label_required"])
     if not is_known_engine(body.engine):
         raise ApiError("invalid_request", status_code=400, fields=["engine_invalid"])
+    slug = body.slug.strip()
+    if slug and not is_valid_slug(slug):
+        raise ApiError("invalid_request", status_code=400, fields=["connection_slug_invalid"])
+    # Slug pris : refusé AVANT d'interroger la base (pas de connexion inutile).
+    if slug and await db_db_connection_slug_exists(conn, slug):
+        raise ApiError("db_connection_slug_taken", status_code=409, slug=slug)
     engine = get_engine(body.engine)
     spec = engine.form_spec()
     secret = await db_get_secret(conn, body.secret_slug.strip())
@@ -134,19 +147,64 @@ async def create_db_connection(
         raise ApiError("db_host_unreachable", status_code=400) from None
 
     try:
-        created = await db_create_db_connection(
-            conn,
-            label=body.label.strip(),
-            engine=body.engine,
-            target=body.params.get(spec.target_field, ""),
-            params=dict(body.params),
-            secret_slug=secret.slug,
-            identity=identity.username,
-            server_version=identity.server_version,
-        )
+        # Paramètres de connexion hors audit : seuls le moteur et la cible.
+        target = body.params.get(spec.target_field, "")
+        async with audited(
+            conn, user, CREATED, "db_connection", detail={"engine": body.engine, "target": target}
+        ) as entry:
+            created = await db_create_db_connection(
+                conn,
+                label=body.label.strip(),
+                engine=body.engine,
+                target=target,
+                params=dict(body.params),
+                secret_slug=secret.slug,
+                identity=identity.username,
+                server_version=identity.server_version,
+                slug=slug,
+            )
+            entry.target(created.id, created.label)
+    except DbConnectionSlugTakenError:
+        raise ApiError("db_connection_slug_taken", status_code=409, slug=slug) from None
     except DbConnectionDuplicateError:
         raise ApiError("db_connection_duplicate", status_code=409) from None
     return _payload(created)
+
+
+# Schémas système : jamais proposés au choix d'une source (ils ne portent pas
+# de modèle métier, et la collecte les écarte déjà).
+_SYSTEM_SCHEMAS = {"information_schema", "pg_catalog", "pg_toast", "sys", "guest", "db_owner"}
+
+
+@router.get("/{connection_id}/schemas")
+async def list_db_schemas(
+    conn: ConnDep, crypto: CryptoDep, _: ConnectionsRead, connection_id: uuid.UUID,
+    database: str = "",
+) -> dict[str, object]:
+    """Schémas visibles d'une connexion, pour la liste à cocher d'une source
+    (eebe6994). Structure seulement ; la base de la source remplace celle de la
+    connexion, comme à la collecte (api/sources)."""
+    connection = await db_get_db_connection(conn, connection_id)
+    if connection is None:
+        raise ApiError("db_connection_not_found", status_code=404)
+    secret_value = (await resolve_secret_value(conn, crypto, connection.secret_slug)).reveal()
+    params = _str_params(connection.params)
+    if database.strip():
+        params["database"] = database.strip()
+    engine = get_engine(connection.engine)
+    try:
+        tables = await asyncio.wait_for(
+            engine.list_structure(params, secret_value), timeout=VERIFY_TIMEOUT_SECONDS * 3
+        )
+    except DbEngineError as exc:
+        raise ApiError(exc.code, status_code=400) from None
+    except TimeoutError:
+        raise ApiError("db_host_unreachable", status_code=400) from None
+    counts: dict[str, int] = {}
+    for t in tables:
+        if t.schema.lower() not in _SYSTEM_SCHEMAS:
+            counts[t.schema] = counts.get(t.schema, 0) + 1
+    return {"schemas": [{"name": n, "tables": counts[n]} for n in sorted(counts)]}
 
 
 @router.post("/{connection_id}/test")
@@ -186,12 +244,20 @@ async def test_db_connection(
 
 @router.delete("/{connection_id}", status_code=204)
 async def delete_db_connection(
-    conn: ConnDep, _: ConnectionsWrite, connection_id: uuid.UUID, delete_secret: bool = False
+    conn: ConnDep, user: ConnectionsWrite, connection_id: uuid.UUID, delete_secret: bool = False
 ) -> None:
-    secret_slug = await db_delete_db_connection(conn, connection_id)
+    current = await db_get_db_connection(conn, connection_id)
+    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
+    async with audited(
+        conn, user, DELETED, "db_connection", connection_id, current.label if current else ""
+    ) as entry:
+        secret_slug = await db_delete_db_connection(conn, connection_id)
+        entry.skip = secret_slug is None
     if secret_slug is None:
         raise ApiError("db_connection_not_found", status_code=404)
-    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
     if delete_secret:
-        secret_outcome = await db_delete_secret_if_unused(conn, secret_slug)
+        slug = secret_slug
+        secret_outcome = await audited_secret_removal(
+            conn, user, slug, lambda: db_delete_secret_if_unused(conn, slug)
+        )
     log.info("db_connection_removed", secret=secret_outcome)

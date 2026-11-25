@@ -12,7 +12,7 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import dump_schema, schema_file
 from ossie_studio.sources.collect_core import schema_plugin_run
 
 _KEY_CLEAN = re.compile(r"[^a-zA-Z0-9]+")
@@ -65,6 +65,6 @@ class DemoJsonSchemaParser:
                 raise ParserError("syntax")
             key = _key_from_path(path)
             # Identité stable : $id = nom du fichier schéma (conventions).
-            data["$id"] = f"{key}.json"
+            data["$id"] = schema_file(key)
             objects.append(ParsedObject(key=key, sources=[path], schema=dump_schema(data)))
         return objects

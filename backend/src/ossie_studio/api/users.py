@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import UsersRead, UsersWrite
+from ossie_studio.audit.service import UPDATED, audited
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.profiles.service import db_get_profile
@@ -49,8 +50,36 @@ def _parse_uuid(value: str) -> uuid.UUID | None:
         return None
 
 
+async def db_space_rights_for_users(
+    conn: asyncpg.Connection, user_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[dict[str, str]]]:
+    """Droits par espace de chaque personne : espace, profil et équipe qui le donne."""
+    rows = await conn.fetch(
+        "SELECT ut.user_id, s.id AS space_id, s.name AS space_name, p.name AS profile_name, "
+        "t.name AS team_name FROM user_teams ut "
+        "JOIN space_team_profiles stp ON stp.team_id = ut.team_id "
+        "JOIN git_spaces s ON s.id = stp.space_id JOIN teams t ON t.id = ut.team_id "
+        "JOIN profiles p ON p.id = stp.profile_id "
+        "WHERE ut.user_id = ANY($1::uuid[]) ORDER BY s.name, t.name",
+        user_ids,
+    )
+    out: dict[uuid.UUID, list[dict[str, str]]] = {}
+    for r in rows:
+        out.setdefault(r["user_id"], []).append(
+            {
+                "space_id": str(r["space_id"]),
+                "space_name": r["space_name"],
+                "profile_name": r["profile_name"],
+                "team_name": r["team_name"],
+            }
+        )
+    return out
+
+
 def _user_payload(
-    row: asyncpg.Record, teams: list[dict[str, str]]
+    row: asyncpg.Record,
+    teams: list[dict[str, str]],
+    space_rights: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
     return {
         "id": str(row["id"]),
@@ -64,6 +93,8 @@ def _user_payload(
         # Appartenance multiple : liste d'équipes, chacune avec l'origine de son
         # rattachement (oidc | manual).
         "teams": teams,
+        # Droits par espace gagnés par ses équipes (espace, profil, équipe).
+        "space_rights": space_rights or [],
     }
 
 
@@ -85,11 +116,21 @@ async def list_users(
         max(0, offset),
         _parse_uuid(team_id),
     )
-    teams_by_user = await db_teams_for_users(conn, [r["id"] for r in rows])
+    ids = [r["id"] for r in rows]
+    teams_by_user = await db_teams_for_users(conn, ids)
+    rights_by_user = await db_space_rights_for_users(conn, ids)
     return {
-        "users": [_user_payload(r, teams_by_user.get(r["id"], [])) for r in rows],
+        "users": [
+            _user_payload(r, teams_by_user.get(r["id"], []), rights_by_user.get(r["id"]))
+            for r in rows
+        ],
         "total": total,
     }
+
+
+async def _email(conn: ConnDep, user_id: uuid.UUID) -> str:
+    """Empreinte lisible du compte visé, figée dans la ligne d'audit."""
+    return str(await conn.fetchval("SELECT email FROM users WHERE id = $1", user_id) or "")
 
 
 @router.put("/{user_id}/profile")
@@ -103,7 +144,16 @@ async def assign_profile(
     if await db_get_profile(conn, profile_id) is None:
         raise ApiError("profile_not_found", status_code=404)
     try:
-        old_profile_id, _was_admin = await db_assign_profile(conn, user_id, profile_id)
+        async with audited(
+            conn,
+            user,
+            UPDATED,
+            "user",
+            user_id,
+            await _email(conn, user_id),
+            {"change": "profile", "profile": str(profile_id)},
+        ):
+            old_profile_id, _was_admin = await db_assign_profile(conn, user_id, profile_id)
     except UserNotFoundError:
         raise ApiError("user_not_found", status_code=404) from None
     except AdminLockoutError:
@@ -122,7 +172,12 @@ async def assign_profile(
 async def remove_pin(conn: ConnDep, user: UsersWrite, user_id: uuid.UUID) -> dict[str, bool]:
     # Retire la marque « fixé à la main » : les correspondances OIDC pourront de
     # nouveau choisir le profil à la connexion suivante.
-    if not await db_set_pin(conn, user_id, pinned=False):
+    async with audited(
+        conn, user, UPDATED, "user", user_id, await _email(conn, user_id), {"change": "unpinned"}
+    ) as entry:
+        done = await db_set_pin(conn, user_id, pinned=False)
+        entry.skip = not done
+    if not done:
         raise ApiError("user_not_found", status_code=404)
     log.info("profile_pin_removed", user_id=str(user_id), author=user.email)
     return {"ok": True}
@@ -140,7 +195,16 @@ async def add_team(
     except ValueError:
         raise ApiError("team_not_found", status_code=404) from None
     try:
-        await db_add_user_team(conn, user_id, team_id)
+        async with audited(
+            conn,
+            user,
+            UPDATED,
+            "user",
+            user_id,
+            await _email(conn, user_id),
+            {"change": "team_added", "team": str(team_id)},
+        ):
+            await db_add_user_team(conn, user_id, team_id)
     except UserNotFoundError:
         raise ApiError("user_not_found", status_code=404) from None
     except TeamNotFoundError:
@@ -155,9 +219,22 @@ async def remove_team(
 ) -> dict[str, bool]:
     # Retire un rattachement (décision humaine). Idempotent : retirer un
     # rattachement absent n'est pas une erreur.
-    removed = await db_remove_user_team(conn, user_id, team_id)
+    async with audited(
+        conn,
+        user,
+        UPDATED,
+        "user",
+        user_id,
+        await _email(conn, user_id),
+        {"change": "team_removed", "team": str(team_id)},
+    ) as entry:
+        removed = await db_remove_user_team(conn, user_id, team_id)
+        entry.skip = not removed
     log.info(
-        "team_removed", user_id=str(user_id), team=str(team_id),
-        removed=removed, author=user.email,
+        "team_removed",
+        user_id=str(user_id),
+        team=str(team_id),
+        removed=removed,
+        author=user.email,
     )
     return {"ok": True, "removed": removed}

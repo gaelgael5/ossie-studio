@@ -27,7 +27,20 @@ from ossie_studio.sources.collect_core import (
 )
 from ossie_studio.sources.paths import CONTRATS_INDEX, safe_contrats_path, safe_source_path
 
-CONTRATS_INDEX_VERSION = 1
+# Version 2 : clés en anglais. Une version 1 (clés françaises) se relit grâce au
+# repli de `_field` ; on réécrit toujours en version 2.
+CONTRATS_INDEX_VERSION = 2
+# Clés de la version 1 (françaises), relues en repli pour qu'un dépôt existant
+# reste lisible sans migration.
+_LEGACY_ENTRY_KEYS = {
+    "file": "fichier",
+    "original_file": "fichier_origine",
+    "declared_version": "version_declaree",
+    "schema_count": "nb_schemas",
+    "operation_count": "nb_operations",
+    "uploaded_at": "depose_le",
+    "author": "auteur",
+}
 # Les contrats sont transformés par le plugin openapi : son index technique.
 _OPENAPI_INDEX = schema_index_name(OPENAPI_PARSER_ID)
 
@@ -51,26 +64,26 @@ class ContractNotFoundError(Exception):
 @dataclass(frozen=True)
 class ContractEntry:
     version: str
-    fichier: str
-    fichier_origine: str
+    file: str
+    original_file: str
     openapi: str
-    version_declaree: str
-    nb_schemas: int
-    nb_operations: int
-    depose_le: str
-    auteur: str
+    declared_version: str
+    schema_count: int
+    operation_count: int
+    uploaded_at: str
+    author: str
 
     def to_mapping(self) -> dict[str, Any]:
         return {
             "version": self.version,
-            "fichier": self.fichier,
-            "fichier_origine": self.fichier_origine,
+            "file": self.file,
+            "original_file": self.original_file,
             "openapi": self.openapi,
-            "version_declaree": self.version_declaree,
-            "nb_schemas": self.nb_schemas,
-            "nb_operations": self.nb_operations,
-            "depose_le": self.depose_le,
-            "auteur": self.auteur,
+            "declared_version": self.declared_version,
+            "schema_count": self.schema_count,
+            "operation_count": self.operation_count,
+            "uploaded_at": self.uploaded_at,
+            "author": self.author,
         }
 
 
@@ -79,33 +92,41 @@ class ContractView:
     """Une entrée d'index enrichie de son état de collecte, pour l'affichage."""
 
     entry: ContractEntry
-    collecte: bool
+    collected: bool
+
+
+def _field(row: dict[str, Any], key: str, default: Any) -> Any:
+    """Valeur d'une clé d'entrée, avec repli sur son ancien nom français."""
+    if key in row:
+        return row[key]
+    return row.get(_LEGACY_ENTRY_KEYS.get(key, key), default)
 
 
 def _entry_from_row(row: dict[str, Any]) -> ContractEntry:
     return ContractEntry(
         version=str(row.get("version", "")),
-        fichier=str(row.get("fichier", "")),
-        fichier_origine=str(row.get("fichier_origine", "")),
+        file=str(_field(row, "file", "")),
+        original_file=str(_field(row, "original_file", "")),
         openapi=str(row.get("openapi", "")),
-        version_declaree=str(row.get("version_declaree", "")),
-        nb_schemas=int(row.get("nb_schemas", 0) or 0),
-        nb_operations=int(row.get("nb_operations", 0) or 0),
-        depose_le=str(row.get("depose_le", "")),
-        auteur=str(row.get("auteur", "")),
+        declared_version=str(_field(row, "declared_version", "")),
+        schema_count=int(_field(row, "schema_count", 0) or 0),
+        operation_count=int(_field(row, "operation_count", 0) or 0),
+        uploaded_at=str(_field(row, "uploaded_at", "")),
+        author=str(_field(row, "author", "")),
     )
 
 
 def parse_index(text: str) -> list[ContractEntry]:
     data = yaml.safe_load(text) or {}
-    rows = data.get("contrats") or []
+    # `contrats` : liste de la version 1, relue en repli.
+    rows = data.get("contracts") or data.get("contrats") or []
     return [_entry_from_row(row) for row in rows if isinstance(row, dict)]
 
 
 def dump_index(entries: list[ContractEntry]) -> str:
     mapping = {
         "version": CONTRATS_INDEX_VERSION,
-        "contrats": [e.to_mapping() for e in sorted(entries, key=lambda e: e.version)],
+        "contracts": [e.to_mapping() for e in sorted(entries, key=lambda e: e.version)],
     }
     return yaml.safe_dump(mapping, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
@@ -127,16 +148,14 @@ def read_contracts_view(workdir: Path, slug: str) -> list[ContractView]:
     entries = _read_index_dir(contrats_dir)
     tech_file = safe_source_path(workdir, slug) / RAW_DIR / _OPENAPI_INDEX
     tech = (
-        parse_tech_manifest(tech_file.read_text(encoding="utf-8"))
-        if tech_file.is_file()
-        else None
+        parse_tech_manifest(tech_file.read_text(encoding="utf-8")) if tech_file.is_file() else None
     )
     views: list[ContractView] = []
     for entry in entries:
         collected = False
-        contract_file = contrats_dir / entry.fichier
+        contract_file = contrats_dir / entry.file
         if tech is not None and contract_file.is_file():
-            te = tech.entries.get(entry.fichier)
+            te = tech.entries.get(entry.file)
             collected = te is not None and te.checksum == checksum(contract_file.read_bytes())
         views.append(ContractView(entry, collected))
     return views
@@ -150,7 +169,7 @@ def read_contract_bytes(workdir: Path, slug: str, version: str) -> bytes | None:
         return None
     for entry in _read_index_dir(contrats_dir):
         if entry.version == version:
-            path = contrats_dir / entry.fichier
+            path = contrats_dir / entry.file
             return path.read_bytes() if path.is_file() else None
     return None
 
@@ -169,7 +188,7 @@ def deposit_contract_fn(
         if exists and not replace:
             raise ContractExistsError(entry.version)
         contrats_dir.mkdir(parents=True, exist_ok=True)
-        (contrats_dir / entry.fichier).write_bytes(content)
+        (contrats_dir / entry.file).write_bytes(content)
         kept = [e for e in entries if e.version != entry.version]
         kept.append(entry)
         (contrats_dir / CONTRATS_INDEX).write_text(dump_index(kept), encoding="utf-8")
@@ -188,15 +207,15 @@ def remove_contract_fn(slug: str, version: str) -> Callable[[Path], None]:
         target = next((e for e in entries if e.version == version), None)
         if target is None:
             raise ContractNotFoundError(version)
-        (contrats_dir / target.fichier).unlink(missing_ok=True)
+        (contrats_dir / target.file).unlink(missing_ok=True)
         kept = [e for e in entries if e.version != version]
         (contrats_dir / CONTRATS_INDEX).write_text(dump_index(kept), encoding="utf-8")
-        _drop_schemas(workdir, slug, target.fichier)
+        _drop_schemas(workdir, slug, target.file)
 
     return write
 
 
-def _drop_schemas(workdir: Path, slug: str, fichier: str) -> None:
+def _drop_schemas(workdir: Path, slug: str, contract_file: str) -> None:
     """Supprime de `raw/` les schémas tirés de ce contrat et met à jour le
     manifeste technique. Un schéma n'est supprimé que si plus aucune autre source
     ne le produit (il est version-scopé, donc propre au contrat)."""
@@ -205,7 +224,7 @@ def _drop_schemas(workdir: Path, slug: str, fichier: str) -> None:
     if not tech_file.is_file():
         return
     tech = parse_tech_manifest(tech_file.read_text(encoding="utf-8"))
-    entry = tech.entries.pop(fichier, None)
+    entry = tech.entries.pop(contract_file, None)
     if entry is None:
         return
     for dest in entry.destinations:

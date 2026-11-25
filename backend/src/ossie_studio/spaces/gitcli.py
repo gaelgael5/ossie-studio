@@ -57,6 +57,43 @@ async def run_git(args: list[str], cwd: Path, env: dict[str, str]) -> tuple[int,
     return proc.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace")
 
 
+async def show_files(
+    cwd: Path, env: dict[str, str], rev: str, paths: list[str]
+) -> dict[str, str | None]:
+    """Contenu de chaque chemin à `rev` (None s'il n'y existe pas), en UN seul
+    processus `git cat-file --batch` : une collecte touche des milliers de
+    fichiers, un `git show` par fichier coûterait des dizaines de secondes."""
+    if not paths:
+        return {}
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        "cat-file",
+        "--batch",
+        cwd=str(cwd),
+        env=env,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    # Un chemin contenant un saut de ligne casserait le protocole ligne à ligne :
+    # il est simplement donné absent.
+    asked = [p for p in paths if "\n" not in p]
+    out, _ = await proc.communicate("".join(f"{rev}:{p}\n" for p in asked).encode())
+    result: dict[str, str | None] = dict.fromkeys(paths)
+    pos = 0
+    for path in asked:
+        end = out.index(b"\n", pos)
+        header = out[pos:end].decode(errors="replace").split()
+        pos = end + 1
+        if len(header) == 3 and header[2].isdigit():  # objet trouvé (blob, ou dossier)
+            size = int(header[2])
+            if header[1] == "blob":
+                result[path] = out[pos : pos + size].decode("utf-8", "replace")
+            pos += size + 1  # contenu puis saut de ligne final
+        # « missing » : une seule ligne, rien à sauter
+    return result
+
+
 def classify(stderr: str) -> str:
     """Traduit l'erreur git en cause stable (jamais « accès insuffisant »)."""
     s = stderr.lower()

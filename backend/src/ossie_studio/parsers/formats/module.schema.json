@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ossie:raw/module",
+  "title": "Objet module de raw (cartographie applicative)",
+  "description": "Un module = un fichier de projet (.csproj, .sqlproj, module Gradle ou Maven, package.json, pyproject.toml). Rangé dans raw comme tout objet : <clé>.schema.yaml, repéré par x-kind: module. L'appartenance des objets au module n'est pas écrite : c'est le fichier de projet le plus proche en remontant l'arborescence du fichier d'origine de l'objet.",
+  "type": "object",
+  "required": ["$id", "title", "x-kind", "x-language", "x-source", "x-module"],
+  "properties": {
+    "$id": {"type": "string", "pattern": "^module-[a-z0-9-]+\\.schema\\.yaml$"},
+    "title": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "x-kind": {"const": "module"},
+    "x-language": {"type": "string", "minLength": 1},
+    "x-source": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file"],
+        "properties": {"file": {"type": "string", "minLength": 1}}
+      }
+    },
+    "x-module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project", "nature", "dependencies"],
+      "properties": {
+        "project": {"type": "string", "minLength": 1},
+        "nature": {"enum": ["library", "web", "worker", "console", "test", "sql", "application"]},
+        "targets": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "dependencies": {"type": "array", "items": {"$ref": "#/$defs/dependency"}}
+      }
+    }
+  },
+  "$defs": {
+    "dependency": {
+      "description": "Une dépendance vers un autre fichier de projet. `module` : le $id du module quand le projet est dans la source ; absent = dépendance externe non résolue.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project"],
+      "properties": {
+        "project": {"type": "string", "minLength": 1},
+        "module": {"type": "string", "pattern": "^module-[a-z0-9-]+\\.schema\\.yaml$"}
+      }
+    }
+  }
+}

@@ -5,6 +5,8 @@ import { api } from '../apiClient'
 import type { Certification, CertificationInput } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import type { LabelSlug } from '../components/LabelSlugFields'
 import { GovernanceFrame } from '../components/GovernanceFrame'
 
 const EMPTY: CertificationInput = {
@@ -64,6 +66,8 @@ export function GovernanceCertificationsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [mode, setMode] = useState<Mode>({ kind: 'view' })
   const [form, setForm] = useState<CertificationInput>(EMPTY)
+  // Nom puis slug (déduit du nom, figé une fois créé).
+  const pair = useLabelSlug()
 
   const certs = useQuery({ queryKey: ['certifications'], queryFn: api.listCertifications })
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['certifications'] })
@@ -76,7 +80,7 @@ export function GovernanceCertificationsPage() {
   }
 
   const create = useMutation({
-    mutationFn: () => api.createCertification(form),
+    mutationFn: () => api.createCertification({ ...form, name: pair.label, slug: pair.finalSlug }),
     onSuccess: async () => {
       toView()
       await invalidate()
@@ -84,7 +88,7 @@ export function GovernanceCertificationsPage() {
     onError,
   })
   const update = useMutation({
-    mutationFn: () => api.updateCertification(mode.kind === 'edit' ? mode.id : '', form),
+    mutationFn: () => api.updateCertification(mode.kind === 'edit' ? mode.id : '', { ...form, name: pair.label }),
     onSuccess: async () => {
       toView()
       await invalidate()
@@ -104,6 +108,7 @@ export function GovernanceCertificationsPage() {
   const startCreate = () => {
     setMessages([])
     setForm({ ...EMPTY })
+    pair.reset()
     setMode({ kind: 'create' })
   }
   const startEdit = (cert: Certification) => {
@@ -117,6 +122,7 @@ export function GovernanceCertificationsPage() {
       icon: cert.icon,
       restricted: cert.restricted,
     })
+    pair.load(cert.name, cert.slug)
     setMode({ kind: 'edit', id: cert.id })
   }
 
@@ -174,6 +180,7 @@ export function GovernanceCertificationsPage() {
           {mode.kind !== 'view' ? (
             <CertForm
               mode={mode}
+              pair={pair}
               form={form}
               set={set}
               pending={create.isPending || update.isPending}
@@ -283,6 +290,7 @@ export function GovernanceCertificationsPage() {
 
 function CertForm({
   mode,
+  pair,
   form,
   set,
   pending,
@@ -290,6 +298,7 @@ function CertForm({
   onCancel,
 }: {
   mode: Mode
+  pair: LabelSlug
   form: CertificationInput
   set: <K extends keyof CertificationInput>(key: K, value: CertificationInput[K]) => void
   pending: boolean
@@ -310,12 +319,13 @@ function CertForm({
         }}
       >
         <div className="form-grid">
-          <div className="field">
-            <label className="field-label" htmlFor="cert-name">
-              {t('certNameLabel')}
-            </label>
-            <input id="cert-name" className="input" value={form.name} onChange={(e) => set('name', e.target.value)} />
-          </div>
+          <LabelSlugFields
+            idPrefix="cert"
+            state={pair}
+            labelText={t('certNameLabel')}
+            slugText={t('slugLabel')}
+            slugLocked={mode.kind === 'edit'}
+          />
           <div className="field">
             <label className="field-label" htmlFor="cert-rank">
               {t('certRankLabel')}

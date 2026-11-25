@@ -23,6 +23,7 @@ import yaml
 from ossie_studio.parsers.base import (
     CIBLE_RAW,
     STATUT_ERREUR,
+    STATUT_IGNORE,
     STATUT_INCHANGE,
     STATUT_TRAITE,
     OutputAction,
@@ -30,6 +31,7 @@ from ossie_studio.parsers.base import (
     PluginError,
     PluginParam,
     PluginResult,
+    decode_error_detail,
     matches_globs,
 )
 
@@ -37,7 +39,9 @@ MARKDOWN_PLUGIN_ID = "markdown"
 MARKDOWN_PLUGIN_VERSION = "1.0"
 DOCS_DIR = "docs"
 DOCS_INDEX = "docs-index.yaml"
-DOCS_INDEX_VERSION = 1
+# Version 2 : clés en anglais (`title`, `resources`). La version 1 (`titre`,
+# `ressources`) se relit en repli ; on réécrit toujours en version 2.
+DOCS_INDEX_VERSION = 2
 _GLOBS = ["**/*.md", "**/*.markdown"]
 _DEFAULT_MAX_KB = 512
 PARAM_MAX_KB = "taille_max_ko"
@@ -57,19 +61,19 @@ _FOLLOWED_SCHEMES = ("http://", "https://", "mailto:", "#")
 class DocEntry:
     path: str
     crc: str
-    titre: str
+    title: str
     sections: list[str] = field(default_factory=list)
     mentions: list[str] = field(default_factory=list)
-    ressources: list[str] = field(default_factory=list)
+    resources: list[str] = field(default_factory=list)
 
     def to_mapping(self) -> dict[str, Any]:
         return {
             "path": self.path,
             "crc": self.crc,
-            "titre": self.titre,
+            "title": self.title,
             "sections": list(self.sections),
             "mentions": list(self.mentions),
-            "ressources": list(self.ressources),
+            "resources": list(self.resources),
         }
 
 
@@ -83,10 +87,10 @@ def parse_docs_index(text: str | None) -> dict[str, DocEntry]:
         out[path] = DocEntry(
             path=path,
             crc=str(row.get("crc", "")),
-            titre=str(row.get("titre", "")),
+            title=str(row.get("title", row.get("titre", ""))),
             sections=[str(s) for s in row.get("sections") or []],
             mentions=[str(s) for s in row.get("mentions") or []],
-            ressources=[str(s) for s in row.get("ressources") or []],
+            resources=[str(s) for s in row.get("resources", row.get("ressources")) or []],
         )
     return out
 
@@ -134,10 +138,10 @@ def analyze_markdown(path: str, text: str, crc: str) -> DocEntry:
     return DocEntry(
         path=path,
         crc=crc,
-        titre=_title(path, text),
+        title=_title(path, text),
         sections=[m.strip() for m in _HEADING.findall(text)],
         mentions=_mentions(text),
-        ressources=_resources(text),
+        resources=_resources(text),
     )
 
 
@@ -185,18 +189,34 @@ class MarkdownPlugin:
                 continue
             raw = context.contents[file.path]
             if len(raw) > max_bytes:
-                result.errors.append(PluginError(source=file.path, cause="too_large"))
+                size_kb = (len(raw) + 1023) // 1024
+                result.errors.append(
+                    PluginError(
+                        source=file.path,
+                        cause="too_large",
+                        detail=f"{size_kb} KB > {max_bytes // 1024} KB ({PARAM_MAX_KB})",
+                    )
+                )
                 result.statuses[file.path] = STATUT_ERREUR
                 continue
             try:
                 text = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                result.errors.append(PluginError(source=file.path, cause="unreadable"))
+            except UnicodeDecodeError as exc:
+                result.errors.append(
+                    PluginError(
+                        source=file.path, cause="unreadable", detail=decode_error_detail(exc)
+                    )
+                )
                 result.statuses[file.path] = STATUT_ERREUR
                 continue
             if not text.strip():
-                result.errors.append(PluginError(source=file.path, cause="empty"))
-                result.statuses[file.path] = STATUT_ERREUR
+                # Un document vide n'apprend rien : on ne le traite pas, sans
+                # erreur (décision de Gael, 22/11/2026). S'il avait du contenu à
+                # la collecte précédente, sa copie dans raw/docs/ part avec lui.
+                result.statuses[file.path] = STATUT_IGNORE
+                if prev is not None:
+                    result.deletes.append(f"{DOCS_DIR}/{file.path}")
+                    result.deleted += 1
                 continue
             index[file.path] = analyze_markdown(file.path, text, file.crc)
             result.writes.append(OutputAction(path=f"{DOCS_DIR}/{file.path}", content=text))

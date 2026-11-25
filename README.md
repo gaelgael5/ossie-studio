@@ -15,6 +15,9 @@ Le backlog du projet vit dans docflow, workspace `ossie-studio`.
 - **Frontend** : React + Vite, TypeScript strict, TanStack Query, i18n
   (fr/en), Vitest, sous `frontend/`. Identité visuelle et règles d'écriture
   d'une page : [docs/identite-visuelle.md](docs/identite-visuelle.md).
+- **Données** : le travail vit dans le Git de l'espace, la base ne garde que
+  l'identité, les droits, la configuration et ce qui se recalcule :
+  [docs/regle-git-source-de-verite.md](docs/regle-git-source-de-verite.md).
 - **Livraison** : `docker compose` (PostgreSQL, backend, frontend) et
   `dev-deploy.sh` idempotent.
 
@@ -30,13 +33,31 @@ Ils vivent hors de l'image et de la couche conteneur.
 
 ## Déploiement (dev/test)
 
+Première fois sur la machine : `git clone -b dev https://github.com/gaelgael5/ossie-studio.git`.
+Ensuite, toujours et uniquement :
+
 ```bash
-./dev-deploy.sh dev
+./dev-deploy.sh            # branche dev
+./dev-deploy.sh --reset-db # SUPPRIME la base puis redéploie (confirmation)
+./dev-deploy.sh --foreground  # sans filet anti-raccrochage ni journal (CI)
+PORTAL_TOKEN=<login>:<code> ./dev-deploy.sh --exposer-seulement
+                              # déclare le frontend à l'annuaire du portail
 ```
 
-Idempotent : met à jour le dépôt, génère les secrets manquants dans `.env`
-(jamais ceux déjà présents), construit et démarre la stack, joue les
-migrations au démarrage du backend, puis attend `GET /api/health`.
+La déclaration à l'annuaire (`scripts/declarer-exposition.sh`, copie du script
+de référence du portail) s'authentifie par un code TOTP de 30 s (outil MCP
+`totp_code`) : on déploie d'abord, puis on déclare avec un code frais.
+
+Le script est idempotent et se relance sans danger après un échec partiel :
+mise à jour du dépôt puis ré-exécution dans sa version fraîche, secrets
+manquants générés dans `.env` (jamais ceux déjà présents), construction des
+images, arrêt avec retrait des orphelins, choix de ports libres (sondés après
+l'arrêt, persistés dans `.env`), attente d'un backend stable, puis
+`GET /api/health` — qui n'est vert que si le schéma est à la dernière
+migration et les volumes inscriptibles — et relais `/api` du frontend. Purge
+disque (cache de build, images détaggées) au plus une fois par semaine.
+Journal de chaque passage : `logs/dev-deploy-*.log` ; le déploiement va au
+bout même si la session SSH tombe.
 
 ## Développement local (sans Docker)
 

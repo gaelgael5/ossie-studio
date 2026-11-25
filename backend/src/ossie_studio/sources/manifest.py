@@ -10,7 +10,11 @@ from ossie_studio.sources.tri import validate_tri_rules
 
 # Version du format de manifeste. Une évolution incompatible l'incrémente ;
 # chaque version sait se relire. Le champ `version` du fichier fait foi.
-MANIFEST_VERSION = 1
+# Version 2 : clés en anglais (la version 1 avait des clés françaises). On écrit
+# toujours la version courante ; une version 1 est convertie à la lecture pour
+# qu'un dépôt existant reste lisible sans migration.
+MANIFEST_VERSION = 2
+LEGACY_MANIFEST_VERSION = 1
 
 GIT_TYPE = "git"
 # Les types « base » partagent la même forme de paramètres ; le type vaut le
@@ -21,9 +25,22 @@ OPENAPI_TYPE = "openapi"
 SOURCE_TYPES = (GIT_TYPE, *DB_TYPES, OPENAPI_TYPE)
 
 # Clés autorisées, par type. Toute autre clé est refusée (manifeste strict).
-_GIT_KEYS = {"depot", "branche", "repertoires", "parseurs", "exclusions"}
-_DB_KEYS = {"base", "schemas", "exclusions"}
-_TOP_KEYS = {"version", "slug", "label", "type", "connexion", "parametres", "tri"}
+_GIT_KEYS = {"repository", "branch", "directories", "parsers", "exclusions"}
+# `relation_profiles` : profils de relations virtuelles choisis (ticket b5f333b4).
+_DB_KEYS = {"database", "schemas", "exclusions", "relation_profiles"}
+_TOP_KEYS = {"version", "slug", "label", "type", "connection", "parameters", "triage"}
+
+# Correspondance version 1 (française) → version 2 (anglaise). Seules les clés
+# renommées y figurent ; une clé absente de la table est reprise telle quelle,
+# et la validation stricte de la version 2 refuse ensuite toute clé inconnue.
+_LEGACY_TOP_KEYS = {"connexion": "connection", "parametres": "parameters", "tri": "triage"}
+_LEGACY_PARAM_KEYS = {
+    "depot": "repository",
+    "branche": "branch",
+    "repertoires": "directories",
+    "parseurs": "parsers",
+    "base": "database",
+}
 
 
 class ManifestError(Exception):
@@ -40,10 +57,10 @@ class SourceManifest:
     slug: str
     label: str
     type: str
-    connexion: str
-    parametres: dict[str, Any]
+    connection: str
+    parameters: dict[str, Any]
     # Règles de tri (écarter le bruit) ; section dédiée versionnée avec la source.
-    tri: list[dict[str, Any]] = field(default_factory=list)
+    triage: list[dict[str, Any]] = field(default_factory=list)
 
     def to_mapping(self) -> dict[str, Any]:
         mapping: dict[str, Any] = {
@@ -51,11 +68,11 @@ class SourceManifest:
             "slug": self.slug,
             "label": self.label,
             "type": self.type,
-            "connexion": self.connexion,
-            "parametres": self.parametres,
+            "connection": self.connection,
+            "parameters": self.parameters,
         }
-        if self.tri:  # omise quand vide : un manifeste sans règle reste inchangé
-            mapping["tri"] = self.tri
+        if self.triage:  # omise quand vide : un manifeste sans règle reste inchangé
+            mapping["triage"] = self.triage
         return mapping
 
 
@@ -85,46 +102,46 @@ def _validate(data: dict[str, Any]) -> list[str]:
     if source_type not in SOURCE_TYPES:
         errors.append("type_unknown")
 
-    connexion = data.get("connexion")
+    connection = data.get("connection")
     if source_type == OPENAPI_TYPE:
         # Source par dépôt : pas de connexion.
-        if isinstance(connexion, str) and connexion.strip():
-            errors.append("connexion_forbidden")
-    elif not isinstance(connexion, str) or not connexion.strip():
-        errors.append("connexion_required")
+        if isinstance(connection, str) and connection.strip():
+            errors.append("connection_forbidden")
+    elif not isinstance(connection, str) or not connection.strip():
+        errors.append("connection_required")
 
-    params = data.get("parametres")
+    params = data.get("parameters")
     if not isinstance(params, dict):
-        errors.append("parametres_invalid")
+        errors.append("parameters_invalid")
     elif source_type == GIT_TYPE:
         errors += _validate_git_params(params)
     elif source_type in DB_TYPES:
         errors += _validate_db_params(params)
     elif source_type == OPENAPI_TYPE and params:
         # Aucun paramètre : les contrats vivent dans contrats/, pas dans le manifeste.
-        errors.append("parametres_forbidden")
+        errors.append("parameters_forbidden")
 
-    errors += validate_tri_rules(data.get("tri"))
+    errors += validate_tri_rules(data.get("triage"))
     return errors
 
 
 def _validate_git_params(params: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    errors += [f"unknown_key:parametres.{k}" for k in sorted(set(params) - _GIT_KEYS)]
-    if not isinstance(params.get("depot"), str) or not str(params.get("depot")).strip():
-        errors.append("depot_required")
-    if not isinstance(params.get("branche"), str) or not str(params.get("branche")).strip():
-        errors.append("branche_required")
-    if "repertoires" in params and _str_list(params["repertoires"]) is None:
-        errors.append("repertoires_invalid")
+    errors += [f"unknown_key:parameters.{k}" for k in sorted(set(params) - _GIT_KEYS)]
+    if not isinstance(params.get("repository"), str) or not str(params.get("repository")).strip():
+        errors.append("repository_required")
+    if not isinstance(params.get("branch"), str) or not str(params.get("branch")).strip():
+        errors.append("branch_required")
+    if "directories" in params and _str_list(params["directories"]) is None:
+        errors.append("directories_invalid")
     # Une source Git doit choisir au moins un parseur (socle des parseurs).
-    parseurs = params.get("parseurs")
-    if "parseurs" not in params:
-        errors.append("parseurs_required")
-    elif _str_list(parseurs) is None:
-        errors.append("parseurs_invalid")
-    elif not parseurs:
-        errors.append("parseurs_required")
+    parsers = params.get("parsers")
+    if "parsers" not in params:
+        errors.append("parsers_required")
+    elif _str_list(parsers) is None:
+        errors.append("parsers_invalid")
+    elif not parsers:
+        errors.append("parsers_required")
     if "exclusions" in params and _str_list(params["exclusions"]) is None:
         errors.append("exclusions_invalid")
     return errors
@@ -132,18 +149,32 @@ def _validate_git_params(params: dict[str, Any]) -> list[str]:
 
 def _validate_db_params(params: dict[str, Any]) -> list[str]:
     errors: list[str] = []
-    errors += [f"unknown_key:parametres.{k}" for k in sorted(set(params) - _DB_KEYS)]
-    if not isinstance(params.get("base"), str) or not str(params.get("base")).strip():
-        errors.append("base_required")
-    for key in ("schemas", "exclusions"):
+    errors += [f"unknown_key:parameters.{k}" for k in sorted(set(params) - _DB_KEYS)]
+    if not isinstance(params.get("database"), str) or not str(params.get("database")).strip():
+        errors.append("database_required")
+    for key in ("schemas", "exclusions", "relation_profiles"):
         if key in params and _str_list(params[key]) is None:
             errors.append(f"{key}_invalid")
     return errors
 
 
+def _upgrade_legacy(data: dict[str, Any]) -> dict[str, Any]:
+    """Convertit un manifeste version 1 (clés françaises) en version 2. Une clé
+    déjà anglaise dans une version 1 n'est pas devinée : elle reste et sera
+    refusée par la validation, comme toute clé inconnue."""
+    upgraded = {_LEGACY_TOP_KEYS.get(k, k): v for k, v in data.items()}
+    upgraded["version"] = MANIFEST_VERSION
+    params = upgraded.get("parameters")
+    if isinstance(params, dict):
+        upgraded["parameters"] = {_LEGACY_PARAM_KEYS.get(k, k): v for k, v in params.items()}
+    return upgraded
+
+
 def manifest_from_mapping(data: dict[str, Any]) -> SourceManifest:
     """Valide puis construit un manifeste depuis un mapping (lu d'un fichier ou
     reçu de l'API). Lève ManifestError avec les champs fautifs."""
+    if data.get("version") == LEGACY_MANIFEST_VERSION:
+        data = _upgrade_legacy(data)
     errors = _validate(data)
     if errors:
         raise ManifestError(errors)
@@ -151,9 +182,9 @@ def manifest_from_mapping(data: dict[str, Any]) -> SourceManifest:
         slug=str(data["slug"]),
         label=str(data["label"]).strip(),
         type=str(data["type"]),
-        connexion=str(data.get("connexion") or ""),
-        parametres=dict(data["parametres"]),
-        tri=list(data.get("tri") or []),
+        connection=str(data.get("connection") or ""),
+        parameters=dict(data["parameters"]),
+        triage=list(data.get("triage") or []),
     )
 
 

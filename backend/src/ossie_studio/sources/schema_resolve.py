@@ -14,42 +14,242 @@ réécrit rien).
 
 Portée v1 : **au sein d'une même source** (`raw/` de la source). L'inter-sources
 et les signatures d'objets de bibliothèque viendront plus tard.
+
+**Homonymes** (epic « résolution des références C# entre projets », 22/11/2026) :
+quand plusieurs objets portent le nom visé, on départage comme le compilateur et
+on ne lie que s'il reste un seul candidat — sinon on ne devine pas :
+1. projets atteignables — le `.csproj` le plus proche du fichier d'origine de
+   l'objet qui référence, plus ses `<ProjectReference>` de proche en proche ;
+2. namespaces — celui de l'objet (`x-namespace`), puis ses parents du plus
+   proche au plus lointain, puis ceux importés par son fichier (`x-usings`).
+La carte des projets se lit dans les fichiers du dépôt au moment de la collecte
+(elle n'est pas persistée) ; sans `.csproj`, seuls les namespaces départagent.
+
+**Une seule lecture des `.csproj`** : la même carte décrit aussi chaque projet
+(SDK, type de sortie, cibles, projet de test, références) pour les objets module
+de la cartographie applicative (ticket e0fa8519, `sources/csharp_modules.py`).
 """
 
 from __future__ import annotations
 
-import json
+import posixpath
+import re
+from dataclasses import dataclass, field
 from typing import Any
 
+import yaml
+
+from ossie_studio.parsers.application import is_extend_name, key_of
 from ossie_studio.parsers.base import OutputAction
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import (
+    SchemaReadError,
+    dump_schema,
+    is_schema_name,
+    load_schema,
+    schema_file,
+)
 
 UNRESOLVED_KEY = "x-unresolved-type"
 REF_KEY = "$ref"
 
 
 def is_schema_path(path: str) -> bool:
-    """Un schéma de `raw/` : un `.json` à la racine (les index sont des `.yaml`,
-    les documents sont sous `docs/`)."""
-    return path.endswith(".json") and "/" not in path
+    """Un schéma de `raw/` : un `.schema.yaml` à la racine (les index sont des
+    `.yaml` sans ce suffixe, les documents sont sous `docs/`)."""
+    return is_schema_name(path)
+
+
+# --- Carte des projets C# ---------------------------------------------------------
+
+# Expressions plutôt qu'analyseur XML : on ne lit que quelques attributs et
+# éléments, et un analyseur XML sur un fichier du dépôt ouvrirait la porte aux
+# entités externes.
+_PROJECT_REF = re.compile(r"<ProjectReference\s+Include\s*=\s*\"([^\"]+)\"", re.IGNORECASE)
+_PROJECT_ROOT = re.compile(r"<Project\b", re.IGNORECASE)
+_PROJECT_SDK = re.compile(r"<Project\b[^>]*?\bSdk\s*=\s*\"([^\"]+)\"", re.IGNORECASE)
+_PACKAGE_REF = re.compile(r"<PackageReference\s+Include\s*=\s*\"([^\"]+)\"", re.IGNORECASE)
+
+
+def _element(name: str) -> re.Pattern[str]:
+    return re.compile(rf"<{name}>\s*([^<]*?)\s*</{name}>", re.IGNORECASE)
+
+
+_OUTPUT_TYPE = _element("OutputType")
+_TARGET = _element("TargetFramework")
+_TARGETS = _element("TargetFrameworks")
+_IS_TEST = _element("IsTestProject")
+# Paquets qui font d'un projet un projet de test.
+_TEST_PACKAGES = ("microsoft.net.test.sdk", "xunit", "nunit", "mstest")
+
+
+@dataclass(frozen=True)
+class CsProject:
+    """Ce qu'on lit d'un `.csproj` : de quoi en faire un objet module.
+    `references` : chemins des projets référencés, normalisés depuis la racine
+    du dépôt (un chemin qui sort du dépôt commence par `..`). `error` : le
+    projet est illisible (rien d'autre n'est alors renseigné)."""
+
+    path: str
+    sdk: str = ""
+    output_type: str = ""
+    targets: tuple[str, ...] = ()
+    test: bool = False
+    references: tuple[str, ...] = ()
+    error: str = ""
+
+    @property
+    def name(self) -> str:
+        base = posixpath.basename(self.path)
+        return base[: -len(".csproj")] if base.lower().endswith(".csproj") else base
+
+
+@dataclass
+class ProjectMap:
+    """Projets `.csproj` d'une source : dossier du projet → dossiers des projets
+    qu'il référence (homonymes), et la description de chaque projet (modules).
+    Vide si la source n'en a pas."""
+
+    refs: dict[str, set[str]] = field(default_factory=dict)
+    projects: dict[str, CsProject] = field(default_factory=dict)
+
+    def project_of(self, file: str) -> str | None:
+        """Le projet d'un fichier : le dossier de projet le plus profond qui le contient."""
+        best: str | None = None
+        for folder in self.refs:
+            inside = not folder or file.startswith(f"{folder}/")
+            if inside and (best is None or len(folder) > len(best)):
+                best = folder
+        return best
+
+    def reachable(self, project: str) -> set[str]:
+        seen = {project}
+        stack = [project]
+        while stack:
+            for nxt in self.refs.get(stack.pop(), set()):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        return seen
+
+
+def _read_project(path: str, data: bytes) -> CsProject:
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return CsProject(path, error="csproj_unreadable")
+    if not _PROJECT_ROOT.search(text):
+        return CsProject(path, error="csproj_unreadable")
+    folder = posixpath.dirname(path)
+    references = sorted(
+        {
+            posixpath.normpath(posixpath.join(folder, include.replace("\\", "/")))
+            for include in _PROJECT_REF.findall(text)
+        }
+    )
+    sdk = _PROJECT_SDK.search(text)
+    output = _OUTPUT_TYPE.search(text)
+    single = _TARGET.search(text)
+    several = _TARGETS.search(text)
+    targets = [t.strip() for t in several.group(1).split(";")] if several else []
+    if single:
+        targets.append(single.group(1))
+    is_test = _IS_TEST.search(text)
+    packages = [p.lower() for p in _PACKAGE_REF.findall(text)]
+    test = bool(is_test and is_test.group(1).lower() == "true") or any(
+        p == name or p.startswith(f"{name}.") for p in packages for name in _TEST_PACKAGES
+    )
+    return CsProject(
+        path,
+        sdk=sdk.group(1).strip() if sdk else "",
+        output_type=output.group(1) if output else "",
+        targets=tuple(sorted({t for t in targets if t})),
+        test=test,
+        references=tuple(references),
+    )
+
+
+def read_project_map(source_files: dict[str, bytes]) -> ProjectMap:
+    """Lit les `.csproj` des fichiers de la source ; un projet illisible compte
+    pour un projet sans référence (jamais d'échec de collecte) et porte son
+    erreur, que la collecte signale."""
+    refs: dict[str, set[str]] = {}
+    projects: dict[str, CsProject] = {}
+    for path, data in source_files.items():
+        if not path.lower().endswith(".csproj"):
+            continue
+        project = _read_project(path, data)
+        projects[path] = project
+        refs[posixpath.dirname(path)] = {
+            posixpath.dirname(target)
+            for target in project.references
+            if not target.startswith("..")
+        }
+    return ProjectMap(refs, projects)
+
+
+@dataclass(frozen=True)
+class _Candidate:
+    path: str
+    title: str
+    namespace: str
+    project: str | None
+
+
+@dataclass(frozen=True)
+class RefContext:
+    """Ce que l'on sait de l'objet qui porte la référence."""
+
+    namespace: str = ""
+    usings: tuple[str, ...] = ()
+    project: str | None = None
 
 
 class SchemaIndex:
     """Index de recherche des schémas d'une source : nom d'objet → fichier(s).
-    `resolve` ne rend une cible que si **une seule** porte ce nom (sinon ambigu)."""
+    `resolve` ne rend une cible que si **une seule** porte ce nom (sinon ambigu) ;
+    `resolve_in` départage aussi des homonymes d'après le contexte de la référence."""
 
-    def __init__(self, schemas: dict[str, str]) -> None:
+    def __init__(
+        self,
+        schemas: dict[str, str],
+        *,
+        origins: dict[str, str] | None = None,
+        projects: ProjectMap | None = None,
+    ) -> None:
         self._by_name: dict[str, set[str]] = {}
+        self._candidates: dict[str, list[_Candidate]] = {}
+        self._projects = projects or ProjectMap()
+        self._origins = origins or {}
+        self.contexts: dict[str, RefContext] = {}
         for path, content in schemas.items():
             try:
-                data = json.loads(content)
-            except (json.JSONDecodeError, TypeError):
+                data = load_schema(content)
+            except (SchemaReadError, TypeError):
                 continue
-            if not isinstance(data, dict):
+            if not isinstance(data, dict) or data.get("x-kind") == "module":
+                # Un module n'est jamais la cible d'un type (un projet « Domain »
+                # ne doit pas répondre à une référence vers une classe Domain).
                 continue
+            namespace = str(data.get("x-namespace") or "")
+            project = self._project(path)
+            usings = data.get("x-usings")
+            self.contexts[path] = RefContext(
+                namespace,
+                tuple(str(u) for u in usings) if isinstance(usings, list) else (),
+                project,
+            )
             title = data.get("title")
             if isinstance(title, str) and title:
                 self._by_name.setdefault(title, set()).add(path)
+                self._candidates.setdefault(title, []).append(
+                    _Candidate(path, title, namespace, project)
+                )
+
+    def _project(self, schema_path: str) -> str | None:
+        origin = self._origins.get(schema_path)
+        if not origin or not self._projects.refs:
+            return None
+        return self._projects.project_of(origin)
 
     def resolve(self, name: str) -> str | None:
         """Le fichier du schéma nommé `name`, s'il est unique ; sinon None."""
@@ -58,59 +258,137 @@ class SchemaIndex:
             return next(iter(candidates))
         return None
 
+    def resolve_in(self, name: str, context: RefContext) -> str | None:
+        """Cible de `name` vue depuis `context` : unique, ou départagée par
+        projets atteignables puis namespaces ; None s'il reste un doute."""
+        if "<" in name:
+            return None
+        short = name.rsplit(".", 1)[-1]
+        candidates = self._candidates.get(short, [])
+        if "." in name:  # nom qualifié : la fin du nom complet doit correspondre
+            candidates = [c for c in candidates if f"{c.namespace}.{c.title}".endswith(name)]
+        if len(candidates) <= 1:
+            return candidates[0].path if candidates else None
+        if context.project is not None:
+            reach = self._projects.reachable(context.project)
+            candidates = [c for c in candidates if c.project in reach]
+            if len(candidates) <= 1:
+                return candidates[0].path if candidates else None
+        scope = context.namespace
+        while scope:
+            here = [c for c in candidates if c.namespace == scope]
+            if here:
+                return here[0].path if len(here) == 1 else None
+            scope = scope.rsplit(".", 1)[0] if "." in scope else ""
+        imported = [c for c in candidates if c.namespace and c.namespace in context.usings]
+        return imported[0].path if len(imported) == 1 else None
+
     def names(self) -> set[str]:
         return set(self._by_name)
 
 
-def _resolve_node(node: Any, index: SchemaIndex, counter: list[int]) -> Any:
+def _resolve_node(
+    node: Any, index: SchemaIndex, counter: list[int], context: RefContext | None = None
+) -> Any:
     """Parcourt récursivement un schéma et remplace les marqueurs
     `x-unresolved-type` par `$ref` quand la cible est connue."""
+    ctx = context or RefContext()
     if isinstance(node, list):
-        return [_resolve_node(item, index, counter) for item in node]
+        return [_resolve_node(item, index, counter, ctx) for item in node]
     if not isinstance(node, dict):
         return node
     name = node.get(UNRESOLVED_KEY)
     if isinstance(name, str) and REF_KEY not in node:
-        target = index.resolve(name)
+        target = index.resolve_in(name, ctx)
         if target is not None:
             resolved = {k: v for k, v in node.items() if k != UNRESOLVED_KEY}
             resolved[REF_KEY] = target
             counter[0] += 1
-            return {k: _resolve_node(v, index, counter) for k, v in resolved.items()}
-    return {k: _resolve_node(v, index, counter) for k, v in node.items()}
+            return {k: _resolve_node(v, index, counter, ctx) for k, v in resolved.items()}
+    return {k: _resolve_node(v, index, counter, ctx) for k, v in node.items()}
+
+
+def _is_tech_manifest(path: str) -> bool:
+    return path.startswith("manifest") and path.endswith(".yaml") and "/" not in path
+
+
+def _schema_origins(current: dict[str, str], writes: dict[str, str]) -> dict[str, str]:
+    """Schéma → fichier d'origine, d'après les manifestes techniques de `raw/`
+    (ceux écrits par cette collecte l'emportent sur les précédents)."""
+    from ossie_studio.sources.collect_core import parse_tech_manifest
+
+    out: dict[str, str] = {}
+    manifests = {p: c for p, c in current.items() if _is_tech_manifest(p)}
+    manifests.update({p: c for p, c in writes.items() if _is_tech_manifest(p)})
+    for content in manifests.values():
+        try:
+            tech = parse_tech_manifest(content)
+        except (yaml.YAMLError, KeyError, TypeError, AttributeError, ValueError):
+            # Un manifeste illisible n'empêche pas la résolution (critères restants).
+            continue
+        for source, entry in tech.entries.items():
+            for dest in entry.destinations:
+                out.setdefault(dest, source)
+    return out
 
 
 def resolve_source_schemas(
-    existing: dict[str, str], writes: list[OutputAction], deletes: list[str]
+    existing: dict[str, str],
+    writes: list[OutputAction],
+    deletes: list[str],
+    source_files: dict[str, bytes] | None = None,
+    projects: ProjectMap | None = None,
 ) -> tuple[list[OutputAction], int]:
     """Rejoue la résolution sur l'ensemble final des schémas de `raw/`.
 
     `existing` : instantané de `raw/` avant cette collecte (chemin → contenu) ;
-    `writes`/`deletes` : actions des plugins de cette collecte. Rend la **nouvelle
+    `writes`/`deletes` : actions des plugins de cette collecte ; `source_files` :
+    fichiers du dépôt (pour la carte des projets `.csproj`). Rend la **nouvelle
     liste d'actions** (les écritures de schémas résolues, plus les schémas déjà
     présents dont une référence vient d'être résolue) et le nombre de références
     résolues.
     """
     removed = set(deletes)
+    current = {path: content for path, content in existing.items() if path not in removed}
     final: dict[str, str] = {
-        path: content
-        for path, content in existing.items()
-        if is_schema_path(path) and path not in removed
+        path: content for path, content in current.items() if is_schema_path(path)
     }
     for action in writes:
         if is_schema_path(action.path):
             final[action.path] = action.content
 
-    index = SchemaIndex(final)
+    index = SchemaIndex(
+        final,
+        origins=_schema_origins(current, {a.path: a.content for a in writes}),
+        projects=projects if projects is not None else read_project_map(source_files or {}),
+    )
     counter = [0]
     rewritten: dict[str, str] = {}
     for path, content in final.items():
         try:
-            data = json.loads(content)
-        except json.JSONDecodeError:
+            data = load_schema(content)
+        except SchemaReadError:
             continue
         before = counter[0]
-        resolved = _resolve_node(data, index, counter)
+        resolved = _resolve_node(data, index, counter, index.contexts.get(path))
+        if counter[0] > before:
+            new_content = dump_schema(resolved)
+            if new_content != content:
+                rewritten[path] = new_content
+
+    # Les fonctions (`<clé>.extend.yaml`, cartographie applicative) : les types
+    # des paramètres et des retours se résolvent comme les champs, dans le
+    # contexte de l'objet qui les porte (homonymes compris).
+    extends = {path: content for path, content in current.items() if is_extend_name(path)}
+    extends.update({a.path: a.content for a in writes if is_extend_name(a.path)})
+    for path, content in extends.items():
+        try:
+            data = load_schema(content)
+        except SchemaReadError:
+            continue
+        before = counter[0]
+        context = index.contexts.get(schema_file(key_of(path)))
+        resolved = _resolve_node(data, index, counter, context)
         if counter[0] > before:
             new_content = dump_schema(resolved)
             if new_content != content:

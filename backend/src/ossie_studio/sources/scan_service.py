@@ -30,6 +30,19 @@ class ScanFile:
         )
 
 
+async def db_delete_scan_files(
+    conn: asyncpg.Connection, *, space_id: uuid.UUID, branch_slug: str, source_slug: str
+) -> None:
+    """Efface l'index de travail d'une source supprimée : sans cela, une source
+    recréée sous le même slug afficherait le scan de l'ancienne."""
+    await conn.execute(
+        "DELETE FROM scan_files WHERE space_id = $1 AND branch_slug = $2 AND source_slug = $3",
+        space_id,
+        branch_slug,
+        source_slug,
+    )
+
+
 async def db_replace_scan_files(
     conn: asyncpg.Connection,
     *,

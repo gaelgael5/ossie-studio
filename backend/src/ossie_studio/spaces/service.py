@@ -6,13 +6,18 @@ from datetime import UTC, datetime
 import asyncpg
 import structlog
 
-from ossie_studio.models import GitSpace
+from ossie_studio.models import GitSpace, User
+from ossie_studio.profiles.service import load_capabilities, load_capabilities_by_space
 
 log = structlog.get_logger(__name__)
 
 
 class SpaceNameTakenError(Exception):
     pass
+
+
+class SpaceSlugTakenError(Exception):
+    """Le slug désigne déjà un autre espace."""
 
 
 class SpaceRepoTakenError(Exception):
@@ -24,6 +29,16 @@ class SpaceRepoTakenError(Exception):
 async def db_list_spaces(conn: asyncpg.Connection) -> list[GitSpace]:
     rows = await conn.fetch("SELECT * FROM git_spaces ORDER BY name")
     return [GitSpace.from_row(row) for row in rows]
+
+
+async def list_visible_spaces(conn: asyncpg.Connection, user: User) -> list[GitSpace]:
+    """Espaces qu'une personne voit : tous si son profil de base a `spaces:read`,
+    sinon seulement ceux où une de ses équipes est rattachée avec ce droit."""
+    spaces = await db_list_spaces(conn)
+    if "spaces:read" in await load_capabilities(conn, user):
+        return spaces
+    by_space = await load_capabilities_by_space(conn, user.id)
+    return [s for s in spaces if "spaces:read" in by_space.get(s.id, set())]
 
 
 async def db_get_space(conn: asyncpg.Connection, space_id: uuid.UUID) -> GitSpace | None:
@@ -47,6 +62,7 @@ async def db_create_space(
     connection_id: uuid.UUID,
     repo_url: str,
     probe_status: str,
+    slug: str,
 ) -> GitSpace:
     """Enregistre l'espace — appelé seulement APRÈS les cinq droits éprouvés.
 
@@ -58,14 +74,17 @@ async def db_create_space(
     try:
         row = await conn.fetchrow(
             "INSERT INTO git_spaces (name, connection_id, repo_url, last_probe_status, "
-            "last_probe_at) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            "last_probe_at, slug) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
             name,
             connection_id,
             repo_url,
             probe_status,
             datetime.now(UTC),
+            slug,
         )
     except asyncpg.UniqueViolationError as exc:
+        if exc.constraint_name == "uq_space_slug":
+            raise SpaceSlugTakenError from exc
         # L'unicité du dépôt a été vérifiée ci-dessus : ici, c'est le nom.
         raise SpaceNameTakenError from exc
     log.info("git_space_created", name=name)

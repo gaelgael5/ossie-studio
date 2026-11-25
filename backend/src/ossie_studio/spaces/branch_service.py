@@ -59,8 +59,15 @@ async def db_get_base(conn: asyncpg.Connection, space_id: uuid.UUID) -> SpaceBra
 
 
 async def db_create_branch(
-    conn: asyncpg.Connection, space_id: uuid.UUID, label: str, slug: str, kind: str
+    conn: asyncpg.Connection,
+    space_id: uuid.UUID,
+    label: str,
+    slug: str,
+    kind: str,
+    git_ref: str | None = None,
 ) -> SpaceBranch:
+    """`git_ref` : la branche git réelle (adoptée ou créée sous ce nom) ;
+    absent, la convention historique `work/<slug>`."""
     try:
         row = await conn.fetchrow(
             "INSERT INTO space_branches (space_id, label, slug, kind, git_ref) "
@@ -69,7 +76,7 @@ async def db_create_branch(
             label,
             slug,
             kind,
-            f"work/{slug}",
+            git_ref or f"work/{slug}",
         )
     except asyncpg.UniqueViolationError as exc:
         raise BranchSlugTakenError(slug) from exc
@@ -98,3 +105,19 @@ async def db_get_viewed_branch(
         space_id,
     )
     return value
+
+
+_GIT_REF_FORBIDDEN = re.compile(r"[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{|//")
+
+
+def is_valid_git_ref(ref: str) -> bool:
+    """Nom de branche git acceptable (règles de `git check-ref-format`), vérifié
+    AVANT tout appel git : il est passé en argument à git et sert de répertoire."""
+    return (
+        0 < len(ref) <= 200
+        and not _GIT_REF_FORBIDDEN.search(ref)
+        and not ref.startswith(("/", "-", "."))
+        and not ref.endswith(("/", ".", ".lock"))
+        and "/." not in ref
+        and ref != "@"
+    )

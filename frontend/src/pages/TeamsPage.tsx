@@ -5,13 +5,24 @@ import { api } from '../apiClient'
 import type { TeamItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 export function TeamsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
-  const [newName, setNewName] = useState('')
+  const pair = useLabelSlug()
+  const [creating, setCreating] = useState(false)
+  const openCreate = () => {
+    setMessages([])
+    setCreating(true)
+  }
+  const closeCreate = () => {
+    setCreating(false)
+    pair.reset()
+  }
 
   const teams = useQuery({ queryKey: ['teams'], queryFn: api.listTeams })
   const profiles = useQuery({ queryKey: ['profiles'], queryFn: api.listProfiles })
@@ -19,10 +30,10 @@ export function TeamsPage() {
   const onError = (err: unknown) => setMessages(errorMessages(t, err))
 
   const create = useMutation({
-    mutationFn: (name: string) => api.createTeam(name),
+    mutationFn: () => api.createTeam(pair.label.trim(), pair.finalSlug),
     onSuccess: async () => {
       setMessages([])
-      setNewName('')
+      closeCreate()
       await invalidate()
     },
     onError,
@@ -59,29 +70,44 @@ export function TeamsPage() {
 
   return (
     <main>
-      <PageHeader breadcrumb={<SettingsCrumb />} title={t('teamsTitle')} subtitle={t('teamsIntro')} />
+      <PageHeader
+        breadcrumb={<SettingsCrumb />}
+        title={t('teamsTitle')}
+        subtitle={t('teamsIntro')}
+        actions={
+          <CreateButton open={creating} onOpen={openCreate}>
+            {t('newTeamButton')}
+          </CreateButton>
+        }
+      />
       <ErrorList messages={messages} />
+      {creating ? (
+        <div className="page-section">
+          <CreatePanel title={t('teamsCreateTitle')} onCancel={closeCreate}>
+            <form
+              className="stack"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (pair.label.trim()) create.mutate()
+              }}
+            >
+              <LabelSlugFields
+                idPrefix="team"
+                state={pair}
+                labelText={t('teamsCreatePlaceholder')}
+                slugText={t('slugLabel')}
+              />
+              <div>
+                <button type="submit" className="btn btn-primary" disabled={create.isPending || !pair.label.trim()}>
+                  {t('teamsCreate')}
+                </button>
+              </div>
+            </form>
+          </CreatePanel>
+        </div>
+      ) : null}
 
       <div className="page-body stack">
-        <form
-          className="field-inline measure"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const name = newName.trim()
-            if (name) create.mutate(name)
-          }}
-        >
-          <input
-            className="input"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder={t('teamsCreatePlaceholder')}
-            aria-label={t('teamsCreatePlaceholder')}
-          />
-          <button type="submit" className="btn btn-primary" disabled={create.isPending || !newName.trim()}>
-            {t('teamsCreate')}
-          </button>
-        </form>
 
         {teamList.length > 0 ? (
           <div className="panel table-wrap">
@@ -103,6 +129,7 @@ export function TeamsPage() {
                           {t('teamOidcBadge')}
                         </span>
                       ) : null}
+                      <div className="mono muted small">{team.slug}</div>
                     </td>
                     <td>
                       <select

@@ -26,7 +26,7 @@ from ossie_studio.parsers.base import (
     PluginResult,
     matches_globs,
 )
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import dump_schema, schema_file
 from ossie_studio.parsers.treesitter import grammar_version, node_text
 from ossie_studio.parsers.treesitter import parse as ts_parse
 
@@ -147,6 +147,7 @@ class _Type:
     total: bool = True
     members: list[_Member] = field(default_factory=list)
     enum_members: list[str] = field(default_factory=list)
+    namespace: str = ""
 
 
 # --- Navigation de l'arbre ---------------------------------------------------
@@ -556,7 +557,7 @@ def _ref_schema(ref: _TypeRef, *, known: dict[str, str]) -> tuple[dict[str, Any]
     if name in _PRIMITIVES:
         return dict(_PRIMITIVES[name]), ref.nullable
     if name in known:
-        return {"$ref": f"{_slug(known[name])}.json"}, ref.nullable
+        return {"$ref": schema_file(_slug(known[name]))}, ref.nullable
     return {"x-unresolved-type": name}, ref.nullable
 
 
@@ -580,12 +581,16 @@ def _member_schema(member: _Member, *, known: dict[str, str]) -> tuple[dict[str,
 
 def _build_schema(info: _Type, *, total: bool, known: dict[str, str]) -> dict[str, Any]:
     schema: dict[str, Any] = {
-        "$id": f"{_slug(info.qualified)}.json",
+        "$id": schema_file(_slug(info.qualified)),
         "title": info.name,
         "x-language": "python",
         "x-kind": info.kind,
         "x-visibility": _obj_visibility(info.name),
     }
+    # Espace de noms d'origine (namespace C#, paquet Java/Kotlin, module TS/Python),
+    # affiché tel quel par l'explorateur raw : le `$id`, slugifié, ne le rend pas.
+    if info.namespace:
+        schema["x-namespace"] = info.namespace
     if info.doc:
         schema["description"] = info.doc
     if info.decorators:
@@ -612,7 +617,7 @@ def _build_schema(info: _Type, *, total: bool, known: dict[str, str]) -> dict[st
         schema["required"] = sorted(required)
     if info.bases:
         schema["allOf"] = [
-            {"$ref": f"{_slug(known[b])}.json"} if b in known else {"x-unresolved-type": b}
+            {"$ref": schema_file(_slug(known[b]))} if b in known else {"x-unresolved-type": b}
             for b in info.bases
         ]
     return schema
@@ -624,7 +629,7 @@ class PythonParser:
     id = "python"
     cible = CIBLE_RAW
     label = "Python"
-    version = f"1.0-ts{grammar_version('python')}"
+    version = f"1.1-ts{grammar_version('python')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)
@@ -654,6 +659,7 @@ class PythonParser:
             for info in _extract_file(raw, tree.root_node):
                 qualified = f"{module}.{info.qualified}" if module else info.qualified
                 info.qualified = qualified
+                info.namespace = module
                 if qualified not in merged:
                     merged[qualified] = info
                     totals[qualified] = info.total

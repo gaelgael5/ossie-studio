@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from tests.conftest import bootstrap_admin, create_plain_user, login
+from tests.conftest import create_plain_user, login
+from tests.space_fixture import Rebased, make_api_space
 
 
 @pytest.fixture
-async def admin(client: AsyncClient) -> AsyncClient:
-    await bootstrap_admin(client)
-    return client
+async def admin(client: AsyncClient, app: FastAPI, tmp_path: Path) -> Rebased:
+    # La gouvernance vit dans le dépôt de l'espace : routes de la branche.
+    return Rebased(client, await make_api_space(client, app, tmp_path))
 
 
-async def test_presets_creent_les_trois_niveaux(admin: AsyncClient) -> None:
+async def test_presets_creent_les_trois_niveaux(admin: Rebased) -> None:
     response = await admin.post("/api/governance/certifications/presets")
     assert response.status_code == 200, response.text
     certs = response.json()["certifications"]
@@ -29,7 +31,7 @@ async def test_presets_creent_les_trois_niveaux(admin: AsyncClient) -> None:
     assert len(again.json()["certifications"]) == 3
 
 
-async def test_creer_et_lister_trie_par_rang(admin: AsyncClient) -> None:
+async def test_creer_et_lister_trie_par_rang(admin: Rebased) -> None:
     await admin.post(
         "/api/governance/certifications",
         json={"name": "Bronze", "rank": 3, "tag": "certification/bronze"},
@@ -44,7 +46,7 @@ async def test_creer_et_lister_trie_par_rang(admin: AsyncClient) -> None:
     assert certs[0]["tag"] == "certification/or"  # tag normalisé
 
 
-async def test_tag_deja_pris_refuse(admin: AsyncClient) -> None:
+async def test_tag_deja_pris_refuse(admin: Rebased) -> None:
     await admin.post(
         "/api/governance/certifications", json={"name": "Or", "rank": 1, "tag": "certification/or"}
     )
@@ -56,7 +58,7 @@ async def test_tag_deja_pris_refuse(admin: AsyncClient) -> None:
     assert again.json()["error"] == "certification_tag_taken"
 
 
-async def test_validation_champs(admin: AsyncClient) -> None:
+async def test_validation_champs(admin: Rebased) -> None:
     bad_name = await admin.post(
         "/api/governance/certifications", json={"name": "  ", "rank": 1, "tag": "certification/x"}
     )
@@ -71,7 +73,7 @@ async def test_validation_champs(admin: AsyncClient) -> None:
     assert "tag_id_invalid" in bad_tag.json()["error_args"]["fields"]
 
 
-async def test_modifier_et_supprimer(admin: AsyncClient) -> None:
+async def test_modifier_et_supprimer(admin: Rebased) -> None:
     created = await admin.post(
         "/api/governance/certifications", json={"name": "Or", "rank": 1, "tag": "certification/or"}
     )
@@ -90,7 +92,7 @@ async def test_modifier_et_supprimer(admin: AsyncClient) -> None:
     assert (await admin.get("/api/governance/certifications")).json()["certifications"] == []
 
 
-async def test_modifier_inexistant_404(admin: AsyncClient) -> None:
+async def test_modifier_inexistant_404(admin: Rebased) -> None:
     missing = "00000000-0000-0000-0000-000000000000"
     response = await admin.put(
         f"/api/governance/certifications/{missing}",
@@ -101,15 +103,15 @@ async def test_modifier_inexistant_404(admin: AsyncClient) -> None:
 
 
 @pytest.fixture
-async def user_client(admin: AsyncClient, app: FastAPI) -> AsyncIterator[AsyncClient]:
+async def user_client(admin: Rebased, app: FastAPI) -> AsyncIterator[Rebased]:
     await create_plain_user(app, "simple@example.org", "mot-de-passe-simple")
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as second:
         await login(second, "simple@example.org", "mot-de-passe-simple")
-        yield second
+        yield Rebased(second, admin.space)
 
 
-async def test_non_admin_refuse(user_client: AsyncClient) -> None:
+async def test_non_admin_refuse(user_client: Rebased) -> None:
     assert (await user_client.get("/api/governance/certifications")).status_code == 403
     created = await user_client.post(
         "/api/governance/certifications", json={"name": "X", "rank": 1, "tag": "certification/x"}

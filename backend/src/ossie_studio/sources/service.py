@@ -7,15 +7,22 @@ from pathlib import Path
 
 import structlog
 
+from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.models import GitSpace
+from ossie_studio.sources.exclusion_prune import prune_excluded_raw
 from ossie_studio.sources.manifest import (
+    GIT_TYPE,
     ManifestError,
     SourceManifest,
     dump_manifest,
     parse_manifest,
 )
-from ossie_studio.sources.paths import MANIFEST_FILENAME, SOURCES_DIR, safe_source_path
-from ossie_studio.spaces.workdir import WorkdirManager
+from ossie_studio.sources.paths import (
+    ASSETS_DIR,
+    MANIFEST_FILENAME,
+    SOURCES_DIR,
+    safe_source_path,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -59,6 +66,8 @@ def read_sources_tree(workdir: Path) -> list[SourceEntry]:
             continue
         slug = child.name
         manifest_file = child / MANIFEST_FILENAME
+        if is_assets_only(child):
+            continue  # source supprimée : seuls ses assets orphelins restent (Curation)
         if not manifest_file.is_file():
             entries.append(SourceEntry(slug, None, "manifest_missing"))
             continue
@@ -78,28 +87,69 @@ def read_sources_tree(workdir: Path) -> list[SourceEntry]:
 def _write_manifest_fn(manifest: SourceManifest, *, must_be_new: bool) -> Callable[[Path], None]:
     def write(workdir: Path) -> None:
         target = safe_source_path(workdir, manifest.slug)
-        if must_be_new and target.exists():
+        # Le manifeste, et non le dossier : une source supprimée laisse ses assets
+        # (ticket ce21a9e8), et la redéclarer au même slug les retrouve.
+        if must_be_new and (target / MANIFEST_FILENAME).exists():
             raise SourceExistsError(manifest.slug)
         if not must_be_new and not (target / MANIFEST_FILENAME).is_file():
             raise SourceNotFoundError(manifest.slug)
         target.mkdir(parents=True, exist_ok=True)
         (target / MANIFEST_FILENAME).write_text(dump_manifest(manifest), encoding="utf-8")
+        if manifest.type == GIT_TYPE:
+            # Dans la même écriture : un objet venu d'un répertoire exclu sort
+            # aussitôt du brouillon (ticket docflow 64e7b42f).
+            prune_excluded_raw(workdir, manifest.slug, _exclusions(manifest))
 
     return write
+
+
+def _exclusions(manifest: SourceManifest) -> list[str]:
+    value = manifest.parameters.get("exclusions")
+    return [str(v) for v in value] if isinstance(value, list) else []
 
 
 def _remove_source_fn(slug: str) -> Callable[[Path], None]:
+    """Supprime la source — manifeste, raw et le reste — mais **garde ses
+    assets** (ticket ce21a9e8, Gael : « si je supprime les raws, je dois voir les
+    orphelins sur les assets »). Le travail humain des `.extend.yaml` n'est jamais
+    effacé en même temps que de la matière brute : les assets restent, orphelins,
+    et retrouvent leur raw si la source est redéclarée et recollectée. Effacer
+    tout le dossier avait fait perdre ses assets à Gael (bug 206d434c)."""
+
     def write(workdir: Path) -> None:
         target = safe_source_path(workdir, slug)
-        if not target.exists():
+        if not (target / MANIFEST_FILENAME).is_file():
             raise SourceNotFoundError(slug)
-        shutil.rmtree(target)
+        assets = target / ASSETS_DIR
+        if not _has_files(assets):
+            shutil.rmtree(target)
+            return
+        for child in target.iterdir():
+            if child == assets:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
 
     return write
 
 
+def _has_files(directory: Path) -> bool:
+    return directory.is_dir() and any(p.is_file() for p in directory.rglob("*"))
+
+
+def is_assets_only(directory: Path) -> bool:
+    """Dossier d'une source supprimée qui ne garde que ses assets (orphelins)."""
+    return (
+        not (directory / MANIFEST_FILENAME).is_file()
+        and all(child.name == ASSETS_DIR for child in directory.iterdir())
+        and _has_files(directory / ASSETS_DIR)
+    )
+
+
 async def list_sources(
-    workdir: WorkdirManager, space: GitSpace, branch_slug: str, username: str, token: str | None
+    workdir: DraftWorkdir, space: GitSpace, branch_slug: str, username: str, token: str | None
 ) -> list[SourceEntry]:
     return await workdir.read_branch(
         space.id, branch_slug, space.repo_url, username, token, read_sources_tree
@@ -107,7 +157,7 @@ async def list_sources(
 
 
 async def declare_source(
-    workdir: WorkdirManager,
+    workdir: DraftWorkdir,
     space: GitSpace,
     branch_slug: str,
     username: str,
@@ -131,7 +181,7 @@ async def declare_source(
 
 
 async def update_source(
-    workdir: WorkdirManager,
+    workdir: DraftWorkdir,
     space: GitSpace,
     branch_slug: str,
     username: str,
@@ -155,7 +205,7 @@ async def update_source(
 
 
 async def delete_source(
-    workdir: WorkdirManager,
+    workdir: DraftWorkdir,
     space: GitSpace,
     branch_slug: str,
     username: str,

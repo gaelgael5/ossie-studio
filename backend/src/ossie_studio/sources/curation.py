@@ -11,21 +11,29 @@ sans table de correspondance) ; la partie **structurelle** vient du brut, le
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from ossie_studio.parsers.conventions import dump_schema
+from ossie_studio.parsers.conventions import (
+    SchemaReadError,
+    is_schema_name,
+    load_schema,
+)
+from ossie_studio.sources.asset_files import (
+    HUMAN_KEYS,
+    dump_asset,
+    load_asset,
+    read_asset_dir,
+    remove_asset,
+    write_asset,
+)
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.manifest import ManifestError, dump_manifest, parse_manifest
 from ossie_studio.sources.paths import (
     MANIFEST_FILENAME,
     safe_assets_path,
-    safe_review_path,
     safe_source_path,
 )
 from ossie_studio.sources.tri import (
@@ -68,12 +76,15 @@ class AssetNotRetainedError(Exception):
 
 @dataclass(frozen=True)
 class EnrichScope:
-    name: str          # "" pour l'objet, sinon le nom du champ
+    name: str  # "" pour l'objet, sinon le nom du champ
     business_name: str
     description: str
     concept: str
     tags: list[str]
     readonly: dict[str, Any]  # description standard + clés x- du parseur
+    # Lien vers une propriété de référentiel (ticket 8269c642) : {schema,
+    # property, group?}, None sinon. Lu ici pour qu'un agent le voie.
+    referentiel: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -86,23 +97,23 @@ class EnrichView:
 
 @dataclass(frozen=True)
 class CurationObject:
-    path: str          # nom de fichier du schéma (racine de raw/)
+    path: str  # nom de fichier du schéma (racine de raw/)
     title: str
-    kind: str          # x-kind, ou "object"
-    fields: int        # nombre de champs du brut
-    retained: str      # none | partial | full
-    orphan: bool       # retenu mais le brut a disparu (asset sans raw)
-    excluded: bool     # écarté par une règle de tri (caché sauf filtre)
-    excluded_by: str   # libellé de la règle qui l'écarte (ou "")
+    kind: str  # x-kind, ou "object"
+    fields: int  # nombre de champs du brut
+    retained: str  # none | partial | full
+    orphan: bool  # retenu mais le brut a disparu (asset sans raw)
+    excluded: bool  # écarté par une règle de tri (caché sauf filtre)
+    excluded_by: str  # libellé de la règle qui l'écarte (ou "")
 
 
 @dataclass(frozen=True)
 class CurationField:
     name: str
-    type: str          # type, x-kind, ou "$ref"
-    retained: bool     # déjà présent dans l'asset
-    ref: bool          # porte une référence ($ref) — l'écran le signale
-    missing: bool      # retenu dans l'asset mais disparu du brut
+    type: str  # type, x-kind, ou "$ref"
+    retained: bool  # déjà présent dans l'asset
+    ref: bool  # porte une référence ($ref) — l'écran le signale
+    missing: bool  # retenu dans l'asset mais disparu du brut
 
 
 @dataclass(frozen=True)
@@ -113,7 +124,7 @@ class CurationDetail:
 
 
 def is_schema_file(path: str) -> bool:
-    return path.endswith(".json") and "/" not in path
+    return is_schema_name(path)
 
 
 def _read_json_dir(directory: Path) -> dict[str, dict[str, Any]]:
@@ -123,8 +134,8 @@ def _read_json_dir(directory: Path) -> dict[str, dict[str, Any]]:
     for file in sorted(directory.iterdir()):
         if file.is_file() and is_schema_file(file.name):
             try:
-                data = json.loads(file.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
+                data = load_schema(file.read_text(encoding="utf-8"))
+            except SchemaReadError:
                 continue
             if isinstance(data, dict):
                 out[file.name] = data
@@ -157,7 +168,7 @@ def list_curation(
         return []
     rule_list = list(rules)
     raws = _read_json_dir(raw_dir)
-    assets = _read_json_dir(assets_dir)
+    assets = read_asset_dir(assets_dir)
     objects: list[CurationObject] = []
     for name, raw in sorted(raws.items()):
         retained = _retained_state(raw, assets.get(name))
@@ -200,9 +211,7 @@ def list_curation(
 
 
 def _field_type(prop: dict[str, Any]) -> tuple[str, bool]:
-    has_ref = "$ref" in prop or (
-        isinstance(prop.get("items"), dict) and "$ref" in prop["items"]
-    )
+    has_ref = "$ref" in prop or (isinstance(prop.get("items"), dict) and "$ref" in prop["items"])
     if "$ref" in prop:
         return "$ref", True
     label = prop.get("type") or prop.get("x-kind") or ("enum" if "enum" in prop else "")
@@ -223,13 +232,13 @@ def get_object_detail(
     if not raw_file.is_file():
         return None
     rule_list = list(rules)
-    raw = json.loads(raw_file.read_text(encoding="utf-8"))
+    raw = load_schema(raw_file.read_text(encoding="utf-8"))
     asset_data: dict[str, Any] = {}
     if asset_file.is_file():
         try:
-            asset = json.loads(asset_file.read_text(encoding="utf-8"))
+            asset = load_asset(asset_file)
             asset_data = asset.get("properties") or {}
-        except json.JSONDecodeError:
+        except SchemaReadError:
             asset_data = {}
     asset_props = set(asset_data.keys())
     raw_props = raw.get("properties") or {}
@@ -251,9 +260,7 @@ def get_object_detail(
             continue
         prop = asset_data[name] if isinstance(asset_data[name], dict) else {}
         label, ref = _field_type(prop)
-        fields.append(
-            CurationField(name=name, type=label, retained=True, ref=ref, missing=True)
-        )
+        fields.append(CurationField(name=name, type=label, retained=True, ref=ref, missing=True))
     return CurationDetail(
         path=path, title=str(raw.get("title") or raw.get("$id") or path), fields=fields
     )
@@ -301,15 +308,12 @@ def retain_asset_fn(slug: str, path: str, fields: list[str] | None) -> Callable[
         raw_file = safe_source_path(workdir, slug) / RAW_DIR / path
         if not raw_file.is_file():
             raise AssetOriginMissingError(path)
-        raw = json.loads(raw_file.read_text(encoding="utf-8"))
+        raw = load_schema(raw_file.read_text(encoding="utf-8"))
         assets_dir = safe_assets_path(workdir, slug)
         asset_file = assets_dir / path
-        existing = (
-            json.loads(asset_file.read_text(encoding="utf-8")) if asset_file.is_file() else None
-        )
+        existing = load_asset(asset_file) if asset_file.is_file() else None
         asset = build_asset(raw, fields, existing, f"{RAW_DIR}/{path}")
-        assets_dir.mkdir(parents=True, exist_ok=True)
-        asset_file.write_text(dump_schema(asset), encoding="utf-8")
+        write_asset(asset_file, asset)
 
     return write
 
@@ -318,8 +322,7 @@ def remove_asset_fn(slug: str, path: str) -> Callable[[Path], None]:
     """Retire l'asset `assets/<path>` (récupérable dans l'historique Git)."""
 
     def write(workdir: Path) -> None:
-        asset_file = safe_assets_path(workdir, slug) / path
-        asset_file.unlink(missing_ok=True)
+        remove_asset(safe_assets_path(workdir, slug) / path)
 
     return write
 
@@ -346,8 +349,7 @@ def _scope_view(name: str, node: dict[str, Any]) -> EnrichScope:
     readonly = {
         k: v
         for k, v in sorted(node.items())
-        if k != ORIGIN_KEY
-        and (k == "description" or (k.startswith("x-") and k not in _ENRICHMENT_X))
+        if k != ORIGIN_KEY and (k == "description" or (k.startswith("x-") and k not in HUMAN_KEYS))
     }
     return EnrichScope(
         name=name,
@@ -356,6 +358,7 @@ def _scope_view(name: str, node: dict[str, Any]) -> EnrichScope:
         concept=str(node.get("x-concept") or ""),
         tags=[str(t) for t in (node.get("x-tags") or [])],
         readonly=readonly,
+        referentiel=link if isinstance(link := node.get("x-referentiel"), dict) else None,
     )
 
 
@@ -368,7 +371,7 @@ def read_enrichment(workdir: Path, slug: str, path: str) -> EnrichView | None:
         return None
     if not asset_file.is_file():
         return None
-    asset = json.loads(asset_file.read_text(encoding="utf-8"))
+    asset = load_asset(asset_file)
     fields = [
         _scope_view(name, prop)
         for name, prop in (asset.get("properties") or {}).items()
@@ -397,14 +400,64 @@ def enrich_asset_fn(
         asset_file = safe_assets_path(workdir, slug) / path
         if not asset_file.is_file():
             raise AssetNotRetainedError(path)
-        asset = json.loads(asset_file.read_text(encoding="utf-8"))
+        asset = load_asset(asset_file)
         if object_values is not None:
             apply_enrichment(asset, object_values)
         props = asset.get("properties") or {}
         for field, values in field_values.items():
             if field in props and isinstance(props[field], dict):
                 apply_enrichment(props[field], values)
-        asset_file.write_text(dump_schema(asset), encoding="utf-8")
+        write_asset(asset_file, asset)
+
+    return write
+
+
+# --- Classification (ticket 5e8680d7) ----------------------------------------
+
+CLASSIFICATION_X = "x-classification"
+
+
+def _apply_classification(node: dict[str, Any], values: dict[str, list[str]]) -> None:
+    """Pose ou retire, schéma par schéma, la classification déclarée d'un nœud.
+    Une liste vide retire la déclaration (retour à « dérivée »). Un schéma à
+    valeur unique est stocké comme un nom, un schéma multi-valeurs comme une
+    liste : `values` porte déjà la forme voulue (voir `classify_asset_fn`)."""
+    current = node.get(CLASSIFICATION_X)
+    declared: dict[str, Any] = dict(current) if isinstance(current, dict) else {}
+    for scheme_id, names in values.items():
+        if names:
+            declared[scheme_id] = names
+        else:
+            declared.pop(scheme_id, None)
+    if declared:
+        node[CLASSIFICATION_X] = declared
+    else:
+        node.pop(CLASSIFICATION_X, None)
+
+
+def classify_asset_fn(
+    slug: str,
+    path: str,
+    object_values: dict[str, Any] | None,
+    field_values: dict[str, dict[str, Any]],
+) -> Callable[[Path], None]:
+    """Écrit la classification déclarée de l'asset et de ses champs (dans son
+    `.extend.yaml`), en un commit. Les valeurs sont celles à stocker (nom, ou
+    liste pour un schéma multi-valeurs ; vide = retrait) et ont été validées
+    contre les schémas. Lève AssetNotRetainedError si l'asset n'existe pas."""
+
+    def write(workdir: Path) -> None:
+        asset_file = safe_assets_path(workdir, slug) / path
+        if not asset_file.is_file():
+            raise AssetNotRetainedError(path)
+        asset = load_asset(asset_file)
+        if object_values is not None:
+            _apply_classification(asset, object_values)
+        props = asset.get("properties") or {}
+        for name, values in field_values.items():
+            if isinstance(props.get(name), dict):
+                _apply_classification(props[name], values)
+        write_asset(asset_file, asset)
 
     return write
 
@@ -465,7 +518,7 @@ def _refresh_pairs(
         assets_dir = safe_assets_path(workdir, slug)
     except ValueError:
         return []
-    assets = _read_json_dir(assets_dir)
+    assets = read_asset_dir(assets_dir)
     raws = _read_json_dir(raw_dir)
     wanted = set(assets) if paths is None else {p for p in paths if p in assets}
     return [(name, raws[name], assets[name]) for name in sorted(wanted) if name in raws]
@@ -477,7 +530,7 @@ def refresh_targets(workdir: Path, slug: str, paths: list[str] | None) -> list[s
     assets modifiés dans le message. Lecture seule."""
     changed: list[str] = []
     for name, raw, asset in _refresh_pairs(workdir, slug, paths):
-        if dump_schema(refresh_asset(raw, asset)) != dump_schema(asset):
+        if dump_asset(refresh_asset(raw, asset)) != dump_asset(asset):
             changed.append(name)
     return changed
 
@@ -491,24 +544,25 @@ def refresh_assets_fn(slug: str, paths: list[str] | None) -> Callable[[Path], No
     def write(workdir: Path) -> None:
         assets_dir = safe_assets_path(workdir, slug)
         for name, raw, asset in _refresh_pairs(workdir, slug, paths):
-            (assets_dir / name).write_text(dump_schema(refresh_asset(raw, asset)), encoding="utf-8")
+            write_asset(assets_dir / name, refresh_asset(raw, asset))
 
     return write
 
 
 # --- Revue des changements du brut, limitée aux assets retenus ----------------
 #
-# La revue compare trois états par objet : le brut au **point de reprise**
-# (`raw@reprise`), le brut en tête de branche (`raw@HEAD`) et l'asset retenu.
-# Elle ne montre que ce qui mérite une décision humaine ; valider avance le point
-# de reprise (`review.yaml`). Le calcul est pur et testable ; l'écriture des
-# décisions se fait en un commit.
+# La revue compare trois états par objet : le brut **publié** (tête de la branche
+# de lecture), le brut de ma vue (publié + mon brouillon) et l'asset retenu.
+# Ticket docflow aad1d3c6 : plus de point de reprise (`review.yaml`) ; Gael,
+# 23/11/2026 : « ce qui fait disparaître le badge nouveau, c'est de publier et de
+# ne plus avoir de modifications à pousser ». Le calcul est pur et testable ;
+# les décisions s'écrivent dans le brouillon.
 
 
 @dataclass(frozen=True)
 class ReviewField:
     name: str
-    change: str          # changed | appeared | disappeared
+    change: str  # changed | appeared | disappeared
     type: str
     lost_enrichment: list[str]  # clés x- d'enrichissement perdues (disappeared)
 
@@ -517,7 +571,7 @@ class ReviewField:
 class ReviewObject:
     path: str
     title: str
-    status: str          # retained-touched | object-disappeared | new
+    status: str  # retained-touched | object-disappeared | new
     fields: list[ReviewField]
 
 
@@ -528,37 +582,27 @@ class ReviewResult:
 
 @dataclass(frozen=True)
 class ReviewDecisions:
-    apply_fields: dict[str, list[str]]   # path → champs retenus à rafraîchir (changed)
-    take_fields: dict[str, list[str]]    # path → champs apparus à reprendre (appeared)
+    apply_fields: dict[str, list[str]]  # path → champs retenus à rafraîchir (changed)
+    take_fields: dict[str, list[str]]  # path → champs apparus à reprendre (appeared)
     remove_fields: dict[str, list[str]]  # path → champs disparus à retirer (disappeared)
-    remove_objects: list[str]            # assets à retirer (objet disparu du brut)
-    retain_objects: list[str]            # objets bruts nouveaux à retenir en entier
+    remove_objects: list[str]  # assets à retirer (objet disparu du brut)
+    retain_objects: list[str]  # objets bruts nouveaux à retenir en entier
 
 
-def read_review_point(workdir: Path, slug: str) -> str | None:
-    """Commit de `raw/` jusqu'où la source a été revue (point de reprise), ou None
-    si la source n'a jamais été revue. Lecture seule."""
-    try:
-        review_file = safe_review_path(workdir, slug)
-    except ValueError:
-        return None
-    if not review_file.is_file():
-        return None
-    try:
-        data = yaml.safe_load(review_file.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError:
-        return None
-    sha = data.get("reviewed_commit") if isinstance(data, dict) else None
-    return str(sha) if sha else None
-
-
-def _write_review_point(workdir: Path, slug: str, sha: str) -> None:
-    review_file = safe_review_path(workdir, slug)
-    review_file.parent.mkdir(parents=True, exist_ok=True)
-    review_file.write_text(
-        yaml.safe_dump({"reviewed_commit": sha}, sort_keys=True, allow_unicode=True),
-        encoding="utf-8",
-    )
+def published_raw(
+    raw_view: dict[str, dict[str, Any]], published_texts: dict[str, str | None]
+) -> dict[str, dict[str, Any]]:
+    """Brut publié d'une source, reconstruit à partir du brut de ma vue et du
+    texte publié des seuls fichiers que mon brouillon touche (None : absent côté
+    publié, donc créé par mon brouillon)."""
+    base = dict(raw_view)
+    for name, text in published_texts.items():
+        parsed = parse_schema_texts({name: text}) if text is not None else {}
+        if name in parsed:
+            base[name] = parsed[name]
+        else:
+            base.pop(name, None)
+    return base
 
 
 def read_source_trees(
@@ -571,19 +615,19 @@ def read_source_trees(
         assets_dir = safe_assets_path(workdir, slug)
     except ValueError:
         return {}, {}
-    return _read_json_dir(raw_dir), _read_json_dir(assets_dir)
+    return _read_json_dir(raw_dir), read_asset_dir(assets_dir)
 
 
 def parse_schema_texts(text_map: dict[str, str]) -> dict[str, dict[str, Any]]:
-    """Parse une table {fichier: texte JSON} (le brut au point de reprise) en
+    """Parse une table {fichier: texte YAML} (le brut publié) en
     {fichier: schéma}, en ignorant un fichier illisible."""
     out: dict[str, dict[str, Any]] = {}
     for name, text in text_map.items():
         if not is_schema_file(name):
             continue
         try:
-            data = json.loads(text)
-        except json.JSONDecodeError:
+            data = load_schema(text)
+        except SchemaReadError:
             continue
         if isinstance(data, dict):
             out[name] = data
@@ -591,7 +635,8 @@ def parse_schema_texts(text_map: dict[str, str]) -> dict[str, dict[str, Any]]:
 
 
 def _lost_enrichment(node: dict[str, Any]) -> list[str]:
-    return sorted(k for k in node if k in _ENRICHMENT_X)
+    # Tout travail humain (classification comprise) est perdu avec le champ.
+    return sorted(k for k in node if k in HUMAN_KEYS)
 
 
 def _review_fields(
@@ -614,17 +659,22 @@ def _review_fields(
             if _structural(ap) != _structural(hp):
                 label, _ = _field_type(hp)
                 out.append(ReviewField(name=name, change="changed", type=label, lost_enrichment=[]))
-        elif in_a and not in_h and in_b:
-            # Champ retenu disparu du brut dans la fenêtre : on montre ce qui serait perdu.
+        elif in_a and not in_h:
+            # Champ retenu absent du brut : on montre ce qui serait perdu. Signalé
+            # tant que l'asset n'est pas corrigé, même une fois la disparition
+            # publiée (sinon l'asset garderait un champ fantôme sans que personne
+            # ne le voie).
             label, _ = _field_type(ap)
             out.append(
                 ReviewField(
-                    name=name, change="disappeared", type=label,
+                    name=name,
+                    change="disappeared",
+                    type=label,
                     lost_enrichment=_lost_enrichment(ap),
                 )
             )
         elif in_h and not in_a and not in_b and field_excluded(name, rules) is None:
-            # Champ apparu dans la fenêtre sur un objet retenu, pas encore repris
+            # Champ apparu par rapport au publié sur un objet retenu, pas encore repris
             # (sauf champ technique écarté par une règle de tri).
             label, _ = _field_type(hp)
             out.append(ReviewField(name=name, change="appeared", type=label, lost_enrichment=[]))
@@ -641,10 +691,10 @@ def build_review(
     assets: dict[str, dict[str, Any]],
     rules: Sequence[TriRule] = (),
 ) -> ReviewResult:
-    """Décisions à présenter, par objet, en comparant brut@reprise, brut@HEAD et
-    assets. Ne remonte que le bruit utile ; les règles de tri écartent les nouveaux
-    objets et les champs apparus techniques. Déterministe (tri). `raw_base` vide =
-    première revue (tout le brut est nouveau)."""
+    """Décisions à présenter, par objet, en comparant le brut publié (`raw_base`),
+    le brut de ma vue (`raw_head`) et les assets. Ne remonte que le bruit utile ;
+    les règles de tri écartent les nouveaux objets et les champs apparus
+    techniques. Déterministe (tri)."""
     rule_list = list(rules)
     objects: list[ReviewObject] = []
     for name in sorted(set(raw_base) | set(raw_head) | set(assets)):
@@ -653,14 +703,15 @@ def build_review(
         asset = assets.get(name)
         if asset is not None:
             if rh is None:
-                if rb is not None:  # retenu, existait à la reprise, disparu à HEAD
-                    objects.append(
-                        ReviewObject(
-                            path=name,
-                            title=str(asset.get("title") or asset.get("$id") or name),
-                            status="object-disappeared", fields=[],
-                        )
+                # Retenu mais absent du brut (orphelin), publié ou non.
+                objects.append(
+                    ReviewObject(
+                        path=name,
+                        title=str(asset.get("title") or asset.get("$id") or name),
+                        status="object-disappeared",
+                        fields=[],
                     )
+                )
                 continue
             fields = _review_fields(rb, rh, asset, rule_list)
             if fields:
@@ -668,27 +719,26 @@ def build_review(
                     ReviewObject(
                         path=name,
                         title=str(rh.get("title") or rh.get("$id") or name),
-                        status="retained-touched", fields=fields,
+                        status="retained-touched",
+                        fields=fields,
                     )
                 )
         elif rh is not None and rb is None and object_excluded(rh, rule_list) is None:
-            # Nouvel objet apparu dans la fenêtre, pas écarté par une règle de tri.
+            # Nouvel objet par rapport au publié, pas écarté par une règle de tri.
             objects.append(
                 ReviewObject(
                     path=name,
                     title=str(rh.get("title") or rh.get("$id") or name),
-                    status="new", fields=[],
+                    status="new",
+                    fields=[],
                 )
             )
     return ReviewResult(objects=objects)
 
 
-def apply_review_fn(
-    slug: str, head_sha: str, decisions: ReviewDecisions
-) -> Callable[[Path], None]:
-    """Applique les décisions de revue **et** avance le point de reprise à
-    `head_sha`, le tout en un seul commit. Un changement non décidé est laissé tel
-    quel (le point de reprise avance quand même). Déterministe (`dump_schema`)."""
+def apply_review_fn(slug: str, decisions: ReviewDecisions) -> Callable[[Path], None]:
+    """Applique les décisions de revue dans ma vue (donc dans mon brouillon). Un
+    changement non décidé est laissé tel quel. Déterministe (`dump_schema`)."""
 
     def write(workdir: Path) -> None:
         raw_dir = safe_source_path(workdir, slug) / RAW_DIR
@@ -701,7 +751,7 @@ def apply_review_fn(
             asset_file = assets_dir / path
             if not asset_file.is_file():
                 continue
-            asset = json.loads(asset_file.read_text(encoding="utf-8"))
+            asset = load_asset(asset_file)
             raw = raws.get(path) or {}
             rprops = raw.get("properties") or {}
             props: dict[str, Any] = asset.setdefault("properties", {})
@@ -720,17 +770,16 @@ def apply_review_fn(
                 asset["required"] = required
             else:
                 asset.pop("required", None)
-            asset_file.write_text(dump_schema(asset), encoding="utf-8")
+            write_asset(asset_file, asset)
         for path in decisions.remove_objects:
-            (assets_dir / path).unlink(missing_ok=True)
+            remove_asset(assets_dir / path)
         for path in decisions.retain_objects:
             new_raw = raws.get(path)
             if new_raw is None:
                 continue
             assets_dir.mkdir(parents=True, exist_ok=True)
             asset = build_asset(new_raw, None, None, f"{RAW_DIR}/{path}")
-            (assets_dir / path).write_text(dump_schema(asset), encoding="utf-8")
-        _write_review_point(workdir, slug, head_sha)
+            write_asset(assets_dir / path, asset)
 
     return write
 
@@ -739,7 +788,7 @@ def apply_review_fn(
 
 
 def read_tri_rules_raw(workdir: Path, slug: str) -> list[dict[str, Any]]:
-    """Section `tri` brute du manifeste d'une source (pour l'éditeur). [] si le
+    """Section `triage` brute du manifeste d'une source (pour l'éditeur). [] si le
     manifeste est absent ou illisible. Lecture seule."""
     try:
         manifest_file = safe_source_path(workdir, slug) / MANIFEST_FILENAME
@@ -748,7 +797,7 @@ def read_tri_rules_raw(workdir: Path, slug: str) -> list[dict[str, Any]]:
         manifest = parse_manifest(manifest_file.read_text(encoding="utf-8"))
     except (ManifestError, OSError, ValueError):  # défense en profondeur côté lecture
         return []
-    return list(manifest.tri)
+    return list(manifest.triage)
 
 
 def read_tri_rules(workdir: Path, slug: str) -> list[TriRule]:
@@ -757,7 +806,7 @@ def read_tri_rules(workdir: Path, slug: str) -> list[TriRule]:
 
 
 def set_tri_rules_fn(slug: str, rules: list[dict[str, Any]]) -> Callable[[Path], None]:
-    """Écrit la section `tri` du manifeste (remplace la liste), en un commit. Le
+    """Écrit la section `triage` du manifeste (remplace la liste), en un commit. Le
     reste du manifeste est préservé. Lève SourceManifestError si le manifeste est
     absent ou invalide."""
 
@@ -766,7 +815,7 @@ def set_tri_rules_fn(slug: str, rules: list[dict[str, Any]]) -> Callable[[Path],
         if not manifest_file.is_file():
             raise FileNotFoundError(slug)
         manifest = parse_manifest(manifest_file.read_text(encoding="utf-8"))
-        updated = replace(manifest, tri=rules)
+        updated = replace(manifest, triage=rules)
         manifest_file.write_text(dump_manifest(updated), encoding="utf-8")
 
     return write

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import subprocess
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 
 from ossie_studio.models import GitSpace
 from ossie_studio.sources.collect import SourceCollector
@@ -13,12 +13,14 @@ from ossie_studio.sources.contracts import (
     ContractEntry,
     ContractNotFoundError,
     deposit_contract_fn,
+    dump_index,
+    parse_index,
     remove_contract_fn,
 )
 from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.sources.manifest import SourceManifest
 from ossie_studio.sources.service import declare_source
-from ossie_studio.spaces.workdir import WorkdirManager
+from tests.draft_helpers import DraftCollector, draft_workdir, view_dir
 
 CONTRACT_V1 = """
 openapi: 3.0.3
@@ -75,59 +77,91 @@ def _make_bare(tmp_path: Path) -> str:
 
 
 @pytest.fixture
-def setup(tmp_path: Path) -> tuple[SourceCollector, GitSpace, Path]:
-    workdir = WorkdirManager(tmp_path / "work")
-    downloader = SourceDownloader(tmp_path / "volume")
-    collector = SourceCollector(workdir, downloader)
-    space = GitSpace(
-        id=uuid.uuid4(),
-        name="modele",
-        connection_id=uuid.uuid4(),
-        repo_url=_make_bare(tmp_path),
-        last_probe_status="valid",
-        last_probe_at=None,
-        created_at=datetime.now(UTC),
-    )
+async def setup(app: FastAPI, tmp_path: Path) -> tuple[DraftCollector, GitSpace, Path]:
+    manager, workdir, space = await draft_workdir(app, tmp_path, _make_bare(tmp_path))
+    collector = DraftCollector(SourceDownloader(tmp_path / "volume"), manager, workdir)
     return collector, space, tmp_path
 
 
 def _raw(tmp_path: Path, space: GitSpace) -> Path:
-    return tmp_path / "work" / str(space.id) / "principale" / "sources" / "api" / "raw"
+    return view_dir(tmp_path, space) / "sources" / "api" / "raw"
 
 
 async def _prepare_source(collector: SourceCollector, space: GitSpace) -> None:
-    await collector._workdir.create_base_branch(space.id, "principale", space.repo_url, "x", None)
-    manifest = SourceManifest(slug="api", label="API", type="openapi", connexion="", parametres={})
-    await declare_source(
-        collector._workdir, space, "principale", "x", None, "a@a", "a@a", manifest
+    await collector._workdir.create_base_branch(
+        space.id, "work/principale", space.repo_url, "x", None
     )
+    manifest = SourceManifest(slug="api", label="API", type="openapi", connection="", parameters={})
+    await declare_source(collector.dw, space, "work/principale", "x", None, "a@a", "a@a", manifest)
 
 
 def _entry(version: str) -> ContractEntry:
     return ContractEntry(
         version=version,
-        fichier=f"{version}.yaml",
-        fichier_origine=f"boutique-{version}.yaml",
+        file=f"{version}.yaml",
+        original_file=f"boutique-{version}.yaml",
         openapi="3.0.3",
-        version_declaree="1.0.0",
-        nb_schemas=2,
-        nb_operations=1,
-        depose_le=datetime.now(UTC).isoformat(),
-        auteur="a@a",
+        declared_version="1.0.0",
+        schema_count=2,
+        operation_count=1,
+        uploaded_at=datetime.now(UTC).isoformat(),
+        author="a@a",
     )
 
 
+def test_index_des_contrats_ecrit_en_anglais() -> None:
+    entry = _entry("v1")
+    text = dump_index([entry])
+    assert text.startswith("version: 2\ncontracts:\n")
+    for key in (
+        "file:",
+        "original_file:",
+        "declared_version:",
+        "schema_count:",
+        "operation_count:",
+        "uploaded_at:",
+        "author:",
+    ):
+        assert key in text
+    for french in ("contrats:", "fichier:", "version_declaree:", "nb_schemas:", "auteur:"):
+        assert french not in text
+    assert parse_index(text) == [entry]
+
+
+def test_index_des_contrats_version_1_relu() -> None:
+    # Un index déposé avant le passage aux clés anglaises reste lisible.
+    legacy = (
+        "version: 1\ncontrats:\n- version: v1\n  fichier: v1.yaml\n"
+        "  fichier_origine: boutique.yaml\n  openapi: 3.0.3\n  version_declaree: 1.0.0\n"
+        "  nb_schemas: 2\n  nb_operations: 1\n  depose_le: '2026-01-01T00:00:00+00:00'\n"
+        "  auteur: a@a\n"
+    )
+    assert parse_index(legacy) == [
+        ContractEntry(
+            version="v1",
+            file="v1.yaml",
+            original_file="boutique.yaml",
+            openapi="3.0.3",
+            declared_version="1.0.0",
+            schema_count=2,
+            operation_count=1,
+            uploaded_at="2026-01-01T00:00:00+00:00",
+            author="a@a",
+        )
+    ]
+
+
 async def _commit(collector: SourceCollector, space: GitSpace, write_fn, msg: str) -> None:
-    await collector._workdir.commit_to_branch(
-        space.id, "principale", space.repo_url, "x", None, "a@a", "a@a", msg, write_fn
+    await collector.dw.commit_to_branch(
+        space.id, "work/principale", space.repo_url, "x", None, "a@a", "a@a", msg, write_fn
     )
 
 
 async def _collect(collector: SourceCollector, space: GitSpace, *, force: bool = False):
     return await collector.collect_openapi(
         space=space,
-        branch_slug="principale",
-        branche_label="principale",
+        branch_slug="work/principale",
+        branch_label="principale",
         space_username="x",
         space_token=None,
         source_slug="api",
@@ -152,8 +186,8 @@ async def test_collecte_openapi_ecrit_les_schemas(
     assert report.added == 2  # Commande + Ligne
     assert report.local_commit is not None
     raw = _raw(tmp_path, space)
-    assert (raw / "v1-commande.json").is_file()
-    assert (raw / "v1-ligne.json").is_file()
+    assert (raw / "v1-commande.schema.yaml").is_file()
+    assert (raw / "v1-ligne.schema.yaml").is_file()
 
 
 async def test_collecte_openapi_idempotente(
@@ -186,12 +220,12 @@ async def test_retrait_contrat_supprime_ses_schemas(
     )
     await _collect(collector, space)
     raw = _raw(tmp_path, space)
-    assert (raw / "v1-commande.json").is_file()
+    assert (raw / "v1-commande.schema.yaml").is_file()
     # Retrait : le fichier et ses schémas quittent la branche, en un commit.
     await _commit(collector, space, remove_contract_fn("api", "v1"), "retire v1")
-    assert not (raw / "v1-commande.json").exists()
-    assert not (raw / "v1-ligne.json").exists()
-    contrats = tmp_path / "work" / str(space.id) / "principale" / "sources" / "api" / "contrats"
+    assert not (raw / "v1-commande.schema.yaml").exists()
+    assert not (raw / "v1-ligne.schema.yaml").exists()
+    contrats = view_dir(tmp_path, space) / "sources" / "api" / "contrats"
     assert not (contrats / "v1.yaml").exists()
 
 
@@ -215,8 +249,8 @@ async def test_versions_coexistent_sur_le_disque(
     report = await _collect(collector, space)
     raw = _raw(tmp_path, space)
     # v1 et v2 produisent des schémas distincts.
-    assert (raw / "v1-commande.json").is_file()
-    assert (raw / "v2-commande.json").is_file()
+    assert (raw / "v1-commande.schema.yaml").is_file()
+    assert (raw / "v2-commande.schema.yaml").is_file()
     assert report.added == 4
 
 

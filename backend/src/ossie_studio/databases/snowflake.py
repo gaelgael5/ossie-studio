@@ -76,6 +76,45 @@ def _sf_type_fragment(
     return frag
 
 
+TagMap = dict[str, str]
+
+
+def _tags_by_target(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[tuple[str, ...], TagMap], dict[tuple[str, str, str], TagMap]]:
+    """Range les lignes de TAG_REFERENCES par cible (6a8c1828). Objets : clé
+    () pour la base, (schéma,) pour un schéma, (schéma, objet) pour une table ou
+    une vue ; colonnes : (schéma, objet, colonne). Le tag est nommé qualifié
+    (BASE.SCHEMA.TAG) : deux tags homonymes de schémas différents ne se
+    confondent pas, et les tags système (SNOWFLAKE.CORE.*) restent lisibles."""
+    objects: dict[tuple[str, ...], TagMap] = {}
+    cols: dict[tuple[str, str, str], TagMap] = {}
+    for r in rows:
+        tag = ".".join(str(r.get(k) or "") for k in ("tag_database", "tag_schema", "tag_name"))
+        value = str(r.get("tag_value") or "")
+        domain = str(r.get("domain") or "").upper()
+        schema, name = str(r.get("object_schema") or ""), str(r.get("object_name") or "")
+        if domain == "COLUMN":
+            cols.setdefault((schema, name, str(r.get("column_name") or "")), {})[tag] = value
+        elif domain == "DATABASE":
+            objects.setdefault((), {})[tag] = value
+        elif domain == "SCHEMA":
+            # Pour un tag de schéma, Snowflake met le schéma dans OBJECT_NAME.
+            objects.setdefault((name or schema,), {})[tag] = value
+        elif domain == "TABLE":  # tables et vues
+            objects.setdefault((schema, name), {})[tag] = value
+    return objects, cols
+
+
+def _effective_tags(objects: dict[tuple[str, ...], TagMap], schema: str, name: str) -> TagMap:
+    """Tags d'un objet, hérités compris, comme Snowflake les applique : base,
+    puis schéma, puis l'objet ; le tag posé au plus près gagne."""
+    merged: TagMap = {}
+    for key in ((), (schema,), (schema, name)):
+        merged.update(objects.get(key, {}))
+    return dict(sorted(merged.items()))
+
+
 def build_catalog(
     *,
     tables: list[dict[str, Any]],
@@ -84,6 +123,7 @@ def build_catalog(
     unique_keys: list[dict[str, Any]] | None = None,
     foreign_keys: list[dict[str, Any]] | None = None,
     dependencies: list[dict[str, Any]] | None = None,
+    tags: list[dict[str, Any]] | None = None,
     schemas: list[str] | None = None,
     exclusions: list[str] | None = None,
     queries: int = 0,
@@ -97,6 +137,8 @@ def build_catalog(
     def kept(schema: str) -> bool:
         return (include is None or schema in include) and schema not in exclude
 
+    object_tags, column_tags = _tags_by_target(tags or [])
+
     cols_by_obj: dict[tuple[str, str], list[CatalogColumn]] = {}
     for c in columns:
         schema, table = str(c["schema"]), str(c["table"])
@@ -105,6 +147,9 @@ def build_catalog(
         fragment = _sf_type_fragment(
             str(c["data_type"]), c.get("char_len"), c.get("precision"), c.get("scale")
         )
+        col_tags = column_tags.get((schema, table, str(c["name"])))
+        if col_tags:
+            fragment["x-db-tags"] = dict(sorted(col_tags.items()))
         cols_by_obj.setdefault((schema, table), []).append(
             CatalogColumn(
                 name=str(c["name"]),
@@ -141,6 +186,9 @@ def build_catalog(
         extra: dict[str, Any] = {}
         if str(t.get("is_transient", "")).upper() == "YES":
             extra["x-table-type"] = "transient"
+        effective = _effective_tags(object_tags, schema, name)
+        if effective:
+            extra["x-db-tags"] = effective
         # Clefs déclarées mais non appliquées dans Snowflake.
         if primary or uniques or fks:
             extra["x-enforced"] = False
@@ -162,10 +210,10 @@ def build_catalog(
 
 
 def _driver() -> Any:
-    # Pilote absent de cet environnement : la connexion n'est pas éprouvable ici.
-    # La logique devient active dès que snowflake-connector-python est installé.
+    # snowflake-connector-python est une dépendance du projet ; sans lui (image
+    # allégée), la connexion n'est pas éprouvable et le dit.
     try:
-        import snowflake.connector  # type: ignore[import-not-found]
+        import snowflake.connector
     except ImportError as exc:  # pragma: no cover - pilote non installé
         raise DbEngineError("db_driver_unavailable") from exc
     return snowflake.connector
@@ -182,10 +230,26 @@ def _private_key_der(opened_pem: str) -> bytes:  # pragma: no cover - nécessite
     )
 
 
+def is_private_key(secret_value: str) -> bool:
+    """Le secret stocké est-il une clé PEM ouverte ? Sinon c'est un mot de passe
+    ou un jeton d'accès programmatique (dc22b381) — un PEM ne peut pas être pris
+    pour un mot de passe : son en-tête est normalisé."""
+    return secret_value.lstrip().startswith("-----BEGIN")
+
+
+def auth_kwargs(secret_value: str) -> dict[str, Any]:
+    """Arguments d'authentification du pilote selon la forme du secret. Le jeton
+    d'accès programmatique passe par `password`, comme le documente Snowflake."""
+    if is_private_key(secret_value):
+        return {"private_key": _private_key_der(secret_value)}
+    return {"password": secret_value}
+
+
 class SnowflakeEngine(DatabaseEngine):
-    """Snowflake par paire de clés (le mot de passe seul n'est pas offert : la
-    paire de clés est la méthode durable). Lecture de métadonnées uniquement.
-    Non éprouvable dans cet environnement (pilote absent)."""
+    """Snowflake par paire de clés (méthode durable, recommandée) ou, faute de
+    clé, par mot de passe / jeton d'accès programmatique (dc22b381 : on doit
+    pouvoir éprouver une connexion sans clé privée). Lecture de métadonnées
+    uniquement. Non éprouvable dans cet environnement (pilote absent)."""
 
     def _connect(self, params: dict[str, str], secret_value: str) -> Any:  # pragma: no cover
         connector = _driver()
@@ -196,11 +260,11 @@ class SnowflakeEngine(DatabaseEngine):
                 role=params.get("role") or None,
                 warehouse=params.get("warehouse") or None,
                 database=params.get("database") or None,
-                private_key=_private_key_der(secret_value),
                 login_timeout=10,
+                **auth_kwargs(secret_value),
             )
         except Exception as exc:
-            raise _map_error(connector, exc) from exc
+            raise _map_error(connector, exc, keypair=is_private_key(secret_value)) from exc
 
     async def verify(self, params: dict[str, str], secret_value: str) -> DbIdentity:
         def _work() -> DbIdentity:  # pragma: no cover - nécessite le pilote
@@ -225,6 +289,8 @@ class SnowflakeEngine(DatabaseEngine):
                     "ORDER BY TABLE_SCHEMA, TABLE_NAME"
                 )
                 rows = cur.fetchall()
+            except Exception as exc:
+                raise _query_error(exc) from exc
             finally:
                 cn.close()
             return [DbTable(schema=str(r[0]), name=str(r[1])) for r in rows]
@@ -300,20 +366,20 @@ class SnowflakeEngine(DatabaseEngine):
                     {"schema": r.get("schema_name"), "table": r.get("table_name"),
                      "column": r.get("column_name"), "seq": r.get("key_sequence", 0),
                      "constraint": r.get("constraint_name")}
-                    for r in safe("SHOW PRIMARY KEYS", "primary_keys")
+                    for r in safe("SHOW PRIMARY KEYS IN DATABASE", "primary_keys")
                 ]
                 uqs = [
                     {"schema": r.get("schema_name"), "table": r.get("table_name"),
                      "column": r.get("column_name"), "seq": r.get("key_sequence", 0),
                      "constraint": r.get("constraint_name")}
-                    for r in safe("SHOW UNIQUE KEYS", "unique_keys")
+                    for r in safe("SHOW UNIQUE KEYS IN DATABASE", "unique_keys")
                 ]
                 fks = [
                     {"schema": r.get("fk_schema_name"), "table": r.get("fk_table_name"),
                      "column": r.get("fk_column_name"), "ref_schema": r.get("pk_schema_name"),
                      "ref_table": r.get("pk_table_name"), "ref_column": r.get("pk_column_name"),
                      "seq": r.get("key_sequence", 0), "fk_name": r.get("fk_name")}
-                    for r in safe("SHOW IMPORTED KEYS", "foreign_keys")
+                    for r in safe("SHOW IMPORTED KEYS IN DATABASE", "foreign_keys")
                 ]
                 deps = [
                     {"schema": r.get("referencing_schema_name"),
@@ -328,11 +394,30 @@ class SnowflakeEngine(DatabaseEngine):
                         "dependencies",
                     )
                 ]
+                # Tags posés sur la base, ses schémas, ses objets et ses colonnes
+                # (6a8c1828). ACCOUNT_USAGE : une requête pour toute la base, au
+                # prix d'un retard possible de 2 h ; sans droit, on continue.
+                tags = safe(
+                    "SELECT tag_database, tag_schema, tag_name, tag_value, domain, "
+                    "object_schema, object_name, column_name "
+                    "FROM SNOWFLAKE.ACCOUNT_USAGE.TAG_REFERENCES "
+                    "WHERE object_database = CURRENT_DATABASE() AND object_deleted IS NULL "
+                    "AND domain IN ('DATABASE', 'SCHEMA', 'TABLE', 'COLUMN')",
+                    "tags",
+                )
+            except DbEngineError:
+                raise
+            except Exception as exc:
+                # Tables et colonnes sont indispensables (les autres lectures
+                # passent par `safe`) : leur échec arrête la collecte, avec un
+                # code traduit plutôt qu'une erreur 500 (89752930).
+                raise _query_error(exc) from exc
             finally:
                 cn.close()
             return build_catalog(
                 tables=tables, columns=columns, primary_keys=pks, unique_keys=uqs,
-                foreign_keys=fks, dependencies=deps, schemas=schemas, exclusions=exclusions,
+                foreign_keys=fks, dependencies=deps, tags=tags, schemas=schemas,
+                exclusions=exclusions,
                 queries=queries, errors=errors,
             )
 
@@ -354,10 +439,28 @@ class SnowflakeEngine(DatabaseEngine):
         )
 
 
-def _map_error(connector: Any, exc: Exception) -> DbEngineError:  # pragma: no cover
+def _query_error(exc: Exception) -> DbEngineError:
+    """Échec d'une requête après une connexion réussie. Snowflake ouvre la
+    session même si la base demandée n'existe pas ou n'est pas accessible : c'est
+    la première requête qui échoue (090105 « no current database », 002003
+    « does not exist or not authorized »)."""
     message = str(exc).lower()
+    if "current database" in message or "does not exist or not authorized" in message:
+        return DbEngineError("db_not_found")
+    return DbEngineError("db_query_failed")
+
+
+def _map_error(connector: Any, exc: Exception, *, keypair: bool = True) -> DbEngineError:
+    message = str(exc).lower()
+    if "login timed out" in message:
+        # Le serveur répond mais ne conclut pas : typiquement la MFA d'un compte
+        # humain, qui attend la validation d'une notification. « Hôte
+        # injoignable » ferait chercher du côté du réseau, à tort.
+        return DbEngineError("db_login_timeout")
     if "incorrect username or password" in message or "jwt" in message or "key" in message:
-        return DbEngineError("db_key_rejected")
+        # Le même refus se lit « clé refusée » ou « identifiants refusés » selon
+        # la méthode employée : un mot de passe refusé n'a rien à voir avec une clé.
+        return DbEngineError("db_key_rejected" if keypair else "db_auth_failed")
     if "role" in message and "does not exist" in message:
         return DbEngineError("db_role_not_found")
     if "warehouse" in message and "does not exist" in message:

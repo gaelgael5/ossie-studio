@@ -10,13 +10,23 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import ConnectionsRead, ConnectionsWrite
+from ossie_studio.audit.service import (
+    CREATED,
+    DELETED,
+    UPDATED,
+    audited,
+    audited_secret_removal,
+)
 from ossie_studio.connections.forms import validate_connection
 from ossie_studio.connections.service import (
     ConnectionDuplicateError,
+    ConnectionSlugTakenError,
+    db_connection_slug_exists,
     db_create_connection,
     db_delete_connection,
     db_get_connection,
     db_list_connections,
+    db_update_connection,
     db_update_connection_status,
     resolve_connection_token,
 )
@@ -28,6 +38,7 @@ from ossie_studio.forges.registry import get_strategy, list_form_specs
 from ossie_studio.models import Connection
 from ossie_studio.secretstore.service import db_get_secret, resolve_secret_value
 from ossie_studio.secretstore.usages import db_count_secret_usages, db_delete_secret_if_unused
+from ossie_studio.slugs import is_valid_slug
 from ossie_studio.spaces.service import db_spaces_using_connection
 
 log = structlog.get_logger(__name__)
@@ -41,7 +52,17 @@ HttpFactoryDep = Annotated[Callable[[], httpx.AsyncClient], Depends(get_http_cli
 class ConnectionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
+    # Optionnel : l'interface le déduit du libellé et le laisse corriger.
+    # Absent, le serveur le déduit lui-même (appels antérieurs à ce champ).
+    slug: str = ""
     forge: str = ""
+    url: str = ""
+    secret_slug: str = ""
+
+
+class ConnectionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = ""
     url: str = ""
     secret_slug: str = ""
 
@@ -120,7 +141,16 @@ async def list_connection_repositories(
         except ForgeError as exc:
             raise ApiError(exc.code, status_code=400) from None
     return {
-        "repositories": [{"full_name": r.full_name, "url": r.url} for r in repos],
+        # clone_url : l'adresse à rattacher à un espace (calculée par la forge),
+        # url : la page web du dépôt.
+        "repositories": [
+            {
+                "full_name": r.full_name,
+                "url": r.url,
+                "clone_url": strategy.git_clone_url(connection.url, r.full_name),
+            }
+            for r in repos
+        ],
         "total": len(repos),
     }
 
@@ -148,20 +178,36 @@ async def list_connection_branches(
             branches = await strategy.list_branches(client, connection.url, token, repo.strip())
         except ForgeError as exc:
             raise ApiError(exc.code, status_code=400) from None
-    return {"branches": branches}
+        declared = await strategy.default_branch(client, connection.url, token, repo.strip())
+    return {"branches": branches, "default": pick_default_branch(branches, declared)}
+
+
+def pick_default_branch(branches: list[str], declared: str | None) -> str:
+    """Présélection de la « branche suivie » : celle que la forge déclare par
+    défaut, sinon main, master ou root (dans cet ordre), sinon aucune."""
+    for candidate in (declared, "main", "master", "root"):
+        if candidate and candidate in branches:
+            return candidate
+    return ""
 
 
 @router.post("", status_code=201)
 async def create_connection(
     conn: ConnDep,
     crypto: CryptoDep,
-    _: ConnectionsWrite,
+    user: ConnectionsWrite,
     http_client_factory: HttpFactoryDep,
     body: ConnectionCreate,
 ) -> dict[str, object]:
     errors = validate_connection(body.label, body.forge, body.url, body.secret_slug)
+    slug = body.slug.strip()
+    if slug and not is_valid_slug(slug):
+        errors.append("connection_slug_invalid")
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
+    # Slug pris : refusé AVANT d'interroger la forge (pas d'appel réseau inutile).
+    if slug and await db_connection_slug_exists(conn, slug):
+        raise ApiError("connection_slug_taken", status_code=409, slug=slug)
 
     # Le jeton est un secret de la catégorie de la forge, désigné par son slug.
     secret = await db_get_secret(conn, body.secret_slug.strip())
@@ -179,17 +225,73 @@ async def create_connection(
             raise ApiError(exc.code, status_code=400) from None
 
     try:
-        connection = await db_create_connection(
-            conn,
-            label=body.label.strip(),
-            forge=body.forge,
-            url=url,
-            secret_slug=secret.slug,
-            identity=identity,
-        )
+        async with audited(
+            conn, user, CREATED, "connection", detail={"forge": body.forge, "url": url}
+        ) as entry:
+            connection = await db_create_connection(
+                conn,
+                label=body.label.strip(),
+                forge=body.forge,
+                url=url,
+                secret_slug=secret.slug,
+                identity=identity,
+                slug=slug,
+            )
+            entry.target(connection.id, connection.label)
+    except ConnectionSlugTakenError:
+        raise ApiError("connection_slug_taken", status_code=409, slug=slug) from None
     except ConnectionDuplicateError:
         raise ApiError("connection_duplicate", status_code=409) from None
     return _payload(connection)
+
+
+@router.put("/{connection_id}")
+async def update_connection(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: ConnectionsWrite,
+    http_client_factory: HttpFactoryDep,
+    connection_id: uuid.UUID,
+    body: ConnectionUpdate,
+) -> dict[str, object]:
+    current = await db_get_connection(conn, connection_id)
+    if current is None:
+        raise ApiError("connection_not_found", status_code=404)
+    # Mêmes règles qu'à la création ; la forge (figée) vient de la connexion.
+    errors = validate_connection(body.label, current.forge, body.url, body.secret_slug)
+    if errors:
+        raise ApiError("invalid_request", status_code=400, fields=errors)
+    secret = await db_get_secret(conn, body.secret_slug.strip())
+    if secret is None or secret.category != current.forge:
+        raise ApiError("connection_secret_invalid", status_code=400, slug=body.secret_slug.strip())
+    token = (await resolve_secret_value(conn, crypto, secret.slug)).reveal()
+
+    url = body.url.strip().rstrip("/")
+    # Vérification AVANT d'écrire : une modification refusée par la forge laisse
+    # la connexion telle qu'elle était (les espaces qui s'en servent continuent).
+    async with http_client_factory() as client:
+        try:
+            identity = await get_strategy(current.forge).verify(client, url, token)
+        except ForgeError as exc:
+            raise ApiError(exc.code, status_code=400) from None
+    try:
+        async with audited(
+            conn, user, UPDATED, "connection", connection_id, body.label.strip(), {"url": url}
+        ) as entry:
+            updated = await db_update_connection(
+                conn,
+                connection_id,
+                label=body.label.strip(),
+                url=url,
+                secret_slug=secret.slug,
+                identity=identity,
+            )
+            entry.skip = updated is None
+    except ConnectionDuplicateError:
+        raise ApiError("connection_duplicate", status_code=409) from None
+    if updated is None:
+        raise ApiError("connection_not_found", status_code=404)
+    return _payload(updated)
 
 
 @router.post("/{connection_id}/test")
@@ -225,19 +327,27 @@ async def test_connection(
 
 @router.delete("/{connection_id}", status_code=204)
 async def delete_connection(
-    conn: ConnDep, _: ConnectionsWrite, connection_id: uuid.UUID, delete_secret: bool = False
+    conn: ConnDep, user: ConnectionsWrite, connection_id: uuid.UUID, delete_secret: bool = False
 ) -> None:
     # Une connexion utilisée par un ou plusieurs espaces Git ne se supprime pas :
     # le refus nomme les espaces.
     spaces = await db_spaces_using_connection(conn, connection_id)
     if spaces:
         raise ApiError("connection_in_use", status_code=409, spaces=spaces)
-    secret_slug = await db_delete_connection(conn, connection_id)
+    current = await db_get_connection(conn, connection_id)
+    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
+    async with audited(
+        conn, user, DELETED, "connection", connection_id, current.label if current else ""
+    ) as entry:
+        secret_slug = await db_delete_connection(conn, connection_id)
+        entry.skip = secret_slug is None
     if secret_slug is None:
         raise ApiError("connection_not_found", status_code=404)
     # Le secret ne part que si demandé ET s'il n'est plus utilisé par rien
     # d'autre (vérifié à l'instant, la connexion étant déjà supprimée).
-    secret_outcome = "kept"  # noqa: S105  (état journalisé, pas un secret)
     if delete_secret:
-        secret_outcome = await db_delete_secret_if_unused(conn, secret_slug)
+        slug = secret_slug
+        secret_outcome = await audited_secret_removal(
+            conn, user, slug, lambda: db_delete_secret_if_unused(conn, slug)
+        )
     log.info("connection_removed", secret=secret_outcome)

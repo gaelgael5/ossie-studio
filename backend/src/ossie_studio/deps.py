@@ -12,6 +12,7 @@ from starlette.applications import Starlette
 from ossie_studio.auth.service import db_count_users, db_get_user_by_id
 from ossie_studio.config import Settings
 from ossie_studio.crypto import CryptoService
+from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.models import User
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
@@ -90,3 +91,26 @@ def get_source_downloader(request: Request) -> SourceDownloader:
 def get_source_collector(request: Request) -> SourceCollector:
     collector: SourceCollector = request.app.state.source_collector
     return collector
+
+
+async def get_draft_workdir(request: Request, conn: ConnDep) -> DraftWorkdir:
+    """Copie de travail de la personne connectée sur la branche de la route
+    (`branch_id`) : lectures avec son brouillon, écritures dans son brouillon."""
+    from ossie_studio.errors import ApiError
+
+    user = await get_current_user(request, conn)
+    if user is None:
+        raise ApiError("unauthenticated", status_code=401)
+    try:
+        branch_id = uuid.UUID(str(request.path_params["branch_id"]))
+    except (KeyError, ValueError):
+        raise ApiError("branch_not_found", status_code=404) from None
+    return DraftWorkdir(
+        request.app.state.workdir_manager,
+        request.app.state.draft_views,
+        request.app.state.pool,
+        user.id,
+        branch_id,
+        published_only=request.query_params.get("view") == "published",
+        conn=conn,
+    )

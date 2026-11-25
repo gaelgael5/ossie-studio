@@ -11,8 +11,6 @@ CONTRATS_DIR = "contrats"
 CONTRATS_INDEX = "contrats.yaml"
 # Assets curés : copie choisie des schémas de raw/, enrichie par l'humain.
 ASSETS_DIR = "assets"
-# Point de reprise de la revue : commit de raw/ jusqu'où la source a été revue.
-REVIEW_FILE = "review.yaml"
 
 # Un slug de source : minuscules, chiffres et tirets, sans tiret en bord ni
 # double tiret. Volontairement strict : il devient un nom de répertoire.
@@ -59,9 +57,3 @@ def safe_assets_path(workdir: Path, slug: str) -> Path:
     """Répertoire `assets/` d'une source, sous `sources/<slug>/` (garde de
     traversée héritée de safe_source_path)."""
     return safe_source_path(workdir, slug) / ASSETS_DIR
-
-
-def safe_review_path(workdir: Path, slug: str) -> Path:
-    """Fichier `review.yaml` d'une source (point de reprise de la revue), sous
-    `sources/<slug>/` (garde de traversée héritée de safe_source_path)."""
-    return safe_source_path(workdir, slug) / REVIEW_FILE

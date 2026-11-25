@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ossie:raw/view",
+  "title": "Personnalisation de l'affichage d'un module (<clé>.view.yaml)",
+  "description": "Mis à jour par ajouts et suppressions, jamais régénéré en entier : à la collecte, les entrées d'un lien disparu sont retirées, celles d'un lien nouveau ajoutées avec la valeur par défaut (auto), les autres gardées telles quelles. Un fichier absent vaut les valeurs par défaut.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["links"],
+  "properties": {
+    "links": {
+      "description": "Une entrée par lien partant du module, indexée par le $id du module d'arrivée.",
+      "type": "object",
+      "propertyNames": {"pattern": "^module-[a-z0-9-]+\\.schema\\.yaml$"},
+      "additionalProperties": {"$ref": "#/$defs/link"}
+    }
+  },
+  "$defs": {
+    "link": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": {"$ref": "#/$defs/anchor"},
+        "to": {"$ref": "#/$defs/anchor"}
+      }
+    },
+    "anchor": {
+      "description": "auto = ancre calculée par la vue ; sinon le côté du bloc et la position le long de ce côté (0 = début, 0,5 = milieu, 1 = fin).",
+      "oneOf": [
+        {"const": "auto"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["side", "at"],
+          "properties": {
+            "side": {"enum": ["top", "right", "bottom", "left"]},
+            "at": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        }
+      ]
+    }
+  }
+}

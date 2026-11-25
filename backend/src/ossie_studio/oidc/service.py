@@ -17,6 +17,10 @@ class IssuerAlreadyDeclaredError(Exception):
     """Un connecteur existe déjà sur cet issuer."""
 
 
+class ConnectorSlugTakenError(Exception):
+    """Le slug désigne déjà un autre connecteur."""
+
+
 async def db_list_connectors(conn: asyncpg.Connection) -> list[OidcConnector]:
     rows = await conn.fetch("SELECT * FROM oidc_connectors ORDER BY label")
     return [OidcConnector.from_row(row) for row in rows]
@@ -36,20 +40,48 @@ async def db_create_connector(
     client_id: str,
     client_secret_slug: str,
     scopes: str,
+    slug: str | None = None,
 ) -> OidcConnector:
     try:
         row = await conn.fetchrow(
             "INSERT INTO oidc_connectors (label, issuer, client_id, client_secret_slug, "
-            "scopes) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            "scopes, slug) VALUES ($1, $2, $3, $4, $5, coalesce($6, gen_random_uuid()::text)) "
+            "RETURNING *",
             label,
             issuer,
             client_id,
             client_secret_slug,
             scopes,
+            slug,
         )
     except asyncpg.UniqueViolationError as exc:
+        if exc.constraint_name == "uq_oidc_connector_slug":
+            raise ConnectorSlugTakenError from exc
         raise IssuerAlreadyDeclaredError from exc
     return OidcConnector.from_row(row)
+
+
+async def db_set_login_routing(
+    conn: asyncpg.Connection, connector_id: uuid.UUID, email_domains: list[str], login_prompt: str
+) -> None:
+    await conn.execute(
+        "UPDATE oidc_connectors SET email_domains = $2, login_prompt = $3 WHERE id = $1",
+        connector_id,
+        email_domains,
+        login_prompt,
+    )
+
+
+async def db_connectors_for_domain(conn: asyncpg.Connection, domain: str) -> list[OidcConnector]:
+    """Connecteurs qui déclarent ce domaine d'email. Plusieurs sont possibles
+    (deux annuaires pour une même société) : l'écran de connexion les propose
+    tous plutôt que d'en choisir un arbitrairement."""
+    if not domain:
+        return []
+    rows = await conn.fetch(
+        "SELECT * FROM oidc_connectors WHERE $1 = ANY(email_domains) ORDER BY label", domain
+    )
+    return [OidcConnector.from_row(row) for row in rows]
 
 
 async def db_delete_connector(conn: asyncpg.Connection, connector_id: uuid.UUID) -> None:
@@ -102,7 +134,25 @@ async def resolve_federated_login(
         return LinkDecision(LinkOutcome.CREATED_NEW, new_id)
     if decision.outcome is LinkOutcome.LINKED_EXISTING and decision.user_id is not None:
         await db_touch_login(conn, decision.user_id)
+        await _db_refresh_display_name(conn, decision.user_id, claims)
     return decision
+
+
+async def _db_refresh_display_name(
+    conn: asyncpg.Connection, user_id: uuid.UUID, claims: VerifiedClaims
+) -> None:
+    """Le nom affiché suit l'annuaire à chaque connexion : c'est lui qui signe
+    les commits publiés. Un claim absent ne l'efface pas."""
+    name = (claims.name or "").strip()
+    if not name:
+        return
+    await conn.execute(
+        "UPDATE users SET display_name = $2, search_key = $3 "
+        "WHERE id = $1 AND display_name IS DISTINCT FROM $2",
+        user_id,
+        name,
+        search_key(name, claims.email or ""),
+    )
 
 
 async def _db_pin_identity(

@@ -6,14 +6,22 @@ import { api } from '../apiClient'
 import type { ProfileItem } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
+import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
+import { CreateButton, CreatePanel } from '../components/CreatePanel'
 import { PageHeader, SettingsCrumb } from '../components/PageHeader'
 
 export function ProfilesPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
+  const [creating, setCreating] = useState(false)
+  const openCreate = () => {
+    setMessages([])
+    setCreating(true)
+  }
+  const closeCreate = () => reset()
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [name, setName] = useState('')
+  const pair = useLabelSlug()
   const [description, setDescription] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
@@ -21,13 +29,14 @@ export function ProfilesPage() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['profiles'] })
   const onError = (err: unknown) => setMessages(errorMessages(t, err))
   const reset = () => {
+    setCreating(false)
     setEditingId(null)
-    setName('')
+    pair.reset()
     setDescription('')
     setSelected(new Set())
   }
 
-  const body = () => ({ name, description, capabilities: [...selected] })
+  const body = () => ({ name: pair.label, slug: pair.finalSlug, description, capabilities: [...selected] })
   const create = useMutation({
     mutationFn: () => api.createProfile(body()),
     onSuccess: async () => {
@@ -63,7 +72,7 @@ export function ProfilesPage() {
   const startEdit = (profile: ProfileItem) => {
     setMessages([])
     setEditingId(profile.id)
-    setName(profile.name)
+    pair.load(profile.name, profile.slug)
     setDescription(profile.description)
     setSelected(new Set(profile.capabilities))
   }
@@ -87,8 +96,77 @@ export function ProfilesPage() {
 
   return (
     <main>
-      <PageHeader breadcrumb={<SettingsCrumb />} title={t('profilesTitle')} subtitle={t('profilesIntro')} />
+      <PageHeader
+        breadcrumb={<SettingsCrumb />}
+        title={t('profilesTitle')}
+        subtitle={t('profilesIntro')}
+        actions={
+          <CreateButton open={creating || editingId !== null} onOpen={openCreate}>
+            {t('newProfileButton')}
+          </CreateButton>
+        }
+      />
       <ErrorList messages={messages} />
+      {creating || editingId ? (
+        <div className="page-section">
+          <CreatePanel title={editingId ? t('updateProfile') : t('newProfileTitle')} onCancel={closeCreate}>
+            <form
+              className="stack"
+              onSubmit={(e) => {
+                e.preventDefault()
+                setMessages([])
+                if (editingId) update.mutate()
+                else create.mutate()
+              }}
+            >
+              <LabelSlugFields
+                idPrefix="profile"
+                state={pair}
+                labelText={t('profileNameLabel')}
+                slugText={t('slugLabel')}
+                slugLocked={editingId !== null}
+              />
+              <div className="field">
+                <label className="field-label" htmlFor="pdesc">
+                  {t('profileDescriptionLabel')}
+                </label>
+                <input
+                  id="pdesc"
+                  className="input"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+
+              <h3 className="panel-title">{t('capabilitiesHeading')}</h3>
+              {selected.size === 0 ? <p className="muted">{t('profileNoAccess')}</p> : null}
+              {catalog.map((domain) => (
+                <fieldset key={domain.domain} className="fieldset">
+                  <legend>{t(`capDomain.${domain.domain}`)}</legend>
+                  <div className="row">
+                    {domain.capabilities.map((capability) => (
+                      <label key={capability} className="check">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(capability)}
+                          onChange={() => toggle(capability)}
+                        />
+                        {capLabel(capability)}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ))}
+
+              <div className="actions">
+                <button type="submit" className="btn btn-primary" disabled={create.isPending || update.isPending}>
+                  {editingId ? t('updateProfile') : t('createProfile')}
+                </button>
+                  </div>
+            </form>
+          </CreatePanel>
+        </div>
+      ) : null}
 
       <div className="page-body">
         {list.length > 0 ? (
@@ -109,6 +187,7 @@ export function ProfilesPage() {
                       {profile.name}{' '}
                       {profile.is_admin ? <span className="pill">{t('adminLocked')}</span> : null}{' '}
                       {profile.is_default ? <span className="pill">{t('defaultBadge')}</span> : null}
+                      <div className="mono muted small">{profile.slug}</div>
                     </td>
                     <td>{profile.user_count}</td>
                     <td>
@@ -157,69 +236,6 @@ export function ProfilesPage() {
         )}
       </div>
 
-      <section className="page-section">
-        <div className="section-head">
-          <h2 className="section-title">{editingId ? t('updateProfile') : t('createProfile')}</h2>
-        </div>
-        <form
-          className="panel panel-form stack"
-          onSubmit={(e) => {
-            e.preventDefault()
-            setMessages([])
-            if (editingId) update.mutate()
-            else create.mutate()
-          }}
-        >
-          <div className="field">
-            <label className="field-label" htmlFor="pname">
-              {t('profileNameLabel')}
-            </label>
-            <input id="pname" className="input" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="field">
-            <label className="field-label" htmlFor="pdesc">
-              {t('profileDescriptionLabel')}
-            </label>
-            <input
-              id="pdesc"
-              className="input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-
-          <h3 className="panel-title">{t('capabilitiesHeading')}</h3>
-          {selected.size === 0 ? <p className="muted">{t('profileNoAccess')}</p> : null}
-          {catalog.map((domain) => (
-            <fieldset key={domain.domain} className="fieldset">
-              <legend>{t(`capDomain.${domain.domain}`)}</legend>
-              <div className="row">
-                {domain.capabilities.map((capability) => (
-                  <label key={capability} className="check">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(capability)}
-                      onChange={() => toggle(capability)}
-                    />
-                    {capLabel(capability)}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          ))}
-
-          <div className="actions">
-            <button type="submit" className="btn btn-primary" disabled={create.isPending || update.isPending}>
-              {editingId ? t('updateProfile') : t('createProfile')}
-            </button>
-            {editingId ? (
-              <button type="button" className="btn" onClick={reset}>
-                {t('cancelEdit')}
-              </button>
-            ) : null}
-          </div>
-        </form>
-      </section>
     </main>
   )
 }

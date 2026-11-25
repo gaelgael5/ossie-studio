@@ -16,6 +16,10 @@ class DbConnectionDuplicateError(Exception):
     """Une connexion existe déjà sur ce moteur, cette cible et cette identité."""
 
 
+class DbConnectionSlugTakenError(Exception):
+    """Le slug saisi désigne déjà une autre connexion de base."""
+
+
 async def db_list_db_connections(conn: asyncpg.Connection) -> list[DbConnection]:
     rows = await conn.fetch("SELECT * FROM db_connections ORDER BY label")
     return [DbConnection.from_row(row) for row in rows]
@@ -33,6 +37,10 @@ async def db_get_db_connection_by_slug(
 ) -> DbConnection | None:
     row = await conn.fetchrow("SELECT * FROM db_connections WHERE slug = $1", slug)
     return DbConnection.from_row(row) if row is not None else None
+
+
+async def db_db_connection_slug_exists(conn: asyncpg.Connection, slug: str) -> bool:
+    return bool(await conn.fetchval("SELECT 1 FROM db_connections WHERE slug = $1", slug))
 
 
 async def _free_db_slug(conn: asyncpg.Connection, base: str) -> str:
@@ -54,10 +62,14 @@ async def db_create_db_connection(
     secret_slug: str,
     identity: str,
     server_version: str,
+    slug: str = "",
 ) -> DbConnection:
     """Enregistre la connexion, qui désigne un secret existant par son slug. La
     clé étrangère garantit que le secret existe. Doublon → rien n'est écrit."""
-    slug = await _free_db_slug(conn, slugify(label, fallback="base"))
+    # Slug saisi : pris tel quel (validé et vérifié libre par l'appelant). Absent :
+    # déduit du libellé et rendu libre par suffixe.
+    if not slug:
+        slug = await _free_db_slug(conn, slugify(label, fallback="base"))
     try:
         row = await conn.fetchrow(
             "INSERT INTO db_connections (label, slug, engine, target, params, secret_slug, "
@@ -74,6 +86,8 @@ async def db_create_db_connection(
             datetime.now(UTC),
         )
     except asyncpg.UniqueViolationError as exc:
+        if exc.constraint_name == "uq_db_connection_slug":
+            raise DbConnectionSlugTakenError from exc
         raise DbConnectionDuplicateError from exc
     log.info("db_connection_created", engine=engine, identity=identity)
     return DbConnection.from_row(row)

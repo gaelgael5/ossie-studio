@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import uuid
 from collections.abc import AsyncIterator
@@ -11,7 +10,7 @@ import pytest
 
 from ossie_studio.databases.base import DbEngineError
 from ossie_studio.databases.postgres import PostgresEngine
-from ossie_studio.parsers.conventions import validate_schema
+from ossie_studio.parsers.conventions import load_schema, validate_schema
 from ossie_studio.sources.sql_extract import SqlExtractor, object_to_source, source_key
 
 ADMIN_DSN = os.environ.get("OSSIE_TEST_ADMIN_DSN", "postgresql://ossie:ossie@127.0.0.1:5432/postgres")
@@ -141,7 +140,7 @@ async def test_schemas_passent_le_validateur(catalog_db: str) -> None:
     read = await _read(catalog_db)
     files = {source_key(o): object_to_source(o) for o in read.objects}
     for obj in SqlExtractor("postgres").parse(files):
-        validate_schema(json.loads(obj.schema))
+        validate_schema(load_schema(obj.schema))
 
 
 async def test_base_injoignable_leve_db_engine_error() -> None:

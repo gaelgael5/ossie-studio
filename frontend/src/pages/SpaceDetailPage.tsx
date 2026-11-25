@@ -1,24 +1,41 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { PageHeader } from '../components/PageHeader'
 import { RailMap } from '../components/RailMap'
+import { useSession } from '../hooks'
+import { SpaceTeamsSection } from './SpaceTeamsSection'
+import { CreateButton, CreatePanel } from '../components/CreatePanel'
+import { BaseBranchPicker } from '../components/BaseBranchPicker'
+import { BusyButton } from '../components/BusyButton'
+import { CredentialBlock } from '../components/CredentialBlock'
+import { SpacePlugins } from './SpacePlugins'
 
 export function SpaceDetailPage() {
   const { t, i18n } = useTranslation()
   const { spaceId = '' } = useParams()
   const queryClient = useQueryClient()
   const [messages, setMessages] = useState<string[]>([])
+  const [creating, setCreating] = useState(false)
+  const openCreate = () => {
+    setMessages([])
+    setCreating(true)
+  }
+  const closeCreate = () => {
+    setCreating(false)
+    setChildRef('work/')
+  }
   const [notice, setNotice] = useState('')
-  const [baseLabel, setBaseLabel] = useState('')
-  const [childLabel, setChildLabel] = useState('')
+  const [childRef, setChildRef] = useState('work/')
   const [versionLabel, setVersionLabel] = useState('')
   const [railLimit, setRailLimit] = useState(200)
   const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
+  const session = useSession()
+  const canManageTeams = (session.data?.capabilities ?? []).includes('profiles:write')
 
   const branches = useQuery({
     queryKey: ['branches', spaceId],
@@ -31,19 +48,11 @@ export function SpaceDetailPage() {
   }
 
   const viewedId = branches.data?.viewed_branch_id ?? null
-  const unpublished = useQuery({
-    queryKey: ['unpublished', spaceId, viewedId],
-    queryFn: () => api.listUnpublished(spaceId, viewedId as string),
+  // Mon brouillon sur la branche regardée : ce que j'ai modifié, pas encore publié.
+  const draft = useQuery({
+    queryKey: ['draft', spaceId, viewedId],
+    queryFn: () => api.myDraft(spaceId, viewedId as string),
     enabled: viewedId !== null,
-  })
-  const publish = useMutation({
-    mutationFn: () => api.publishBranch(spaceId, viewedId as string),
-    onSuccess: async (res) => {
-      setMessages([])
-      setNotice(t('published', { count: res.published }))
-      await queryClient.invalidateQueries({ queryKey: ['unpublished', spaceId, viewedId] })
-    },
-    onError,
   })
   const formatDate = (iso: string) =>
     new Intl.DateTimeFormat(i18n.resolvedLanguage, {
@@ -51,18 +60,10 @@ export function SpaceDetailPage() {
       timeStyle: 'short',
     }).format(new Date(iso))
 
-  const createBase = useMutation({
-    mutationFn: () => api.createBaseBranch(spaceId, baseLabel),
-    onSuccess: async () => {
-      setBaseLabel('')
-      await invalidate()
-    },
-    onError,
-  })
   const createChild = useMutation({
-    mutationFn: () => api.createChildBranch(spaceId, childLabel),
+    mutationFn: () => api.createChildBranch(spaceId, childRef.trim()),
     onSuccess: async () => {
-      setChildLabel('')
+      closeCreate()
       await invalidate()
     },
     onError,
@@ -81,7 +82,7 @@ export function SpaceDetailPage() {
   const refreshVersionArea = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ['versions', spaceId, viewedId] }),
-      queryClient.invalidateQueries({ queryKey: ['unpublished', spaceId, viewedId] }),
+      queryClient.invalidateQueries({ queryKey: ['draft', spaceId, viewedId] }),
     ])
   const createVersion = useMutation({
     mutationFn: () => api.createVersion(spaceId, viewedId as string, versionLabel),
@@ -112,10 +113,22 @@ export function SpaceDetailPage() {
   })
 
   const hasBranches = (branches.data?.branches.length ?? 0) > 0
+  // Onglet dans l'URL (?onglet=historique) : un lien ou un rechargement y ramène.
+  const [params, setParams] = useSearchParams()
+  // « plugins » : ticket a30b4bd8, plugins utilisés sur la branche regardée.
+  const onglet = params.get('onglet')
+  const tab: 'branches' | 'history' | 'plugins' =
+    onglet === 'historique' ? 'history' : onglet === 'plugins' ? 'plugins' : 'branches'
+  const setTab = (next: 'branches' | 'history' | 'plugins') =>
+    setParams(
+      next === 'history' ? { onglet: 'historique' } : next === 'plugins' ? { onglet: 'plugins' } : {},
+      { replace: true },
+    )
   const railmap = useQuery({
     queryKey: ['railmap', spaceId, railLimit],
     queryFn: () => api.getRailmap(spaceId, railLimit),
-    enabled: hasBranches,
+    // Le diagramme n'est calculé que lorsque son onglet est ouvert.
+    enabled: hasBranches && tab === 'history',
   })
 
   const data = branches.data
@@ -132,8 +145,62 @@ export function SpaceDetailPage() {
         }
         title={t('branchesTitle')}
         subtitle={t('branchesIntro')}
+        actions={
+          hasBase ? (
+            <CreateButton open={creating} onOpen={openCreate}>
+              {t('newChildButton')}
+            </CreateButton>
+          ) : null
+        }
       />
       <ErrorList messages={messages} />
+      {data && !hasBase ? (
+        <div className="page-section">
+          <section className="panel panel-form stack" aria-label={t('newBaseTitle')}>
+            <h3 className="panel-title">{t('newBaseTitle')}</h3>
+            <p className="muted">{t('baseBranchIntro')}</p>
+            <BaseBranchPicker spaceId={spaceId} onDone={invalidate} onError={setMessages} />
+          </section>
+        </div>
+      ) : null}
+      {creating && hasBase ? (
+        <div className="page-section">
+          <CreatePanel title={t('newChildTitle')} onCancel={closeCreate}>
+            <form
+              className="stack"
+              onSubmit={(e) => {
+                e.preventDefault()
+                setMessages([])
+                createChild.mutate()
+              }}
+            >
+              <div className="field">
+                <label className="field-label" htmlFor="child-ref">
+                  {t('childNameLabel')}
+                </label>
+                <input
+                  id="child-ref"
+                  className="input mono"
+                  value={childRef}
+                  onChange={(e) => setChildRef(e.target.value)}
+                />
+                <span className="field-hint">{t('childNameHint')}</span>
+              </div>
+              <div>
+                <BusyButton
+                  type="submit"
+                  className="btn btn-primary"
+                  busy={createChild.isPending}
+                  busyText={t('branchCreating')}
+                  disabled={!childRef.trim() || childRef.trim().endsWith('/')}
+                >
+                  {t('createChildButton')}
+                </BusyButton>
+              </div>
+            </form>
+          </CreatePanel>
+        </div>
+      ) : null}
       {notice ? (
         <p role="status" className="info-note">
           {notice}
@@ -142,6 +209,39 @@ export function SpaceDetailPage() {
 
       {data && data.branches.length > 0 ? (
         <>
+          <div className="tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'branches'}
+              className={`tab${tab === 'branches' ? ' active' : ''}`}
+              onClick={() => setTab('branches')}
+            >
+              {t('tabBranches')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'history'}
+              className={`tab${tab === 'history' ? ' active' : ''}`}
+              onClick={() => setTab('history')}
+            >
+              {t('tabHistory')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === 'plugins'}
+              className={`tab${tab === 'plugins' ? ' active' : ''}`}
+              onClick={() => setTab('plugins')}
+            >
+              {t('tabPlugins')}
+            </button>
+          </div>
+          {tab === 'plugins' ? (
+            <SpacePlugins spaceId={spaceId} fallbackBranchId={viewedId ?? data.branches[0].id} />
+          ) : tab === 'branches' ? (
+          <>
           <div className="page-body stack">
             <div className="field measure">
               <label className="field-label" htmlFor="viewed">
@@ -190,48 +290,20 @@ export function SpaceDetailPage() {
           {viewedId ? (
             <section className="page-section">
               <div className="section-head">
-                <h2 className="section-title">{t('unpublishedTitle')}</h2>
+                <h2 className="section-title">{t('draftTitle')}</h2>
               </div>
-              <p className="muted">{t('unpublishedIntro')}</p>
-              {unpublished.data && unpublished.data.count > 0 ? (
-                <div className="stack">
-                  <div>{t('unpublishedCount', { count: unpublished.data.count })}</div>
-                  <div className="panel table-wrap">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>{t('colMessage')}</th>
-                          <th>{t('colAuthor')}</th>
-                          <th>{t('colDate')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {unpublished.data.commits.map((c) => (
-                          <tr key={c.sha}>
-                            <td>{c.message}</td>
-                            <td>{c.author}</td>
-                            <td>{formatDate(c.date)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={publish.isPending}
-                      onClick={() => {
-                        setMessages([])
-                        publish.mutate()
-                      }}
-                    >
-                      {t('publishButton')}
-                    </button>
-                  </div>
+              <p className="muted">{t('draftIntro')}</p>
+              {draft.data && draft.data.count > 0 ? (
+                // La liste brute des chemins est remplacée par la vue « Modifications »
+                // (ticket docflow aad1d3c6), rangée par source et par nature.
+                <div className="row">
+                  <span>{t('draftCount', { count: draft.data.count })}</span>
+                  <Link to={`/spaces/${spaceId}/branches/${viewedId}/changes`} className="btn btn-sm">
+                    {t('changesLink')}
+                  </Link>
                 </div>
               ) : (
-                <div className="empty-note">{t('noUnpublished')}</div>
+                <div className="empty-note">{t('draftEmpty')}</div>
               )}
             </section>
           ) : null}
@@ -327,7 +399,21 @@ export function SpaceDetailPage() {
             </section>
           ) : null}
 
-          {railmap.data && railmap.data.lines ? (
+          <section className="page-section">
+            <div className="section-head">
+              <h2 className="section-title">{t('myCredentialSection')}</h2>
+            </div>
+            <CredentialBlock spaceId={spaceId} />
+          </section>
+
+          <SpaceTeamsSection spaceId={spaceId} canManage={canManageTeams} />
+          </>
+          ) : railmap.isLoading ? (
+            <div className="page-body combo-busy" role="status">
+              <span className="spinner" aria-hidden="true" />
+              {t('railmapLoading')}
+            </div>
+          ) : railmap.data && railmap.data.lines ? (
             <section className="page-section">
               <div className="section-head">
                 <h2 className="section-title">{t('railmapTitle')}</h2>
@@ -349,61 +435,6 @@ export function SpaceDetailPage() {
         </div>
       )}
 
-      <div className="page-section">
-        {!hasBase ? (
-          <form
-            className="panel panel-form stack"
-            onSubmit={(e) => {
-              e.preventDefault()
-              setMessages([])
-              createBase.mutate()
-            }}
-          >
-            <div className="field">
-              <label className="field-label" htmlFor="baseLabel">
-                {t('baseLabelField')}
-              </label>
-              <input
-                id="baseLabel"
-                className="input"
-                value={baseLabel}
-                onChange={(e) => setBaseLabel(e.target.value)}
-              />
-            </div>
-            <div>
-              <button type="submit" className="btn btn-primary" disabled={createBase.isPending}>
-                {t('createBaseButton')}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <form
-            className="panel panel-form stack"
-            onSubmit={(e) => {
-              e.preventDefault()
-              setMessages([])
-              createChild.mutate()
-            }}
-          >
-            <div className="field">
-              <label className="field-label" htmlFor="childLabel">
-                {t('childLabelField')}
-              </label>
-              <input
-                id="childLabel"
-                className="input"
-                value={childLabel}
-                onChange={(e) => setChildLabel(e.target.value)}
-              />
-            </div>
-            <div>
-              <button type="submit" className="btn btn-primary" disabled={createChild.isPending}>
-                {t('createChildButton')}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
     </main>
   )
 }

@@ -24,7 +24,7 @@ from ossie_studio.oidc.provider import (
     generate_pkce_pair,
     validate_id_token,
 )
-from ossie_studio.oidc.redirect import public_callback_url
+from ossie_studio.oidc.redirect import public_callback_url, safe_next
 from ossie_studio.oidc.roles import roles_from_claims
 from ossie_studio.oidc.service import db_get_connector, resolve_federated_login
 from ossie_studio.secretstore.service import resolve_secret_value
@@ -40,10 +40,11 @@ HttpFactoryDep = Annotated[Callable[[], httpx.AsyncClient], Depends(get_http_cli
 _SESSION_FLOW_KEY = "oidc_flow"
 
 
-def _login_redirect(error: str | None = None) -> RedirectResponse:
+def _login_redirect(error: str | None = None, next_path: str | None = None) -> RedirectResponse:
     """Le flux OIDC est une navigation : on revient au SPA avec, en cas
-    d'échec, un code d'erreur que l'interface traduit."""
-    target = f"/login?error={error}" if error else "/"
+    d'échec, un code d'erreur que l'interface traduit ; en cas de succès, là où
+    la personne allait (par exemple l'écran de consentement d'un client MCP)."""
+    target = f"/login?error={error}" if error else (next_path or "/")
     return RedirectResponse(target, status_code=303)
 
 
@@ -53,6 +54,8 @@ async def oidc_login(
     conn: ConnDep,
     http_client_factory: HttpFactoryDep,
     connector_id: uuid.UUID,
+    next: str = "",
+    login_hint: str = "",
 ) -> Response:
     connector = await db_get_connector(conn, connector_id)
     if connector is None:
@@ -72,6 +75,7 @@ async def oidc_login(
         "state": state,
         "nonce": nonce,
         "verifier": verifier,
+        "next": safe_next(next),
     }
     url = build_authorization_url(
         metadata,
@@ -81,6 +85,10 @@ async def oidc_login(
         state=state,
         nonce=nonce,
         code_challenge=challenge,
+        # L'email déjà saisi sur notre écran (connexion en deux temps) : le
+        # fournisseur le pré-remplit au lieu de le redemander. Paramètre standard
+        # OIDC, ignoré par un fournisseur qui ne le gère pas.
+        login_hint=login_hint.strip()[:254],
     )
     return RedirectResponse(url, status_code=303)
 
@@ -146,7 +154,8 @@ async def oidc_callback(
     await apply_team_mapping(conn, connector.id, connector.team_claim, claims.raw, decision.user_id)
     request.session["user_id"] = str(decision.user_id)
     log.info("oidc_login_succeeded", outcome=decision.outcome.value, issuer=connector.issuer)
-    return _login_redirect()
+    next_path = flow.get("next")
+    return _login_redirect(next_path=safe_next(next_path) if isinstance(next_path, str) else None)
 
 
 def _flow_matches(flow: object, state: str) -> bool:

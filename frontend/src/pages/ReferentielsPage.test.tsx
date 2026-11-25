@@ -1,0 +1,227 @@
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { stringify } from 'yaml'
+import { ReferentielsPage } from './ReferentielsPage'
+
+vi.mock('../workspace', () => ({ useWorkspace: () => ({ spaceId: 's1', branchId: 'b1' }) }))
+
+// L'éditeur de Miles (JSONJoy + Monaco) est remplacé par un double : un champ pour
+// le YAML et un bouton qui simule une modification faite dans l'éditeur visuel.
+const visualChange = { current: (m: Record<string, unknown>) => m }
+vi.mock('../referentiels/SchemaEditor', () => ({
+  default: ({
+    text,
+    parsed,
+    readOnly,
+    onVisual,
+    onYaml,
+  }: {
+    text: string
+    parsed: { ok: boolean; model?: Record<string, unknown>; message?: string }
+    readOnly: boolean
+    onVisual: (s: Record<string, unknown>) => void
+    onYaml: (t: string) => void
+  }) => (
+    <div>
+      <textarea aria-label="YAML" value={text} readOnly={readOnly} onChange={(e) => onYaml(e.target.value)} />
+      {parsed.ok ? (
+        <button type="button" onClick={() => onVisual(visualChange.current(parsed.model!))}>
+          visuel
+        </button>
+      ) : (
+        <p>illisible</p>
+      )}
+    </div>
+  ),
+}))
+
+const BASE = '/api/spaces/s1/branches/b1/referentiels'
+const MODEL = {
+  title: 'Délais',
+  type: 'object',
+  'x-key': ['pays', 'mode'],
+  required: ['pays', 'mode', 'libelle'],
+  properties: {
+    pays: { type: 'string' },
+    mode: { type: 'string' },
+    libelle: { type: 'string' },
+    paliers: {
+      type: 'array',
+      items: { type: 'object', properties: { poids_max: { type: 'number' }, delai_jours: { type: 'integer' } } },
+    },
+  },
+}
+const DETAIL = {
+  name: 'delais',
+  title: 'Délais',
+  model: MODEL,
+  model_yaml: stringify(MODEL),
+  model_path: 'referentiels/delais/modele.schema.yaml',
+  count: 412,
+  unpublished: false,
+  readonly: false,
+}
+const PREVIEW = {
+  ok: true,
+  model_problems: [],
+  values: 412,
+  valid: 412,
+  removed: [{ property: 'libelle', values: 37 }],
+  problems: [],
+  problem_count: 0,
+  duplicates: [],
+}
+
+function setup(url: string, options: { readonly?: boolean; capabilities?: string[] } = {}) {
+  const calls: { method: string; path: string; body?: string }[] = []
+  const capabilities = options.capabilities ?? ['referentiels:read', 'referentiels:write']
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((path: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET'
+      calls.push({ method, path, body: init?.body as string | undefined })
+      let body: unknown = {}
+      if (path === '/api/session') body = { authenticated: true, capabilities }
+      else if (path === BASE && method === 'GET')
+        body = {
+          readonly: options.readonly ?? false,
+          referentiels: [{ name: 'delais', title: 'Délais', key: ['pays', 'mode'], count: 412, unpublished: true }],
+        }
+      else if (path === BASE) body = { ...DETAIL, name: 'tarifs', title: 'Tarifs' }
+      else if (path === `${BASE}/delais/modele/apercu`) body = PREVIEW
+      else if (path === `${BASE}/delais/modele`) body = { ...DETAIL, model: JSON.parse(String(init?.body)).model }
+      else if (path === `${BASE}/delais/valeurs`) body = { values: [{ pays: 'FR', mode: 'site' }], count: 1 }
+      else if (path === `${BASE}/delais/valeurs/verification`)
+        body = { ok: false, problems: [{ path: 'FR+site \u203a libelle', code: 'value_required', detail: '', index: 0, field: 'libelle' }] }
+      else if (path === `${BASE}/delais/historique`)
+        body = { commits: [{ sha: 'abcdef1234567890', author: 'Gael', date: '2026-11-24T08:00:00+00:00', message: 'référentiel : crée delais' }] }
+      else if (path === `${BASE}/delais`) body = { ...DETAIL, readonly: options.readonly ?? false }
+      else if (path === `${BASE}/tarifs`) body = { ...DETAIL, name: 'tarifs', title: 'Tarifs' }
+      return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
+    }),
+  )
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <MemoryRouter initialEntries={[url]}>
+        <Routes>
+          <Route path="/referentiels" element={<ReferentielsPage />} />
+          <Route path="/referentiels/:name" element={<ReferentielsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  )
+  return calls
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+  visualChange.current = (m) => m
+})
+
+describe('Référentiels — page et onglet Modèle (ticket 829a86a7)', () => {
+  it('liste, puis création avec libellé et slug', async () => {
+    const calls = setup('/referentiels')
+    expect(await screen.findByText('Délais')).toBeInTheDocument()
+    expect(screen.getByText('412 valeurs')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: '+ Nouveau référentiel' }))
+    const dialog = screen.getByRole('dialog')
+    await user.type(within(dialog).getByLabelText('Libellé'), 'Tarifs postaux')
+    expect(within(dialog).getByLabelText('Slug')).toHaveValue('tarifs-postaux')
+    await user.click(within(dialog).getByRole('button', { name: 'Créer' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === BASE)).toBe(true))
+    expect(JSON.parse(calls.find((c) => c.method === 'POST' && c.path === BASE)!.body!)).toEqual({
+      label: 'Tarifs postaux',
+      slug: 'tarifs-postaux',
+    })
+  })
+
+  it('bandeau de la clé, réordonnée, puis enregistrement', async () => {
+    const calls = setup('/referentiels/delais')
+    expect(await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })).toBeInTheDocument()
+    const bar = screen.getByRole('region', { name: 'Clé' })
+    expect(within(bar).getAllByText('CLÉ')).toHaveLength(2)
+    const user = userEvent.setup()
+    await user.click(within(bar).getByRole('button', { name: 'Descendre pays' }))
+    expect((screen.getByLabelText('YAML') as HTMLTextAreaElement).value).toMatch(/x-key:\n {2}- mode\n {2}- pays/)
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true))
+    const sent = JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)
+    expect(sent.model['x-key']).toEqual(['mode', 'pays'])
+  })
+
+  it('une propriété de la clé ne se supprime pas depuis l’éditeur visuel', async () => {
+    setup('/referentiels/delais')
+    await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })
+    visualChange.current = (m) => {
+      const properties = { ...(m.properties as Record<string, unknown>) }
+      delete properties.mode
+      return { ...m, properties }
+    }
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'visuel' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('« mode » est dans la clé')
+    // Le modèle n'a pas bougé : rien à enregistrer.
+    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
+  })
+
+  it('aperçu de l’effet sur les valeurs avant d’enregistrer', async () => {
+    const calls = setup('/referentiels/delais')
+    await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })
+    visualChange.current = (m) => {
+      const properties = { ...(m.properties as Record<string, unknown>) }
+      delete properties.libelle
+      return { ...m, properties, required: ['pays', 'mode'] }
+    }
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'visuel' }))
+    expect(await screen.findByText('Retirer « libelle » la retirerait de 37 valeur(s).')).toBeInTheDocument()
+    expect(calls.some((c) => c.path === `${BASE}/delais/modele/apercu`)).toBe(true)
+  })
+
+  it('YAML illisible : signalé, saisie gardée, enregistrement bloqué', async () => {
+    setup('/referentiels/delais')
+    await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })
+    const yaml = screen.getByLabelText('YAML') as HTMLTextAreaElement
+    const user = userEvent.setup()
+    await user.clear(yaml)
+    await user.type(yaml, 'type: object[[properties: [[')
+    expect(screen.getByText('illisible')).toBeInTheDocument()
+    expect(yaml.value).toBe('type: object[properties: [')
+    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
+  })
+
+  it('lecture seule : ni création ni enregistrement', async () => {
+    setup('/referentiels/delais', { readonly: true })
+    expect(await screen.findByText('lecture seule')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '+ Nouveau référentiel' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
+  })
+
+  it('sans le droit de modifier : consultation seule', async () => {
+    setup('/referentiels/delais', { capabilities: ['referentiels:read'] })
+    await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })
+    expect(screen.queryByRole('button', { name: '+ Nouveau référentiel' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Modifier la clé' })).not.toBeInTheDocument()
+  })
+
+  it('onglet Historique : les commits publiés', async () => {
+    setup('/referentiels/delais')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Historique' }))
+    expect(await screen.findByText('référentiel : crée delais')).toBeInTheDocument()
+    expect(screen.getByText('abcdef123456')).toBeInTheDocument()
+  })
+
+  it('onglet Valeurs : compteur d’erreurs sur l’onglet', async () => {
+    setup('/referentiels/delais')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: 'Valeurs' }))
+    expect(await screen.findByLabelText('1 erreur')).toHaveTextContent('1')
+    expect(await screen.findByText('erreur')).toBeInTheDocument()
+  })
+})
+

@@ -65,7 +65,12 @@ async def db_list_teams_for_connector(
 
 
 async def db_get_or_create_team_by_name(
-    conn: asyncpg.Connection, name: str, *, origin: str, source_connector_id: uuid.UUID | None
+    conn: asyncpg.Connection,
+    name: str,
+    *,
+    origin: str,
+    source_connector_id: uuid.UUID | None,
+    slug: str | None = None,
 ) -> uuid.UUID:
     """Trouve l'équipe par son **nom exact** (casse et espaces), ou la crée.
 
@@ -78,19 +83,21 @@ async def db_get_or_create_team_by_name(
         "ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name "
         "RETURNING id",
         name,
-        slugify(name),
+        slug or slugify(name),
         origin,
         source_connector_id,
     )
     return team_id
 
 
-async def db_create_team_manual(conn: asyncpg.Connection, name: str) -> Team:
+async def db_create_team_manual(
+    conn: asyncpg.Connection, name: str, slug: str | None = None
+) -> Team:
     """Crée une équipe à la main (origine « créée à la main »). Idempotent sur le
     nom exact : si le nom existe déjà (même venu de l'OIDC), on rend l'équipe
     existante — elle est dans le référentiel, c'est ce qu'on veut."""
     team_id = await db_get_or_create_team_by_name(
-        conn, name, origin="manual", source_connector_id=None
+        conn, name, origin="manual", source_connector_id=None, slug=slug
     )
     row = await conn.fetchrow("SELECT * FROM teams WHERE id = $1", team_id)
     assert row is not None
@@ -131,7 +138,11 @@ async def db_rename_team(conn: asyncpg.Connection, team_id: uuid.UUID, name: str
         raise TeamNotFoundError
     try:
         await conn.execute(
-            "UPDATE teams SET name = $2, slug = $3 WHERE id = $1", team_id, name, slugify(name)
+            # Le slug ne suit pas le renommage : il est fixé à la création (règle
+            # libellé → slug, « non modifiable ensuite »).
+            "UPDATE teams SET name = $2 WHERE id = $1",
+            team_id,
+            name,
         )
     except asyncpg.UniqueViolationError:
         raise TeamNameTakenError from None

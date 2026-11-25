@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from ossie_studio.parsers.conventions import schema_key
+
 # Ce sur quoi porte une règle. Les quatre premières écartent un **objet** entier ;
 # `field-name` écarte un **champ** d'un objet.
 TRI_TARGETS = ("object-name", "object-type", "field-name", "file-path", "sql-schema")
@@ -25,39 +27,39 @@ _RULE_KEYS = {"target", "pattern", "kind", "label"}
 class TriRule:
     target: str
     pattern: str
-    kind: str          # glob | regex
-    label: str = ""    # libellé libre (affichage), optionnel
+    kind: str  # glob | regex
+    label: str = ""  # libellé libre (affichage), optionnel
 
 
 def validate_tri_rules(raw: Any) -> list[str]:
-    """Liste des erreurs d'une section `tri` (vide = valide). Chaque erreur
+    """Liste des erreurs d'une section `triage` (vide = valide). Chaque erreur
     **nomme la règle** par son index, pour un refus lisible."""
     if raw is None:
         return []
     if not isinstance(raw, list):
-        return ["tri_invalid"]
+        return ["triage_invalid"]
     errors: list[str] = []
     for i, item in enumerate(raw):
         if not isinstance(item, dict):
-            errors.append(f"tri[{i}]:invalid")
+            errors.append(f"triage[{i}]:invalid")
             continue
         if set(item) - _RULE_KEYS:
-            errors.append(f"tri[{i}]:unknown_key")
+            errors.append(f"triage[{i}]:unknown_key")
         if item.get("target") not in TRI_TARGETS:
-            errors.append(f"tri[{i}]:target_invalid")
+            errors.append(f"triage[{i}]:target_invalid")
         pattern = item.get("pattern")
         if not isinstance(pattern, str) or not pattern.strip():
-            errors.append(f"tri[{i}]:pattern_required")
+            errors.append(f"triage[{i}]:pattern_required")
         kind = item.get("kind")
         if kind not in TRI_KINDS:
-            errors.append(f"tri[{i}]:kind_invalid")
+            errors.append(f"triage[{i}]:kind_invalid")
         elif kind == "regex" and isinstance(pattern, str):
             try:
                 re.compile(pattern)
             except re.error:
-                errors.append(f"tri[{i}]:pattern_invalid")
+                errors.append(f"triage[{i}]:pattern_invalid")
         if "label" in item and not isinstance(item["label"], str):
-            errors.append(f"tri[{i}]:label_invalid")
+            errors.append(f"triage[{i}]:label_invalid")
     return errors
 
 
@@ -100,7 +102,7 @@ def _matches(rule: TriRule, value: str) -> bool:
 
 
 def _strip_json(name: str) -> str:
-    return name[:-5] if name.endswith(".json") else name
+    return schema_key(name)
 
 
 def _source_files(schema: dict[str, Any]) -> list[str]:
@@ -122,7 +124,7 @@ def _source_files(schema: dict[str, Any]) -> list[str]:
 
 
 def _sql_schema_of(schema: dict[str, Any]) -> str:
-    """Nom de schéma SQL d'un objet, déduit du `$id` (`<schema>.<table>.json`)."""
+    """Nom de schéma SQL d'un objet, déduit du `$id` (`<schema>.<table>.schema.yaml`)."""
     sid = _strip_json(str(schema.get("$id") or ""))
     return sid.rsplit(".", 1)[0] if "." in sid else ""
 

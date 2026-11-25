@@ -2,10 +2,13 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../apiClient'
+import { api, sessionCapabilities } from '../apiClient'
 import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
 import { useWorkspace } from '../workspace'
+import { DraftBar } from './DraftBar'
+import { useReadingMode } from '../readingMode'
+import { useBranchHead } from '../useBranchHead'
 import { Brand } from './Brand'
 
 /** Un item du menu principal. `to` absent = module pas encore construit. */
@@ -16,12 +19,14 @@ interface NavItem {
   prefix: string
 }
 
-// Menu principal, calqué sur les maquettes. Sources et Curation n'ont pas
-// encore d'écran : ils restent visibles mais désactivés (honnête).
+// Menu principal, calqué sur les maquettes.
 const MAIN_NAV: NavItem[] = [
   { key: 'navSpaces', to: '/spaces', capability: 'spaces:read', prefix: '/spaces' },
+  // Juste après « Espaces » (Gael, epic « Référentiels »).
+  { key: 'navReferentiels', to: '/referentiels', capability: 'referentiels:read', prefix: '/referentiels' },
   { key: 'navSources', to: '/sources', capability: 'sources:read', prefix: '/sources' },
-  { key: 'navCuration', prefix: '/curation' },
+  { key: 'navCuration', to: '/curation', capability: 'curation:read', prefix: '/curation' },
+  { key: 'navDomains', to: '/domaines', capability: 'curation:read', prefix: '/domaines' },
   { key: 'navGovernance', to: '/governance/tags', capability: 'governance:read', prefix: '/governance' },
 ]
 
@@ -34,13 +39,16 @@ const SETTINGS_NAV: NavItem[] = [
   { key: 'navProfiles', to: '/profiles', capability: 'profiles:read', prefix: '/profiles' },
   { key: 'navTeams', to: '/teams', capability: 'users:read', prefix: '/teams' },
   { key: 'navUsers', to: '/users', capability: 'users:read', prefix: '/users' },
+  { key: 'navAgentProfiles', to: '/agent-profiles', capability: 'agent_profiles:read', prefix: '/agent-profiles' },
+  { key: 'navApiKeys', to: '/api-keys', capability: 'api_keys:read', prefix: '/api-keys' },
+  { key: 'navHistory', to: '/historique', capability: 'audit:read', prefix: '/historique' },
 ]
 
 export function Layout({ children }: { children: ReactNode }) {
   const session = useSession()
   const authenticated = session.data?.authenticated ?? false
   const user = session.data?.user
-  const caps = session.data?.capabilities ?? []
+  const caps = sessionCapabilities(session.data)
 
   if (!authenticated || !user) {
     return (
@@ -59,9 +67,38 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <AppNav userEmail={user.email} can={can} />
-      <div className="page">{children}</div>
+      <div className="page">
+        <BranchDraftBar />
+        {children}
+      </div>
     </div>
   )
+}
+
+// Pages sans rapport avec le contenu d'une branche : les Réglages (globaux) et
+// les pages personnelles. La barre du brouillon et de la publication n'y a pas
+// de sens ; elle n'y est pas affichée.
+const OUTSIDE_BRANCH_PREFIXES = [
+  ...SETTINGS_NAV.map((item) => item.prefix),
+  '/agent-connections',
+  '/oauth/consent',
+]
+
+export function showsBranchDraftBar(pathname: string): boolean {
+  return !OUTSIDE_BRANCH_PREFIXES.some((prefix) => pathname.startsWith(prefix))
+}
+
+function BranchDraftBar() {
+  const ws = useWorkspace()
+  const { pathname, search } = useLocation()
+  const shown = showsBranchDraftBar(pathname)
+  // Mode lecture de l'explorateur raw (4e287004) : la barre se replie, sauf
+  // quand elle a quelque chose d'urgent à dire (voir DraftBar).
+  const reading = useReadingMode() && pathname === '/sources' && new URLSearchParams(search).get('tab') === 'raw'
+  // Hors branche, inutile de suivre la tête de la branche non plus.
+  useBranchHead(shown ? ws.spaceId : null, shown ? ws.branchId : null)
+  if (!shown || !ws.spaceId || !ws.branchId) return null
+  return <DraftBar spaceId={ws.spaceId} branchId={ws.branchId} folded={reading} />
 }
 
 function WorkspaceChips() {
@@ -228,6 +265,9 @@ function AppNav({
             <div className="topnav-dropdown-menu" role="menu">
               <Link to="/" role="menuitem">
                 {t('home')}
+              </Link>
+              <Link to="/agent-connections" role="menuitem" onClick={() => setUserOpen(false)}>
+                {t('navAgentConnections')}
               </Link>
               <button
                 type="button"

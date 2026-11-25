@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from ossie_studio.parsers.base import (
     STATUT_ERREUR,
+    STATUT_IGNORE,
     STATUT_INCHANGE,
     FileRow,
     PluginContext,
@@ -12,6 +13,7 @@ from ossie_studio.parsers.markdown import (
     PARAM_MAX_KB,
     MarkdownPlugin,
     analyze_markdown,
+    parse_docs_index,
 )
 from ossie_studio.sources.collect_core import checksum
 
@@ -46,7 +48,7 @@ def _ctx(
         raw=FakeRaw(raw),
         params=params or {},
         force=force,
-        branche="principale",
+        branch="principale",
     )
 
 
@@ -68,21 +70,21 @@ def test_analyse_titre_sections_mentions_ressources() -> None:
         "[interne](./autre.md)\n"
     )
     doc = analyze_markdown("docs/README.md", text, "crc1")
-    assert doc.titre == "API boutique"
+    assert doc.title == "API boutique"
     assert doc.sections == ["Commandes"]
     # Mentions : code inline identifiant + PascalCase dans le bloc de code.
     assert "Commande" in doc.mentions
     assert "Ligne" in doc.mentions
     assert "Remise" in doc.mentions
     # Ressources : relatives seulement (pas l'URL http).
-    assert "images/flux.png" in doc.ressources
-    assert "./autre.md" in doc.ressources
-    assert "https://example.org/spec" not in doc.ressources
+    assert "images/flux.png" in doc.resources
+    assert "./autre.md" in doc.resources
+    assert "https://example.org/spec" not in doc.resources
 
 
 def test_titre_tombe_sur_le_nom_de_fichier() -> None:
     doc = analyze_markdown("docs/guide.md", "pas de titre de niveau 1\n", "c")
-    assert doc.titre == "guide.md"
+    assert doc.title == "guide.md"
 
 
 # --- Exécution du plugin -----------------------------------------------------
@@ -134,9 +136,29 @@ def test_trop_gros_signale_non_copie() -> None:
     assert result.statuses["gros.md"] == STATUT_ERREUR
 
 
-def test_vide_signale() -> None:
+def test_vide_ignore_sans_erreur() -> None:
     result = MarkdownPlugin().run(_ctx({"vide.md": b"   \n"}))
-    assert any(e.source == "vide.md" and e.cause == "empty" for e in result.errors)
+    assert result.errors == []
+    assert result.statuses["vide.md"] == STATUT_IGNORE
+    assert "docs/vide.md" not in _writes(result)
+
+
+def test_document_vide_apres_coup_retire_sa_copie() -> None:
+    plugin = MarkdownPlugin()
+    index = _writes(plugin.run(_ctx({"notes.md": b"# Notes\n"})))[DOCS_INDEX]
+    result = plugin.run(_ctx({"notes.md": b"\n"}, raw={DOCS_INDEX: index}))
+    assert result.errors == []
+    assert "docs/notes.md" in result.deletes and result.deleted == 1
+    assert "notes.md" not in _writes(result)[DOCS_INDEX]
+
+
+def test_trop_gros_et_illisible_disent_pourquoi() -> None:
+    result = MarkdownPlugin().run(
+        _ctx({"gros.md": b"# T\n" + b"x" * 5000, "bin.md": b"# ok\xff"}, params={PARAM_MAX_KB: "1"})
+    )
+    details = {e.source: e.detail for e in result.errors}
+    assert details["gros.md"] == "5 KB > 1 KB (taille_max_ko)"
+    assert details["bin.md"] == "byte 0xff at offset 4 (not UTF-8)"
 
 
 def test_illisible_signale() -> None:
@@ -151,3 +173,18 @@ def test_force_recopie_malgre_crc_identique() -> None:
     forced = plugin.run(_ctx(files, raw={DOCS_INDEX: index}, force=True))
     assert "docs/README.md" in _writes(forced)
     assert forced.unchanged == 0
+
+
+def test_index_ecrit_en_anglais_et_version_1_relue() -> None:
+    files = {"README.md": b"# T\n\n![x](img.png)\n"}
+    index = _writes(MarkdownPlugin().run(_ctx(files)))[DOCS_INDEX]
+    assert index.startswith("version: 2\n")
+    assert "title: T" in index and "resources:" in index
+    assert "titre:" not in index and "ressources:" not in index
+    # Un index écrit avant le passage aux clés anglaises reste lisible.
+    legacy = (
+        "version: 1\ndocuments:\n- path: README.md\n  crc: c\n  titre: Ancien\n"
+        "  sections: []\n  mentions: []\n  ressources: [img.png]\n"
+    )
+    doc = parse_docs_index(legacy)["README.md"]
+    assert (doc.title, doc.resources) == ("Ancien", ["img.png"])

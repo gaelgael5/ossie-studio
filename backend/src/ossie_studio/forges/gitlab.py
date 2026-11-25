@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 import httpx
 
-from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo
+from ossie_studio.forges.base import ForgeError, ForgeFormSpec, ForgeIdentity, ForgeRepo, WriteCheck
 
 _PER_PAGE = 100
 
@@ -18,13 +18,21 @@ def _headers(token: str) -> dict[str, str]:
     return {"PRIVATE-TOKEN": token}
 
 
+# Niveau d'accès GitLab à partir duquel on peut pousser (Developer).
+_DEVELOPER_ACCESS = 30
+
+
 class GitLabStrategy:
     async def verify(self, client: httpx.AsyncClient, url: str, token: str) -> ForgeIdentity:
         try:
             response = await client.get(f"{_api(url)}/user", headers=_headers(token))
         except httpx.HTTPError as exc:
             raise ForgeError("connection_url_unreachable") from exc
-        if response.status_code in (401, 403):
+        if response.status_code == 403:
+            # Jeton reconnu mais portée insuffisante (GitLab : « insufficient_scope ») :
+            # à distinguer d'un jeton expiré, sinon on cherche au mauvais endroit.
+            raise ForgeError("connection_token_scope_insufficient")
+        if response.status_code == 401:
             raise ForgeError("connection_token_invalid")
         if response.status_code >= 400:
             raise ForgeError("connection_url_unreachable")
@@ -71,6 +79,42 @@ class GitLabStrategy:
                 return names
             page += 1
 
+    async def default_branch(
+        self, client: httpx.AsyncClient, url: str, token: str, repo: str
+    ) -> str | None:
+        # Simple confort d'affichage (présélection) : toute erreur → None.
+        try:
+            response = await client.get(
+                f"{_api(url)}/projects/{quote(repo, safe='')}", headers=_headers(token)
+            )
+        except httpx.HTTPError:
+            return None
+        if response.status_code >= 400:
+            return None
+        value = response.json().get("default_branch")
+        return str(value).removeprefix("refs/heads/") if value else None
+
+    async def verify_write(
+        self, client: httpx.AsyncClient, url: str, repo: str, token: str
+    ) -> WriteCheck:
+        identity = await self.verify(client, url, token)
+        try:
+            response = await client.get(
+                f"{_api(url)}/projects/{quote(repo, safe='')}", headers=_headers(token)
+            )
+        except httpx.HTTPError as exc:
+            raise ForgeError("connection_url_unreachable") from exc
+        if response.status_code == 404:
+            return WriteCheck(login=identity.username, can_write=False)
+        if response.status_code >= 400:
+            raise ForgeError("connection_url_unreachable")
+        permissions = response.json().get("permissions") or {}
+        levels = [
+            (permissions.get(key) or {}).get("access_level") or 0
+            for key in ("project_access", "group_access")
+        ]
+        return WriteCheck(login=identity.username, can_write=max(levels) >= _DEVELOPER_ACCESS)
+
     def git_username(self) -> str:
         return "oauth2"
 
@@ -78,6 +122,4 @@ class GitLabStrategy:
         return f"{base_url.rstrip('/')}/{repo}.git"
 
     def form_spec(self) -> ForgeFormSpec:
-        return ForgeFormSpec(
-            forge="gitlab", default_url="https://gitlab.com", url_required=False
-        )
+        return ForgeFormSpec(forge="gitlab", default_url="https://gitlab.com", url_required=False)

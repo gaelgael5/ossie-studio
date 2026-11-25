@@ -20,5 +20,9 @@ RUN uv sync --frozen --no-dev
 
 USER app
 EXPOSE 8000
-CMD ["uv", "run", "--no-dev", "uvicorn", "ossie_studio.app:create_app", \
+# uvicorn lancé directement depuis le venv figé au build, et non par `uv run` :
+# `uv run` re-synchronise le projet au démarrage et réécrit le .venv (propriété
+# de root), ce qui échoue en utilisateur non privilégié (Permission denied).
+ENV PATH="/app/.venv/bin:${PATH}"
+CMD ["uvicorn", "ossie_studio.app:create_app", \
      "--factory", "--host", "0.0.0.0", "--port", "8000"]

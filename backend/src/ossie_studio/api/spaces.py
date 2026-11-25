@@ -8,7 +8,8 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
-from ossie_studio.api.common import SpacesCreate, SpacesRead
+from ossie_studio.api.common import CurrentUser, SpacesCreate, SpacesRead
+from ossie_studio.authz.catalog import SPACE_SCOPED
 from ossie_studio.connections.service import db_get_connection, resolve_connection_token
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import (
@@ -22,18 +23,21 @@ from ossie_studio.deps import (
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.registry import get_strategy
 from ossie_studio.models import GitSpace
+from ossie_studio.profiles.service import load_capabilities
+from ossie_studio.slugs import free_slug, is_valid_slug, slugify
 from ossie_studio.spaces.branch_service import db_get_viewed_branch, db_list_branches
-from ossie_studio.spaces.forms import validate_space
+from ossie_studio.spaces.forms import normalize_repo_url, validate_space
 from ossie_studio.spaces.git_probe import ProbeResult
 from ossie_studio.spaces.railmap import RailMap
 from ossie_studio.spaces.service import (
     SpaceNameTakenError,
     SpaceRepoTakenError,
+    SpaceSlugTakenError,
     db_create_space,
     db_delete_space,
     db_get_space,
-    db_list_spaces,
     db_update_space_probe,
+    list_visible_spaces,
 )
 from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
 
@@ -51,6 +55,9 @@ _RAILMAP_MAX = 5000
 class SpaceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = ""
+    # Optionnel : l'écran le déduit du nom et le laisse corriger ; absent, le
+    # serveur le déduit lui-même.
+    slug: str = ""
     connection_id: str = ""
     repo_url: str = ""
 
@@ -59,6 +66,7 @@ def _payload(space: GitSpace) -> dict[str, object]:
     return {
         "id": str(space.id),
         "name": space.name,
+        "slug": space.slug,
         "connection_id": str(space.connection_id),
         "repo_url": space.repo_url,
         "last_probe_status": space.last_probe_status,
@@ -94,9 +102,23 @@ async def _run_probe(
 
 
 @router.get("")
-async def list_spaces(conn: ConnDep, _: SpacesRead) -> dict[str, object]:
-    spaces = await db_list_spaces(conn)
+async def list_spaces(conn: ConnDep, user: CurrentUser) -> dict[str, object]:
+    # `spaces:read` du profil de base → tous les espaces ; sinon, seulement ceux
+    # où une équipe de la personne est rattachée avec ce droit (droits par espace).
+    spaces = await list_visible_spaces(conn, user)
     return {"spaces": [_payload(s) for s in spaces]}
+
+
+@router.get("/{space_id}/me")
+async def my_space_capabilities(
+    conn: ConnDep, user: CurrentUser, space_id: uuid.UUID
+) -> dict[str, object]:
+    """Capacités de la personne sur cet espace (profil de base + équipes
+    rattachées) : l'écran de l'espace s'en sert pour montrer ses gestes."""
+    if await db_get_space(conn, space_id) is None:
+        raise ApiError("space_not_found", status_code=404)
+    caps = await load_capabilities(conn, user, space_id)
+    return {"capabilities": sorted(caps & SPACE_SCOPED)}
 
 
 @router.post("", status_code=201)
@@ -104,10 +126,21 @@ async def create_space(
     conn: ConnDep, crypto: CryptoDep, _: SpacesCreate, git_probe: GitProbeDep, body: SpaceCreate
 ) -> dict[str, object]:
     errors = validate_space(body.name, body.connection_id, body.repo_url)
+    slug = body.slug.strip()
+    if slug and not is_valid_slug(slug):
+        errors.append("space_slug_invalid")
     if errors:
         raise ApiError("invalid_request", status_code=400, fields=errors)
+    # Nom puis slug déjà pris : refusés AVANT l'épreuve des droits (pas
+    # d'écriture inutile sur la forge).
+    if await conn.fetchval("SELECT 1 FROM git_spaces WHERE name = $1", body.name.strip()):
+        raise ApiError("space_name_taken", status_code=409)
+    if not slug:
+        slug = await free_slug(conn, "git_spaces", slugify(body.name, fallback="espace"))
+    elif await conn.fetchval("SELECT 1 FROM git_spaces WHERE slug = $1", slug):
+        raise ApiError("space_slug_taken", status_code=409, slug=slug)
     connection_id = uuid.UUID(body.connection_id)
-    repo_url = body.repo_url.strip().rstrip("/")
+    repo_url = normalize_repo_url(body.repo_url)
 
     result = await _run_probe(conn, crypto, git_probe, connection_id, repo_url)
     if not result.ok:
@@ -128,7 +161,10 @@ async def create_space(
             connection_id=connection_id,
             repo_url=repo_url,
             probe_status="valid",
+            slug=slug,
         )
+    except SpaceSlugTakenError:
+        raise ApiError("space_slug_taken", status_code=409, slug=slug) from None
     except SpaceNameTakenError:
         raise ApiError("space_name_taken", status_code=409) from None
     except SpaceRepoTakenError as exc:
@@ -224,11 +260,11 @@ async def get_railmap(
 ) -> dict[str, object]:
     space, username, token = await space_credentials(conn, crypto, space_id)
     branch_rows = await db_list_branches(conn, space_id)
-    branches = [(b.slug, b.kind) for b in branch_rows]
+    branches = [(b.git_ref, b.slug, b.kind) for b in branch_rows]
     user = await get_current_user(request, conn)
     assert user is not None
     viewed_id = await db_get_viewed_branch(conn, user.id, space_id)
-    viewed_slug = next((b.slug for b in branch_rows if b.id == viewed_id), None)
+    viewed_slug = next((b.git_ref for b in branch_rows if b.id == viewed_id), None)
     window = max(1, min(limit, _RAILMAP_MAX))
     start = max(0, offset)
     try:

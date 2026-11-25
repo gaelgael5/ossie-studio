@@ -78,3 +78,20 @@ async def test_email_non_verifie_refuse_aucun_compte(app: FastAPI) -> None:
     assert decision.outcome is LinkOutcome.REFUSED_UNVERIFIED  # type: ignore[attr-defined]
     count = await db_fetchval(app, "SELECT count(*) FROM users")
     assert count == 0
+
+
+async def test_nom_affiche_suit_l_annuaire_a_chaque_connexion(app: FastAPI) -> None:
+    # Le nom affiché signe les commits publiés : il suit le claim `name`.
+    first = VerifiedClaims(
+        subject="s-nom", email="nom@example.org", email_verified=True, name="Ancien Nom"
+    )
+    decision = await _resolve(app, first)
+    renamed = VerifiedClaims(
+        subject="s-nom", email="nom@example.org", email_verified=True, name="Nouveau Nom"
+    )
+    await _resolve(app, renamed)
+    unnamed = VerifiedClaims(subject="s-nom", email="nom@example.org", email_verified=True)
+    await _resolve(app, unnamed)  # un claim absent n'efface pas le nom
+    async with app.state.pool.acquire() as conn:
+        name = await conn.fetchval("SELECT display_name FROM users WHERE id = $1", decision.user_id)
+    assert name == "Nouveau Nom"

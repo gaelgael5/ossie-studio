@@ -7,9 +7,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.common import ProfilesWrite, UsersRead, UsersWrite
+from ossie_studio.audit.service import CREATED, DELETED, UPDATED, audited
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.profiles.service import db_get_profile
+from ossie_studio.slugs import is_valid_slug
 from ossie_studio.teams.service import (
     TeamNameTakenError,
     TeamNotFoundError,
@@ -28,6 +30,8 @@ router = APIRouter(prefix="/api/teams")
 class TeamCreateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = ""
+    # Optionnel : déduit du nom par l'écran (règle libellé → slug), modifiable.
+    slug: str = ""
 
 
 class TeamRenameBody(BaseModel):
@@ -46,24 +50,34 @@ async def list_teams(conn: ConnDep, _: UsersRead) -> dict[str, object]:
 
 
 @router.post("", status_code=201)
-async def create_team(conn: ConnDep, _: UsersWrite, body: TeamCreateBody) -> dict[str, object]:
+async def create_team(conn: ConnDep, user: UsersWrite, body: TeamCreateBody) -> dict[str, object]:
     name = body.name.strip()
     if not name:
         raise ApiError("invalid_request", status_code=400, fields=["team_name_required"])
-    team = await db_create_team_manual(conn, name)
+    slug = body.slug.strip()
+    if slug and not is_valid_slug(slug):
+        raise ApiError("invalid_request", status_code=400, fields=["team_slug_invalid"])
+    if slug and await conn.fetchval(
+        "SELECT 1 FROM teams WHERE slug = $1 AND name <> $2", slug, name
+    ):
+        raise ApiError("team_slug_taken", status_code=409, slug=slug)
+    async with audited(conn, user, CREATED, "team") as entry:
+        team = await db_create_team_manual(conn, name, slug or None)
+        entry.target(team.id, team.name)
     log.info("team_created_manually", team_id=str(team.id), name=team.name)
-    return {"id": str(team.id), "name": team.name, "origin": team.origin}
+    return {"id": str(team.id), "name": team.name, "slug": team.slug, "origin": team.origin}
 
 
 @router.put("/{team_id}")
 async def rename_team(
-    conn: ConnDep, _: UsersWrite, team_id: uuid.UUID, body: TeamRenameBody
+    conn: ConnDep, user: UsersWrite, team_id: uuid.UUID, body: TeamRenameBody
 ) -> dict[str, bool]:
     name = body.name.strip()
     if not name:
         raise ApiError("invalid_request", status_code=400, fields=["team_name_required"])
     try:
-        await db_rename_team(conn, team_id, name)
+        async with audited(conn, user, UPDATED, "team", team_id, name, {"change": "renamed"}):
+            await db_rename_team(conn, team_id, name)
     except TeamNotFoundError:
         raise ApiError("team_not_found", status_code=404) from None
     except TeamNameTakenError:
@@ -72,8 +86,12 @@ async def rename_team(
 
 
 @router.delete("/{team_id}")
-async def delete_team(conn: ConnDep, _: UsersWrite, team_id: uuid.UUID) -> dict[str, bool]:
-    if not await db_delete_team(conn, team_id):
+async def delete_team(conn: ConnDep, user: UsersWrite, team_id: uuid.UUID) -> dict[str, bool]:
+    name = await conn.fetchval("SELECT name FROM teams WHERE id = $1", team_id)
+    async with audited(conn, user, DELETED, "team", team_id, name or "") as entry:
+        deleted = await db_delete_team(conn, team_id)
+        entry.skip = not deleted
+    if not deleted:
         raise ApiError("team_not_found", status_code=404)
     log.info("team_deleted", team_id=str(team_id))
     return {"ok": True}
@@ -95,11 +113,16 @@ async def set_team_profile(
         if await db_get_profile(conn, profile_id) is None:
             raise ApiError("profile_not_found", status_code=404)
     try:
-        await db_set_team_profile(conn, team_id, profile_id)
+        async with audited(
+            conn, user, UPDATED, "team", team_id, detail={"profile": str(profile_id or "")}
+        ):
+            await db_set_team_profile(conn, team_id, profile_id)
     except TeamNotFoundError:
         raise ApiError("team_not_found", status_code=404) from None
     log.info(
-        "team_profile_set", team_id=str(team_id),
-        profile=str(profile_id) if profile_id else None, author=user.email,
+        "team_profile_set",
+        team_id=str(team_id),
+        profile=str(profile_id) if profile_id else None,
+        author=user.email,
     )
     return {"ok": True}

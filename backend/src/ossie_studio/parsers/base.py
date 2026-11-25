@@ -40,15 +40,28 @@ class ParsedObject:
     key: str
     sources: list[str]
     schema: str
+    # Ses fonctions (`<clé>.extend.yaml` : méthodes, points d'entrée), texte
+    # déterministe ; None s'il n'en a pas (cartographie applicative).
+    extend: str | None = None
+
+
+def decode_error_detail(exc: UnicodeDecodeError) -> str:
+    """Où le décodage UTF-8 a échoué, pour retrouver l'octet fautif."""
+    bad = exc.object[exc.start : exc.start + 1]
+    byte = f"0x{bad[0]:02x}" if bad else "?"
+    return f"byte {byte} at offset {exc.start} (not UTF-8)"
 
 
 class ParserError(Exception):
     """Échec de lecture d'un fichier original, porté par un code stable
-    (unreadable, syntax). La collecte le signale et continue les autres."""
+    (unreadable, syntax). La collecte le signale et continue les autres.
+    `detail` : précision technique affichée telle quelle (ligne, position, clé
+    fautive…), pour que l'utilisateur sache quoi corriger dans son fichier."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, detail: str = "") -> None:
         super().__init__(code)
         self.code = code
+        self.detail = detail
 
 
 @dataclass(frozen=True)
@@ -83,10 +96,12 @@ class OutputAction:
 
 @dataclass(frozen=True)
 class PluginError:
-    """Un fichier source que le plugin n'a pas pu traiter."""
+    """Un fichier source que le plugin n'a pas pu traiter. `cause` est un code
+    stable (traduit par l'interface) ; `detail`, la précision technique."""
 
     source: str
     cause: str
+    detail: str = ""
 
 
 @dataclass
@@ -147,7 +162,7 @@ class PluginContext:
     raw: RawAccess
     params: dict[str, str]
     force: bool
-    branche: str
+    branch: str
 
 
 class Parser(Protocol):
@@ -166,6 +181,20 @@ class Parser(Protocol):
         """Transforme les fichiers (chemin → contenu) en objets. Lève ParserError
         pour un fichier illisible."""
         ...
+
+
+def claims(parser: Parser, path: str, content: bytes) -> bool:
+    """Le parseur prend-il ce fichier, **d'après son contenu** ? Un parseur peut
+    exposer une méthode facultative `claims(path, content) -> bool`, consultée
+    après `handles` (l'extension). Sans elle, `handles` suffit : le comportement
+    des parseurs existants ne change pas.
+
+    Ticket 56be38c6 : un contrat OpenAPI ne se reconnaît pas à son extension
+    (`.yaml`, `.json` sont partout dans un dépôt) mais à la clé `openapi` de sa
+    racine. La méthode reste facultative plutôt qu'ajoutée au Protocol pour ne
+    pas imposer un « toujours vrai » à chaque parseur de code."""
+    method = getattr(parser, "claims", None)
+    return True if method is None else bool(method(path, content))
 
 
 class Plugin(Protocol):

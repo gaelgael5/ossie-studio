@@ -13,8 +13,8 @@ from ossie_studio.governance.classifications import (
     validate_level,
     validate_scheme,
 )
+from ossie_studio.governance.repo import Level, Scheme, Tag
 from ossie_studio.governance.tags import normalize_tag_id, validate_tag_fields
-from ossie_studio.models import ClassificationLevel, ClassificationScheme, GovernedTag
 
 
 class TagImportError(Exception):
@@ -34,7 +34,7 @@ class ParsedTag:
     properties: dict[str, object] = field(default_factory=dict)
 
 
-def _tag_to_doc(tag: GovernedTag) -> dict[str, Any]:
+def _tag_to_doc(tag: Tag) -> dict[str, Any]:
     doc: dict[str, Any] = {
         "id": tag.id,
         "info": {"owner": tag.owner, "description": tag.description},
@@ -46,7 +46,7 @@ def _tag_to_doc(tag: GovernedTag) -> dict[str, Any]:
     return doc
 
 
-def export_tags_yaml(tags: list[GovernedTag]) -> str:
+def export_tags_yaml(tags: list[Tag]) -> str:
     docs = [_tag_to_doc(t) for t in tags]
     return yaml.safe_dump(docs, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
@@ -113,7 +113,7 @@ class ParsedScheme:
     levels: list[ParsedLevel] = field(default_factory=list)
 
 
-def export_scheme_yaml(scheme: ClassificationScheme, levels: list[ClassificationLevel]) -> str:
+def export_scheme_yaml(scheme: Scheme, levels: list[Level]) -> str:
     doc: dict[str, Any] = {
         "id": scheme.id,
         "name": scheme.name,

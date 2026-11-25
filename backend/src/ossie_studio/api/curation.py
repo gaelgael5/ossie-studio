@@ -16,8 +16,11 @@ from ossie_studio.api.common import (
     CurationWrite,
 )
 from ossie_studio.crypto import CryptoService
-from ossie_studio.deps import ConnDep, get_crypto, get_workdir_manager
+from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
+from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
+from ossie_studio.models import GitSpace, User
+from ossie_studio.sources import curation_actions
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
     AssetNotRetainedError,
@@ -28,29 +31,22 @@ from ossie_studio.sources.curation import (
     EnrichView,
     ReviewDecisions,
     ReviewObject,
-    apply_review_fn,
     build_review,
-    enrich_asset_fn,
     get_object_detail,
     is_schema_file,
     list_curation,
-    parse_schema_texts,
+    published_raw,
     read_enrichment,
-    read_review_point,
     read_source_trees,
     read_tri_rules,
     read_tri_rules_raw,
-    refresh_assets_fn,
-    refresh_targets,
-    remove_asset_fn,
-    retain_asset_fn,
-    set_tri_rules_fn,
 )
+from ossie_studio.sources.curation_actions import CurationTarget
 from ossie_studio.sources.manifest import ManifestError
 from ossie_studio.sources.paths import is_valid_source_slug, source_rel_dir
-from ossie_studio.sources.tri import TRI_KINDS, TRI_TARGETS, validate_tri_rules
+from ossie_studio.sources.tri import TRI_KINDS, TRI_TARGETS
 from ossie_studio.spaces.branch_service import db_get_branch
-from ossie_studio.spaces.workdir import WorkdirError, WorkdirManager
+from ossie_studio.spaces.workdir import WorkdirError
 
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
 
@@ -59,13 +55,20 @@ log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/sources/{slug}/curation")
 
 CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
-WorkdirDep = Annotated[WorkdirManager, Depends(get_workdir_manager)]
+# Copie vue par la personne connectée : lectures avec son brouillon, écritures
+# dans son brouillon (jamais de commit).
+WorkdirDep = Annotated[DraftWorkdir, Depends(get_draft_workdir)]
 
 
 class RetainBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     path: str = ""
     fields: list[str] | None = None  # None = objet entier
+
+
+class RetainManyBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    paths: list[str] = []  # objets à retenir en entier ; les déjà retenus sont laissés
 
 
 class RemoveBody(BaseModel):
@@ -100,11 +103,11 @@ class ReviewFieldRef(BaseModel):
 class ReviewApplyBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     head_sha: str
-    apply_fields: list[ReviewFieldRef] = []    # champs retenus changés à rafraîchir
-    take_fields: list[ReviewFieldRef] = []     # champs apparus à reprendre
-    remove_fields: list[ReviewFieldRef] = []   # champs disparus à retirer
-    remove_objects: list[str] = []             # objets disparus : retirer l'asset
-    retain_objects: list[str] = []             # objets nouveaux : retenir en entier
+    apply_fields: list[ReviewFieldRef] = []  # champs retenus changés à rafraîchir
+    take_fields: list[ReviewFieldRef] = []  # champs apparus à reprendre
+    remove_fields: list[ReviewFieldRef] = []  # champs disparus à retirer
+    remove_objects: list[str] = []  # objets disparus : retirer l'asset
+    retain_objects: list[str] = []  # objets nouveaux : retenir en entier
 
 
 class EnrichValues(BaseModel):
@@ -120,6 +123,18 @@ class EnrichBody(BaseModel):
     path: str = ""
     obj: EnrichValues | None = None
     fields: dict[str, EnrichValues] = {}
+
+
+class ClassifyBody(BaseModel):
+    """Déclarations de classification (ticket 5e8680d7) : par schéma, la liste
+    des niveaux déclarés ; une liste vide retire la déclaration (« — dérivée — »
+    pour l'asset, « + classer » pour un champ). Seuls les schémas envoyés
+    changent."""
+
+    model_config = ConfigDict(extra="forbid")
+    path: str = ""
+    obj: dict[str, list[str]] | None = None
+    fields: dict[str, dict[str, list[str]]] = {}
 
 
 def _object_payload(obj: CurationObject) -> dict[str, object]:
@@ -148,7 +163,7 @@ async def _branch_slug(conn: ConnDep, space_id: uuid.UUID, branch_id: uuid.UUID)
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
-    return branch.slug
+    return branch.git_ref
 
 
 @router.get("")
@@ -168,7 +183,11 @@ async def list_source_curation(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         objects = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             lambda wc: list_curation(wc, slug, read_tri_rules(wc, slug), show_excluded),
         )
     except WorkdirError as exc:
@@ -182,8 +201,11 @@ def _detail_payload(detail: CurationDetail) -> dict[str, object]:
         "title": detail.title,
         "fields": [
             {
-                "name": f.name, "type": f.type, "retained": f.retained,
-                "ref": f.ref, "missing": f.missing,
+                "name": f.name,
+                "type": f.type,
+                "retained": f.retained,
+                "ref": f.ref,
+                "missing": f.missing,
             }
             for f in detail.fields
         ],
@@ -206,7 +228,11 @@ async def get_source_curation_object(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         detail = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             lambda wc: get_object_detail(wc, slug, path, read_tri_rules(wc, slug)),
         )
     except WorkdirError as exc:
@@ -252,7 +278,11 @@ async def get_source_enrichment(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         view = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             lambda wc: read_enrichment(wc, slug, path),
         )
     except WorkdirError as exc:
@@ -260,6 +290,17 @@ async def get_source_enrichment(
     if view is None:
         raise ApiError("asset_not_retained", status_code=404, path=path)
     return _enrich_payload(view)
+
+
+def _target(
+    workdir: DraftWorkdir,
+    space: GitSpace,
+    branch_slug: str,
+    username: str,
+    token: str | None,
+    user: User,
+) -> CurationTarget:
+    return CurationTarget(workdir, space, branch_slug, username, token, user.email)
 
 
 @router.put("/enrich")
@@ -276,21 +317,63 @@ async def enrich_source_asset(
     _check(slug, body.path)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    object_values = body.obj.model_dump() if body.obj is not None else None
-    field_values = {name: values.model_dump() for name, values in body.fields.items()}
-    message = f"curation {slug} : enrichir {body.path}"
+    # Seules les clés envoyées changent : la fenêtre de rédaction de la page
+    # Curation n'envoie que la description, sans effacer nom métier ni tags.
+    object_values = body.obj.model_dump(exclude_unset=True) if body.obj is not None else None
+    field_values = {
+        name: values.model_dump(exclude_unset=True) for name, values in body.fields.items()
+    }
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, message,
-            enrich_asset_fn(slug, body.path, object_values, field_values),
+        result = await curation_actions.enrich(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug,
+            body.path,
+            object_values,
+            field_values,
         )
     except AssetNotRetainedError as exc:
         raise ApiError("asset_not_retained", status_code=404, path=exc.path) from None
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     log.info("curation_enrich", author=user.email, slug=slug, path=body.path)
-    return {"ok": True, "commit": commit}
+    return {"ok": True, "commit": result.revision}
+
+
+@router.put("/classify")
+async def classify_source_asset(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: ClassifyBody,
+) -> dict[str, object]:
+    """Classer l'asset et ses champs : écrit dans son `.extend.yaml` (clé
+    `classification`), un commit dans le brouillon. Capacité « Curation :
+    modifier », comme l'enrichissement."""
+    _check(slug, body.path)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        result = await curation_actions.classify(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug,
+            body.path,
+            body.obj,
+            body.fields,
+        )
+    except AssetNotRetainedError as exc:
+        raise ApiError("asset_not_retained", status_code=404, path=exc.path) from None
+    except curation_actions.ClassificationRefusedError as exc:
+        raise ApiError(
+            f"classification_{exc.reason}", status_code=400, scheme=exc.scheme, field=exc.field
+        ) from None
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    log.info("curation_classify", author=user.email, slug=slug, path=body.path)
+    return {"ok": True, "commit": result.revision}
 
 
 @router.post("/retain")
@@ -307,22 +390,56 @@ async def retain_source_asset(
     _check(slug, body.path)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    message = f"curation {slug} : retenir {body.path}"
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, message,
-            retain_asset_fn(slug, body.path, body.fields),
+        result = await curation_actions.retain(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug,
+            body.path,
+            body.fields,
         )
     except AssetOriginMissingError as exc:
         raise ApiError("asset_origin_missing", status_code=404, path=exc.path) from None
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     log.info(
-        "curation_retain", author=user.email, slug=slug, path=body.path,
+        "curation_retain",
+        author=user.email,
+        slug=slug,
+        path=body.path,
         fields=("all" if body.fields is None else len(body.fields)),
     )
-    return {"ok": True, "commit": commit}
+    return {"ok": True, "commit": result.revision}
+
+
+@router.post("/retain-many")
+async def retain_source_assets(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: RetainManyBody,
+) -> dict[str, object]:
+    """Retenir plusieurs objets d'une source en un commit (« créer un asset avec
+    ses enfants » depuis l'explorateur raw)."""
+    if not body.paths:
+        raise ApiError("curation_path_invalid", status_code=400)
+    for path in body.paths:
+        _check(slug, path)
+    branch_slug = await _branch_slug(conn, space_id, branch_id)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    try:
+        result = await curation_actions.retain_many(
+            _target(workdir, space, branch_slug, username, token, user), slug, body.paths
+        )
+    except AssetOriginMissingError as exc:
+        raise ApiError("asset_origin_missing", status_code=404, path=exc.path) from None
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    log.info("curation_retain_many", author=user.email, slug=slug, paths=len(body.paths))
+    return {"ok": True, "commit": result.revision, "retained": result.paths}
 
 
 @router.post("/remove")
@@ -339,17 +456,14 @@ async def remove_source_asset(
     _check(slug, body.path)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    message = f"curation {slug} : retirer {body.path}"
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, message,
-            remove_asset_fn(slug, body.path),
+        result = await curation_actions.remove(
+            _target(workdir, space, branch_slug, username, token, user), slug, body.path
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
     log.info("curation_remove", author=user.email, slug=slug, path=body.path)
-    return {"ok": True, "commit": commit}
+    return {"ok": True, "commit": result.revision}
 
 
 @router.post("/refresh")
@@ -370,24 +484,15 @@ async def refresh_source_assets(
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
-        # On calcule d'abord les assets qui changeraient : le message les liste et
-        # on évite un commit à vide (asset déjà à jour).
-        changed = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            lambda wc: refresh_targets(wc, slug, body.paths),
-        )
-        if not changed:
-            return {"ok": True, "commit": None, "refreshed": []}
-        message = f"curation {slug} : rafraîchir {len(changed)} asset(s) : {', '.join(changed)}"
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, message,
-            refresh_assets_fn(slug, changed),
+        result = await curation_actions.refresh(
+            _target(workdir, space, branch_slug, username, token, user), slug, body.paths
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
-    log.info("curation_refresh", author=user.email, slug=slug, count=len(changed))
-    return {"ok": True, "commit": commit, "refreshed": changed}
+    refreshed = [p.rsplit("/", 1)[-1] for p in result.paths]
+    if refreshed:
+        log.info("curation_refresh", author=user.email, slug=slug, count=len(refreshed))
+    return {"ok": True, "commit": result.revision, "refreshed": refreshed}
 
 
 # --- Règles de tri (écarter le bruit), réservées à l'administrateur -----------
@@ -409,7 +514,11 @@ async def get_source_rules(
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         rules = await workdir.read_branch(
-            space.id, branch_slug, space.repo_url, username, token,
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             lambda wc: read_tri_rules_raw(wc, slug),
         )
     except WorkdirError as exc:
@@ -430,32 +539,24 @@ async def set_source_rules(
 ) -> dict[str, object]:
     if not is_valid_source_slug(slug):
         raise ApiError("curation_path_invalid", status_code=400)
-    cleaned: list[dict[str, object]] = []
-    for rule in body.rules:
-        item: dict[str, object] = {
-            "target": rule.target, "pattern": rule.pattern, "kind": rule.kind,
-        }
-        if rule.label.strip():
-            item["label"] = rule.label.strip()
-        cleaned.append(item)
-    # Motif/ cible / genre invalide → refus nommant la règle (tri[i]:...).
-    errors = validate_tri_rules(cleaned)
-    if errors:
-        raise ApiError("invalid_request", status_code=400, fields=errors)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, f"curation {slug} : règles de tri",
-            set_tri_rules_fn(slug, cleaned),
+        result, cleaned = await curation_actions.set_tri_rules(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug,
+            [rule.model_dump() for rule in body.rules],
         )
-    except FileNotFoundError:
+    except curation_actions.RulesInvalidError as exc:
+        # Motif / cible / genre invalide → refus nommant la règle (triage[i]:...).
+        raise ApiError("invalid_request", status_code=400, fields=exc.fields) from None
+    except curation_actions.SourceMissingError:
         raise ApiError("source_not_found", status_code=404, slug=slug) from None
     except ManifestError as exc:
         raise ApiError("invalid_request", status_code=400, fields=exc.fields) from None
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
+    commit = result.revision
     log.info("curation_rules_set", author=user.email, slug=slug, count=len(cleaned))
     return {"ok": True, "commit": commit, "rules": cleaned}
 
@@ -470,25 +571,14 @@ def _review_object_payload(obj: ReviewObject) -> dict[str, object]:
         "status": obj.status,
         "fields": [
             {
-                "name": f.name, "change": f.change, "type": f.type,
+                "name": f.name,
+                "change": f.change,
+                "type": f.type,
                 "lost_enrichment": f.lost_enrichment,
             }
             for f in obj.fields
         ],
     }
-
-
-async def _review_divergence_or_refuse(
-    workdir: WorkdirManager, space_id: uuid.UUID, slug: str, repo_url: str,
-    username: str, token: str | None,
-) -> None:
-    try:
-        ahead, behind = await workdir.divergence(space_id, slug, repo_url, username, token)
-    except WorkdirError as exc:
-        raise _workdir_error(exc) from None
-    if ahead > 0 and behind > 0:
-        # Base périmée : comme la collecte, on refuse plutôt que de revoir à l'aveugle.
-        raise ApiError("review_branch_behind", status_code=409)
 
 
 @router.get("/review")
@@ -505,25 +595,24 @@ async def get_source_review(
         raise ApiError("curation_path_invalid", status_code=400)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    await _review_divergence_or_refuse(
-        workdir, space.id, branch_slug, space.repo_url, username, token
-    )
     raw_rel = f"{source_rel_dir(slug)}/{RAW_DIR}"
     try:
-        head_sha, base_sha, raw_base_text, bundle = await workdir.review_inputs(
-            space.id, branch_slug, space.repo_url, username, token,
+        head_sha, published_texts, bundle = await workdir.review_inputs(
+            space.id,
+            branch_slug,
+            space.repo_url,
+            username,
+            token,
             raw_rel,
-            lambda wc: read_review_point(wc, slug),
             lambda wc: (read_source_trees(wc, slug), read_tri_rules(wc, slug)),
         )
     except WorkdirError as exc:
         raise _workdir_error(exc) from None
-    (raw_head, assets), rules = bundle
-    result = build_review(parse_schema_texts(raw_base_text), raw_head, assets, rules)
+    (raw_view, assets), rules = bundle
+    # Base : la branche publiée (ticket docflow aad1d3c6, plus de point de reprise).
+    result = build_review(published_raw(raw_view, published_texts), raw_view, assets, rules)
     return {
-        "base_sha": base_sha,
         "head_sha": head_sha,
-        "up_to_date": base_sha == head_sha,
         "objects": [_review_object_payload(o) for o in result.objects],
     }
 
@@ -554,9 +643,6 @@ async def apply_source_review(
         raise ApiError("curation_path_invalid", status_code=400)
     branch_slug = await _branch_slug(conn, space_id, branch_id)
     space, username, token = await space_credentials(conn, crypto, space_id)
-    await _review_divergence_or_refuse(
-        workdir, space.id, branch_slug, space.repo_url, username, token
-    )
     decisions = ReviewDecisions(
         apply_fields=_group(body.apply_fields),
         take_fields=_group(body.take_fields),
@@ -565,21 +651,27 @@ async def apply_source_review(
         retain_objects=list(dict.fromkeys(body.retain_objects)),
     )
     try:
-        commit = await workdir.commit_to_branch(
-            space.id, branch_slug, space.repo_url, username, token,
-            user.email, user.email, f"curation {slug} : revue validée",
-            apply_review_fn(slug, body.head_sha, decisions),
-            expect_head=body.head_sha,
+        result = await curation_actions.apply_review(
+            _target(workdir, space, branch_slug, username, token, user),
+            slug,
+            body.head_sha,
+            decisions,
         )
+        commit = result.revision
     except WorkdirError as exc:
         if exc.code == "review_stale":
             raise ApiError("review_stale", status_code=409) from None
         raise _workdir_error(exc) from None
     # Journalisation de la revue validée : auteur, source, volume des décisions.
     log.info(
-        "curation_review_apply", author=user.email, slug=slug, commit=commit,
-        apply=len(body.apply_fields), take=len(body.take_fields),
-        remove=len(body.remove_fields), remove_objects=len(body.remove_objects),
+        "curation_review_apply",
+        author=user.email,
+        slug=slug,
+        commit=commit,
+        apply=len(body.apply_fields),
+        take=len(body.take_fields),
+        remove=len(body.remove_fields),
+        remove_objects=len(body.remove_objects),
         retain=len(body.retain_objects),
     )
     return {"ok": True, "commit": commit}
