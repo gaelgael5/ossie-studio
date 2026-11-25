@@ -144,6 +144,25 @@ def _ossie_validator() -> Draft202012Validator:
 
 
 _STR = {"type": "string"}
+
+# Types de champ d'Ossie-studio (ticket 9bfa21d7, Gael, 24/11/2026) : EXACTEMENT
+# `$defs/DataType` d'Ossie 0.3 (`core-spec/ossie-schema.json`, apache/ossie),
+# mêmes noms, même ordre. Ossie 0.1.1, celle qu'on écrit, n'a pas de type de
+# champ : il vit dans `<nom>.extend.yaml`, et passera dans le document Ossie sans
+# conversion le jour où l'on adopte la 0.3. Seule liste du code : ne pas en
+# écrire une seconde, ni y ajouter un type absent d'Ossie 0.3.
+DATATYPES: tuple[str, ...] = (
+    "String",
+    "Integer",
+    "Decimal",
+    "Float",
+    "Boolean",
+    "Date",
+    "Time",
+    "DateTime",
+    "DateTimeTz",
+    "Opaque",
+)
 _STR_LIST = {"type": "array", "items": _STR}
 
 EXTEND_SCHEMA: dict[str, Any] = {
@@ -177,7 +196,7 @@ EXTEND_SCHEMA: dict[str, Any] = {
                         "additionalProperties": {
                             "type": "object",
                             "additionalProperties": False,
-                            "properties": {"property": _STR, "datatype": _STR},
+                            "properties": {"property": _STR, "datatype": {"enum": list(DATATYPES)}},
                         },
                     },
                 },

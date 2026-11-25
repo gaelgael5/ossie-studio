@@ -225,6 +225,26 @@ def test_entree_extend_orpheline_signalee(tmp_path: Path) -> None:
     assert domain is not None and domain.warnings == ["extend_orphan_dataset:Fantome"]
 
 
+def test_type_hors_liste_dans_extend_signale_a_la_lecture(tmp_path: Path) -> None:
+    """Ticket 9bfa21d7 : un `.extend.yaml` écrit à la main avec un type hors de la
+    liste d'Ossie 0.3 est refusé à la lecture, le type en cause nommé ; DateTimeTz
+    passe, et aucun `datatype` n'entre dans le document Ossie."""
+    field = DomainField("cree_le", "cree_le", datatype="DateTimeTz")
+    write_domain(
+        tmp_path, Domain(name="d", datasets=[Dataset("A", "t.a", True, True, fields=[field])])
+    )
+    base = tmp_path / "domaines"
+    assert "datatype" not in (base / "d.ossie.yaml").read_text(encoding="utf-8")
+    ext = base / "d.extend.yaml"
+    assert "DateTimeTz" in ext.read_text(encoding="utf-8")
+    doc = load_schema(ext.read_text(encoding="utf-8"))
+    doc["datasets"]["A"]["fields"]["cree_le"]["datatype"] = "Timestamp"
+    ext.write_text(dump_schema(doc), encoding="utf-8")
+    with pytest.raises(DomainError) as exc:
+        read_domain(tmp_path, "d")
+    assert exc.value.code == "extend_invalid" and "Timestamp" in exc.value.detail
+
+
 # --- déduction ------------------------------------------------------------------
 
 
@@ -234,6 +254,37 @@ def test_types_deduits() -> None:
     assert datatype_of({"type": "number", "format": "double"}) == "Float"
     assert datatype_of({"type": "number"}) == "Decimal"
     assert datatype_of({"$ref": "x.schema.yaml"}) == "Opaque"
+
+
+@pytest.mark.parametrize(
+    ("native", "expected"),
+    [
+        ({"x-db-type": "timestamp with time zone"}, "DateTimeTz"),  # PostgreSQL timestamptz
+        ({"x-db-type": "timestamp(3) with time zone"}, "DateTimeTz"),
+        ({"x-db-type": "timestamp without time zone"}, "DateTime"),
+        ({"x-db-type": "TIMESTAMP_TZ(9)"}, "DateTimeTz"),  # Snowflake
+        ({"x-db-type": "TIMESTAMP_LTZ(9)"}, "DateTimeTz"),
+        ({"x-db-type": "TIMESTAMP_NTZ(9)"}, "DateTime"),
+        ({"x-db-type": "datetimeoffset(7)"}, "DateTimeTz"),  # SQL Server
+        ({"x-db-type": "datetime2(7)"}, "DateTime"),
+        ({"x-code-type": "DateTimeOffset"}, "DateTimeTz"),  # C#
+        ({"x-code-type": "OffsetDateTime"}, "DateTimeTz"),  # Kotlin / Java
+        ({"x-code-type": "ZonedDateTime"}, "DateTimeTz"),
+        ({}, "DateTime"),
+    ],
+)
+def test_datatype_horodatage_avec_fuseau(native: dict[str, str], expected: str) -> None:
+    """Ticket 9bfa21d7 : DateTimeTz quand le type natif porte un fuseau ou décalage."""
+    assert datatype_of({"type": "string", "format": "date-time", **native}) == expected
+
+
+def test_liste_des_types_est_celle_d_ossie_0_3() -> None:
+    from ossie_studio.domains.documents import DATATYPES
+
+    assert DATATYPES == (
+        "String", "Integer", "Decimal", "Float", "Boolean",
+        "Date", "Time", "DateTime", "DateTimeTz", "Opaque",
+    )  # fmt: skip
 
 
 class _Graph:

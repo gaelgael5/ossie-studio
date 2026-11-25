@@ -60,8 +60,9 @@ _TYPES: dict[str, dict[str, Any]] = {
     "LocalDate": {"type": "string", "format": "date"},
     "LocalDateTime": {"type": "string", "format": "date-time"},
     "Instant": {"type": "string", "format": "date-time"},
-    "OffsetDateTime": {"type": "string", "format": "date-time"},
-    "ZonedDateTime": {"type": "string", "format": "date-time"},
+    # `x-code-type` : seul indice d'un fuseau ou décalage (DateTimeTz, ticket 9bfa21d7).
+    "OffsetDateTime": {"type": "string", "format": "date-time", "x-code-type": "OffsetDateTime"},
+    "ZonedDateTime": {"type": "string", "format": "date-time", "x-code-type": "ZonedDateTime"},
     "LocalTime": {"type": "string", "format": "time"},
     "Object": {},
     "Any": {},

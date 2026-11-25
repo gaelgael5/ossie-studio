@@ -18,6 +18,7 @@ Fonctions pures : l'asset est la vue en mémoire (`sources/asset_files.py`).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -39,15 +40,35 @@ CONSULTABLE_KINDS = frozenset({"table", "view"})
 _OBJECT_LINKS = frozenset({"field", "list", "map"})
 
 
+# Horodatages AVEC fuseau ou décalage (ticket 9bfa21d7) : `date-time` de JSON
+# Schema ne le dit pas, le type natif si. Types SQL lus dans `x-db-type` (posé par
+# les extracteurs), en minuscules et sans précision ; types de code dans
+# `x-code-type` (posé par les parseurs C# et Kotlin/Java pour ces seuls types).
+# `timestamp`, `TIMESTAMP_NTZ`, `datetime2`, `DateTime`, `LocalDateTime` restent
+# `DateTime`. `Instant` (Java) aussi : le ticket ne le range pas, à trancher.
+_TZ_DB_TYPES = frozenset(
+    {"timestamptz", "timestamp with time zone", "timestamp_tz", "timestamp_ltz", "datetimeoffset"}
+)
+_TZ_CODE_TYPES = frozenset({"DateTimeOffset", "OffsetDateTime", "ZonedDateTime"})
+
+
+def _with_zone(prop: dict[str, Any]) -> bool:
+    # « timestamp(3) with time zone » (PostgreSQL), « TIMESTAMP_TZ(9) » : précision ôtée.
+    db_type = " ".join(re.sub(r"\([^)]*\)", "", str(prop.get("x-db-type") or "")).lower().split())
+    return db_type in _TZ_DB_TYPES or str(prop.get("x-code-type") or "") in _TZ_CODE_TYPES
+
+
 def datatype_of(prop: dict[str, Any]) -> str:
     """Type Ossie-studio d'un champ (dans le `.extend.yaml` : Ossie 0.1.1 n'a pas
-    de type de champ), déduit du type raw."""
+    de type de champ), déduit du type raw, parmi `DATATYPES`."""
     kind = prop.get("type")
     if isinstance(kind, list):
         kind = next((k for k in kind if k != "null"), "")
     fmt = str(prop.get("format") or "")
     if kind == "string":
-        return {"date": "Date", "time": "Time", "date-time": "DateTime"}.get(fmt, "String")
+        if fmt == "date-time":
+            return "DateTimeTz" if _with_zone(prop) else "DateTime"
+        return {"date": "Date", "time": "Time"}.get(fmt, "String")
     if kind == "integer":
         return "Integer"
     if kind == "number":

@@ -49,7 +49,8 @@ _PRIMITIVES: dict[str, dict[str, Any]] = {
     "decimal": {"type": "number"},
     "Guid": {"type": "string", "format": "uuid"},
     "DateTime": {"type": "string", "format": "date-time"},
-    "DateTimeOffset": {"type": "string", "format": "date-time"},
+    # `x-code-type` : seul indice qu'il porte un décalage (DateTimeTz, ticket 9bfa21d7).
+    "DateTimeOffset": {"type": "string", "format": "date-time", "x-code-type": "DateTimeOffset"},
     "DateOnly": {"type": "string", "format": "date"},
     "TimeOnly": {"type": "string", "format": "time"},
     "object": {},
