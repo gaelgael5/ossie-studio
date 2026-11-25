@@ -6,6 +6,11 @@ Analyse **syntaxique** (tree-sitter), jamais d'exécution du code lu. Un type ve
 d'un autre fichier ou d'une bibliothèque devient `x-unresolved-type` ; la
 résolution croisée viendra du service de recherche de schéma commun. Les
 références au sein du même groupe de fichiers sont résolues en `$ref`.
+
+Cartographie applicative (ticket e34e5c29) : les méthodes publiques, internes et
+protégées de chaque type (jamais `private`) vont dans son `<clé>.extend.yaml`,
+avec leurs points d'entrée Spring (`parsers.jvm_entrypoints`) ; le schéma du type
+ne change pas.
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ from typing import Any
 
 from tree_sitter import Node
 
+from ossie_studio.parsers.application import dump_functions
 from ossie_studio.parsers.base import (
     CIBLE_RAW,
     ParsedObject,
@@ -26,6 +32,7 @@ from ossie_studio.parsers.base import (
     matches_globs,
 )
 from ossie_studio.parsers.conventions import dump_schema, schema_file
+from ossie_studio.parsers.jvm_entrypoints import Annotation, entry_point
 from ossie_studio.parsers.treesitter import grammar_version, node_text
 from ossie_studio.parsers.treesitter import parse as ts_parse
 
@@ -79,6 +86,13 @@ _DICT_TYPES = frozenset(
 )
 # Annotations qui rendent un champ Java obligatoire.
 _REQUIRED_ANNOTATIONS = frozenset({"NotNull", "NonNull", "Id"})
+# Retour d'une méthode : enveloppes déballées (le vrai résultat est le type
+# porté) et flux rendus en liste.
+_WRAPPERS = frozenset(
+    {"ResponseEntity", "HttpEntity", "Mono", "Optional", "CompletableFuture",
+     "CompletionStage", "DeferredResult", "Callable", "Deferred"}
+)
+_STREAMS = frozenset({"Flux", "Flow", "Stream"})
 
 
 def _slug(name: str) -> str:
@@ -124,6 +138,30 @@ class _Member:
 
 
 @dataclass
+class _Param:
+    name: str
+    type_text: str
+    type_ref: _TypeRef
+    optional: bool = False
+
+
+@dataclass
+class _Method:
+    name: str
+    visibility: str
+    params: list[_Param]
+    returns_text: str
+    result: _TypeRef | None
+    static: bool
+    is_async: bool
+    doc: str
+    annotations: list[str]
+    line: int
+    entry: dict[str, Any] | None = None
+    file: str = ""
+
+
+@dataclass
 class _Type:
     qualified: str
     name: str
@@ -137,6 +175,7 @@ class _Type:
     members: list[_Member] = field(default_factory=list)
     enum_members: list[str] = field(default_factory=list)
     namespace: str = ""
+    methods: list[_Method] = field(default_factory=list)
 
 
 def _text(src: bytes, node: Node | None) -> str:
@@ -268,6 +307,55 @@ def _args_text(named: dict[str, str], positional: list[str]) -> list[str]:
     return [*positional, *(f"{k}={v}" for k, v in named.items())]
 
 
+def _java_raw_annotations(src: bytes, modifiers: Node | None) -> list[Annotation]:
+    """Annotations Java avec leurs arguments tels qu'écrits (points d'entrée)."""
+    out: list[Annotation] = []
+    for child in modifiers.named_children if modifiers is not None else []:
+        if child.type not in ("annotation", "marker_annotation"):
+            continue
+        name = _text(src, child.child_by_field_name("name")).rsplit(".", 1)[-1]
+        named: dict[str, str] = {}
+        positional: list[str] = []
+        args = child.child_by_field_name("arguments")
+        for arg in args.named_children if args is not None else []:
+            if arg.type == "element_value_pair":
+                key = _text(src, arg.child_by_field_name("key"))
+                named[key] = _text(src, arg.child_by_field_name("value"))
+            else:
+                positional.append(_text(src, arg))
+        out.append(Annotation(name, named, tuple(positional)))
+    return out
+
+
+def _kotlin_raw_annotations(src: bytes, modifiers: Node | None) -> list[Annotation]:
+    """Annotations Kotlin avec leurs arguments tels qu'écrits (points d'entrée)."""
+    out: list[Annotation] = []
+    for child in modifiers.named_children if modifiers is not None else []:
+        if child.type != "annotation" or not child.named_children:
+            continue
+        inner = child.named_children[0]
+        named: dict[str, str] = {}
+        positional: list[str] = []
+        if inner.type == "constructor_invocation":
+            user = next((c for c in inner.named_children if c.type == "user_type"), None)
+            name = _text(src, user)
+            value_args = next(
+                (c for c in inner.named_children if c.type == "value_arguments"), None
+            )
+            for arg in value_args.named_children if value_args is not None else []:
+                if arg.type != "value_argument" or not arg.named_children:
+                    continue
+                kids = arg.named_children
+                if "=" in _child_tokens(arg) and len(kids) >= 2:
+                    named[_text(src, kids[0])] = _text(src, kids[1])
+                else:
+                    positional.append(_text(src, kids[-1]))
+        else:
+            name = _text(src, inner)
+        out.append(Annotation(name.rsplit(".", 1)[-1], named, tuple(positional)))
+    return out
+
+
 def _apply_constraints(
     name: str, named: dict[str, str], positional: list[str], constraints: dict[str, Any]
 ) -> None:
@@ -353,6 +441,176 @@ def _kotlin_type_ref(src: bytes, node: Node | None) -> tuple[_TypeRef, bool]:
     return _TypeRef("named", name=_text(src, node)), False
 
 
+def _java_result_ref(src: bytes, node: Node | None) -> _TypeRef | None:
+    """Le vrai résultat d'une méthode Java : `ResponseEntity<T>`, `Mono<T>`…
+    déballés ; `Flux<T>` → liste ; `void` → None."""
+    if node is None or node.type == "void_type":
+        return None
+    if node.type == "generic_type":
+        base = next((c for c in node.named_children if c.type != "type_arguments"), None)
+        name = _base_name(src, base) if base is not None else ""
+        args_node = next((c for c in node.named_children if c.type == "type_arguments"), None)
+        args = [c for c in (args_node.named_children if args_node else []) if c.type != ","]
+        if name in _WRAPPERS and args:
+            return _java_result_ref(src, args[0])
+        if name in _STREAMS and args:
+            return _TypeRef("array", inner=_java_result_ref(src, args[0]) or _TypeRef("empty"))
+    ref, _ = _java_type_ref(src, node)
+    return ref
+
+
+def _kotlin_result_ref(src: bytes, node: Node | None) -> _TypeRef | None:
+    """Le vrai résultat d'une fonction Kotlin (mêmes règles ; `Unit` → None)."""
+    if node is None:
+        return None
+    if node.type == "nullable_type":
+        node = next((c for c in node.named_children if c.type == "user_type"), node)
+    if node.type == "user_type":
+        ident = next(
+            (c for c in node.named_children if c.type in ("type_identifier", "identifier")), None
+        )
+        name = _text(src, ident)
+        args_node = next((c for c in node.named_children if c.type == "type_arguments"), None)
+        args = [
+            p.named_children[0]
+            for p in (args_node.named_children if args_node else [])
+            if p.type == "type_projection" and p.named_children
+        ]
+        if name == "Unit":
+            return None
+        if name in _WRAPPERS and args:
+            return _kotlin_result_ref(src, args[0])
+        if name in _STREAMS and args:
+            return _TypeRef("array", inner=_kotlin_result_ref(src, args[0]) or _TypeRef("empty"))
+    ref, _ = _kotlin_type_ref(src, node)
+    return ref
+
+
+def _java_methods(
+    src: bytes, body: Node, *, interface: bool, owner: list[Annotation]
+) -> list[_Method]:
+    """Les méthodes d'un type Java, sauf `private` (membre d'interface sans
+    mot-clé : public ; sans mot-clé ailleurs : visibilité de paquet, « internal »)."""
+    methods: list[_Method] = []
+    for decl in body.named_children:
+        if decl.type != "method_declaration":
+            continue
+        modifiers = next((c for c in decl.named_children if c.type == "modifiers"), None)
+        tokens = _child_tokens(modifiers) if modifiers is not None else set()
+        visibility = _modifier_visibility(tokens)
+        if interface and visibility == "internal":
+            visibility = "public"
+        if visibility == "private":
+            continue
+        name_node = decl.child_by_field_name("name")
+        type_node = decl.child_by_field_name("type")
+        params: list[_Param] = []
+        plist = decl.child_by_field_name("parameters")
+        for param in plist.named_children if plist is not None else []:
+            if param.type == "formal_parameter":
+                ptype = param.child_by_field_name("type")
+                pname = _text(src, param.child_by_field_name("name"))
+                text = _clean_type(_text(src, ptype))
+            elif param.type == "spread_parameter":
+                skip = ("modifiers", "variable_declarator")
+                ptype = next((c for c in param.named_children if c.type not in skip), None)
+                declr = next(
+                    (c for c in param.named_children if c.type == "variable_declarator"), None
+                )
+                pname = _text(src, declr.child_by_field_name("name") if declr else None)
+                text = f"{_clean_type(_text(src, ptype))}..."
+            else:
+                continue
+            ref, _ = _java_type_ref(src, ptype)
+            if param.type == "spread_parameter":
+                ref = _TypeRef("array", inner=ref)
+            params.append(_Param(pname, text, ref))
+        annos = _java_raw_annotations(src, modifiers)
+        methods.append(
+            _Method(
+                name=_text(src, name_node),
+                visibility=visibility,
+                params=params,
+                returns_text=_clean_type(_text(src, type_node)),
+                result=_java_result_ref(src, type_node),
+                static="static" in tokens,
+                is_async=False,
+                doc=_doc_comment(src, decl),
+                annotations=[a.name for a in annos],
+                line=(name_node or decl).start_point[0] + 1,
+                entry=entry_point(annos, owner),
+            )
+        )
+    return methods
+
+
+def _kotlin_methods(src: bytes, body: Node, *, owner: list[Annotation]) -> list[_Method]:
+    """Les fonctions membres d'un type Kotlin, sauf `private` (public par défaut ;
+    `suspend` → async ; un paramètre avec valeur par défaut est facultatif)."""
+    methods: list[_Method] = []
+    for decl in body.named_children:
+        if decl.type != "function_declaration":
+            continue
+        modifiers = next((c for c in decl.named_children if c.type == "modifiers"), None)
+        visibility = _kotlin_visibility(src, modifiers)
+        if visibility == "private":
+            continue
+        name_node = next(
+            (c for c in decl.named_children if c.type in ("identifier", "simple_identifier")), None
+        )
+        plist = next(
+            (c for c in decl.named_children if c.type == "function_value_parameters"), None
+        )
+        params: list[_Param] = []
+        for node in plist.named_children if plist is not None else []:
+            if node.type == "parameter":
+                names = ("identifier", "simple_identifier")
+                types = ("user_type", "nullable_type", "function_type")
+                ident = next((c for c in node.named_children if c.type in names), None)
+                ptype = next((c for c in node.named_children if c.type in types), None)
+                ref, _ = _kotlin_type_ref(src, ptype)
+                params.append(_Param(_text(src, ident), _clean_type(_text(src, ptype)), ref))
+            elif node.type != "parameter_modifiers" and params:
+                params[-1].optional = True  # une valeur par défaut suit le paramètre
+        type_node = None
+        if plist is not None:
+            after = False
+            for child in decl.named_children:
+                if child == plist:
+                    after = True
+                elif after and child.type in ("user_type", "nullable_type", "function_type"):
+                    type_node = child
+                    break
+                elif after and child.type == "function_body":
+                    break
+        result = _kotlin_result_ref(src, type_node)
+        annos = _kotlin_raw_annotations(src, modifiers)
+        suspend = modifiers is not None and any(
+            c.type == "function_modifier" and _text(src, c) == "suspend"
+            for c in modifiers.named_children
+        )
+        methods.append(
+            _Method(
+                name=_text(src, name_node),
+                visibility=visibility,
+                params=params,
+                returns_text=_clean_type(_text(src, type_node)) if result is not None else "",
+                result=result,
+                static=False,
+                is_async=suspend,
+                doc=_doc_comment(src, decl),
+                annotations=[a.name for a in annos],
+                line=(name_node or decl).start_point[0] + 1,
+                entry=entry_point(annos, owner),
+            )
+        )
+    return methods
+
+
+def _clean_type(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
 # --- Extraction Java ---------------------------------------------------------
 
 _JAVA_KINDS = {
@@ -436,6 +694,12 @@ def _java_build_type(src: bytes, node: Node, *, enclosing: str) -> _Type:
     body = node.child_by_field_name("body")
     if body is not None:
         info.members += _java_fields(src, body)
+        info.methods = _java_methods(
+            src,
+            body,
+            interface=info.kind == "interface",
+            owner=_java_raw_annotations(src, modifiers),
+        )
     return info
 
 
@@ -607,6 +871,7 @@ def _kotlin_build_type(src: bytes, node: Node, *, enclosing: str) -> _Type:
     body = next((c for c in node.named_children if c.type == "class_body"), None)
     if body is not None:
         info.members += _kotlin_body_props(src, body)
+        info.methods = _kotlin_methods(src, body, owner=_kotlin_raw_annotations(src, modifiers))
     return info
 
 
@@ -810,6 +1075,47 @@ def _build_schema(info: _Type, known: dict[str, str]) -> dict[str, Any]:
     return schema
 
 
+def _function_entry(method: _Method, info: _Type, known: dict[str, str]) -> dict[str, Any]:
+    generics = set(info.generics)
+    entry: dict[str, Any] = {"name": method.name, "visibility": method.visibility}
+    if method.static:
+        entry["static"] = True
+    if method.is_async:
+        entry["async"] = True
+    if method.params:
+        entry["parameters"] = []
+        for param in method.params:
+            item: dict[str, Any] = {
+                "name": param.name,
+                "type": param.type_text,
+                "schema": _ref_schema(param.type_ref, generics=generics, known=known),
+            }
+            if param.optional:
+                item["optional"] = True
+            entry["parameters"].append(item)
+    if method.result is not None:
+        entry["returns"] = {
+            "type": method.returns_text,
+            "schema": _ref_schema(method.result, generics=generics, known=known),
+        }
+    if method.doc:
+        entry["description"] = method.doc
+    if method.annotations:
+        entry["annotations"] = method.annotations
+    if method.file:
+        entry["source"] = {"file": method.file, "line": method.line}
+    if method.entry:
+        entry["entryPoint"] = dict(method.entry)
+    return entry
+
+
+def _functions_document(info: _Type, known: dict[str, str]) -> dict[str, Any] | None:
+    """Le `<clé>.extend.yaml` d'un type : ses méthodes ; None s'il n'en a pas."""
+    if not info.methods:
+        return None
+    return {"methods": [_function_entry(m, info, known) for m in info.methods]}
+
+
 def _grammar_for(path: str) -> str:
     return "kotlin" if path.endswith((".kt", ".kts")) else "java"
 
@@ -820,7 +1126,8 @@ class KotlinJavaParser:
     id = "kotlin-java"
     cible = CIBLE_RAW
     label = "Kotlin / Java"
-    version = f"1.1-java{grammar_version('java')}-kt{grammar_version('kotlin')}"
+    # 1.2 : méthodes et points d'entrée dans `<clé>.extend.yaml` (cartographie).
+    version = f"1.2-java{grammar_version('java')}-kt{grammar_version('kotlin')}"
 
     def globs(self) -> list[str]:
         return list(_GLOBS)
@@ -849,6 +1156,8 @@ class KotlinJavaParser:
                 raise ParserError("syntax") from exc
             extract = _kotlin_extract if language == "kotlin" else _java_extract
             for info in extract(raw, tree.root_node, prefix=module):
+                for method in info.methods:
+                    method.file = path
                 if info.qualified not in seen:
                     seen.add(info.qualified)
                     types.append(info)
@@ -859,11 +1168,13 @@ class KotlinJavaParser:
             known[info.qualified] = info.qualified
         objects: list[ParsedObject] = []
         for info in sorted(types, key=lambda t: t.qualified):
+            functions = _functions_document(info, known)
             objects.append(
                 ParsedObject(
                     key=_slug(info.qualified),
                     sources=sorted(sources[info.qualified]),
                     schema=dump_schema(_build_schema(info, known)),
+                    extend=dump_functions(functions) if functions else None,
                 )
             )
         return objects

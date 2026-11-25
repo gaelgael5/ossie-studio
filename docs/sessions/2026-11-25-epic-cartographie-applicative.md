@@ -8,6 +8,8 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 ## Décisions de Gael (25 novembre)
 
+- PR [gaelgael5/ossie-studio#5](https://github.com/gaelgael5/ossie-studio/pull/5) ouverte vers `dev` à la demande de Gael (8 tickets + trois défauts venus de `dev` corrigés) ; la suite (Kotlin / Java) se fait sur la branche **`feature/cartographie-kotlin-java`** pour ne pas modifier la PR en cours.
+- Plan du ticket Kotlin / Java (e34e5c29) validé (« oui go »), agrégateurs exclus des modules.
 - Plan du ticket 7 (déplacer les ancres, a1fd0663) validé (« continue ») avec deux ajustements proposés : (1) les poignées s'affichent pour qui a `sources:collect`, quelle que soit la branche — le critère 6 « branche racine en lecture seule » est dépassé par la règle du bug e7deb2b9 (on écrit dans le brouillon de la personne, racine comprise) ; (2) « remettre l'ancre calculée » remet l'entrée à `auto` aux deux bouts au lieu de la supprimer (sinon la collecte la recréerait et le critère 3 tomberait).
 - Plan du ticket 5 (projet SQL Server comme module) validé (« oui go ») ; une procédure mal formée est signalée **dans le compte rendu de collecte et dans le journal** (« 1. oui »).
 - Plan du ticket 4 (lien au contrat OpenAPI) validé (« Oui go »).
@@ -30,7 +32,8 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | 0fa620be — Explorateur raw : objets module et vue « Application » | En review |
 | a1fd0663 — Déplacer les ancres des connecteurs (`.view`) | En review |
 | 72ce32b3 — Primitives MCP : modules, fonctions, points d'entrée | En review |
-| e34e5c29 / f619f4a7 / 3343afe4 — Kotlin-Java / TypeScript / Python | Prêt pour dev |
+| e34e5c29 — Kotlin / Java | En review (branche `feature/cartographie-kotlin-java`) |
+| f619f4a7 / 3343afe4 — TypeScript / Python | Prêt pour dev |
 | 3191b4a4 — Clôture (avec Gael, jamais seul) | — |
 
 Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les autres langages à la suite.
@@ -109,3 +112,12 @@ Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les au
 - Écran (`pages/RawApplication.tsx`) : géométrie exportée (`ANCHOR_SLOTS` — milieu de chaque côté et deux points de plus en haut et en bas —, `anchorPoint`, `autoAnchors`, `linkAnchors`, `linkPath` : même tracé qu'avant pour les ancres calculées). Clic sur un lien → mis en avant, barre « Lien A → B » ; avec le droit : poignées aux extrémités (glisser, capture à 18 px d'une ancre du même bloc, sinon retour), ancres en petits cercles (cliquables, clavier compris), bouton « Ancre calculée ». Rendu immédiat (choix gardé jusqu'au rechargement de la vue), annulé si l'écriture échoue. Échap ou clic dans le vide : désélection. Blocs fixes.
 - Collecte : inchangée — `sync_module_views` garde les ancres, retire l'entrée d'un lien disparu (testé avec des ancres choisies).
 - Tests : `backend/tests/test_module_anchors.py` (critères 1 à 6, erreurs, une seule entrée change) ; `RawApplication.test.tsx` (géométrie, ancre appliquée à l'ouverture, clic sur une ancre, retour à l'ancre calculée, glisser-lâcher avec géométrie SVG simulée, sans droit). Pas encore vérifié dans un vrai navigateur.
+
+## Notes techniques (Kotlin / Java, e34e5c29)
+
+- Branche `feature/cartographie-kotlin-java`, partie de `feature/cartographie-applicative` (PR #5 ouverte) : à remettre à jour depuis `dev` une fois la PR fusionnée.
+- Modules : `sources/jvm_modules.py` (`read_jvm_projects`, `jvm_module_actions`), étape du socle juste après les modules C# (`collect.py`). Gradle lu en texte (commentaires retirés : `include(...)`, `project(":x").projectDir`, `project(":x")`, `projects.x`, plugins Spring Boot / Kotlin hors `apply false`, toolchain / compatibilité Java) ; Maven en XML (defusedxml, espaces de noms ignorés, `groupId` hérité, `${project.groupId}`, propriétés de version Java héritées du parent présent dans la source). Agrégateurs exclus (racine Gradle sans `src/`, `packaging pom`). Retrait du module d'un fichier de build disparu limité aux modules `java` / `kotlin` dont le projet est un `build.gradle(.kts)` ou un `pom.xml`.
+- Méthodes : `parsers/kotlin_java.py` (version **1.2**) — `_java_methods`, `_kotlin_methods`, `_java_result_ref` / `_kotlin_result_ref` (enveloppes déballées), `_function_entry` (même forme que C#) ; `ParsedObject.extend`.
+- Points d'entrée : `parsers/jvm_entrypoints.py` (fonctions pures : `Annotation` aux arguments tels qu'écrits, `literal`, `join_routes`, `entry_point`). `@RequestMapping` de méthode sans `method` non retenu (le format exige un verbe).
+- Le lien au contrat OpenAPI (ticket 4) s'applique sans changement aux routes Spring.
+- Tests : `backend/tests/test_jvm_cartography.py` (critères 1 à 4, racine avec code, build seul, fichier illisible et module disparu, Kotlin, Feign exclu, règles pures, collecte de bout en bout : modules, retour résolu dans un autre module, appartenance des classes, incrémental, sous-projet retiré).

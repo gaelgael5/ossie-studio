@@ -298,6 +298,32 @@ methods:
   alors retiré ;
 - le `.extend.yaml` n'est réécrit que si l'état au contrat change.
 
+### Kotlin / Java : modules Gradle et Maven, méthodes, points d'entrée Spring
+
+Ticket e34e5c29, sur le modèle C# (les fichiers de build sont lus, jamais
+exécutés) :
+
+- **modules** (étape du socle `sources/jvm_modules.py`) : un par sous-projet
+  Gradle déclaré dans `settings.gradle(.kts)` qui a son `build.gradle(.kts)`, un
+  par build Gradle sans `settings`, un par `pom.xml` qui n'est pas un agrégateur
+  (`packaging pom`) ; la racine d'un build multi-projets n'est un module que si
+  elle a son propre `src/`. Dépendances : `project(":x")`, `projects.x`, et côté
+  Maven une dépendance vers le `groupId:artifactId` d'un autre pom de la source.
+  Nature : Spring Boot → `web` (avec `spring-boot-starter-web` / `webflux`) ou
+  `application`, sinon `library`. Cible : `java17`… Langage : `kotlin` (plugin
+  Kotlin ou fichiers `.kt`) ou `java`. Fichier de build illisible :
+  `build_file_unreadable` dans le compte rendu, module précédent gardé ;
+- **méthodes** (parseur `kotlin-java` 1.2) : `public`, `protected`, visibilité de
+  paquet (`internal`) en Java, `internal` en Kotlin ; jamais `private`. Retour
+  déballé (`ResponseEntity<T>`, `Mono<T>`, `Optional<T>`… → `T` ; `Flux<T>` →
+  liste) ; `suspend` → `async` ; paramètre Kotlin avec valeur par défaut →
+  `optional` ;
+- **points d'entrée** : HTTP dans une classe `@RestController` / `@Controller`
+  seulement (un client Feign n'en est pas un) — `@GetMapping`… et
+  `@RequestMapping(method = …)`, route = chemin de la classe + chemin de la
+  méthode, `route: null` pour une constante ou `${…}` ; `@Scheduled` → `task` ;
+  `@KafkaListener` / `@RabbitListener` → `message` avec le sujet.
+
 ### Projet SQL Server : module `sql`, procédures et fonctions
 
 Ticket 30c55418. Le parseur `sqlserver-projet` produit un **objet module** par
