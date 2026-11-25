@@ -26,6 +26,7 @@ from ossie_studio.parsers.base import (
 from ossie_studio.parsers.openapi import FoundContract, inspect_contract
 from ossie_studio.parsers.registry import openapi_plugin, select_code_plugins
 from ossie_studio.sources.collect_core import RAW_DIR, checksum
+from ossie_studio.sources.csharp_modules import csharp_module_actions
 from ossie_studio.sources.download import SourceDownloader, SourceDownloadError
 from ossie_studio.sources.module_views import sync_module_views
 from ossie_studio.sources.paths import CONTRATS_DIR, CONTRATS_INDEX, SOURCES_DIR
@@ -33,6 +34,7 @@ from ossie_studio.sources.progress import CollectProgress
 from ossie_studio.sources.schema_resolve import (
     SchemaIndex,
     is_schema_path,
+    read_project_map,
     resolve_source_schemas,
 )
 from ossie_studio.sources.sql_extract import object_to_source, source_key, sql_extractor
@@ -338,12 +340,23 @@ class SourceCollector:
         # 4. Service de recherche commun : le socle résout les références croisées
         # (x-unresolved-type → $ref) sur l'ensemble des schémas de la source.
         progress.enter("resolve")
-        writes, deletes = list(agg.writes), list(agg.deletes)
-        # Les fichiers du dépôt donnent la carte des projets (.csproj) qui
-        # départage les homonymes entre projets d'une solution.
-        writes, resolved = await asyncio.to_thread(
-            resolve_source_schemas, raw_files, writes, deletes, source_files
+        # Les fichiers du dépôt donnent la carte des projets (.csproj), lue une
+        # seule fois : elle départage les homonymes entre projets d'une solution
+        # et décrit chaque projet, qui devient un objet module (cartographie).
+        projects = await asyncio.to_thread(read_project_map, source_files)
+        modules = await asyncio.to_thread(
+            csharp_module_actions, raw_files, list(agg.writes), list(agg.deletes), projects
         )
+        statuts.update(modules.statuses)
+        messages.update(modules.errors)
+        agg.added += modules.added
+        agg.modified += modules.modified
+        agg.deleted += modules.deleted
+        writes, resolved = await asyncio.to_thread(
+            resolve_source_schemas, raw_files, modules.writes, modules.deletes, source_files,
+            projects,
+        )  # fmt: skip
+        deletes = modules.deletes
         # Cartographie applicative : les `.view` des modules suivent les modules et
         # leurs dépendances, par ajouts et suppressions (jamais réécrits en entier).
         writes, deletes = await asyncio.to_thread(sync_module_views, raw_files, writes, deletes)

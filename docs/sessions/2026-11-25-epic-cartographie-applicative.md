@@ -8,6 +8,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 ## Décisions de Gael (25 novembre)
 
+- Plan du ticket 2 (modules C#) : présenté ; Gael : « reprends la branche dev avant de démarrer » (démarrage validé).
 - Plan de l'enabler validé (« 1. oui … 3. ok 4. ok 5. ok ») : **module = un `<clé>.schema.yaml` avec `x-kind: module`**, `<clé>.extend.yaml` pour les fonctions, `<clé>.view.yaml` mis à jour par ajouts et suppressions, conventions + JSON Schema + tests.
 - **Appartenance d'un objet à un module** : calculée à la lecture (fichier de projet le plus proche en remontant le chemin du fichier d'origine, règle du compilateur .NET), **pas écrite** dans le module. Gael a demandé de quel calcul il s'agissait ; l'explication lui a été donnée, la liste écrite reste possible s'il la préfère.
 
@@ -16,7 +17,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | Ticket | Statut |
 |---|---|
 | 6c97ad98 — Format raw des modules, des fonctions et du fichier `.view` (enabler) | En review |
-| e0fa8519 — Modules C# (`.csproj` → objets module) | Prêt pour dev |
+| e0fa8519 — Modules C# (`.csproj` → objets module) | En review |
 | f1cc03c4 — Méthodes publiques et points d'entrée C# | Prêt pour dev |
 | 90ed0967 — Relier les points d'entrée au contrat OpenAPI | Prêt pour dev |
 | 30c55418 — Projet SQL Server comme module | Prêt pour dev |
@@ -39,3 +40,11 @@ Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les au
 - Conventions : section « Cartographie applicative : modules, fonctions, vue » de `docs/conventions-schemas-generes.md`, un exemple par forme (les exemples sont validés par les tests).
 - Tests : `backend/tests/test_application_formats.py` (unitaires, 7 critères) et `test_application_collect.py` (collecte de bout en bout avec le parseur de démonstration).
 - Le Postgres de test s'arrête au redémarrage du conteneur : `sudo pg_ctlcluster 16 main start`.
+
+## Notes techniques (modules C#, e0fa8519)
+
+- **Une seule lecture des `.csproj`** : `sources/schema_resolve.read_project_map` décrit maintenant aussi chaque projet (`CsProject` : SDK, `OutputType`, cibles, projet de test, références normalisées depuis la racine, références hors de la source comprises ; `error` si illisible). La carte des homonymes (`refs`) est inchangée. La collecte la lit une fois et la passe à la résolution et à l'étape des modules.
+- Étape du socle `sources/csharp_modules.csharp_module_actions`, juste après les parseurs : un objet module par `.csproj` (`module_schema`, langage `csharp`), écrit seulement si son contenu change ; le module d'un `.csproj` disparu est retiré ; un `.csproj` illisible (pas UTF-8, ou pas d'élément `<Project>`) est en erreur dans le compte rendu (`csproj_unreadable`) et son module précédent est laissé tel quel. Le `.csproj` apparaît « traité » / « inchangé » dans le compte rendu.
+- Nature (`nature_of`) : test (`IsTestProject` ou paquet `Microsoft.NET.Test.Sdk`, xunit, NUnit, MSTest), puis web (`Microsoft.NET.Sdk.Web`, Blazor WebAssembly), worker (`Microsoft.NET.Sdk.Worker`), console (`OutputType` `Exe` / `WinExe`), sinon bibliothèque.
+- Un module n'est jamais la cible d'une référence de type (`SchemaIndex` l'ignore) : un projet « Domain » ne répond pas à une classe `Domain`.
+- Tests : `backend/tests/test_csharp_modules.py` (six projets : natures, dépendances internes et externe, appartenance d'une classe, compte rendu, incrémental, projet modifié puis supprimé, `.csproj` illisible, source sans `.csproj`).

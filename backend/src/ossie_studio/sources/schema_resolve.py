@@ -24,6 +24,10 @@ on ne lie que s'il reste un seul candidat — sinon on ne devine pas :
    proche au plus lointain, puis ceux importés par son fichier (`x-usings`).
 La carte des projets se lit dans les fichiers du dépôt au moment de la collecte
 (elle n'est pas persistée) ; sans `.csproj`, seuls les namespaces départagent.
+
+**Une seule lecture des `.csproj`** : la même carte décrit aussi chaque projet
+(SDK, type de sortie, cibles, projet de test, références) pour les objets module
+de la cartographie applicative (ticket e0fa8519, `sources/csharp_modules.py`).
 """
 
 from __future__ import annotations
@@ -55,17 +59,56 @@ def is_schema_path(path: str) -> bool:
 
 # --- Carte des projets C# ---------------------------------------------------------
 
-# Expression plutôt qu'analyseur XML : on ne lit qu'un attribut, et un analyseur
-# XML sur un fichier du dépôt ouvrirait la porte aux entités externes.
+# Expressions plutôt qu'analyseur XML : on ne lit que quelques attributs et
+# éléments, et un analyseur XML sur un fichier du dépôt ouvrirait la porte aux
+# entités externes.
 _PROJECT_REF = re.compile(r"<ProjectReference\s+Include\s*=\s*\"([^\"]+)\"", re.IGNORECASE)
+_PROJECT_ROOT = re.compile(r"<Project\b", re.IGNORECASE)
+_PROJECT_SDK = re.compile(r"<Project\b[^>]*?\bSdk\s*=\s*\"([^\"]+)\"", re.IGNORECASE)
+_PACKAGE_REF = re.compile(r"<PackageReference\s+Include\s*=\s*\"([^\"]+)\"", re.IGNORECASE)
+
+
+def _element(name: str) -> re.Pattern[str]:
+    return re.compile(rf"<{name}>\s*([^<]*?)\s*</{name}>", re.IGNORECASE)
+
+
+_OUTPUT_TYPE = _element("OutputType")
+_TARGET = _element("TargetFramework")
+_TARGETS = _element("TargetFrameworks")
+_IS_TEST = _element("IsTestProject")
+# Paquets qui font d'un projet un projet de test.
+_TEST_PACKAGES = ("microsoft.net.test.sdk", "xunit", "nunit", "mstest")
+
+
+@dataclass(frozen=True)
+class CsProject:
+    """Ce qu'on lit d'un `.csproj` : de quoi en faire un objet module.
+    `references` : chemins des projets référencés, normalisés depuis la racine
+    du dépôt (un chemin qui sort du dépôt commence par `..`). `error` : le
+    projet est illisible (rien d'autre n'est alors renseigné)."""
+
+    path: str
+    sdk: str = ""
+    output_type: str = ""
+    targets: tuple[str, ...] = ()
+    test: bool = False
+    references: tuple[str, ...] = ()
+    error: str = ""
+
+    @property
+    def name(self) -> str:
+        base = posixpath.basename(self.path)
+        return base[: -len(".csproj")] if base.lower().endswith(".csproj") else base
 
 
 @dataclass
 class ProjectMap:
     """Projets `.csproj` d'une source : dossier du projet → dossiers des projets
-    qu'il référence. Vide si la source n'en a pas."""
+    qu'il référence (homonymes), et la description de chaque projet (modules).
+    Vide si la source n'en a pas."""
 
     refs: dict[str, set[str]] = field(default_factory=dict)
+    projects: dict[str, CsProject] = field(default_factory=dict)
 
     def project_of(self, file: str) -> str | None:
         """Le projet d'un fichier : le dossier de projet le plus profond qui le contient."""
@@ -87,22 +130,59 @@ class ProjectMap:
         return seen
 
 
+def _read_project(path: str, data: bytes) -> CsProject:
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return CsProject(path, error="csproj_unreadable")
+    if not _PROJECT_ROOT.search(text):
+        return CsProject(path, error="csproj_unreadable")
+    folder = posixpath.dirname(path)
+    references = sorted(
+        {
+            posixpath.normpath(posixpath.join(folder, include.replace("\\", "/")))
+            for include in _PROJECT_REF.findall(text)
+        }
+    )
+    sdk = _PROJECT_SDK.search(text)
+    output = _OUTPUT_TYPE.search(text)
+    single = _TARGET.search(text)
+    several = _TARGETS.search(text)
+    targets = [t.strip() for t in several.group(1).split(";")] if several else []
+    if single:
+        targets.append(single.group(1))
+    is_test = _IS_TEST.search(text)
+    packages = [p.lower() for p in _PACKAGE_REF.findall(text)]
+    test = bool(is_test and is_test.group(1).lower() == "true") or any(
+        p == name or p.startswith(f"{name}.") for p in packages for name in _TEST_PACKAGES
+    )
+    return CsProject(
+        path,
+        sdk=sdk.group(1).strip() if sdk else "",
+        output_type=output.group(1) if output else "",
+        targets=tuple(sorted({t for t in targets if t})),
+        test=test,
+        references=tuple(references),
+    )
+
+
 def read_project_map(source_files: dict[str, bytes]) -> ProjectMap:
     """Lit les `.csproj` des fichiers de la source ; un projet illisible compte
-    pour un projet sans référence (jamais d'échec de collecte)."""
+    pour un projet sans référence (jamais d'échec de collecte) et porte son
+    erreur, que la collecte signale."""
     refs: dict[str, set[str]] = {}
+    projects: dict[str, CsProject] = {}
     for path, data in source_files.items():
         if not path.lower().endswith(".csproj"):
             continue
-        folder = posixpath.dirname(path)
-        text = data.decode("utf-8", errors="replace")
-        targets: set[str] = set()
-        for include in _PROJECT_REF.findall(text):
-            target = posixpath.normpath(posixpath.join(folder, include.replace("\\", "/")))
-            if not target.startswith(".."):
-                targets.add(posixpath.dirname(target))
-        refs[folder] = targets
-    return ProjectMap(refs)
+        project = _read_project(path, data)
+        projects[path] = project
+        refs[posixpath.dirname(path)] = {
+            posixpath.dirname(target)
+            for target in project.references
+            if not target.startswith("..")
+        }
+    return ProjectMap(refs, projects)
 
 
 @dataclass(frozen=True)
@@ -144,7 +224,9 @@ class SchemaIndex:
                 data = load_schema(content)
             except (SchemaReadError, TypeError):
                 continue
-            if not isinstance(data, dict):
+            if not isinstance(data, dict) or data.get("x-kind") == "module":
+                # Un module n'est jamais la cible d'un type (un projet « Domain »
+                # ne doit pas répondre à une référence vers une classe Domain).
                 continue
             namespace = str(data.get("x-namespace") or "")
             project = self._project(path)
@@ -253,6 +335,7 @@ def resolve_source_schemas(
     writes: list[OutputAction],
     deletes: list[str],
     source_files: dict[str, bytes] | None = None,
+    projects: ProjectMap | None = None,
 ) -> tuple[list[OutputAction], int]:
     """Rejoue la résolution sur l'ensemble final des schémas de `raw/`.
 
@@ -275,7 +358,7 @@ def resolve_source_schemas(
     index = SchemaIndex(
         final,
         origins=_schema_origins(current, {a.path: a.content for a in writes}),
-        projects=read_project_map(source_files or {}),
+        projects=projects if projects is not None else read_project_map(source_files or {}),
     )
     counter = [0]
     rewritten: dict[str, str] = {}

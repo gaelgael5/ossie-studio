@@ -23,7 +23,8 @@ def _module(name: str, deps: list[str]) -> str:
         {
             "title": name,
             "x-kind": "module",
-            "x-language": "csharp",
+            # Pas « csharp » : les modules C# viennent des seuls `.csproj` de la source.
+            "x-language": "demo",
             "x-source": [{"file": f"src/{name}/{name}.csproj"}],
             "x-module": {
                 "project": f"src/{name}/{name}.csproj",
