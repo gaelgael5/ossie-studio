@@ -1655,6 +1655,10 @@ export const api = {
     params: Record<string, string>
     secret_slug: string
   }) => apiFetch<DbConnectionItem>('/api/db-connections', { method: 'POST', body: JSON.stringify(body) }),
+  listDbSchemas: (id: string, database: string) =>
+    apiFetch<{ schemas: { name: string; tables: number }[] }>(
+      `/api/db-connections/${id}/schemas?database=${encodeURIComponent(database)}`,
+    ),
   testDbConnection: (id: string) =>
     apiFetch<DbConnectionItem>(`/api/db-connections/${id}/test`, { method: 'POST' }),
   deleteDbConnection: (id: string, deleteSecret = false) =>

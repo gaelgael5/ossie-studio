@@ -12,6 +12,7 @@ import { Combobox } from '../components/Combobox'
 import { useWorkspace } from '../workspace'
 import { RawExplorer } from './RawExplorer'
 import { exclusionsOf, parseExclusionInput } from '../sourceExclusions'
+import { SchemaPicker } from '../components/SchemaPicker'
 import { TriRulesEditor, useTriRules } from '../components/TriRulesEditor'
 import { ClassBadges } from '../components/ClassBadges'
 
@@ -861,7 +862,7 @@ function SqlSourceModal({
   const slug = pair.finalSlug
   const [connectionId, setConnectionId] = useState('')
   const [database, setDatabase] = useState(String(p.database ?? ''))
-  const [schemas, setSchemas] = useState(asList(p.schemas).join(', '))
+  const [schemas, setSchemas] = useState<string[]>(asList(p.schemas).map(String))
   const [exclusions, setExclusions] = useState(asList(p.exclusions).join(', '))
   const [messages, setMessages] = useState<string[]>([])
   const tri = useTriRules(spaceId, branchId, source?.slug)
@@ -882,7 +883,7 @@ function SqlSourceModal({
   const connSlug = chosen?.slug ?? ''
   const parameters: Record<string, unknown> = {
     database,
-    ...(schemas.trim() ? { schemas: schemas.split(',').map((s) => s.trim()).filter(Boolean) } : {}),
+    ...(schemas.length > 0 ? { schemas } : {}),
     ...(exclusions.trim()
       ? { exclusions: exclusions.split(',').map((s) => s.trim()).filter(Boolean) }
       : {}),
@@ -974,7 +975,7 @@ function SqlSourceModal({
               <label className="field-label" htmlFor="s-schemas">
                 {t('fieldSchemas')}
               </label>
-              <input id="s-schemas" className="input" value={schemas} onChange={(e) => setSchemas(e.target.value)} />
+              <SchemaPicker connectionId={connectionId} database={database} value={schemas} onChange={setSchemas} />
             </div>
             <div className="field">
               <label className="field-label" htmlFor="s-excl">
