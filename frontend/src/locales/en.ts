@@ -248,6 +248,9 @@ export const en = {
     dbSecretLabel: 'Secret (password or key)',
     keyFileLabel: 'Private key file',
     passphraseLabel: 'Passphrase (optional)',
+    keyFileOptionalLabel: 'Private key file (optional)',
+    keyfilePasswordLabel: 'Or password / programmatic access token',
+    keyfilePasswordHelp: 'Without a key file, the connection uses this password or token (PAT). Key-pair remains the recommended method: Snowflake is phasing out password-only sign-in.',
     noConnections: 'No connection declared.',
     deleteConnectionConfirm: 'Delete this connection? Its token (secret) is deleted too.',
 

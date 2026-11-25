@@ -63,7 +63,11 @@ function DbEnginePopup({
     mutationFn: () =>
       api.createSecret(
         isKeyfile
-          ? { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, key_file: nsKeyFile, passphrase: nsPassphrase }
+          ? // Clé privée facultative (dc22b381) : sans fichier, la valeur saisie
+            // (mot de passe ou jeton d'accès programmatique) est envoyée à la place.
+            nsKeyFile
+            ? { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, key_file: nsKeyFile, passphrase: nsPassphrase }
+            : { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, value: nsValue }
           : { slug: ns.finalSlug, label: ns.label, category: spec.secret_category, value: nsValue },
       ),
     onSuccess: async () => {
@@ -162,7 +166,7 @@ function DbEnginePopup({
               <>
                 <div className="field">
                   <label className="field-label" htmlFor="db-ns-key">
-                    {t('keyFileLabel')}
+                    {t('keyFileOptionalLabel')}
                   </label>
                   <input id="db-ns-key" type="file" onChange={(e) => onKeyFile(e.target.files?.[0])} />
                 </div>
@@ -177,6 +181,20 @@ function DbEnginePopup({
                     value={nsPassphrase}
                     onChange={(e) => setNsPassphrase(e.target.value)}
                   />
+                </div>
+                <div className="field">
+                  <label className="field-label" htmlFor="db-ns-password">
+                    {t('keyfilePasswordLabel')}
+                  </label>
+                  <input
+                    id="db-ns-password"
+                    className="input"
+                    type="password"
+                    value={nsValue}
+                    disabled={!!nsKeyFile}
+                    onChange={(e) => setNsValue(e.target.value)}
+                  />
+                  <p className="field-hint">{t('keyfilePasswordHelp')}</p>
                 </div>
               </>
             ) : (
@@ -197,7 +215,7 @@ function DbEnginePopup({
               <button
                 type="button"
                 className="btn"
-                disabled={createSecret.isPending || !ns.finalSlug || (isKeyfile ? !nsKeyFile : !nsValue)}
+                disabled={createSecret.isPending || !ns.finalSlug || (isKeyfile ? !nsKeyFile && !nsValue : !nsValue)}
                 onClick={() => createSecret.mutate()}
               >
                 {t('createAndSelect')}

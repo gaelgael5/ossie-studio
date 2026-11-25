@@ -45,12 +45,17 @@ CryptoDep = Annotated[CryptoService, Depends(get_crypto)]
 
 def _opened_key_value(body: SecretCreate) -> str:
     """Valeur d'un secret « keyfile » : la clé privée ouverte. Le fichier arrive
-    en base64 ; la phrase de passe sert à l'ouvrir et n'est pas conservée."""
+    en base64 ; la phrase de passe sert à l'ouvrir et n'est pas conservée.
+    Le fichier est facultatif (dc22b381) : sans lui, la valeur saisie (mot de
+    passe ou jeton d'accès programmatique Snowflake) est stockée telle quelle, et
+    le moteur choisit la méthode d'authentification d'après la forme du secret."""
     from ossie_studio.databases.base import DbEngineError
     from ossie_studio.databases.keys import open_private_key
 
     if not body.key_file:
-        raise ApiError("invalid_request", status_code=400, fields=["key_file_required"])
+        if not body.value:
+            raise ApiError("invalid_request", status_code=400, fields=["key_file_required"])
+        return body.value
     try:
         pem = base64.b64decode(body.key_file, validate=True)
     except (binascii.Error, ValueError):
@@ -70,6 +75,7 @@ class SecretCreate(BaseModel):
     # Catégories « keyfile » (Snowflake) : la valeur vient d'un fichier de clé
     # privée (base64) et d'une phrase de passe facultative, ouverte ici — c'est
     # la clé ouverte qui est stockée, la phrase de passe n'est pas conservée.
+    # Sans fichier, `value` (mot de passe ou jeton) est stockée à la place.
     key_file: str = ""
     passphrase: str = ""
 

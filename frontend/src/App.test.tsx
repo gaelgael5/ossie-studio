@@ -161,7 +161,13 @@ test('forges : un jeton invalide affiche le message traduit', async () => {
   await userEvent.click(await screen.findByRole('button', { name: /Snowflake —/ }))
   const sfDialog = await screen.findByRole('dialog', { name: 'Nouvelle connexion Snowflake' })
   await userEvent.click(within(sfDialog).getByRole('button', { name: '+' }))
-  expect(within(sfDialog).getByLabelText('Fichier de clé privée')).toBeInTheDocument()
+  expect(within(sfDialog).getByLabelText('Fichier de clé privée (facultatif)')).toBeInTheDocument()
+  // Sans fichier de clé, un mot de passe (ou un jeton) suffit à créer le secret.
+  const create = within(sfDialog).getByRole('button', { name: 'Créer et sélectionner' })
+  await userEvent.type(within(sfDialog).getAllByLabelText('Libellé')[1], 'SF mdp')
+  expect(create).toBeDisabled()
+  await userEvent.type(within(sfDialog).getByLabelText("Ou mot de passe / jeton d'accès programmatique"), 'pw')
+  expect(create).toBeEnabled()
 })
 
 test('forges : une connexion se réédite, slug figé, valeurs reprises', async () => {

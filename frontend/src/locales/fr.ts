@@ -249,6 +249,9 @@ export const fr = {
     dbSecretLabel: 'Secret (mot de passe ou clé)',
     keyFileLabel: 'Fichier de clé privée',
     passphraseLabel: 'Phrase de passe (facultative)',
+    keyFileOptionalLabel: 'Fichier de clé privée (facultatif)',
+    keyfilePasswordLabel: 'Ou mot de passe / jeton d\'accès programmatique',
+    keyfilePasswordHelp: 'Sans fichier de clé, la connexion se fait avec ce mot de passe ou ce jeton (PAT). La paire de clés reste la méthode recommandée : Snowflake retire peu à peu le mot de passe seul.',
     noConnections: 'Aucune connexion déclarée.',
     deleteConnectionConfirm: 'Supprimer cette connexion ? Son jeton (secret) est aussi supprimé.',
 
