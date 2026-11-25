@@ -1,0 +1,54 @@
+# Catalogue des types ArchiMate 3.2 livré avec l'application (epic « Cartographie
+# — types et objets »). Format posé par l'enabler f8167ae1 ; contenu complété par
+# l'enabler 0e088eaa (tous les éléments et toutes les relations, définitions,
+# icônes, règles de relation).
+#
+# Pour chaque type ArchiMate (identifiant de la spécification) :
+#   kind        element | relation
+#   layer       couche (strategy, business, application, technology, physical,
+#               motivation, implementation, other) ; absent pour une relation
+#   label       libellé français (nom par défaut d'un nouveau type de l'espace)
+#   attributes  attributs propres au type, rangés dans `proprietes` d'un objet :
+#                 label   libellé français
+#                 type    string | boolean (défaut string)
+#                 values  valeurs ArchiMate (ce qui est stocké) → libellé français
+version: 1
+archimate: "3.2"
+types:
+  BusinessActor: {kind: element, layer: business, label: Acteur métier}
+  BusinessRole: {kind: element, layer: business, label: Rôle métier}
+  BusinessProcess: {kind: element, layer: business, label: Processus métier}
+  BusinessInteraction: {kind: element, layer: business, label: Interaction métier}
+  BusinessObject: {kind: element, layer: business, label: Objet métier}
+  ApplicationComponent: {kind: element, layer: application, label: Composant applicatif}
+  Junction:
+    kind: element
+    layer: other
+    label: Jonction
+    attributes:
+      jonction:
+        label: Type de jonction
+        values: {And: et, Or: ou}
+  Access:
+    kind: relation
+    label: Accès
+    attributes:
+      acces:
+        label: Sens de l'accès
+        values: {Access: non précisé, Read: lecture, Write: écriture, ReadWrite: lecture-écriture}
+  Association:
+    kind: relation
+    label: Association
+    attributes:
+      orientee:
+        label: Orientée
+        type: boolean
+  Influence:
+    kind: relation
+    label: Influence
+    attributes:
+      force:
+        label: Force
+  Assignment: {kind: relation, label: Affectation}
+  Composition: {kind: relation, label: Composition}
+  Flow: {kind: relation, label: Flux}
