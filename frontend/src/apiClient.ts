@@ -888,6 +888,8 @@ export interface CurationAssetProperty {
   description: string
   missing: boolean
   referentiel?: ReferentielLink | null
+  /** Description venue de la source (f578d601), affichée si rien n'est rédigé. */
+  source_description?: string
 }
 
 /** Lien d'une propriété d'asset vers une propriété de référentiel (ticket 8269c642). */
@@ -916,6 +918,7 @@ export interface LinkTarget {
 
 export interface CurationAssetDetail extends CurationAssetSummary {
   description: string
+  source_description?: string
   business_name: string
   properties: CurationAssetProperty[]
   governance: AssetGovernance

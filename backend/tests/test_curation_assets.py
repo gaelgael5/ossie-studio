@@ -208,3 +208,57 @@ async def test_classer_un_asset_et_ses_champs(sp: ApiSpace) -> None:
     invalid = await sp.client.get(f"{sp.base}/governance/classifications/invalid-values")
     assert invalid.status_code == 200, invalid.text
     assert invalid.json() == {"values": []}
+
+
+async def test_description_de_la_source_reprise_sans_etre_recopiee(sp: ApiSpace) -> None:
+    # Bug f578d601 : un objet documenté par sa source (commentaire SQL de
+    # DIM_ACCOUNT) était présenté comme non décrit une fois retenu.
+    files = _files()
+    files["sources/app/raw/account.schema.yaml"] = dump_schema(
+        {
+            "$id": "account.schema.yaml",
+            "title": "DIM_ACCOUNT",
+            "type": "object",
+            "x-kind": "view",
+            "description": "Comptes clients.",
+            "properties": {
+                "ACTIVATIONDATE": {
+                    "type": "string",
+                    "description": "Date when the account was activated",
+                },
+                "BACKUP": {"type": "string"},
+            },
+        }
+    )
+    forge_edit(sp, files)
+    cur = f"{sp.base}/sources/app/curation"
+    r = await sp.client.post(f"{cur}/retain", json={"path": "account.schema.yaml", "fields": None})
+    assert r.status_code == 200, r.text
+    api = f"{sp.base}/curation-assets"
+    account = next(
+        a for a in (await sp.client.get(api)).json()["assets"] if a["title"] == "DIM_ACCOUNT"
+    )
+    assert account["described"] is True
+    assert account["undescribed"] == 1  # BACKUP seul
+    detail = (
+        await sp.client.get(f"{api}/asset", params={"source": "app", "path": "account.schema.yaml"})
+    ).json()
+    assert detail["description"] == "" and detail["source_description"] == "Comptes clients."
+    props = {p["name"]: p for p in detail["properties"]}
+    assert props["ACTIVATIONDATE"]["description"] == ""
+    assert props["ACTIVATIONDATE"]["source_description"] == "Date when the account was activated"
+    # Rédiger une description la fait prévaloir, sans effacer celle de la source.
+    r = await sp.client.put(
+        f"{cur}/enrich",
+        json={
+            "path": "account.schema.yaml",
+            "fields": {"ACTIVATIONDATE": {"description": "Activation."}},
+        },
+    )
+    assert r.status_code == 200, r.text
+    detail = (
+        await sp.client.get(f"{api}/asset", params={"source": "app", "path": "account.schema.yaml"})
+    ).json()
+    props = {p["name"]: p for p in detail["properties"]}
+    assert props["ACTIVATIONDATE"]["description"] == "Activation."
+    assert props["ACTIVATIONDATE"]["source_description"] == "Date when the account was activated"

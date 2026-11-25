@@ -677,6 +677,15 @@ function PropertiesTable({
                       </>
                     ) : null}
                   </>
+                ) : p.source_description ? (
+                  // Description de la source (commentaire SQL…) : valeur par
+                  // défaut tant que rien n'est rédigé (f578d601).
+                  <>
+                    {excerpt(p.source_description)}{' '}
+                    <span className="badge" title={t('curationFromSourceHint')}>
+                      {t('curationFromSource')}
+                    </span>
+                  </>
                 ) : (
                   <span className="curation-todo">{t('curationToDescribeOne')}</span>
                 )}
@@ -714,16 +723,23 @@ function DescriptionTab({
   const { t } = useTranslation()
   return (
     <div className="panel stack">
-      {detail.description ? (
-        <Suspense fallback={<p className="muted">{t('loading')}</p>}>
-          <MarkdownEditor
-            key={detail.description}
-            initial={detail.description}
-            editable={false}
-            label={t('curationTab_description')}
-            onReady={() => undefined}
-          />
-        </Suspense>
+      {detail.description || detail.source_description ? (
+        <>
+          {!detail.description ? (
+            <span className="badge" title={t('curationFromSourceHint')}>
+              {t('curationFromSource')}
+            </span>
+          ) : null}
+          <Suspense fallback={<p className="muted">{t('loading')}</p>}>
+            <MarkdownEditor
+              key={detail.description || detail.source_description}
+              initial={detail.description || detail.source_description || ''}
+              editable={false}
+              label={t('curationTab_description')}
+              onReady={() => undefined}
+            />
+          </Suspense>
+        </>
       ) : (
         <p className="curation-todo">{t('curationToDescribeOne')}</p>
       )}
@@ -1157,6 +1173,10 @@ function RedactionDialog({
     field === null
       ? detail.description
       : (detail.properties.find((p) => p.name === field)?.description ?? '')
+  const sourceText =
+    field === null
+      ? detail.source_description ?? ''
+      : (detail.properties.find((p) => p.name === field)?.source_description ?? '')
   const save = useMutation({
     mutationFn: () => {
       const description = handle.current?.getMarkdown() ?? initial
@@ -1188,6 +1208,13 @@ function RedactionDialog({
           </button>
         </div>
         <ErrorList messages={save.error ? errorMessages(t, save.error) : []} />
+        {sourceText ? (
+          // La description de la source reste visible pendant la rédaction :
+          // ce qu'on écrit la remplacera à l'affichage, sans l'effacer.
+          <p className="info-note small">
+            <strong>{t('curationFromSourceLabel')}</strong> {sourceText}
+          </p>
+        ) : null}
         <Suspense fallback={<p className="muted">{t('loading')}</p>}>
           <MarkdownEditor
             initial={initial}
