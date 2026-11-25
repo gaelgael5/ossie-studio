@@ -88,7 +88,7 @@ function setup(url: string, options: { readonly?: boolean; capabilities?: string
       else if (path === BASE && method === 'GET')
         body = {
           readonly: options.readonly ?? false,
-          referentiels: [{ name: 'delais', title: 'Délais', key: ['pays', 'mode'], count: 412, unpublished: true }],
+          referentiels: [{ name: 'delais', title: 'Délais', key: ['pays', 'mode'], count: 412, unpublished: true }, { name: 'tarifs', title: 'Tarifs', key: ['code'], count: 3 }],
         }
       else if (path === BASE) body = { ...DETAIL, name: 'tarifs', title: 'Tarifs' }
       else if (path === `${BASE}/delais/modele/apercu`) body = PREVIEW
@@ -109,6 +109,7 @@ function setup(url: string, options: { readonly?: boolean; capabilities?: string
         <Routes>
           <Route path="/referentiels" element={<ReferentielsPage />} />
           <Route path="/referentiels/:name" element={<ReferentielsPage />} />
+          <Route path="/referentiels/:name/parametrage" element={<ReferentielsPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -140,7 +141,7 @@ describe('Référentiels — page et onglet Modèle (ticket 829a86a7)', () => {
   })
 
   it('bandeau de la clé, réordonnée, puis enregistrement', async () => {
-    const calls = setup('/referentiels/delais')
+    const calls = setup('/referentiels/delais/parametrage')
     expect(await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })).toBeInTheDocument()
     const bar = screen.getByRole('region', { name: 'Clé' })
     expect(within(bar).getAllByText('CLÉ')).toHaveLength(2)
@@ -154,7 +155,7 @@ describe('Référentiels — page et onglet Modèle (ticket 829a86a7)', () => {
   })
 
   it('une propriété de la clé ne se supprime pas depuis l’éditeur visuel', async () => {
-    setup('/referentiels/delais')
+    setup('/referentiels/delais/parametrage')
     await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })
     visualChange.current = (m) => {
       const properties = { ...(m.properties as Record<string, unknown>) }
@@ -169,7 +170,7 @@ describe('Référentiels — page et onglet Modèle (ticket 829a86a7)', () => {
   })
 
   it('aperçu de l’effet sur les valeurs avant d’enregistrer', async () => {
-    const calls = setup('/referentiels/delais')
+    const calls = setup('/referentiels/delais/parametrage')
     await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })
     visualChange.current = (m) => {
       const properties = { ...(m.properties as Record<string, unknown>) }
@@ -183,7 +184,7 @@ describe('Référentiels — page et onglet Modèle (ticket 829a86a7)', () => {
   })
 
   it('YAML illisible : signalé, saisie gardée, enregistrement bloqué', async () => {
-    setup('/referentiels/delais')
+    setup('/referentiels/delais/parametrage')
     await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })
     const yaml = screen.getByLabelText('YAML') as HTMLTextAreaElement
     const user = userEvent.setup()
@@ -195,33 +196,59 @@ describe('Référentiels — page et onglet Modèle (ticket 829a86a7)', () => {
   })
 
   it('lecture seule : ni création ni enregistrement', async () => {
-    setup('/referentiels/delais', { readonly: true })
+    setup('/referentiels/delais/parametrage', { readonly: true })
     expect(await screen.findByText('lecture seule')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '+ Nouveau référentiel' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
   })
 
   it('sans le droit de modifier : consultation seule', async () => {
-    setup('/referentiels/delais', { capabilities: ['referentiels:read'] })
+    setup('/referentiels/delais/parametrage', { capabilities: ['referentiels:read'] })
     await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })
     expect(screen.queryByRole('button', { name: '+ Nouveau référentiel' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Modifier la clé' })).not.toBeInTheDocument()
   })
 
   it('onglet Historique : les commits publiés', async () => {
-    setup('/referentiels/delais')
+    setup('/referentiels/delais/parametrage')
     const user = userEvent.setup()
     await user.click(await screen.findByRole('tab', { name: 'Historique' }))
     expect(await screen.findByText('référentiel : crée delais')).toBeInTheDocument()
     expect(screen.getByText('abcdef123456')).toBeInTheDocument()
   })
 
-  it('onglet Valeurs : compteur d’erreurs sur l’onglet', async () => {
+  it('valeurs à l’ouverture : compteur d’erreurs, aucun onglet de paramétrage', async () => {
     setup('/referentiels/delais')
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('tab', { name: 'Valeurs' }))
-    expect(await screen.findByLabelText('1 erreur')).toHaveTextContent('1')
-    expect(await screen.findByText('erreur')).toBeInTheDocument()
+    expect(await screen.findByText('1 erreur')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Modèle' })).not.toBeInTheDocument()
   })
 })
 
+describe('Référentiels — liste filtrable, valeurs et paramétrage (ticket aa65d9aa)', () => {
+  it('le filtre garde les référentiels dont le libellé ou le nom correspond, sans casse ni accents', async () => {
+    setup('/referentiels')
+    await screen.findByText('Délais')
+    const user = userEvent.setup()
+    await user.type(screen.getByRole('searchbox', { name: 'Filtrer les référentiels' }), 'DELAI')
+    expect(screen.getByText('Délais')).toBeInTheDocument()
+    expect(screen.queryByText('Tarifs')).not.toBeInTheDocument()
+    await user.clear(screen.getByRole('searchbox'))
+    await user.type(screen.getByRole('searchbox'), 'zzz')
+    expect(screen.getByText('Aucun référentiel ne correspond.')).toBeInTheDocument()
+  })
+
+  it('le crayon ouvre le paramétrage, « ← Valeurs » revient aux valeurs', async () => {
+    setup('/referentiels/delais')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('link', { name: 'Paramétrer Délais' }))
+    expect(await screen.findByRole('tab', { name: 'Modèle' })).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: '← Valeurs' }))
+    await waitFor(() => expect(screen.queryByRole('tab', { name: 'Modèle' })).not.toBeInTheDocument())
+  })
+
+  it('sans le droit de modifier : pas de crayon', async () => {
+    setup('/referentiels/delais', { capabilities: ['referentiels:read'] })
+    await screen.findByText('Délais')
+    expect(screen.queryByRole('link', { name: 'Paramétrer Délais' })).not.toBeInTheDocument()
+  })
+})

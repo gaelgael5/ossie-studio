@@ -198,7 +198,7 @@ def test_fichier_sans_type_ne_produit_rien() -> None:
 
 
 def test_version_inclut_la_grammaire() -> None:
-    assert TypeScriptParser().version.startswith("1.1-ts")
+    assert TypeScriptParser().version.startswith("1.2-ts")
 
 
 def test_module_comme_espace_de_noms() -> None:

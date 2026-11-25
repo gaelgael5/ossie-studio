@@ -9,6 +9,10 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 ## Décisions de Gael (25 novembre)
 
 - PR [gaelgael5/ossie-studio#5](https://github.com/gaelgael5/ossie-studio/pull/5) ouverte vers `dev` à la demande de Gael (8 tickets + trois défauts venus de `dev` corrigés) ; la suite (Kotlin / Java) se fait sur la branche **`feature/cartographie-kotlin-java`** pour ne pas modifier la PR en cours.
+- PR #5 fusionnée par Gael (8 tickets sur `dev`, vérifié). Kotlin / Java, TypeScript et Python restent sur `feature/cartographie-kotlin-java` jusqu'à la prochaine PR.
+- Règle « un module seulement si le parseur du langage est choisi » validée (« 1. oui »), y compris pour C#.
+- Python (3343afe4) : objet pour toute classe publique qui a des méthodes publiques, validé (« 2. oui go »).
+- Plan du ticket TypeScript (f619f4a7) validé (« oui go », puis « continue les dev ») ; limite acceptée : le préfixe d'un `app.use('/api', router)` posé dans un autre fichier n'est pas recomposé.
 - Plan du ticket Kotlin / Java (e34e5c29) validé (« oui go »), agrégateurs exclus des modules.
 - Plan du ticket 7 (déplacer les ancres, a1fd0663) validé (« continue ») avec deux ajustements proposés : (1) les poignées s'affichent pour qui a `sources:collect`, quelle que soit la branche — le critère 6 « branche racine en lecture seule » est dépassé par la règle du bug e7deb2b9 (on écrit dans le brouillon de la personne, racine comprise) ; (2) « remettre l'ancre calculée » remet l'entrée à `auto` aux deux bouts au lieu de la supprimer (sinon la collecte la recréerait et le critère 3 tomberait).
 - Plan du ticket 5 (projet SQL Server comme module) validé (« oui go ») ; une procédure mal formée est signalée **dans le compte rendu de collecte et dans le journal** (« 1. oui »).
@@ -33,7 +37,8 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | a1fd0663 — Déplacer les ancres des connecteurs (`.view`) | En review |
 | 72ce32b3 — Primitives MCP : modules, fonctions, points d'entrée | En review |
 | e34e5c29 — Kotlin / Java | En review (branche `feature/cartographie-kotlin-java`) |
-| f619f4a7 / 3343afe4 — TypeScript / Python | Prêt pour dev |
+| f619f4a7 — TypeScript | En review (branche `feature/cartographie-kotlin-java`) |
+| 3343afe4 — Python | En review (branche `feature/cartographie-kotlin-java`) |
 | 3191b4a4 — Clôture (avec Gael, jamais seul) | — |
 
 Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les autres langages à la suite.
@@ -121,3 +126,19 @@ Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les au
 - Points d'entrée : `parsers/jvm_entrypoints.py` (fonctions pures : `Annotation` aux arguments tels qu'écrits, `literal`, `join_routes`, `entry_point`). `@RequestMapping` de méthode sans `method` non retenu (le format exige un verbe).
 - Le lien au contrat OpenAPI (ticket 4) s'applique sans changement aux routes Spring.
 - Tests : `backend/tests/test_jvm_cartography.py` (critères 1 à 4, racine avec code, build seul, fichier illisible et module disparu, Kotlin, Feign exclu, règles pures, collecte de bout en bout : modules, retour résolu dans un autre module, appartenance des classes, incrémental, sous-projet retiré).
+
+## Notes techniques (TypeScript, f619f4a7)
+
+- Écriture commune des modules tirés des fichiers de projet : `sources/project_modules.py` (`BuildProject`, `project_module_actions(…, owns)`) ; Gradle / Maven et npm l'utilisent (Python suivra).
+- Modules npm : `sources/npm_modules.py` (`read_npm_projects`, `npm_module_actions`), étape du socle après Gradle / Maven (`collect.py`).
+- Parseur `parsers/typescript.py` (version **1.2**) : `_methods` (décorateurs qui précèdent la méthode dans le corps de la classe ; JSDoc avant les décorateurs, `_member_doc`), `_class_decorators` (ceux de la classe et de son `export`), `_exported_functions`, `_routes` (`_created_routers` : variables créées par une fabrique de routeur), `file_functions`, `_functions_index` (comme la minimal API C#, empreinte par fichier).
+- Points d'entrée : `parsers/ts_entrypoints.py` (fonctions pures : `literal`, `normalize`, `join_routes`, `nest_entry_point`, `is_router`, `router_entry_point`).
+- **Règle (décidée en cours de ticket)** : un module de langage n'est produit que si le parseur de ce langage est choisi pour la source (`collect.py`, `selected`) ; retiré du choix, ses modules partent (l'étape tourne sans projet). Appliquée aux trois étapes C#, Kotlin / Java et npm (le `.sqlproj` l'était déjà par construction). Révélé par `test_openapi_repo` : un `package.json` d'une source C# + OpenAPI devenait un module.
+- Tests : `backend/tests/test_ts_cartography.py` (critères 1 à 4, paquet illisible, racine avec code, classe non exportée, règles pures, collecte de bout en bout : modules, fonctions du module, retour résolu dans un autre paquet, appartenance, incrémental, paquet retiré).
+
+## Notes techniques (Python, 3343afe4)
+
+- Modules : `sources/python_modules.py` (`read_python_projects`, `python_module_actions`, `canonical` PEP 503), étape du socle après npm, seulement si le parseur `python` est choisi ; `pyproject.toml` par `tomllib`, `setup.cfg` par `configparser`, `setup.py` par motifs (jamais exécuté).
+- Parseur `parsers/python.py` (version **1.2**) : objet pour toute classe publique à méthodes publiques (test `test_classe_sans_attribut_annote_ne_produit_rien` adapté : sans méthode publique, toujours rien) ; `_methods`, `_definitions`, `_parse_decorator`, `_routers` (applications et routeurs créés au niveau du module), `file_functions`, `_functions_index`.
+- Points d'entrée : `parsers/py_entrypoints.py` (fonctions pures : `literal`, `normalize`, `join_routes`, `router_from_call`, `entry_points`).
+- Tests : `backend/tests/test_py_cartography.py` (critères 1 à 4, setup.cfg / setup.py / agrégateur / fichier illisible, Flask, Celery liée, `cache.get` ignoré, classe interne, règles pures, collecte de bout en bout).

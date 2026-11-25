@@ -34,25 +34,19 @@ import posixpath
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
 from xml.etree.ElementTree import Element, ParseError
 
 from defusedxml import ElementTree as DefusedET  # type: ignore[import-untyped]
 
-from ossie_studio.parsers.application import MODULE_KEY, is_module, module_key, module_schema
-from ossie_studio.parsers.base import STATUT_ERREUR, STATUT_INCHANGE, STATUT_TRAITE, OutputAction
-from ossie_studio.parsers.conventions import (
-    SchemaReadError,
-    dump_schema,
-    is_schema_name,
-    load_schema,
-    schema_file,
-    validate_schema,
-)
+from ossie_studio.parsers.base import OutputAction
 from ossie_studio.sources.csharp_modules import ModuleStep
+from ossie_studio.sources.project_modules import (
+    UNREADABLE,
+    BuildProject,
+    project_module_actions,
+)
 
 LANGUAGES = ("java", "kotlin")
-UNREADABLE = "build_file_unreadable"
 GRADLE_BUILDS = ("build.gradle.kts", "build.gradle")
 GRADLE_SETTINGS = ("settings.gradle.kts", "settings.gradle")
 POM = "pom.xml"
@@ -85,18 +79,8 @@ _GRADLE_TARGETS = (
 )
 
 
-@dataclass
-class JvmProject:
-    """Un projet Gradle ou Maven : son fichier de build (chemin depuis la racine
-    de la source), son nom, et ce qui fait son module."""
-
-    path: str
-    name: str = ""
-    language: str = "java"
-    nature: str = "library"
-    targets: list[str] = field(default_factory=list)
-    references: list[str] = field(default_factory=list)
-    error: str = ""
+# Un projet Gradle ou Maven (même forme pour tous les lecteurs de projets).
+JvmProject = BuildProject
 
 
 def _decode(raw: bytes) -> str | None:
@@ -343,21 +327,8 @@ def read_jvm_projects(files: Mapping[str, bytes]) -> dict[str, JvmProject]:
 # --- Actions --------------------------------------------------------------------------------
 
 
-def _is_build_file(path: str) -> bool:
-    return posixpath.basename(path) in (*GRADLE_BUILDS, POM)
-
-
-def _project_of_module(text: str) -> str | None:
-    """Le fichier de build d'un objet module Kotlin / Java de raw (None sinon)."""
-    try:
-        data: Any = load_schema(text)
-    except SchemaReadError:
-        return None
-    if not is_module(data) or data.get("x-language") not in LANGUAGES:
-        return None
-    meta = data.get(MODULE_KEY)
-    project = meta.get("project") if isinstance(meta, dict) else None
-    return project if isinstance(project, str) and _is_build_file(project) else None
+def _owns(language: str, project: str) -> bool:
+    return language in LANGUAGES and posixpath.basename(project) in (*GRADLE_BUILDS, POM)
 
 
 def jvm_module_actions(
@@ -368,44 +339,4 @@ def jvm_module_actions(
 ) -> ModuleStep:
     """`existing` : `raw/` avant la collecte ; `writes`/`deletes` : actions déjà
     décidées. Rend les actions complétées des objets module Kotlin / Java."""
-    removed = set(deletes)
-    step = ModuleStep(list(writes), list(deletes))
-    known = set(projects)
-    produced: set[str] = set()
-    for path, project in sorted(projects.items()):
-        if project.error:
-            step.statuses[path] = STATUT_ERREUR
-            step.errors[path] = project.error
-            continue
-        schema = module_schema(
-            project=path,
-            name=project.name,
-            language=project.language,
-            nature=project.nature,
-            targets=project.targets,
-            dependencies=project.references,
-            known_projects=known,
-        )
-        validate_schema(schema)
-        target = schema_file(module_key(path))
-        text = dump_schema(schema)
-        produced.add(target)
-        before = None if target in removed else existing.get(target)
-        if before == text:
-            step.statuses[path] = STATUT_INCHANGE
-            continue
-        step.writes.append(OutputAction(path=target, content=text))
-        step.statuses[path] = STATUT_TRAITE
-        if before is None:
-            step.added += 1
-        else:
-            step.modified += 1
-    for path, text in sorted(existing.items()):
-        if path in removed or path in produced or not is_schema_name(path):
-            continue
-        project_path = _project_of_module(text)
-        # Le module d'un fichier de build disparu part ; celui d'un fichier illisible reste.
-        if project_path is not None and project_path not in known:
-            step.deletes.append(path)
-            step.deleted += 1
-    return step
+    return project_module_actions(existing, writes, deletes, projects, _owns)

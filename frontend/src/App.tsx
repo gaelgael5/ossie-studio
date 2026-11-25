@@ -132,6 +132,7 @@ function AppRoutes() {
         <Route path="/historique" element={gate('audit:read', <HistoryPage />)} />
         <Route path="/referentiels" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/referentiels/:name" element={gate('referentiels:read', <ReferentielsPage />)} />
+        <Route path="/referentiels/:name/parametrage" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/domaines" element={gate('curation:read', <DomainsPage />)} />
         <Route path="/domaines/:name" element={gate('curation:read', <DomainPage />)} />
         <Route path="/secrets" element={gate('secrets:read', <SecretsPage />)} />

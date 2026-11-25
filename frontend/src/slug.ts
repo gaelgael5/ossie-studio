@@ -6,7 +6,8 @@
 
 export const SLUG_MAX_LENGTH = 64
 
-function asciiLower(value: string): string {
+/** Minuscules sans accents : sert aussi aux filtres de liste. */
+export function asciiLower(value: string): string {
   return value
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')

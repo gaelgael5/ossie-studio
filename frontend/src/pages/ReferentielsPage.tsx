@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
 import type { ReferentielDetail, ReferentielModelPreview } from '../apiClient'
 import { errorMessages } from '../errors'
@@ -11,6 +11,7 @@ import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
+import { asciiLower } from '../slug'
 import { UnsavedProvider, useDirty, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
 import SchemaEditor from '../referentiels/SchemaEditor'
 import { ValuesTab } from '../referentiels/ValuesTab'
@@ -31,8 +32,19 @@ import {
 // doit pouvoir gérer un objet JSON avec plusieurs propriétés » ; l'éditeur du modèle
 // est celui de Miles ; le menu vient juste après « Espaces ».
 
-type Tab = 'model' | 'values' | 'imports' | 'history'
-const TABS: Tab[] = ['model', 'values', 'imports', 'history']
+// Ticket aa65d9aa (Gael, 25/11) : un clic sur un référentiel ouvre ses VALEURS,
+// le travail courant ; le crayon de la ligne ouvre son PARAMÉTRAGE (modèle,
+// imports, historique), que l'on touche rarement. Chaque vue a son adresse
+// (`/referentiels/<nom>` et `…/parametrage`) : un rechargement ou un lien
+// partagé retombe au même endroit, et la garde de navigation des modifications
+// non enregistrées (useBlocker) couvre le passage de l'une à l'autre.
+type Tab = 'model' | 'imports' | 'history'
+const TABS: Tab[] = ['model', 'imports', 'history']
+const SETTINGS_SUFFIX = '/parametrage'
+
+function refPath(name: string, settings = false): string {
+  return `/referentiels/${encodeURIComponent(name)}${settings ? SETTINGS_SUFFIX : ''}`
+}
 
 function useBranch(): { spaceId: string; branchId: string } | null {
   const ws = useWorkspace()
@@ -56,6 +68,8 @@ export function ReferentielsPage() {
 function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: string }) {
   const { t } = useTranslation()
   const { name = '' } = useParams()
+  const settings = useLocation().pathname.endsWith(SETTINGS_SUFFIX)
+  const [filter, setFilter] = useState('')
   const session = useSession()
   const canWrite = sessionCapabilities(session.data).includes('referentiels:write')
   const [creating, setCreating] = useState(false)
@@ -63,8 +77,15 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
     queryKey: ['referentiels', spaceId, branchId],
     queryFn: () => api.listReferentiels(spaceId, branchId),
   })
-  const items = list.data?.referentiels ?? []
+  const all = list.data?.referentiels ?? []
   const readonly = list.data?.readonly ?? false
+  // Filtre sur le libellé et le nom technique, sans casse ni accents :
+  // « pays » trouve « Pays de livraison ».
+  const needle = asciiLower(filter.trim())
+  const items = needle
+    ? all.filter((r) => asciiLower(`${r.title ?? ''} ${r.name}`).includes(needle))
+    : all
+  const editable = canWrite && !readonly
   return (
     <UnsavedProvider>
     <main className="ref-layout">
@@ -72,20 +93,43 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
         <div className="row ref-list-head">
           <h1 className="page-title">{t('refTitle')}</h1>
         </div>
-        {canWrite && !readonly ? (
+        {editable ? (
           <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
             {t('refNew')}
           </button>
         ) : null}
         <ErrorList messages={list.error ? errorMessages(t, list.error) : []} />
         {list.isLoading ? <p className="muted">{t('loading')}</p> : null}
-        {list.data && items.length === 0 ? <p className="empty-note">{t('refEmpty')}</p> : null}
+        {all.length > 0 ? (
+          <input
+            type="search"
+            className="input ref-filter"
+            aria-label={t('refFilter')}
+            placeholder={t('refFilter')}
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        ) : null}
+        {list.data && all.length === 0 ? <p className="empty-note">{t('refEmpty')}</p> : null}
+        {all.length > 0 && items.length === 0 ? <p className="empty-note">{t('refFilterNone')}</p> : null}
         <ul className="plain-list">
           {items.map((r) => (
             <li key={r.name} className={r.name === name ? 'ref-item active' : 'ref-item'}>
-              <Link to={`/referentiels/${encodeURIComponent(r.name)}`} className="link-strong">
-                {r.title || r.name}
-              </Link>
+              <div className="ref-item-head">
+                <Link to={refPath(r.name)} className="link-strong">
+                  {r.title || r.name}
+                </Link>
+                {editable ? (
+                  <Link
+                    to={refPath(r.name, true)}
+                    className={`btn btn-sm ref-edit${r.name === name && settings ? ' active' : ''}`}
+                    aria-label={t('refEdit', { name: r.title || r.name })}
+                    title={t('refEdit', { name: r.title || r.name })}
+                  >
+                    {'✎'}
+                  </Link>
+                ) : null}
+              </div>
               <div className="muted mono small">{r.name}</div>
               <div className="muted small">
                 {r.error ? t(`errors.${r.error}`, { defaultValue: r.error }) : t('refValuesCount', { count: r.count ?? 0 })}
@@ -100,7 +144,14 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           <CreateDialog spaceId={spaceId} branchId={branchId} onClose={() => setCreating(false)} />
         ) : null}
         {name ? (
-          <ReferentielView key={name} spaceId={spaceId} branchId={branchId} name={name} canWrite={canWrite} />
+          <ReferentielView
+            key={name}
+            spaceId={spaceId}
+            branchId={branchId}
+            name={name}
+            canWrite={canWrite}
+            settings={settings}
+          />
         ) : (
           <div className="empty-note">{t('refSelect')}</div>
         )}
@@ -122,7 +173,9 @@ function CreateDialog({ spaceId, branchId, onClose }: { spaceId: string; branchI
       await queryClient.invalidateQueries({ queryKey: ['referentiels'] })
       await queryClient.invalidateQueries({ queryKey: ['draft'] })
       onClose()
-      navigate(`/referentiels/${encodeURIComponent(created.name)}`)
+      // Un référentiel neuf n'a encore ni modèle utile ni valeurs : on ouvre
+      // son paramétrage.
+      navigate(refPath(created.name, true))
     },
   })
   return (
@@ -169,26 +222,27 @@ function ReferentielView({
   branchId,
   name,
   canWrite,
+  settings,
 }: {
   spaceId: string
   branchId: string
   name: string
   canWrite: boolean
+  settings: boolean
 }) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>('model')
   // Les onglets modifiables restent montés une fois ouverts : leurs
   // modifications non enregistrées survivent à un changement d'onglet (bug
-  // 5a6b0213 ; seul l'onglet Valeurs le faisait).
+  // 5a6b0213).
   const [opened, setOpened] = useState<Set<Tab>>(() => new Set(['model']))
-  // Cmd+S / Ctrl+S : enregistre l'onglet affiché (le modèle sur l'onglet Modèle).
-  const prefixOf: Record<Tab, string> = { model: 'model', values: 'values', imports: 'import:', history: '' }
-  const tabRef = useRef(tab)
-  tabRef.current = tab
-  useSaveShortcut(() => prefixOf[tabRef.current])
+  // Cmd+S / Ctrl+S : enregistre la vue affichée (valeurs, ou l'onglet du paramétrage).
+  const prefixOf: Record<Tab, string> = { model: 'model', imports: 'import:', history: '' }
+  const current = useRef('')
+  current.current = settings ? prefixOf[tab] : 'values'
+  useSaveShortcut(() => current.current)
   const dirtyTab = {
     model: useDirty('model').length > 0,
-    values: useDirty('values').length > 0,
     imports: useDirty('import:').length > 0,
     history: false,
   }
@@ -198,13 +252,29 @@ function ReferentielView({
     queryFn: () => api.getReferentiel(spaceId, branchId, name),
   })
   const data = detail.data
+  const readOnly = !data || data.readonly || !canWrite
   return (
     <div className="stack">
       <div>
         <div className="breadcrumb">
-          {t('refTitle')} › {name}
+          {t('refTitle')} › {settings ? <Link to={refPath(name)}>{name}</Link> : name}
+          {settings ? ` › ${t('refSettings')}` : null}
         </div>
-        <h2 className="page-title">{data?.title ?? name}</h2>
+        <div className="row ref-view-head">
+          <h2 className="page-title">{data?.title ?? name}</h2>
+          {settings ? (
+            <Link to={refPath(name)} className="btn btn-sm">
+              {t('refBackToValues')}
+            </Link>
+          ) : canWrite && data && !data.readonly ? (
+            <Link to={refPath(name, true)} className="btn btn-sm">
+              {t('refSettingsOpen')}
+            </Link>
+          ) : null}
+          {!settings && valueErrors > 0 ? (
+            <span className="badge badge-danger">{t('refValuesErrors', { count: valueErrors })}</span>
+          ) : null}
+        </div>
         {data ? (
           <p className="muted mono small">
             {t('refModelPath', { path: data.model_path })}
@@ -213,64 +283,59 @@ function ReferentielView({
           </p>
         ) : null}
       </div>
-      <div className="tabs" role="tablist">
-        {TABS.map((key) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            className={`tab${tab === key ? ' active' : ''}`}
-            onClick={() => {
-              setTab(key)
-              setOpened((prev) => new Set(prev).add(key))
-            }}
-          >
-            {t(`refTab_${key}`)}
-            {dirtyTab[key] ? (
-              <span className="tab-dirty" title={t('unsavedTabHint')} aria-label={t('unsavedTabHint')}>
-                {'●'}
-              </span>
-            ) : null}
-            {key === 'values' && valueErrors > 0 ? (
-              <span className="tab-count badge-danger" aria-label={t('refValuesErrors', { count: valueErrors })}>
-                {valueErrors}
-              </span>
-            ) : null}
-          </button>
-        ))}
-      </div>
+      {settings ? (
+        <div className="tabs" role="tablist">
+          {TABS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              className={`tab${tab === key ? ' active' : ''}`}
+              onClick={() => {
+                setTab(key)
+                setOpened((prev) => new Set(prev).add(key))
+              }}
+            >
+              {t(`refTab_${key}`)}
+              {dirtyTab[key] ? (
+                <span className="tab-dirty" title={t('unsavedTabHint')} aria-label={t('unsavedTabHint')}>
+                  {'●'}
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <ErrorList messages={detail.error ? errorMessages(t, detail.error) : []} />
       {detail.isLoading ? <p className="muted">{t('loading')}</p> : null}
-      {data && opened.has('model') ? (
+      {data && !settings ? (
+        <ValuesTab
+          spaceId={spaceId}
+          branchId={branchId}
+          name={name}
+          model={data.model as RefModel}
+          readOnly={readOnly}
+          onErrorCount={setValueErrors}
+        />
+      ) : null}
+      {data && settings && opened.has('model') ? (
         <div hidden={tab !== 'model'}>
           <ModelTab
             key={`${name}:${data.model_yaml}`}
             spaceId={spaceId}
             branchId={branchId}
             detail={data}
-            readOnly={data.readonly || !canWrite}
+            readOnly={readOnly}
           />
         </div>
       ) : null}
-      {data && opened.has('values') ? (
-        <div hidden={tab !== 'values'}>
-          <ValuesTab
-            spaceId={spaceId}
-            branchId={branchId}
-            name={name}
-            model={data.model as RefModel}
-            readOnly={data.readonly || !canWrite}
-            onErrorCount={setValueErrors}
-          />
-        </div>
-      ) : null}
-      {data && opened.has('imports') ? (
+      {data && settings && opened.has('imports') ? (
         <div hidden={tab !== 'imports'}>
-          <ImportsTab spaceId={spaceId} branchId={branchId} name={name} readOnly={data.readonly || !canWrite} />
+          <ImportsTab spaceId={spaceId} branchId={branchId} name={name} readOnly={readOnly} />
         </div>
       ) : null}
-      {tab === 'history' ? <HistoryTab spaceId={spaceId} branchId={branchId} name={name} /> : null}
+      {settings && tab === 'history' ? <HistoryTab spaceId={spaceId} branchId={branchId} name={name} /> : null}
     </div>
   )
 }
