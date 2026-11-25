@@ -35,6 +35,13 @@ class ReferentielTarget:
             self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token, fn
         )
 
+    async def signature(self, prefix: str) -> tuple[str, list[str]]:
+        """Empreinte de ce que la lecture verrait sous `prefix`, et chemins du
+        brouillon sous ce préfixe (voir `DraftWorkdir.prefix_signature`)."""
+        return await self.workdir.prefix_signature(
+            self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token, prefix
+        )
+
     async def write[T](self, intent: str, fn: Callable[[Path], T]) -> tuple[T, str | None]:
         """Applique `fn` dans le brouillon de la personne ; rend ce qu'elle rend
         et la révision du brouillon (None si rien n'a changé). Tout refus de

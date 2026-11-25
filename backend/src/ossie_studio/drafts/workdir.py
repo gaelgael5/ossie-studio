@@ -8,6 +8,7 @@ personne, jamais dans un commit."""
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import uuid
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -149,6 +150,46 @@ class DraftWorkdir:
         # L'identifiant du brouillon en plus de sa révision : un brouillon publié
         # puis recréé repart à une révision déjà vue.
         return "merged", f"{head}:{draft.id}:{draft.revision}"
+
+    async def prefix_signature(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        prefix: str,
+    ) -> tuple[str, list[str]]:
+        """Empreinte de ce qu'une lecture verrait sous `prefix`, et les chemins du
+        brouillon sous ce préfixe (ticket 0373780f, index de la liste des référentiels).
+
+        Plus fine que `view_signature` : celle-ci change à chaque révision du
+        brouillon, donc à chaque collecte de source ou tag posé, alors que la liste
+        des référentiels ne dépend que de `referentiels/`. Ici : la tête publiée
+        (fetch limité dans le temps) et l'empreinte des seuls objets du brouillon
+        sous le préfixe, calculée par la base (`md5`) sans rapatrier les contenus.
+        Les chemins sont rendus quel que soit le mode : « non publié » se lit
+        toujours sur le brouillon, même en vue publiée."""
+        head = await self._manager.published_head(space_id, slug, repo_url, username, token)
+        async with self._db() as conn:
+            draft = await db_get_draft(conn, self.user_id, self.branch_id)
+            rows = (
+                []
+                if draft is None
+                else await conn.fetch(
+                    "SELECT path, md5(content) AS digest FROM draft_objects "
+                    "WHERE draft_id = $1 AND starts_with(path, $2) ORDER BY path",
+                    draft.id,
+                    prefix,
+                )
+            )
+        paths = [r["path"] for r in rows]
+        if self.published_only:
+            return f"published:{head}", paths
+        digest = hashlib.sha256(
+            "\n".join(f"{r['path']} {r['digest'] or '-'}" for r in rows).encode()
+        ).hexdigest()
+        return f"merged:{head}:{digest}", paths
 
     async def read_file(
         self,

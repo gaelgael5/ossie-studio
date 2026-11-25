@@ -258,3 +258,97 @@ async def test_historique_et_journal_d_audit(space: ApiSpace) -> None:
     # Valeurs publiées relues telles quelles.
     raw = forge_read(space, values_path("delais"))
     assert raw is not None and len(json.loads(raw)) == 3
+
+
+# --- Ticket 0373780f : liste indexée --------------------------------------------------------
+
+
+async def test_liste_indexee_relue_sans_relire_la_branche(
+    space: ApiSpace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La liste est rendue de l'index tant que ni la tête publiée ni `referentiels/`
+    dans le brouillon ne bougent ; toute modification s'y voit aussitôt."""
+    from ossie_studio.referentiels import published
+    from ossie_studio.spaces.workdir import WorkdirManager
+
+    monkeypatch.setattr(WorkdirManager, "HEAD_FETCH_MIN_SECONDS", 0.0)
+    reads = 0
+    real = published.summaries
+
+    def counted(root: Path) -> list[dict[str, Any]]:
+        nonlocal reads
+        reads += 1
+        return real(root)
+
+    monkeypatch.setattr(published, "summaries", counted)
+    _publish(space)
+    first = (await space.client.get(_url(space))).json()["referentiels"]
+    second = (await space.client.get(_url(space))).json()["referentiels"]
+    assert first == second
+    assert [(r["name"], r["unpublished"]) for r in first] == [("delais", False)]
+    assert reads == 1
+
+    # Un référentiel créé dans le brouillon : visible tout de suite, « non publié ».
+    created = await space.client.post(_url(space), json={"label": "Pays", "slug": "pays"})
+    assert created.status_code == 201, created.text
+    listing = (await space.client.get(_url(space))).json()["referentiels"]
+    assert [(r["name"], r["unpublished"]) for r in listing] == [
+        ("delais", False),
+        ("pays", True),
+    ]
+    assert reads == 2
+
+    # Un référentiel modifié dans le brouillon : l'index est refait.
+    changed = await space.client.put(
+        _url(space, "/delais/modele"), json={"model": {**MODEL, "title": "Délais 2"}}
+    )
+    assert changed.status_code == 200, changed.text
+    titles = {
+        r["name"]: r["title"] for r in (await space.client.get(_url(space))).json()["referentiels"]
+    }
+    assert titles["delais"] == "Délais 2"
+    assert reads == 3
+
+    # Un commit sur la forge (autre contributeur) : la tête bouge, la liste suit.
+    forge_edit(space, {model_path("zones"): dump_model({**MODEL, "title": "Zones"})})
+    names = [r["name"] for r in (await space.client.get(_url(space))).json()["referentiels"]]
+    assert names == ["delais", "pays", "zones"]
+    assert reads == 4
+
+
+async def test_liste_indexee_insensible_au_reste_du_brouillon(
+    app: FastAPI, space: ApiSpace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ossie_studio.drafts.store import db_get_draft
+    from ossie_studio.referentiels import published
+
+    reads = 0
+    real = published.summaries
+
+    def counted(root: Path) -> list[dict[str, Any]]:
+        nonlocal reads
+        reads += 1
+        return real(root)
+
+    monkeypatch.setattr(published, "summaries", counted)
+    await space.client.post(_url(space), json={"label": "Pays", "slug": "pays"})
+    await space.client.get(_url(space))
+    assert reads == 1
+    # Un objet hors de `referentiels/` ajouté au brouillon (une collecte de source,
+    # un tag posé) : la révision du brouillon change, pas la liste.
+    async with app.state.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT user_id FROM drafts WHERE branch_id = $1", uuid.UUID(space.branch_id)
+        )
+        draft = await db_get_draft(conn, row["user_id"], uuid.UUID(space.branch_id))
+        assert draft is not None
+        await conn.execute(
+            "INSERT INTO draft_objects (draft_id, path, base_blob, content) "
+            "VALUES ($1, $2, NULL, $3)",
+            draft.id,
+            "raw/autre.schema.json",
+            b"{}",
+        )
+        await conn.execute("UPDATE drafts SET revision = revision + 1 WHERE id = $1", draft.id)
+    await space.client.get(_url(space))
+    assert reads == 1

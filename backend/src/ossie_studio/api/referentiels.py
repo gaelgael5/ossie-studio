@@ -14,6 +14,7 @@ comprise), sinon refus avec les problèmes. L'aperçu le dit avant d'enregistrer
 from __future__ import annotations
 
 import uuid
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,7 @@ from ossie_studio.api.branches import WorkdirDep, space_credentials
 from ossie_studio.api.common import ReferentielsRead, ReferentielsWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
 from ossie_studio.deps import ConnDep
-from ossie_studio.drafts.store import db_get_draft, db_list_objects
+from ossie_studio.drafts.store import db_get_draft, db_list_object_states
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.models import User
@@ -93,17 +94,31 @@ async def referentiel_target(
     return ReferentielTarget(workdir, space, branch.git_ref, username, token, user.email)
 
 
+def _touched(paths: list[str]) -> set[str]:
+    """Les référentiels dont un fichier est dans la liste de chemins."""
+    prefix = f"{REFERENTIELS_DIR}/"
+    return {p.split("/")[1] for p in paths if p.startswith(prefix) and p.count("/") >= 2}
+
+
 async def _unpublished(conn: ConnDep, workdir: DraftWorkdir, branch_id: uuid.UUID) -> set[str]:
-    """Les référentiels que le brouillon de la personne touche."""
+    """Les référentiels que le brouillon de la personne touche. Sur les seuls
+    chemins : charger les contenus coûtait des secondes sur un brouillon de
+    plusieurs milliers d'objets (ticket 0373780f)."""
     draft = await db_get_draft(conn, workdir.user_id, branch_id)
     if draft is None:
         return set()
-    prefix = f"{REFERENTIELS_DIR}/"
-    return {
-        o.path.split("/")[1]
-        for o in await db_list_objects(conn, draft.id)
-        if o.path.startswith(prefix) and o.path.count("/") >= 2
-    }
+    return _touched([path for path, _state in await db_list_object_states(conn, draft.id)])
+
+
+# Index de la liste (ticket 0373780f, Gael : « le chargement de la liste des
+# référentiels est assez long ; indexe-la »). Une lecture matérialise la vue du
+# brouillon (fetch, puis tout le brouillon chargé depuis la base) : 2 à 4 s sur
+# test1. La liste ne dépend que de la tête publiée et de `referentiels/` dans le
+# brouillon : tant que leur empreinte ne bouge pas, elle est rendue d'ici.
+# En mémoire et non en base : rien à migrer, et l'index se refait au premier appel
+# après un redémarrage. Borné : une entrée par (espace, branche, personne, vue).
+_LIST_INDEX: OrderedDict[tuple[object, ...], tuple[str, list[dict[str, Any]]]] = OrderedDict()
+LIST_INDEX_MAX = 256
 
 
 async def read_in[T](target: ReferentielTarget, fn: Any) -> T:
@@ -161,8 +176,22 @@ async def list_referentiels(
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
     target = await referentiel_target(conn, crypto, workdir, space_id, branch_id, user)
-    items: list[dict[str, Any]] = await read_in(target, published.summaries)
-    touched = await _unpublished(conn, workdir, branch_id)
+    try:
+        signature, draft_paths = await target.signature(f"{REFERENTIELS_DIR}/")
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    key = (space_id, branch_id, workdir.user_id, workdir.published_only)
+    cached = _LIST_INDEX.get(key)
+    if cached is not None and cached[0] == signature:
+        _LIST_INDEX.move_to_end(key)
+        items = cached[1]
+    else:
+        items = await read_in(target, published.summaries)
+        _LIST_INDEX[key] = (signature, items)
+        _LIST_INDEX.move_to_end(key)
+        while len(_LIST_INDEX) > LIST_INDEX_MAX:
+            _LIST_INDEX.popitem(last=False)
+    touched = _touched(draft_paths)
     return {
         "readonly": False,
         "referentiels": [{**item, "unpublished": item["name"] in touched} for item in items],
