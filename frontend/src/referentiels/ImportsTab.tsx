@@ -10,6 +10,7 @@ import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { ImportReport, shownCell, shownDate } from './ImportReport'
 import { ImportRunPanel } from './ImportRunPanel'
+import { isMac } from './jsltKeys'
 import { TemplateEditor } from './TemplateEditor'
 
 // Onglet Imports (ticket cda9c43a). Gael : « mets la liste des fichiers d'import sous
@@ -447,7 +448,7 @@ function ImportView({
             />
             <div className="row">
               <BusyButton type="button" className="btn" busy={run.isPending} busyText={t('refImportRunBusy')} onClick={() => run.mutate()}>
-                {t('refImportRun')}
+                {t('refImportRun', { keys: t(isMac() ? 'refImportRunKeysMac' : 'refImportRunKeys') })}
               </BusyButton>
               {!readOnly ? (
                 <BusyButton

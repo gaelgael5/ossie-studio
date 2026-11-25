@@ -33,7 +33,18 @@ function commanded(event: Shortcut): boolean {
  * un éditeur qu'on croit figé. Avec un modificateur, la frappe est délibérée.
  */
 export function runsOn(event: Shortcut): boolean {
-  return event.defaultPrevented !== true && commanded(event) && event.key === "F5";
+  // Entrée en plus de F5 (ticket 24397542, Gael : « Ctrl+F5 ne fonctionne pas sur
+  // Mac ») : sur Mac, F5 est une touche système sans Fn, et ⌘F5 est le raccourci de
+  // VoiceOver, pris par macOS avant le navigateur — aucune frappe n'atteint la page.
+  // ⌘/Ctrl+Entrée est le geste « exécuter » des éditeurs (notebooks, consoles SQL).
+  // Liste d'auto-complétion ouverte, l'éditeur prend Entrée et l'annule : la garde
+  // `defaultPrevented` évite d'exécuter en plus d'accepter la suggestion.
+  return event.defaultPrevented !== true && commanded(event) && (event.key === "F5" || event.key === "Enter");
+}
+
+/** Le raccourci d'exécution à afficher : « ⌘↩ » sur Mac, « Ctrl+Entrée » ailleurs. */
+export function isMac(): boolean {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 }
 
 /**

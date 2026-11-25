@@ -9,6 +9,15 @@ describe("runsOn", () => {
     expect(runsOn({ key: "F5", metaKey: true })).toBe(true);
   });
 
+  it("runs the template on Command+Enter and Ctrl+Enter (ticket 24397542)", () => {
+    // ⌘F5 n'arrive jamais à la page sur Mac (VoiceOver) : Entrée le remplace.
+    expect(runsOn({ key: "Enter", metaKey: true })).toBe(true);
+    expect(runsOn({ key: "Enter", ctrlKey: true })).toBe(true);
+    expect(runsOn({ key: "Enter" })).toBe(false);
+    // Suggestion ouverte : l'éditeur l'accepte et annule la frappe.
+    expect(runsOn({ key: "Enter", metaKey: true, defaultPrevented: true })).toBe(false);
+  });
+
   it("leaves a bare F5 to the browser", () => {
     // F5 seul recharge la page, dans tous les navigateurs. Le capturer privait d'un
     // geste réflexe exactement là où on en a le plus envie : un éditeur qui semble figé.
@@ -26,7 +35,7 @@ describe("runsOn", () => {
   });
 
   it("ignores every other key", () => {
-    for (const key of ["Tab", "Enter", "Escape", "ArrowDown", "a"]) {
+    for (const key of ["Tab", "Escape", "ArrowDown", "a"]) {
       expect(runsOn({ key, ctrlKey: true })).toBe(false);
     }
   });

@@ -75,7 +75,7 @@ export default function JsltEditor({
 }: {
   value: string;
   onChange: (value: string) => void;
-  /** Ctrl+F5 ou ⌘F5 : exécuter le template sans quitter le clavier. */
+  /** Ctrl/⌘+Entrée, ou Ctrl/⌘+F5 : exécuter le template sans quitter le clavier. */
   onRun?: () => void;
   /** Ctrl+point ou ⌘point : ouvrir le document source pour y prendre un chemin. */
   onOpenSource?: () => void;
