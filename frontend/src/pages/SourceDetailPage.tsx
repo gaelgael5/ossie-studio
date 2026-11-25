@@ -16,6 +16,8 @@ import { exclusionsOf } from '../sourceExclusions'
 import { SourceExclusions } from '../components/SourceExclusions'
 import { SourceContractsSearch } from '../components/SourceContractsSearch'
 
+const COLLECTABLE_TYPES = ['git', 'openapi', 'postgres', 'sqlserver', 'snowflake']
+
 const LINKABLE_TABS: string[] = ['overview', 'contrats', 'collectes', 'scan', 'manifeste']
 
 type Tab =
@@ -68,7 +70,9 @@ export function SourceDetailPage() {
   })
   const source = sources.data?.sources.find((s) => s.slug === slug)
   const isOpenapi = source?.type === 'openapi'
-  const collectable = source?.type === 'git' || isOpenapi
+  // Types que le serveur sait collecter (sources/manifest.py : git, OPENAPI_TYPE,
+  // DB_TYPES). Les bases en étaient absentes : leur bouton restait grisé (917102e5).
+  const collectable = !!source?.type && COLLECTABLE_TYPES.includes(source.type)
   const tabList: Tab[] = isOpenapi
     ? ['overview', 'contrats', 'collectes', 'scan', 'manifeste', 'raw']
     : ['overview', 'collectes', 'scan', 'manifeste', 'raw']
