@@ -803,7 +803,7 @@ export const fr = {
     assetsWord: 'assets',
     assetsPendingTitle: 'Disponible avec la Curation (assets).',
     navSpaces: 'Espaces',
-    navForgesGroup: 'Forges',
+    navCollectGroup: 'Collecte',
     navSources: 'Sources',
     navCuration: 'Curation',
     navGovernance: 'Gouvernance',

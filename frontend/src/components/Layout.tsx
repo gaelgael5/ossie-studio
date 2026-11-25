@@ -34,9 +34,9 @@ const MAIN_NAV: NavEntry[] = [
   { key: 'navSpaces', to: '/spaces', capability: 'spaces:read', prefix: '/spaces' },
   // Juste après « Espaces » (Gael, epic « Référentiels »).
   { key: 'navReferentiels', to: '/referentiels', capability: 'referentiels:read', prefix: '/referentiels' },
-  // Bloc « Forges » : les sources et leur curation (Gael).
+  // Bloc « Collecte » : les sources et leur curation (Gael).
   {
-    key: 'navForgesGroup',
+    key: 'navCollectGroup',
     items: [
       { key: 'navSources', to: '/sources', capability: 'sources:read', prefix: '/sources' },
       { key: 'navCuration', to: '/curation', capability: 'curation:read', prefix: '/curation' },
@@ -282,7 +282,7 @@ function AppNav({
   )
 }
 
-/** Un menu déroulant du menu principal (bloc « Forges », « Réglages ») : actif
+/** Un menu déroulant du menu principal (bloc « Collecte », « Réglages ») : actif
  * quand une de ses pages est ouverte ; se ferme au changement de page et au clic
  * en dehors. */
 function NavDropdown({

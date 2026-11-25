@@ -1047,12 +1047,12 @@ test('menu : « Référentiels » juste après « Espaces » (epic Référentiel
   // Entrées de premier niveau, dans l'ordre (liens et blocs déroulants).
   const labels = [...nav.querySelectorAll('.topnav-menu > .topnav-item, .topnav-menu > .topnav-dropdown > .topnav-item')]
     .map((el) => (el.textContent ?? '').replace(' ▾', ''))
-    .filter((text) => ['Espaces', 'Référentiels', 'Forges', 'Gouvernance'].includes(text))
-  expect(labels.slice(0, 3)).toEqual(['Espaces', 'Référentiels', 'Forges'])
+    .filter((text) => ['Espaces', 'Référentiels', 'Collecte', 'Gouvernance'].includes(text))
+  expect(labels.slice(0, 3)).toEqual(['Espaces', 'Référentiels', 'Collecte'])
   expect(labels).toContain('Gouvernance')
 })
 
-test('menu : « Sources » et « Curation » regroupés dans le bloc « Forges »', async () => {
+test('menu : « Sources » et « Curation » regroupés dans le bloc « Collecte »', async () => {
   await i18n.changeLanguage('fr')
   mockFetch({
     '/api/session': {
@@ -1066,11 +1066,12 @@ test('menu : « Sources » et « Curation » regroupés dans le bloc « Forges �
   })
   renderAt('/curation')
   const nav = await screen.findByRole('navigation', { name: 'Ossie Studio' })
-  const forges = await within(nav).findByRole('button', { name: /^Forges/ })
+  const collecte = await within(nav).findByRole('button', { name: /^Collecte/ })
   // Plus de lien direct au premier niveau ; le bloc est actif sur une de ses pages.
   expect(within(nav).queryByRole('link', { name: 'Sources' })).not.toBeInTheDocument()
-  expect(forges).toHaveClass('active')
-  await userEvent.setup().click(forges)
+  expect(collecte).toHaveClass('active')
+  // « Forges » reste l'entrée des Réglages (connexions aux forges).
+  await userEvent.setup().click(collecte)
   const menu = within(nav).getAllByRole('menu')[0]
   expect(within(menu).getAllByRole('menuitem').map((a) => a.textContent)).toEqual(['Sources', 'Curation'])
   expect(within(menu).getByRole('menuitem', { name: 'Sources' })).toHaveAttribute('href', '/sources')
