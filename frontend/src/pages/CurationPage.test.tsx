@@ -139,7 +139,11 @@ const DETAIL = {
   governance: GOVERNANCE,
 }
 
-function mockApi(capabilities: string[] = ['curation:read', 'curation:write'], assets = [SUMMARY, CLIENT]) {
+function mockApi(
+  capabilities: string[] = ['curation:read', 'curation:write'],
+  assets = [SUMMARY, CLIENT],
+  domains: unknown[] = [],
+) {
   const calls: { method: string; path: string; body?: string }[] = []
   vi.stubGlobal(
     'fetch',
@@ -154,6 +158,7 @@ function mockApi(capabilities: string[] = ['curation:read', 'curation:write'], a
           assets,
           schemes: [SCHEME],
         }
+      else if (path === `${BASE}/domains`) body = { domains }
       else if (path.startsWith(`${BASE}/curation-assets/asset/history`)) body = { commits: [] }
       else if (path.startsWith(`${BASE}/curation-assets/asset`)) {
         body = path.includes('client.schema.yaml')
@@ -349,6 +354,29 @@ describe('CurationPage', () => {
     renderPage('/curation?source=api-boutique&path=commande.schema.yaml&tab=governance')
     expect(await screen.findByText('par règle')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Retirer la valeur posée par règle/ })).not.toBeInTheDocument()
+  })
+
+  it('domaine qui référence des assets absents : signalé, filtre compris (bug 206d434c)', async () => {
+    const pudo = {
+      name: 'pudo-au-colis', label: 'Pudo au colis', description: '', consultable: 0, virtual: 3, warnings: [],
+      assets: [
+        { source: 'api-boutique', path: 'commande.schema.yaml' },
+        { source: 'colis-21', path: 'boxes.schema.yaml' },
+        { source: 'colis-21', path: 'carriersite.schema.yaml' },
+      ],
+    }
+    const other = { ...pudo, name: 'complet', label: 'Complet', assets: [{ source: 'api-boutique', path: 'commande.schema.yaml' }] }
+    mockApi(undefined, undefined, [pudo, other])
+    renderPage()
+    const banner = await screen.findByText('Pudo au colis : 2 assets référencés absents de la Curation')
+    const box = banner.closest('[role="status"]')!
+    expect(box).toHaveTextContent('colis-21 / boxes.schema.yaml')
+    expect(box).toHaveTextContent('colis-21 / carriersite.schema.yaml')
+    // Un domaine complet ne produit aucun bandeau.
+    expect(screen.queryByText(/^Complet :/)).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filtrer par domaine' }), 'pudo-au-colis')
+    expect(screen.getByText('Pudo au colis : 2 assets référencés absents de la Curation')).toBeInTheDocument()
   })
 
   it('filtre par niveau : un asset apparaît si l’un de ses niveaux (champs compris) correspond', async () => {
