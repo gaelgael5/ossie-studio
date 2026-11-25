@@ -76,8 +76,18 @@ def read_curation_view(
     return read_assets(workdir), read_schemes(workdir), read_targets(workdir)
 
 
+def source_description(node: dict[str, Any]) -> str:
+    """Description venue de la source (clé standard `description` du schéma :
+    commentaire SQL, description OpenAPI, doc du code). Ticket f578d601 : elle
+    sert de valeur par défaut, en lecture seule ; elle n'est jamais recopiée
+    dans `.extend.yaml`, pour que le standard reste non altéré et qu'une
+    nouvelle collecte la mette à jour d'elle-même."""
+    return str(node.get("description") or "").strip()
+
+
 def _described(node: dict[str, Any]) -> bool:
-    return bool(str(node.get("x-description") or "").strip())
+    # Décrit par une personne (`x-description`) OU par sa source.
+    return bool(str(node.get("x-description") or "").strip()) or bool(source_description(node))
 
 
 def _properties(asset: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -213,10 +223,12 @@ class AssetProperty:
     max_length: int | None
     ref: PropertyRef | None
     external: str  # type externe non résolu (référence sortante hors de l'espace)
-    description: str
+    description: str  # rédigée (x-description), "" sinon
     missing: bool  # retenu mais disparu du raw
     # Lien vers une propriété de référentiel (ticket 8269c642), None sinon.
     referentiel: dict[str, Any] | None = None
+    # Description de la source (f578d601), affichée quand rien n'est rédigé.
+    source_description: str = ""
 
 
 @dataclass(frozen=True)
@@ -225,6 +237,7 @@ class AssetView:
     description: str
     business_name: str
     properties: list[AssetProperty]
+    source_description: str = ""
 
 
 def _type_label(prop: dict[str, Any]) -> str:
@@ -286,6 +299,7 @@ def asset_view(
                 description=str(prop.get("x-description") or ""),
                 missing=raw_fields is not None and name not in raw_fields,
                 referentiel=asdict(links[name]) if name in links else None,
+                source_description=source_description(prop),
             )
         )
     return AssetView(
@@ -293,6 +307,7 @@ def asset_view(
         description=str(asset.get("x-description") or ""),
         business_name=str(asset.get("x-businessName") or ""),
         properties=props,
+        source_description=source_description(asset),
     )
 
 

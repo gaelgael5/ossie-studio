@@ -162,6 +162,7 @@ async def get_curation_asset(
     return {
         **_summary_payload(summarize({(source, path): asset}, graph, schemes, targets)[0]),
         "description": view.description,
+        "source_description": view.source_description,
         "business_name": view.business_name,
         "properties": [asdict(p) for p in view.properties],
         "governance": _classification_payload(asset, schemes, rule_values(graph, (source, path))),

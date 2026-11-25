@@ -16,7 +16,6 @@ Deux temps :
 
 from __future__ import annotations
 
-import fnmatch
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import replace
@@ -33,6 +32,7 @@ from ossie_studio.governance.tag_rules import (
     field_matches,
     name_matches,
     path_matches,
+    pattern_matches,
 )
 from ossie_studio.sources.explorer import ExplorerObject, ObjectTag, SourceEntries
 from ossie_studio.sources.explorer_detail import SpaceObjects
@@ -55,9 +55,14 @@ def _base_names(obj: ExplorerObject, titles: dict[ObjKey, str], space: SpaceObje
     return [n for n in names if n]
 
 
-def _match(rule: TagRule, obj: ExplorerObject, bases: list[str]) -> tuple[str, str] | None:
+def _match(
+    rule: TagRule, obj: ExplorerObject, bases: list[str], source_type: str = ""
+) -> tuple[str, str] | None:
     """(condition, valeur reconnue) si la règle s'applique à l'objet."""
-    if path_matches(obj.origin, rule.files) is None:
+    # `sources` et `files` se combinent en ET ; chacun absent ne filtre pas.
+    if rule.sources and source_type not in rule.sources:
+        return None
+    if rule.files and path_matches(obj.origin, rule.files) is None:
         return None
     hits: list[tuple[str, str]] = []
     for kind, patterns in rule.conditions.items():
@@ -75,7 +80,7 @@ def _match(rule: TagRule, obj: ExplorerObject, bases: list[str]) -> tuple[str, s
             # le même genre de donnée (proposition des jeux de règles validée).
             hit = next((f for f in obj.facts.field_names if field_matches(f, patterns)), None)
         elif kind == COND_KIND:
-            hit = obj.kind if any(fnmatch.fnmatchcase(obj.kind, p) for p in patterns) else None
+            hit = obj.kind if any(pattern_matches(obj.kind, p) for p in patterns) else None
         if hit is not None:
             hits.append((kind, hit))
         elif rule.match == MATCH_ALL:
@@ -107,6 +112,7 @@ def apply_tag_rules(
         (s.slug, o.file): o for s in source_list for o in s.objects
     }
     titles = {key: obj.title for key, obj in objects.items()}
+    source_types = {s.slug: s.type for s in source_list}
     bases = {key: _base_names(obj, titles, space) for key, obj in objects.items()}
 
     def is_removed(key: ObjKey, tag: str) -> bool:
@@ -126,7 +132,7 @@ def apply_tag_rules(
     transmitted: list[tuple[ObjKey, TagRule, str]] = []
     for rule in active:
         for key, obj in objects.items():
-            hit = _match(rule, obj, bases[key])
+            hit = _match(rule, obj, bases[key], source_types.get(key[0], ""))
             if hit is None:
                 continue
             for tag in rule.tags:

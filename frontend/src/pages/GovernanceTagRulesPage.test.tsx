@@ -58,7 +58,7 @@ function mockApi(capabilities: string[] = ['governance:read', 'governance:write'
       else if (method === 'PUT' && path.endsWith('/state')) body = { ...PROVIDED, created_tags: [] }
       else if (method === 'PUT' && path.includes('/governance/tag-rules/')) {
         const sent = JSON.parse(init?.body as string)
-        if (sent.files.length === 0) {
+        if (sent.files.length === 0 && !sent.sources?.length) {
           status = 400
           body = { error: 'tag_rule_invalid', error_args: { fields: ['tag_rule_files_invalid'] } }
         } else body = { ...CTRL, created_tags: ['technique/dto'] }
@@ -155,6 +155,28 @@ describe('GovernanceTagRulesPage', () => {
     await user.clear(screen.getByLabelText('Fichiers ciblés'))
     await user.click(screen.getByRole('button', { name: 'Enregistrer dans le brouillon' }))
     expect(await screen.findByText(/indiquez au moins un motif de fichiers/)).toBeInTheDocument()
+  })
+
+  it('règle sur les tables Snowflake : type de source coché, sans fichiers, motif /regex/ entier (39e009e0)', async () => {
+    const calls = mockApi()
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: '+ Nouvelle règle' }))
+    await user.type(screen.getByLabelText('Nom'), 'Datamart faits')
+    await user.clear(screen.getByLabelText('Fichiers ciblés'))
+    await user.click(screen.getByRole('checkbox', { name: 'snowflake' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Type de condition' }), 'name')
+    await user.type(screen.getByRole('textbox', { name: 'Valeurs (séparées par des virgules)' }), '/FACT_[[A-Z]{{2,}/')
+    await user.type(screen.getByLabelText('Tags posés'), 'datamart/fait')
+    await user.click(screen.getByRole('button', { name: 'Enregistrer dans le brouillon' }))
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT')).toBeTruthy())
+    // La virgule de {2,} ne coupe pas l’expression.
+    expect(JSON.parse(calls.find((c) => c.method === 'PUT')!.body!)).toMatchObject({
+      files: [],
+      sources: ['snowflake'],
+      when: { name: ['/FACT_[A-Z]{2,}/'] },
+      tags: ['datamart/fait'],
+    })
   })
 
   it('sans governance:write : lecture seule', async () => {

@@ -182,6 +182,20 @@ def test_snowflake_mot_de_passe_refuse_n_est_pas_une_cle_refusee() -> None:
     assert _map_error(None, slow).code == "db_login_timeout"
 
 
+def test_snowflake_base_inconnue_traduite() -> None:
+    # 89752930 : Snowflake ouvre la session puis la première requête échoue ;
+    # c'était une erreur 500 (« unknown » à l'écran).
+    from ossie_studio.databases.snowflake import _query_error
+
+    no_db = Exception(
+        "090105 (22000): Cannot perform SELECT. This session does not have a current database."
+    )
+    assert _query_error(no_db).code == "db_not_found"
+    denied = Exception("002003 (02000): Database 'X' does not exist or not authorized.")
+    assert _query_error(denied).code == "db_not_found"
+    assert _query_error(Exception("autre chose")).code == "db_query_failed"
+
+
 async def test_secret_verifie_a_la_creation(admin: AsyncClient, app: FastAPI) -> None:
     # 0d575422 : la popup éprouve la connexion avant d'enregistrer le secret.
     r = await admin.post(

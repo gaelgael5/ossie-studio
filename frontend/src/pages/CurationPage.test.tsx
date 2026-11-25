@@ -261,6 +261,34 @@ describe('CurationPage', () => {
     })
   })
 
+  it('description de la source : affichée « de la source » tant que rien n’est rédigé (bug f578d601)', async () => {
+    const detail = {
+      ...DETAIL,
+      source_description: 'Commandes passées sur la boutique.',
+      properties: DETAIL.properties.map((p) =>
+        p.name === 'CreeLe' ? { ...p, source_description: 'Date when the order was created' } : p,
+      ),
+    }
+    mockApi()
+    const base = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation((path, init) =>
+      String(path).startsWith(`${BASE}/curation-assets/asset?`)
+        ? Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(detail)) } as Response)
+        : base(path, init),
+    )
+    const user = userEvent.setup()
+    renderPage('/curation?source=api-boutique&path=commande.schema.yaml')
+    const table = await screen.findByRole('table')
+    expect(within(table).getByText('Date when the order was created')).toBeInTheDocument()
+    expect(within(table).getByText('de la source')).toBeInTheDocument()
+    expect(within(table).queryByText('— à décrire')).not.toBeInTheDocument()
+    // Rédiger part d’un texte vide, la description de la source restant visible.
+    await user.click(screen.getByRole('button', { name: 'Rédiger la description de CreeLe' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText('Date when the order was created')).toBeInTheDocument()
+    expect(await within(dialog).findByRole('textbox')).toHaveValue('')
+  })
+
   it('« Annuler » ferme sans rien écrire', async () => {
     const calls = mockApi()
     const user = userEvent.setup()

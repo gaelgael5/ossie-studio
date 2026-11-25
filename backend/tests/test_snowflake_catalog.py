@@ -134,3 +134,81 @@ def test_pipeline_complet_passe_le_validateur() -> None:
         "table": "APP.CLIENT", "column": "ID", "enforced": False,
     }
     assert schema["x-primary-key"] == ["ID"]
+
+
+# --- Tags Snowflake (6a8c1828) ------------------------------------------------
+
+def _tag(domain, tag, value, *, schema="", name="", column=None, tag_db="GOV", tag_schema="TAGS"):
+    return {
+        "tag_database": tag_db, "tag_schema": tag_schema, "tag_name": tag, "tag_value": value,
+        "domain": domain, "object_schema": schema, "object_name": name, "column_name": column,
+    }
+
+
+def _tagged_catalog(tags, **kw):
+    tables = [
+        {"schema": "APP", "name": "CLIENT", "table_type": "BASE TABLE"},
+        {"schema": "APP", "name": "V_CLIENT", "table_type": "VIEW"},
+        {"schema": "PRIVE", "name": "SECRET", "table_type": "BASE TABLE"},
+    ]
+    cols = [
+        _col("APP", "CLIENT", "EMAIL", "TEXT", 1),
+        _col("APP", "CLIENT", "NOM", "TEXT", 2),
+        _col("APP", "V_CLIENT", "EMAIL", "TEXT", 1),
+        _col("PRIVE", "SECRET", "X", "TEXT", 1),
+    ]
+    return _objects(build_catalog(tables=tables, columns=cols, tags=tags, **kw))
+
+
+def test_tags_objet_et_colonne() -> None:
+    objs = _tagged_catalog([
+        _tag("TABLE", "OWNER", "crm", schema="APP", name="CLIENT"),
+        _tag("COLUMN", "PRIVACY_CATEGORY", "IDENTIFIER", schema="APP", name="CLIENT",
+             column="EMAIL", tag_db="SNOWFLAKE", tag_schema="CORE"),
+    ])
+    client = objs["APP.CLIENT"]
+    assert client.extra["x-db-tags"] == {"GOV.TAGS.OWNER": "crm"}
+    cols = {c.name: c.schema for c in client.columns}
+    assert cols["EMAIL"]["x-db-tags"] == {"SNOWFLAKE.CORE.PRIVACY_CATEGORY": "IDENTIFIER"}
+    # Sans tag, aucune clé : les schémas existants ne bougent pas.
+    assert "x-db-tags" not in cols["NOM"]
+    assert "x-db-tags" not in objs["APP.V_CLIENT"].extra
+
+
+def test_tags_herites_de_la_base_et_du_schema_le_plus_proche_gagne() -> None:
+    objs = _tagged_catalog([
+        _tag("DATABASE", "ENV", "prod"),
+        _tag("SCHEMA", "DOMAINE", "client", name="APP"),
+        _tag("SCHEMA", "ENV", "recette", name="PRIVE"),
+        _tag("TABLE", "DOMAINE", "vue", schema="APP", name="V_CLIENT"),
+    ])
+    assert objs["APP.CLIENT"].extra["x-db-tags"] == {
+        "GOV.TAGS.DOMAINE": "client", "GOV.TAGS.ENV": "prod",
+    }
+    assert objs["APP.V_CLIENT"].extra["x-db-tags"]["GOV.TAGS.DOMAINE"] == "vue"
+    assert objs["PRIVE.SECRET"].extra["x-db-tags"] == {"GOV.TAGS.ENV": "recette"}
+
+
+def test_tags_schema_exclu_ignore_et_schema_raw_valide() -> None:
+    objs = _tagged_catalog(
+        [_tag("TABLE", "OWNER", "x", schema="PRIVE", name="SECRET"),
+         _tag("COLUMN", "PII", "oui", schema="APP", name="CLIENT", column="EMAIL")],
+        exclusions=["PRIVE"],
+    )
+    assert "PRIVE.SECRET" not in objs
+    files = {source_key(o): object_to_source(o) for o in objs.values()}
+    parsed = {o.key: load_schema(o.schema) for o in SqlExtractor("snowflake").parse(files)}
+    for schema in parsed.values():
+        validate_schema(schema)
+    client = next(s for k, s in parsed.items() if s["title"] == "CLIENT")
+    assert client["properties"]["EMAIL"]["x-db-tags"] == {"GOV.TAGS.PII": "oui"}
+
+
+def test_tags_droits_insuffisants_signales_sans_bloquer() -> None:
+    read = build_catalog(
+        tables=[{"schema": "APP", "name": "T", "table_type": "BASE TABLE"}],
+        columns=[_col("APP", "T", "A", "TEXT", 1)],
+        errors=[("tags", "insufficient_privilege")],
+    )
+    assert len(read.objects) == 1
+    assert ("tags", "insufficient_privilege") in read.errors
