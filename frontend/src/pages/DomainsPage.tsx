@@ -419,7 +419,7 @@ function DatasetRows({
 /** Étiquette d'un lien de référentiel sur un champ de dataset, en lecture seule. */
 function FieldLink({ link }: { link: NonNullable<DomainField['referentiel']> }) {
   const { t } = useTranslation()
-  const tone = link.status === 'ok' ? 'badge' : link.status === 'partial' ? 'badge badge-warn' : 'badge badge-danger'
+  const tone = link.status === 'ok' ? 'badge badge-ok' : link.status === 'partial' ? 'badge badge-warn' : 'badge badge-danger'
   const extra =
     link.status === 'partial'
       ? ` · ${t('linkKeyCount', { done: link.linked_keys, size: link.key_size })}`

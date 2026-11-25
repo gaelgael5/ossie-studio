@@ -3023,6 +3023,12 @@ td.cell-error {
   cursor: pointer;
   font: inherit;
 }
+/* Lien complet : `.badge` seul n'a pas de fond, le texte blanc disparaissait sur
+   le fond du bouton (relevé sur l'écran du domaine, ticket 80bb56af). */
+.badge-ok {
+  background: var(--primary);
+  color: var(--primary-fg);
+}
 .link-composite {
   border-color: var(--warn-fg);
   background: var(--warn-bg);
