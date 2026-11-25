@@ -2430,6 +2430,7 @@ export const fr = {
       db_role_not_found: 'Rôle Snowflake inexistant.',
       db_warehouse_not_found: 'Entrepôt Snowflake inexistant.',
       db_key_rejected: 'Clé privée refusée ou mauvaise phrase de passe.',
+      db_login_timeout: 'Le serveur n’a pas terminé la connexion à temps. Si le compte exige la double authentification (MFA), une notification attend d’être validée : utilisez plutôt un jeton d’accès programmatique (PAT) ou une paire de clés.',
       db_driver_unavailable: 'Pilote indisponible dans cet environnement (à éprouver avec une vraie instance).',
       space_name_taken: "Ce nom d'espace est déjà pris.",
       space_repo_taken: "Ce dépôt est déjà rattaché à l'espace « {{space}} ».",

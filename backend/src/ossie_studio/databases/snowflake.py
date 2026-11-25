@@ -372,6 +372,11 @@ class SnowflakeEngine(DatabaseEngine):
 
 def _map_error(connector: Any, exc: Exception, *, keypair: bool = True) -> DbEngineError:
     message = str(exc).lower()
+    if "login timed out" in message:
+        # Le serveur répond mais ne conclut pas : typiquement la MFA d'un compte
+        # humain, qui attend la validation d'une notification. « Hôte
+        # injoignable » ferait chercher du côté du réseau, à tort.
+        return DbEngineError("db_login_timeout")
     if "incorrect username or password" in message or "jwt" in message or "key" in message:
         # Le même refus se lit « clé refusée » ou « identifiants refusés » selon
         # la méthode employée : un mot de passe refusé n'a rien à voir avec une clé.

@@ -2425,6 +2425,7 @@ export const en = {
       db_role_not_found: 'Snowflake role does not exist.',
       db_warehouse_not_found: 'Snowflake warehouse does not exist.',
       db_key_rejected: 'Private key refused or wrong passphrase.',
+      db_login_timeout: 'The server did not complete the sign-in in time. If the account requires MFA, a notification is waiting for approval: use a programmatic access token (PAT) or a key pair instead.',
       db_driver_unavailable: 'Driver unavailable in this environment (to be tested with a real instance).',
       space_name_taken: 'This space name is already taken.',
       space_repo_taken: 'This repository is already attached to space “{{space}}”.',

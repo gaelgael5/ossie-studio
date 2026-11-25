@@ -177,6 +177,9 @@ def test_snowflake_mot_de_passe_refuse_n_est_pas_une_cle_refusee() -> None:
     exc = Exception("250001: Incorrect username or password was specified.")
     assert _map_error(None, exc, keypair=False).code == "db_auth_failed"
     assert _map_error(None, exc, keypair=True).code == "db_key_rejected"
+    # Login qui n'aboutit pas (MFA en attente) : pas « hôte injoignable ».
+    slow = Exception("000014 (HYT00): Failed to login: login timed out after 10s")
+    assert _map_error(None, slow).code == "db_login_timeout"
 
 
 async def test_secret_verifie_a_la_creation(admin: AsyncClient, app: FastAPI) -> None:

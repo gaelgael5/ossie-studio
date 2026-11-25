@@ -98,6 +98,7 @@ ERROR_CODES: tuple[str, ...] = (
     "db_role_not_found",
     "db_warehouse_not_found",
     "db_key_rejected",
+    "db_login_timeout",
     "db_driver_unavailable",
     "source_slug_taken",
     "source_not_found",
