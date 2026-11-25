@@ -801,6 +801,7 @@ export const en = {
     assetsWord: 'assets',
     assetsPendingTitle: 'Available with Curation (assets).',
     navSpaces: 'Spaces',
+    navForgesGroup: 'Forges',
     navSources: 'Sources',
     navCuration: 'Curation',
     navGovernance: 'Governance',
