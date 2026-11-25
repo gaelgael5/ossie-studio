@@ -8,6 +8,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 
 ## Décisions de Gael (25 novembre)
 
+- Plan du ticket 6 (vue « Application ») validé (« oui, vas-y »), y compris la rangée à part, en bas, pour les projets de test.
 - Plan du ticket 3 (méthodes et points d'entrée C#) validé (« oui, vas-y »).
 - Plan du ticket 2 (modules C#) : présenté ; Gael : « reprends la branche dev avant de démarrer » (démarrage validé).
 - Plan de l'enabler validé (« 1. oui … 3. ok 4. ok 5. ok ») : **module = un `<clé>.schema.yaml` avec `x-kind: module`**, `<clé>.extend.yaml` pour les fonctions, `<clé>.view.yaml` mis à jour par ajouts et suppressions, conventions + JSON Schema + tests.
@@ -22,7 +23,7 @@ Session : https://claude.ai/code/session_01D6wr1MCdA8afEP3yrTDG2D
 | f1cc03c4 — Méthodes publiques et points d'entrée C# | En review |
 | 90ed0967 — Relier les points d'entrée au contrat OpenAPI | Prêt pour dev |
 | 30c55418 — Projet SQL Server comme module | Prêt pour dev |
-| 0fa620be — Explorateur raw : objets module et vue « Application » | Prêt pour dev |
+| 0fa620be — Explorateur raw : objets module et vue « Application » | En review |
 | a1fd0663 — Déplacer les ancres des connecteurs (`.view`) | Prêt pour dev |
 | 72ce32b3 — Primitives MCP : modules, fonctions, points d'entrée | Prêt pour dev |
 | e34e5c29 / f619f4a7 / 3343afe4 — Kotlin-Java / TypeScript / Python | Prêt pour dev |
@@ -58,3 +59,11 @@ Ordre prévu par l'epic : 1, puis 2 et 3, puis 6 et 8 ; ensuite 4, 5, 7 ; les au
 - Moteur incrémental (`sources/collect_core.py`) : `ParsedObject.extend` écrit `<clé>.extend.yaml` à côté du schéma, suivi dans le manifeste ; une sortie qu'une source relue ne produit plus (classe retirée du fichier, classe sans méthode) est supprimée ; les compteurs ne comptent que les schémas.
 - Résolution (`schema_resolve.resolve_source_schemas`) : les types des `.extend.yaml` se résolvent comme les champs, dans le contexte de l'objet qui les porte.
 - Tests : `backend/tests/test_csharp_functions.py` (critères 1 à 7, collecte de bout en bout : retour résolu, fonctions du module, incrémental, suppressions).
+
+## Notes techniques (vue « Application » de l'Explorateur, 0fa620be)
+
+- Index de l'Explorateur (format **13**, reconstruit une fois) : `ExplorerObject.module` (`ModuleFacts` : projet, nature, langage, cibles, dépendances) et `ExplorerObject.functions` (`FunctionCounts` : méthodes publiques, points d'entrée, routes HTTP, fonctions libres, lus dans le `.extend.yaml`, avec cache par fichier). Un changement de `.extend.yaml` change la signature de raw, donc reconstruit l'index.
+- `sources/explorer_application.py` : `application_view` (modules, dépendances dans les deux sens, compteurs : classes rattachées par la règle du projet le plus proche — objets d'un projet SQL —, points d'entrée, routes HTTP, méthodes publiques ; contrats de la source) et `module_detail` (aperçu : points d'entrée avec propriétaire et état au contrat, `null` = non comparé tant que le ticket 4 n'est pas livré ; méthodes publiques par classe).
+- Routes : `GET …/raw-explorer/{source}/application` (sur l'index, sans relire la branche — c'est la base des primitives du ticket 8) et `GET …/raw-explorer/{source}/module?file=` (lit les `.extend.yaml` du module et de ses objets) ; `…/tree` rend aussi `modules` (fichier, titre, dossier) pour le menu de gauche. Droits : `sources:read`.
+- Écran : `pages/RawApplication.tsx` (disposition calculée `applicationLayout` : colonnes par plus long chemin de dépendances, ordre alphabétique, projets de test et contrats sur une rangée à part en bas ; SVG maison, zoom +/−/Ajuster ; clic sur un bloc → aperçu ; « n classes » → dossier du module dans le menu de gauche), `pages/RawModulePreview.tsx` (aperçu), `RawExplorer.tsx` (4ᵉ mode « Application », grisé sans module ; objets `MOD` dans l'arbre, dont le clic ouvre la vue centrée sur le module ; paramètres d'adresse `view=application&module=`).
+- Pas encore vérifié dans un vrai navigateur.

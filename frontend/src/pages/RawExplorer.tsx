@@ -19,6 +19,7 @@ import type {
   RawExplorerMode,
   RawExplorerSource,
   RawFolderItem,
+  RawTreeModule,
   RawObjectItem,
   RawTarget,
   SourceItem,
@@ -29,6 +30,8 @@ import { ErrorList } from '../components/ErrorList'
 import { BusyButton } from '../components/BusyButton'
 import { refreshRawQueries } from '../components/SourceExclusions'
 import { RawPreview, TagBadges, VisibilityBadge, isObjectSelection } from './RawPreview'
+import { RawApplication } from './RawApplication'
+import { RawModulePreview } from './RawModulePreview'
 import { RefMenu } from './RawRefMenu'
 import { RawGraph } from './RawGraph'
 import { RawDocumentPage, RawExclusive } from './RawExclusive'
@@ -100,7 +103,7 @@ const STALE_MS = 30_000
 
 // La vue « Revue de la source » a disparu (ticket docflow aad1d3c6) : un ancien
 // lien `view=review` ouvre les vignettes.
-type View = 'tiles' | 'list' | 'graph'
+type View = 'tiles' | 'list' | 'graph' | 'application'
 type SortKey = 'name' | 'kind' | 'fields' | 'origin' | 'state'
 
 function storedMode(): RawExplorerMode {
@@ -133,6 +136,8 @@ function kindGlyph(kind: string): string {
   switch (kind) {
     case 'class':
       return 'CLS'
+    case 'module':
+      return 'MOD'
     case 'record':
     case 'struct':
       return 'REC'
@@ -264,7 +269,9 @@ export function RawExplorer({
   const opened = params.get('open') ?? ''
   const viewParam = params.get('view')
   const view: View =
-    viewParam === 'list' || viewParam === 'graph' ? viewParam : 'tiles'
+    viewParam === 'list' || viewParam === 'graph' || viewParam === 'application' ? viewParam : 'tiles'
+  // Vue « Application » (cartographie applicative) : le module sélectionné.
+  const moduleParam = params.get('module') ?? ''
   // Centre du graphe : `center` (« source/fichier ») s'il est posé — un clic sur
   // un nœud sélectionne sans recentrer — sinon l'objet sélectionné.
   const centerParam = params.get('center')
@@ -294,7 +301,9 @@ export function RawExplorer({
   const leaveGraph = (): Record<string, string | null> =>
     view === 'graph'
       ? { view: params.get('back') === 'list' ? 'list' : null, back: null, center: null }
-      : {}
+      : view === 'application'
+        ? { view: null, module: null }
+        : {}
   /** Navigation vers un dossier : quitte le graphe s'il est affiché. */
   // Pendant une recherche, naviguer dans l'arbre ou le fil d'Ariane déplace la
   // portée (`in`) sur le nouveau dossier ; ouvrir un résultat, non (sinon la
@@ -365,6 +374,8 @@ export function RawExplorer({
     staleTime: STALE_MS,
     retry: false,
   })
+  // Sans objet module, la vue « Application » est grisée.
+  const hasModules = (tree.data?.modules ?? []).length > 0
 
   const folder = useQuery({
     queryKey: ['rawFolder', spaceId, branchId, sourceSlug, mode, path],
@@ -718,6 +729,11 @@ export function RawExplorer({
                     label={folderLabel}
                     onOpen={(p) => goFolder({ path: p, sel: null })}
                     excludedBy={excludedBy}
+                    modules={tree.data?.modules ?? []}
+                    selectedModule={view === 'application' ? moduleParam : ''}
+                    onOpenModule={(m) =>
+                      go({ view: 'application', module: m.file, path: m.folder || null, sel: null, back: null, center: null })
+                    }
                   />
                 ) : null}
               </li>
@@ -799,6 +815,16 @@ export function RawExplorer({
                 onClick={() => go(graphEntry(), true)}
               >
                 {t('rawViewGraph')}
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm${view === 'application' ? ' btn-primary' : ''}`}
+                aria-pressed={view === 'application'}
+                disabled={!hasModules}
+                title={hasModules ? undefined : t('rawAppNone')}
+                onClick={() => go({ view: 'application', back: null, center: null }, true)}
+              >
+                {t('rawViewApplication')}
               </button>
             </div>
           </div>
@@ -976,6 +1002,19 @@ export function RawExplorer({
               {t('rawNotCollected')}{' '}
               <Link to={`/sources/${current.slug}`}>{t('rawGoCollect')}</Link>
             </div>
+          ) : view === 'application' ? (
+            hasModules ? (
+              <RawApplication
+                spaceId={spaceId}
+                branchId={branchId}
+                slug={sourceSlug}
+                selected={moduleParam}
+                onSelect={(m) => go({ module: m.file }, true)}
+                onOpenClasses={(m) => go({ view: null, module: null, path: m.folder || null, sel: null })}
+              />
+            ) : (
+              <div className="empty-note">{t('rawAppNone')}</div>
+            )
           ) : view === 'graph' ? (
             graphCenter ? (
               <RawGraph
@@ -1077,7 +1116,15 @@ export function RawExplorer({
             </button>
           ) : null}
         </section>
-        {previewOpen && current?.collected ? (
+        {previewOpen && current?.collected && view === 'application' ? (
+          <RawModulePreview
+            spaceId={spaceId}
+            branchId={branchId}
+            slug={sourceSlug}
+            file={moduleParam}
+            onCollapse={() => togglePreview(false)}
+          />
+        ) : previewOpen && current?.collected ? (
           <RawPreview
             spaceId={spaceId}
             branchId={branchId}
@@ -1191,6 +1238,9 @@ function FolderBranch({
   label,
   onOpen,
   excludedBy,
+  modules = [],
+  selectedModule = '',
+  onOpenModule,
 }: {
   folders: RawFolderItem[]
   parent: string
@@ -1198,12 +1248,32 @@ function FolderBranch({
   label: (path: string) => string
   onOpen: (path: string) => void
   excludedBy: (path: string) => string | null
+  /** Objets module (cartographie applicative), rangés sous leur dossier. */
+  modules?: RawTreeModule[]
+  selectedModule?: string
+  onOpenModule?: (module: RawTreeModule) => void
 }) {
   const { t } = useTranslation()
   const children = folders.filter((f) => f.path !== '' && parentOf(f.path) === parent)
-  if (children.length === 0) return null
+  const here = modules.filter((m) => m.folder === parent)
+  if (children.length === 0 && here.length === 0) return null
   return (
     <ul role="group" className="raw-tree-list">
+      {here.map((m) => (
+        // Gael : « sur le menu de gauche c'est en cliquant sur un objet module que je
+        // tombe sur cette vue. »
+        <li key={m.file} role="treeitem">
+          <button
+            type="button"
+            className={`raw-tree-node raw-tree-module${selectedModule === m.file ? ' active' : ''}`}
+            onClick={() => onOpenModule?.(m)}
+            title={t('rawAppOpenModule')}
+          >
+            <span className="raw-glyph-sm">MOD</span> {m.title}
+            <span className="raw-count">{t('rawAppModuleLabel')}</span>
+          </button>
+        </li>
+      ))}
       {children.map((f) => {
         // Seule la branche du dossier courant est dépliée : un dépôt de
         // centaines de dossiers ne s'affiche pas d'un bloc.
@@ -1228,6 +1298,9 @@ function FolderBranch({
                 label={label}
                 onOpen={onOpen}
                 excludedBy={excludedBy}
+                modules={modules}
+                selectedModule={selectedModule}
+                onOpenModule={onOpenModule}
               />
             ) : null}
           </li>

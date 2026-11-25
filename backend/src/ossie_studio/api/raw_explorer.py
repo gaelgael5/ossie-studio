@@ -61,6 +61,7 @@ from ossie_studio.sources.explorer import (
     sort_objects,
     subtree_file_counts,
 )
+from ossie_studio.sources.explorer_application import application_view, module_detail, module_files
 from ossie_studio.sources.explorer_classes import classified_fields, field_counts, rule_usage
 from ossie_studio.sources.explorer_detail import SpaceObjects, document_detail, object_detail
 from ossie_studio.sources.explorer_graph import ReferenceGraph
@@ -301,6 +302,14 @@ async def get_explorer_tree(
         "collected": index.collected,
         "objects": len(index.objects),
         "documents": len(index.documents),
+        # Objets module (cartographie applicative) : rangés dans l'arbre sous leur
+        # dossier (badge MOD) ; sans eux, la vue « Application » est grisée.
+        "modules": [
+            {"file": o.file, "title": o.title, "folder": path}
+            for path, folder in sorted(index.folders.items())
+            for o in sorted(folder.objects, key=lambda o: o.title.casefold())
+            if o.module is not None
+        ],
         "last_collect": _collect_state(scan),
         "folders": [
             {"path": path, "items": folder_item_count(folder), "files": counts[path]}
@@ -731,6 +740,66 @@ async def get_explorer_object(
     detail["removed_tags"] = [_tag_payload(t) for t in obj.removed_tags]
     origin = detail["origin"]
     detail["forge_url"] = await _forge_link(conn, manifest_text, obj.origin, origin["line"])
+    return detail
+
+
+@router.get("/{slug}/application")
+async def get_explorer_application(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    """Vue « Application » d'une source (cartographie applicative, 0fa620be) : ses
+    modules (nature, cibles, dépendances dans les deux sens, compteurs) et ses
+    contrats OpenAPI. Calculée sur l'index, sans relire la branche."""
+    if not is_valid_source_slug(slug):
+        raise ApiError("source_not_found", status_code=404, slug=slug)
+    key, _branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    entries = await db_get_source_entries(conn, key, slug)
+    if entries is None:
+        raise ApiError("source_not_found", status_code=404, slug=slug)
+    return application_view(entries)
+
+
+@router.get("/{slug}/module")
+async def get_explorer_module(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    _: SourcesRead,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    file: str,
+) -> dict[str, object]:
+    """Aperçu d'un module : fichier de projet, nature, cibles, dépendances, points
+    d'entrée (verbe, route, méthode, état au contrat) et méthodes publiques par
+    classe, lus dans les `.extend.yaml` du module et de ses objets."""
+    if not is_valid_source_slug(slug) or not is_schema_file(file):
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=file)
+    key, branch_ref = await _ensure_index(conn, crypto, workdir, space_id, branch_id)
+    entries = await db_get_source_entries(conn, key, slug)
+    if entries is None:
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=file)
+    names = module_files(entries, file)
+    if not names:
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=file)
+    space, username, token = await space_credentials(conn, crypto, space_id)
+    texts: dict[str, str | None] = {}
+    try:
+        for name in names:
+            texts[name] = await workdir.read_file(
+                space.id, branch_ref, space.repo_url, username, token, f"sources/{slug}/raw/{name}"
+            )
+    except WorkdirError as exc:
+        raise _workdir_error(exc) from None
+    detail = module_detail(entries, file, texts.get)
+    if detail is None:
+        raise ApiError("raw_explorer_object_not_found", status_code=404, file=file)
     return detail
 
 

@@ -454,6 +454,51 @@ export interface RawFolderItem {
 export interface RawExplorerTree extends RawExplorerSource {
   mode: RawExplorerMode
   folders: RawFolderItem[]
+  /** Objets module (cartographie applicative), rangés sous leur dossier. */
+  modules?: RawTreeModule[]
+}
+
+export interface RawTreeModule {
+  file: string
+  title: string
+  folder: string
+}
+
+/** Un module de la vue « Application » (ticket 0fa620be). */
+export interface RawAppModule {
+  id: string
+  file: string
+  title: string
+  language: string
+  nature: string
+  targets: string[]
+  project: string
+  folder: string
+  dependencies: { id: string | null; project: string; title?: string | null }[]
+  dependents: string[]
+  counts: { classes: number; entry_points: number; http: number; methods: number; functions: number }
+}
+
+export interface RawApplication {
+  modules: RawAppModule[]
+  contracts: { path: string; title: string; operations: number }[]
+}
+
+export interface RawEntryPoint {
+  kind: 'http' | 'task' | 'message'
+  verb: string | null
+  route: string | null
+  method: string | null
+  owner: string | null
+  owner_file?: string
+  /** null : pas encore comparé au contrat de la source. */
+  contract: { status: 'linked' | 'absent'; operations: { file: string; operationId?: string; verb: string; path: string }[] } | null
+}
+
+export interface RawModuleDetail extends Omit<RawAppModule, 'dependents'> {
+  dependents: { id: string; title: string }[]
+  entry_points: RawEntryPoint[]
+  classes: { title: string; file: string; methods: { name: string; signature: string; entry: boolean }[] }[]
 }
 
 /** Tag gouverné posé par une règle de tags, avec sa provenance. */
@@ -1777,6 +1822,14 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer`,
     ),
   // `family` : compteurs du seul type choisi dans le filtre « Type » (bug d307159a).
+  /** Vue « Application » d'une source : modules, dépendances, compteurs, contrats. */
+  getRawApplication: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<RawApplication>(`/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/application`),
+  /** Aperçu d'un module : points d'entrée et méthodes publiques par classe. */
+  getRawModule: (spaceId: string, branchId: string, slug: string, file: string) =>
+    apiFetch<RawModuleDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/module?file=${encodeURIComponent(file)}`,
+    ),
   getRawExplorerTree: (spaceId: string, branchId: string, slug: string, mode: RawExplorerMode, family = '') =>
     apiFetch<RawExplorerTree>(
       `/api/spaces/${spaceId}/branches/${branchId}/raw-explorer/${slug}/tree?mode=${mode}${family ? `&family=${family}` : ''}`,

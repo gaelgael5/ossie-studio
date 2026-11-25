@@ -57,7 +57,8 @@ GIT_SOURCE_TYPE = "git"
 # force la reconstruction des index existants à la livraison suivante.
 # 9 : badges « nouveau » / « modifié » par rapport à la tête publiée (aad1d3c6).
 # 10 : schémas en YAML, `<clé>.schema.yaml` (ticket 5cc1cb07).
-INDEX_FORMAT = "12"
+# 13 : modules et compteurs de fonctions (cartographie applicative, 0fa620be).
+INDEX_FORMAT = "13"
 DEFAULT_MODE = "origin"
 
 # Badges d'état (clés stables, traduites côté interface).
@@ -91,6 +92,30 @@ class SchemaRef:
 
 
 @dataclass(frozen=True)
+class ModuleFacts:
+    """Ce que l'explorateur retient d'un objet module (cartographie applicative) :
+    son fichier de projet, sa nature, ses cibles, ses dépendances
+    (`(projet, $id du module ou "")`, "" pour une dépendance externe)."""
+
+    project: str
+    nature: str
+    language: str
+    targets: tuple[str, ...] = ()
+    dependencies: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class FunctionCounts:
+    """Les fonctions d'un objet, lues dans son `<clé>.extend.yaml` : méthodes
+    publiques, points d'entrée (dont routes HTTP), fonctions libres (module)."""
+
+    methods: int = 0
+    entry_points: int = 0
+    http: int = 0
+    functions: int = 0
+
+
+@dataclass(frozen=True)
 class SchemaSummary:
     """Ce que l'explorateur retient d'un schéma (relu seulement s'il change)."""
 
@@ -111,6 +136,7 @@ class SchemaSummary:
     namespace: str = ""  # x-namespace (détails d'une vignette au survol)
     # Types de chaque champ, dans l'ordre de `field_names` (règles de classification).
     field_types: tuple[tuple[str, ...], ...] = ()
+    module: ModuleFacts | None = None
 
 
 @dataclass(frozen=True)
@@ -179,6 +205,10 @@ class ExplorerObject:
     namespace: str = ""  # espace de noms d'origine (x-namespace) ; vide pour SQL, contrats
     field_classes: tuple[FieldClass, ...] = ()
     facts: ObjectFacts = field(default=ObjectFacts(), compare=False, repr=False)
+    # Cartographie applicative (0fa620be) : un objet module, et les fonctions de
+    # l'objet (son `.extend.yaml`).
+    module: ModuleFacts | None = None
+    functions: FunctionCounts = FunctionCounts()
 
 
 @dataclass(frozen=True)
@@ -243,6 +273,7 @@ def clear_caches() -> None:
     with _LOCK:
         _SCHEMA_CACHE.clear()
         _REVIEW_CACHE.clear()
+        _EXTEND_CACHE.clear()
 
 
 def git_blob_id(data: bytes) -> str:
@@ -361,7 +392,76 @@ def _summarize(data: bytes) -> SchemaSummary:
         field_types=tuple(type_candidates(p) for p in props.values())
         if isinstance(props, dict)
         else (),
+        module=module_facts(schema),
     )
+
+
+def module_facts(schema: dict[str, Any]) -> ModuleFacts | None:
+    """Les faits d'un objet module (`x-kind: module`), None pour tout autre objet."""
+    meta = schema.get("x-module")
+    if schema.get("x-kind") != "module" or not isinstance(meta, dict):
+        return None
+    deps = meta.get("dependencies")
+    return ModuleFacts(
+        project=str(meta.get("project") or ""),
+        nature=str(meta.get("nature") or ""),
+        language=str(schema.get("x-language") or ""),
+        targets=tuple(str(t) for t in meta.get("targets") or []),
+        dependencies=tuple(
+            (str(d.get("project") or ""), str(d.get("module") or ""))
+            for d in deps or []
+            if isinstance(d, dict)
+        ),
+    )
+
+
+def function_counts(document: Any) -> FunctionCounts:
+    """Compteurs d'un `.extend.yaml` : méthodes publiques, points d'entrée (ceux
+    des méthodes, des fonctions libres et de l'objet lui-même), routes HTTP,
+    fonctions libres."""
+    if not isinstance(document, dict):
+        return FunctionCounts()
+    methods = [m for m in document.get("methods") or [] if isinstance(m, dict)]
+    functions = [f for f in document.get("functions") or [] if isinstance(f, dict)]
+    entries = [f.get("entryPoint") for f in (*methods, *functions)]
+    entries.append(document.get("entryPoint"))
+    found = [e for e in entries if isinstance(e, dict)]
+    return FunctionCounts(
+        methods=sum(1 for m in methods if m.get("visibility") == "public"),
+        entry_points=len(found),
+        http=sum(1 for e in found if e.get("kind") == "http"),
+        functions=len(functions),
+    )
+
+
+_EXTEND_CACHE: dict[str, tuple[int, int, FunctionCounts]] = {}
+
+
+def _extend_name(schema_name: str) -> str:
+    """`commande.schema.yaml` → `commande.extend.yaml` (fonctions de l'objet)."""
+    return f"{schema_name[: -len(SCHEMA_SUFFIX)]}.extend.yaml"
+
+
+def extend_counts(path: Path) -> FunctionCounts:
+    """Compteurs du `.extend.yaml` d'un objet (absent : zéro), relus seulement
+    si le fichier a changé."""
+    if not path.is_file():
+        return FunctionCounts()
+    stat = path.stat()
+    key = str(path)
+    with _LOCK:
+        cached = _EXTEND_CACHE.get(key)
+    if cached is not None and cached[0] == stat.st_size and cached[1] == stat.st_mtime_ns:
+        return cached[2]
+    try:
+        counts = function_counts(load_schema(path.read_text(encoding="utf-8")))
+    except (UnicodeDecodeError, SchemaReadError):
+        counts = FunctionCounts()
+    with _LOCK:
+        if len(_EXTEND_CACHE) >= _SCHEMA_CACHE_MAX:
+            _EXTEND_CACHE.clear()
+        _EXTEND_CACHE[key] = (stat.st_size, stat.st_mtime_ns, counts)
+    return counts
 
 
 def type_candidates(prop: Any) -> tuple[str, ...]:
@@ -697,6 +797,21 @@ class SourceEntries:
                         [c.field, c.scheme, list(c.values), c.rule, c.rule_name]
                         for c in o.field_classes
                     ],
+                    [
+                        o.module.project,
+                        o.module.nature,
+                        o.module.language,
+                        list(o.module.targets),
+                        [list(d) for d in o.module.dependencies],
+                    ]
+                    if o.module
+                    else None,
+                    [
+                        o.functions.methods,
+                        o.functions.entry_points,
+                        o.functions.http,
+                        o.functions.functions,
+                    ],
                 ]
                 for o in self.objects
             ],
@@ -752,6 +867,16 @@ class SourceEntries:
                     )
                     if len(o) > 20
                     else (),
+                    module=ModuleFacts(
+                        o[21][0],
+                        o[21][1],
+                        o[21][2],
+                        tuple(o[21][3]),
+                        tuple((d[0], d[1]) for d in o[21][4]),
+                    )
+                    if len(o) > 21 and o[21]
+                    else None,
+                    functions=FunctionCounts(*o[22]) if len(o) > 22 else FunctionCounts(),
                 )
                 for o in data.get("objects") or []
             ],
@@ -836,6 +961,8 @@ def collect_source_entries(
                 top_fields=summary.top_fields,
                 namespace=summary.namespace,
                 facts=ObjectFacts(summary.annotations, summary.field_names, summary.field_types),
+                module=summary.module,
+                functions=extend_counts(raw_dir / _extend_name(path.name)),
             )
         )
     return SourceEntries(
