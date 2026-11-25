@@ -2853,6 +2853,8 @@ td .raw-ref-menu {
 }
 .ref-list .plain-list {
   margin-top: 8px;
+  padding: 0;
+  list-style: none;
 }
 .ref-item {
   padding: 8px 6px;
