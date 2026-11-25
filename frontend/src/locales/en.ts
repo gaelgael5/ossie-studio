@@ -2006,6 +2006,7 @@ export const en = {
 
     // Source detail + incremental collection.
     declareAndCollect: 'Declare and collect',
+    saveAndCollect: 'Save and collect',
     collect: 'Collect',
     collecting: 'Collecting…',
     forceFullCollect: 'Forced full collection',

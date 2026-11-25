@@ -2008,6 +2008,7 @@ export const fr = {
 
     // Détail d'une source + collecte incrémentale.
     declareAndCollect: 'Déclarer et collecter',
+    saveAndCollect: 'Enregistrer et collecter',
     collect: 'Collecter',
     collecting: 'Collecte…',
     forceFullCollect: 'Collecte complète forcée',

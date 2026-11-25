@@ -16,6 +16,10 @@ import { SchemaPicker } from '../components/SchemaPicker'
 import { TriRulesEditor, useTriRules } from '../components/TriRulesEditor'
 import { ClassBadges } from '../components/ClassBadges'
 
+// Types que le serveur sait collecter (sources/manifest.py) : les bases en
+// étaient absentes, leur ligne n'avait pas de lien « Collecter » (0d85e746).
+const COLLECTABLE_TYPES = ['git', 'openapi', 'postgres', 'sqlserver', 'snowflake']
+
 function asList(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
 }
@@ -290,7 +294,7 @@ export function SourcesPage() {
                       </td>
                       <td>
                         <div className="row">
-                          {source.ok && (source.type === 'git' || source.type === 'openapi') ? (
+                          {source.ok && COLLECTABLE_TYPES.includes(source.type ?? '') ? (
                             <Link to={`/sources/${source.slug}`} className="btn btn-sm btn-primary">
                               {source.type === 'openapi' ? t('openContracts') : t('collect')}
                             </Link>
@@ -659,7 +663,7 @@ function GitSourceModal({
             })
         : api.declareSource(spaceId, branchId, body)
     },
-    onSuccess: (saved) => (collectAfter.current ? onDeclaredCollect(saved.slug) : onSaved()),
+    onSuccess: (saved) => (collectAfter.current ? onDeclaredCollect(source?.slug ?? saved.slug) : onSaved()),
     onError: (err) => setMessages(errorMessages(t, err)),
   })
   const disabled =
@@ -678,20 +682,20 @@ function GitSourceModal({
           <button type="button" className="btn" onClick={onClose}>
             {t('cancelEdit')}
           </button>
-          {!editMode ? (
-            <button
-              type="button"
-              className="btn"
-              disabled={disabled}
-              onClick={() => {
-                setMessages([])
-                collectAfter.current = true
-                save.mutate()
-              }}
-            >
-              {t('declareAndCollect')}
-            </button>
-          ) : null}
+          {/* En modification aussi (0d85e746) : enregistrer puis collecter
+              dans la foulée, sans repasser par la page de la source. */}
+          <button
+            type="button"
+            className="btn"
+            disabled={disabled}
+            onClick={() => {
+              setMessages([])
+              collectAfter.current = true
+              save.mutate()
+            }}
+          >
+            {editMode ? t('saveAndCollect') : t('declareAndCollect')}
+          </button>
           <button
             type="button"
             className="btn btn-primary"
@@ -702,7 +706,7 @@ function GitSourceModal({
               save.mutate()
             }}
           >
-            {t('declare')}
+            {editMode ? t('save') : t('declare')}
           </button>
         </>
       }
@@ -907,7 +911,7 @@ function SqlSourceModal({
             })
         : api.declareSource(spaceId, branchId, body)
     },
-    onSuccess: (saved) => (collectAfter.current ? onDeclaredCollect(saved.slug) : onSaved()),
+    onSuccess: (saved) => (collectAfter.current ? onDeclaredCollect(source?.slug ?? saved.slug) : onSaved()),
     onError: (err) => setMessages(errorMessages(t, err)),
   })
 
@@ -921,20 +925,20 @@ function SqlSourceModal({
           <button type="button" className="btn" onClick={onClose}>
             {t('cancelEdit')}
           </button>
-          {!editMode ? (
-            <button
-              type="button"
-              className="btn"
-              disabled={sqlDisabled}
-              onClick={() => {
-                setMessages([])
-                collectAfter.current = true
-                save.mutate()
-              }}
-            >
-              {t('declareAndCollect')}
-            </button>
-          ) : null}
+          {/* En modification aussi (0d85e746) : enregistrer puis collecter
+              dans la foulée, sans repasser par la page de la source. */}
+          <button
+            type="button"
+            className="btn"
+            disabled={sqlDisabled}
+            onClick={() => {
+              setMessages([])
+              collectAfter.current = true
+              save.mutate()
+            }}
+          >
+            {editMode ? t('saveAndCollect') : t('declareAndCollect')}
+          </button>
           <button
             type="button"
             className="btn btn-primary"
@@ -945,7 +949,7 @@ function SqlSourceModal({
               save.mutate()
             }}
           >
-            {t('declare')}
+            {editMode ? t('save') : t('declare')}
           </button>
         </>
       }
