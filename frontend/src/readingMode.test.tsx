@@ -49,15 +49,15 @@ describe('mode lecture de l’explorateur (4e287004)', () => {
     expect(screen.getByRole('tab', { name: 'Explorateur raw' })).toBeInTheDocument()
   })
 
-  it('la barre du brouillon repliée réapparaît si le publié a changé', async () => {
+  it('la barre du brouillon, cachée par défaut, réapparaît si le publié a changé', async () => {
     const draft = { count: 2, changed_upstream_count: 0, objects: [] }
     const spy = vi.spyOn(api, 'myDraft').mockResolvedValue(draft as never)
-    const { unmount } = wrap(<DraftBar spaceId="s1" branchId="b1" folded />)
+    const { unmount } = wrap(<DraftBar spaceId="s1" branchId="b1" />)
     await new Promise((r) => setTimeout(r, 50))
     expect(screen.queryByRole('region', { name: /brouillon/i })).not.toBeInTheDocument()
     unmount()
     spy.mockResolvedValue({ ...draft, changed_upstream_count: 1 } as never)
-    wrap(<DraftBar spaceId="s1" branchId="b1" folded />)
+    wrap(<DraftBar spaceId="s1" branchId="b1" />)
     expect(await screen.findByRole('region', { name: /brouillon/i })).toBeInTheDocument()
   })
 })

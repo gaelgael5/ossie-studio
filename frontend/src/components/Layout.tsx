@@ -1,13 +1,12 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, sessionCapabilities } from '../apiClient'
 import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
 import { useWorkspace } from '../workspace'
-import { DraftBar } from './DraftBar'
-import { useReadingMode } from '../readingMode'
+import { DraftBar, DraftViewSelect } from './DraftBar'
 import { useBranchHead } from '../useBranchHead'
 import { Brand } from './Brand'
 
@@ -106,15 +105,29 @@ export function showsBranchDraftBar(pathname: string): boolean {
 
 function BranchDraftBar() {
   const ws = useWorkspace()
-  const { pathname, search } = useLocation()
+  const { pathname } = useLocation()
   const shown = showsBranchDraftBar(pathname)
-  // Mode lecture de l'explorateur raw (4e287004) : la barre se replie, sauf
-  // quand elle a quelque chose d'urgent à dire (voir DraftBar).
-  const reading = useReadingMode() && pathname === '/sources' && new URLSearchParams(search).get('tab') === 'raw'
+  // Le bandeau ne s'affiche que s'il a quelque chose d'urgent à dire (voir
+  // DraftBar) : plus besoin de le replier en mode lecture (4e287004).
   // Hors branche, inutile de suivre la tête de la branche non plus.
   useBranchHead(shown ? ws.spaceId : null, shown ? ws.branchId : null)
   if (!shown || !ws.spaceId || !ws.branchId) return null
-  return <DraftBar spaceId={ws.spaceId} branchId={ws.branchId} folded={reading} />
+  return <DraftBar spaceId={ws.spaceId} branchId={ws.branchId} />
+}
+
+/** Vue de la branche et publication, dans le menu du haut (ticket e7e377b0) :
+ * seulement sur les écrans d'une branche, et si j'y ai un brouillon. */
+function useBranchDraft() {
+  const ws = useWorkspace()
+  const { pathname } = useLocation()
+  const shown = showsBranchDraftBar(pathname) && !!ws.spaceId && !!ws.branchId
+  const draft = useQuery({
+    queryKey: ['draft', ws.spaceId, ws.branchId],
+    queryFn: () => api.myDraft(ws.spaceId as string, ws.branchId as string),
+    enabled: shown,
+  })
+  const count = shown ? (draft.data?.count ?? 0) : 0
+  return { spaceId: ws.spaceId, branchId: ws.branchId, shown, count }
 }
 
 function WorkspaceChips() {
@@ -178,6 +191,7 @@ function AppNav({
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [userOpen, setUserOpen] = useState(false)
+  const branchDraft = useBranchDraft()
   const userRef = useRef<HTMLDivElement>(null)
 
   // Fermer le menu de l'utilisateur au changement de route.
@@ -246,6 +260,9 @@ function AppNav({
       </div>
       <div className="topnav-right">
         <WorkspaceChips />
+        {branchDraft.shown ? (
+          <DraftViewSelect spaceId={branchDraft.spaceId as string} branchId={branchDraft.branchId as string} />
+        ) : null}
         <LanguageSelector />
         <div className="topnav-dropdown" ref={userRef}>
           <button
@@ -256,10 +273,33 @@ function AppNav({
             onClick={() => setUserOpen((v) => !v)}
           >
             {userEmail}
+            {branchDraft.count > 0 ? (
+              <span className="topnav-badge" aria-label={t('draftToPublish', { count: branchDraft.count })}>
+                {branchDraft.count}
+              </span>
+            ) : null}
             {' ▾'}
           </button>
           {userOpen ? (
             <div className="topnav-dropdown-menu" role="menu">
+              {branchDraft.count > 0 ? (
+                <>
+                  <Link
+                    to={`/spaces/${branchDraft.spaceId}/branches/${branchDraft.branchId}/changes`}
+                    role="menuitem"
+                  >
+                    {t('changesLinkCount', { count: branchDraft.count })}
+                  </Link>
+                  <Link
+                    to={`/spaces/${branchDraft.spaceId}/branches/${branchDraft.branchId}/publish`}
+                    role="menuitem"
+                    className="menuitem-strong"
+                  >
+                    {t('draftPublishLinkCount', { count: branchDraft.count })}
+                  </Link>
+                  <hr className="menu-sep" />
+                </>
+              ) : null}
               <Link to="/" role="menuitem">
                 {t('home')}
               </Link>
