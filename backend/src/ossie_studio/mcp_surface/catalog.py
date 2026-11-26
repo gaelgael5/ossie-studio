@@ -568,7 +568,36 @@ CATALOG: tuple[Primitive, ...] = (
             "ArchiMate type, nature, documentation (markdown), properties (ArchiMate attributes "
             "as ArchiMate values, with their French label in property_labels), source and target "
             "for a relationship, and its incoming and outgoing relationships (key, type, "
-            "direction, the other end) to explore step by step." + _DRAFT_NOTE
+            "direction, the other end) to explore step by step, and the models that keep it "
+            "(slug, name)." + _DRAFT_NOTE
+        ),
+        idempotent=True,
+    ),
+    # --- Cartographie : modèles et vues (ticket be89037a)
+    Primitive(
+        id="list_carto_models",
+        domain="cartographie",
+        access="read",
+        capability="cartographie:read",
+        description=(
+            "List the models (ArchiMate diagrams) of the cartography: slug, name, description, "
+            "number of objects and relationships kept, views (name and ArchiMate viewpoint), "
+            "rules file, number of problems. With contains (an object or relationship key), "
+            "only the models that keep it: where does an object appear." + _DRAFT_NOTE
+        ),
+        idempotent=True,
+    ),
+    Primitive(
+        id="get_carto_model",
+        domain="cartographie",
+        access="read",
+        capability="cartographie:read",
+        description=(
+            "Read one model by its slug: the objects and relationships it keeps (key, name, "
+            "type, ArchiMate type; source and target for a relationship), its views with their "
+            "nodes (an object by its key and name, a note, a frame; nested nodes) and "
+            "connections (a relationship between two nodes). Never the drawing: no coordinate. "
+            "Use get_carto_object on a key for its details." + _DRAFT_NOTE
         ),
         idempotent=True,
     ),

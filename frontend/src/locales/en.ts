@@ -1250,6 +1250,8 @@ export const en = {
       list_carto_types: 'List the cartography types (and the ArchiMate catalogue)',
       list_carto_objects: 'List the cartography objects and relationships',
       get_carto_object: 'Read a cartography object or relationship by its key',
+      list_carto_models: 'List the cartography models (and those that keep an object)',
+      get_carto_model: 'Read a model: objects, relationships and views, without the drawing',
       list_modules: 'List the modules of a source (project files, dependencies)',
       get_module: 'Read a module: its objects, free functions and entry points',
       get_functions: 'Read the methods of a raw object',

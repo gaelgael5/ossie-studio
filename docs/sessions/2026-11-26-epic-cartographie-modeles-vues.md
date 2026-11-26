@@ -28,7 +28,7 @@ dans `dev`, PR #10).
 | 5a05c7bb | Onglet « Modèles » | en revue |
 | f5421cc7 | Ouvrir un modèle | en revue |
 | c3dd045c | Enregistrer un modèle | en revue |
-| be89037a | Primitives MCP modèles et vues | à faire |
+| be89037a | Primitives MCP modèles et vues | en revue |
 | cb9d99b3 | Vérification d'intention (avec Gael) | à faire |
 
 ## Notes techniques (format, e338fe14)
@@ -111,3 +111,10 @@ dans `dev`, PR #10).
 - Contrat vérifié de bout en bout : la sortie réelle de `save()` (0.1.1), capturée dans
   le navigateur après une pose, est acceptée par `save_drawing` ; le nouveau nœud tient
   sur une ligne du graphique.
+
+## Notes techniques (primitives MCP, be89037a)
+
+- Deux primitives de plus, pas trois (« n'explosons pas la liste des API ») : « dans
+  quels modèles apparaît un objet » passe par `list_carto_models(contains=…)` et par le
+  champ `models` de `get_carto_object`.
+- Aucune coordonnée : `get_carto_model` ne lit pas le graphique dans sa réponse.

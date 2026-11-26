@@ -1,13 +1,18 @@
 """Primitives MCP de lecture de la cartographie (epic « Cartographie — types et
 objets », ticket 41bf680e) : trois primitives, pas plus (Gael : « n'explosons
-pas la liste des API »).
+pas la liste des API ») ; et deux pour les modèles (epic « Cartographie — modèles
+et vues », ticket be89037a).
 
 - `list_carto_types` : les types de l'espace (et, sur demande, tout le catalogue
   ArchiMate 3.2) ;
 - `list_carto_objects` : les objets et relations, filtrés par type (de l'espace ou
   ArchiMate), nature et nom ou clé, paginés ;
 - `get_carto_object` : un objet ou une relation par sa clé, avec ses relations
-  entrantes et sortantes pour explorer de proche en proche.
+  entrantes et sortantes pour explorer de proche en proche, et les modèles qui le
+  retiennent ;
+- `list_carto_models` : les modèles (diagrammes), filtrables par objet retenu ;
+- `get_carto_model` : un modèle, ses objets et relations retenus, ses vues et leurs
+  nœuds, sans le dessin (aucune coordonnée).
 
 Une relation est un objet : les mêmes primitives servent aux deux, la `nature`
 (`object` ou `relation`) les distingue. Même vérité que l'écran (lecture de
@@ -23,6 +28,15 @@ from typing import Any, Literal
 from pydantic import Field
 
 from ossie_studio.cartographie.catalog import ArchimateType, Catalog, catalog
+from ossie_studio.cartographie.diagram import (
+    DiagramRead,
+    Node,
+    graphic_path,
+    list_diagrams,
+    models_retaining,
+    read_diagram,
+)
+from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.model import CartoObject
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
 from ossie_studio.mcp_surface.branch import BranchView, ViewArgs, open_branch
@@ -63,6 +77,19 @@ class CartoObjectsArgs(ViewArgs):
 
 class CartoObjectArgs(ViewArgs):
     key: str = Field(description="Functional key of the object or relationship, e.g. 'APP-SHOP'.")
+
+
+class CartoModelsArgs(ViewArgs):
+    contains: str | None = Field(
+        default=None,
+        description=(
+            "Only the models that keep this object or relationship (its key, e.g. 'APP-SHOP')."
+        ),
+    )
+
+
+class CartoModelArgs(ViewArgs):
+    slug: str = Field(description="Slug of the model, as list_carto_models gives it.")
 
 
 def _fold(text: str) -> str:
@@ -205,6 +232,7 @@ async def get_carto_object(ctx: PrimitiveContext, args: CartoObjectArgs) -> dict
     ctype = space.types.get(obj.type)
     base = cat.get(ctype.archimate) if ctype else None
     users = space.users(obj.key)
+    models = await bv.read(lambda root: models_retaining(root, obj.key))
     out: dict[str, Any] = {
         "view": bv.view,
         **_summary(space, cat, bv, path, obj),
@@ -215,6 +243,133 @@ async def get_carto_object(ctx: PrimitiveContext, args: CartoObjectArgs) -> dict
             *(_side(space, k, "outgoing") for k in users if space.objects[k][1].source == obj.key),
             *(_side(space, k, "incoming") for k in users if space.objects[k][1].target == obj.key),
         ],
+        "models": [{"slug": slug, "name": name} for slug, name in models],
         "path": path,
     }
+    return out
+
+
+# --- Modèles (ticket be89037a) : ce qu'ils montrent, jamais le dessin ----------------------
+
+
+def _read_models(root: Any) -> tuple[Cartographie, list[DiagramRead]]:
+    space = read_cartographie(root)
+    return space, [read_diagram(root, slug, space) for slug in list_diagrams(root)]
+
+
+def _model_unpublished(bv: BranchView, read: DiagramRead) -> bool:
+    return bv.unpublished(read.path) or bv.unpublished(graphic_path(read.slug))
+
+
+async def list_carto_models(ctx: PrimitiveContext, args: CartoModelsArgs) -> dict[str, Any]:
+    bv = await open_branch(ctx, args, args.view)
+    space, reads = await bv.read(_read_models)
+    wanted = args.contains.strip() if args.contains else ""
+    if wanted and wanted not in space.objects:
+        raise PrimitiveError("carto_object_not_found", key=wanted)
+    models = []
+    for read in reads:
+        diagram = read.diagram
+        if diagram is None:  # illisible : nommé, sans contenu
+            if not wanted:
+                models.append({"slug": read.slug, "readable": False, "problems": len(read.errors)})
+            continue
+        if wanted and wanted not in diagram.elements and wanted not in diagram.relationships:
+            continue
+        item: dict[str, Any] = {
+            "slug": read.slug,
+            "id": diagram.id,
+            "name": diagram.name or diagram.id,
+            "description": diagram.description,
+            "objects": len(diagram.elements),
+            "relations": len(diagram.relationships),
+            "views": [
+                {"id": v.id, "name": v.name, "viewpoint": v.viewpoint or None}
+                for v in diagram.views
+            ],
+            "rules": diagram.rules,
+            "problems": len(read.errors),
+        }
+        if _model_unpublished(bv, read):
+            item["unpublished"] = True
+        models.append(item)
+    return {"view": bv.view, "models": models}
+
+
+def _node(space: Cartographie, node: Node) -> dict[str, Any]:
+    out: dict[str, Any] = {"id": node.id}
+    if node.element is not None:
+        found = space.objects.get(node.element)
+        out["element"] = node.element
+        out["name"] = found[1].name if found else None
+    elif node.note is not None:
+        out["note"] = node.note
+    else:
+        out["frame"] = node.frame or ""
+    if node.children:
+        out["children"] = [_node(space, child) for child in node.children]
+    return out
+
+
+def _kept(space: Cartographie, cat: Catalog, key: str) -> dict[str, Any]:
+    found = space.objects.get(key)
+    if found is None:
+        return {"key": key, "name": None, "type": None, "archimate": None, "exists": False}
+    obj = found[1]
+    ctype = space.types.get(obj.type)
+    out: dict[str, Any] = {
+        "key": key,
+        "name": obj.name,
+        "type": obj.type,
+        "archimate": ctype.archimate if ctype else None,
+        "exists": True,
+    }
+    if obj.is_relation:
+        out["source"], out["target"] = obj.source, obj.target
+    return out
+
+
+async def get_carto_model(ctx: PrimitiveContext, args: CartoModelArgs) -> dict[str, Any]:
+    bv = await open_branch(ctx, args, args.view)
+
+    def read(root: Any) -> tuple[Cartographie, DiagramRead]:
+        space = read_cartographie(root)
+        return space, read_diagram(root, args.slug, space)
+
+    try:
+        space, found = await bv.read(read)
+    except CartographieError:
+        raise PrimitiveError("carto_model_not_found", slug=args.slug) from None
+    diagram = found.diagram
+    if diagram is None:
+        problems = [{"code": p.code, "detail": p.detail} for p in found.errors]
+        raise PrimitiveError("carto_model_invalid", slug=args.slug, problems=problems)
+    cat = catalog()
+    out: dict[str, Any] = {
+        "view": bv.view,
+        "slug": found.slug,
+        "id": diagram.id,
+        "name": diagram.name or diagram.id,
+        "description": diagram.description,
+        "rules": diagram.rules,
+        "objects": [_kept(space, cat, key) for key in diagram.elements],
+        "relations": [_kept(space, cat, key) for key in diagram.relationships],
+        "views": [
+            {
+                "id": view.id,
+                "name": view.name,
+                "viewpoint": view.viewpoint or None,
+                "nodes": [_node(space, node) for node in view.nodes],
+                "connections": [
+                    {"id": c.id, "relationship": c.relationship, "from": c.source, "to": c.target}
+                    for c in view.connections
+                ],
+            }
+            for view in diagram.views
+        ],
+        "problems": [{"code": p.code, "detail": p.detail, "field": p.field} for p in found.errors],
+        "path": found.path,
+    }
+    if _model_unpublished(bv, found):
+        out["unpublished"] = True
     return out
