@@ -249,6 +249,11 @@ async def test_ajouter_une_propriete_canal(space: ApiSpace) -> None:
     _publish_vente(space)
     detail = (await space.client.get(_url(space, "/types/processus-de-vente"))).json()
     assert detail["objects"] == 2 and detail["usage"] == {}
+    assert detail["object_schema"] == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
     assert detail["yaml"] == VENTE
     schema = {**detail["document"], "properties": {"canal": CANAL}}
     answer = await _save(space, "processus-de-vente", schema)

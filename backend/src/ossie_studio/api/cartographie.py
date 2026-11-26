@@ -1,5 +1,6 @@
 """Écran « Cartographie » : les types de l'espace en vignettes, ajouter un type
-(epic « Cartographie — types et objets », ticket e7521e80).
+(epic « Cartographie — types et objets », ticket e7521e80), personnaliser un type
+(ticket 5c39d4df). Les objets : `api/cartographie_objects.py`.
 
 Comme les Référentiels : les lectures voient la vue de la personne (publié + son
 brouillon), les écritures vont dans son **brouillon**, sur toute branche, racine
@@ -23,7 +24,7 @@ from ossie_studio.api.common import CartographieRead, CartographieWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
 from ossie_studio.api.list_index import ListIndex
 from ossie_studio.cartographie.catalog import ArchimateType, catalog
-from ossie_studio.cartographie.errors import CartographieError
+from ossie_studio.cartographie.errors import CartographieError, problem_payload
 from ossie_studio.cartographie.model import (
     ARCHIMATE_KEY,
     BASE_PROPERTIES,
@@ -31,6 +32,7 @@ from ossie_studio.cartographie.model import (
     CartoType,
     check_type,
     dump_type,
+    properties_schema,
     type_path,
 )
 from ossie_studio.cartographie.rules import involved_relations
@@ -66,7 +68,7 @@ class SchemaBody(BaseModel):
 def api_error(exc: CartographieError) -> ApiError:
     extra: dict[str, object] = dict(exc.detail)
     if exc.problems:
-        extra["problems"] = [p.payload() for p in exc.problems]
+        extra["problems"] = [problem_payload(p) for p in exc.problems]
     return ApiError(f"carto_{exc.code}", status_code=exc.status, **extra)
 
 
@@ -85,7 +87,7 @@ async def cartographie_target(
     return CartographieTarget(workdir, space, branch.git_ref, username, token, user.email)
 
 
-async def _draft_states(
+async def draft_states(
     conn: ConnDep, workdir: DraftWorkdir, branch_id: uuid.UUID
 ) -> dict[str, str]:
     """État dans le brouillon (« created », « modified », « deleted ») des fichiers
@@ -121,6 +123,7 @@ def _archimate_type(t: ArchimateType) -> dict[str, object]:
         "icon": t.icon(),
         "attributes": [_attribute(a) for a in t.attributes],
         "relations": list(involved_relations(t.name)),
+        "verbs": {"out": t.verbs[0], "in": t.verbs[1]},
     }
 
 
@@ -191,7 +194,7 @@ async def list_types(
             _TYPES_INDEX.put(key, signature, items)
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
-    states = await _draft_states(conn, workdir, branch_id)
+    states = await draft_states(conn, workdir, branch_id)
     return {"readonly": False, "types": [_with_state(i, states) for i in items]}
 
 
@@ -220,7 +223,7 @@ async def preview_type(_: CartographieRead, body: TypeBody) -> dict[str, object]
     return {
         "path": type_path(ctype.slug),
         "yaml": dump_type(ctype),
-        "problems": [p.payload() for p in problems],
+        "problems": [problem_payload(p) for p in problems],
     }
 
 
@@ -301,8 +304,10 @@ def _detail(space: Cartographie, slug: str, states: dict[str, str]) -> dict[str,
         "yaml": dump_type(ctype),
         "objects": len(space.objects_of(slug)),
         "usage": space.property_usage(slug),
+        # Le schéma des `proprietes` d'un objet de ce type (fiche d'un objet).
+        "object_schema": properties_schema(ctype, catalog().get(ctype.archimate)),
         "state": state if state in ("created", "modified") else None,
-        "problems": [p.payload() for p in space.problems if p.path == path],
+        "problems": [problem_payload(p) for p in space.problems if p.path == path],
     }
 
 
@@ -324,7 +329,7 @@ async def get_type(
         space = await target.cartographie()
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
-    return _detail(space, slug, await _draft_states(conn, workdir, branch_id))
+    return _detail(space, slug, await draft_states(conn, workdir, branch_id))
 
 
 @router.put("/types/{slug}")
@@ -352,7 +357,7 @@ async def save_type_route(
         raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
-    states = await _draft_states(conn, workdir, branch_id)
+    states = await draft_states(conn, workdir, branch_id)
     return {**_detail(space, slug, states), "revision": revision}
 
 

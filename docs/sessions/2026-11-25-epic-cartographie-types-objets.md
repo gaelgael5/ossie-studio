@@ -34,7 +34,7 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 | 0e088eaa — Types ArchiMate 3.2 en version de base, règles de relation (enabler) | En review |
 | e7521e80 — Espace « Cartographie » : types en vignettes, filtre, ajouter un type | En review |
 | 5c39d4df — Types : personnaliser un type | En review |
-| 6f71bcba — Objets : créer, modifier, supprimer à la main | Prêt pour dev |
+| 6f71bcba — Objets : créer, modifier, supprimer à la main | En review |
 | b58a0a13 — Relations : relier deux objets (fiche d'une relation) | Prêt pour dev |
 | 41bf680e — Primitives MCP de lecture des types et des objets | Prêt pour dev |
 | 38c9d26c — Clôture (avec Gael, jamais seul) | — |
@@ -76,3 +76,13 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 - Les refus sont aussi vérifiés avant l'envoi : type ArchiMate changé dans le YAML, libellé vide, propriété utilisée retirée, clé hors format.
 - Critère 1, « formulaire des objets » : le schéma des propriétés d'un objet comprend déjà les propriétés ajoutées (`model.properties_schema`) ; le formulaire lui-même arrive avec le ticket « Objets » (6f71bcba).
 - Tests : `backend/tests/test_cartographie_screen.py` (partie 5c39d4df), `frontend/src/cartographie/CartoTypePage.test.tsx`.
+
+## Notes techniques (objets, 6f71bcba)
+
+- Routes `api/cartographie_objects.py`, sous `/cartographie/objets` : liste (toutes les fiches, relations marquées, indexée par empreinte de `cartographie/`), fiche (`schema` des propriétés, relations sortantes et entrantes avec l'objet à l'autre bout), création, modification (nom, documentation, propriétés ; clé, type, source et cible gardés), suppression (refusée tant qu'une relation l'utilise, relations nommées). Refus : `carto_object_key_taken`, `carto_object_invalid` (problèmes avec la propriété en cause), `carto_object_not_found`, `carto_object_in_use`, `carto_object_keys_duplicate`, `carto_object_type_frozen`.
+- Dates et auteurs : `history.file_dates` sur les commits publiés qui touchent `cartographie/objets` (2 000 au plus) ; un objet du seul brouillon est « non publié ».
+- Les problèmes de la cartographie portent toujours `field` dans l'API (`errors.problem_payload`).
+- Catalogue : verbes de lecture des relations (`verbs`, « déclenche » / « déclenché par ») ; le schéma d'un attribut ArchiMate porte `x-labels` et `x-unset` (affichage des valeurs en français, ignorés par la validation). Le détail d'un type rend `object_schema` (fiche de création).
+- Écran : onglet Objets (`cartographie/ObjectsTab.tsx`, adresse `/cartographie/objets`) — recherche nom ou clé, pastilles par type avec leur nombre et une pastille Relations, sélecteur de type, tri, 24 vignettes puis « Afficher 24 de plus » ; fiche (`cartographie/CartoObjectPage.tsx`, `/cartographie/objets/<clé>` et `/cartographie/objets/nouveau`) — identité (clé contrôlée à la saisie : forme et unicité), documentation rédigée dans BlockNote comme en Curation (appliquée à la fiche, enregistrée avec elle), propriétés par le formulaire des Référentiels (`SchemaFields`, exporté de `ValuePanel.tsx`) avec les facultatives vides repliées et « + Renseigner une propriété », relations en lecture seule (la ligne ouvre la fiche de la relation, le nom celle de l'objet lié), fichier et dates, suppression en deux temps, garde de sortie et Ctrl+S.
+- Hors de ce ticket : « Relier… » et la fiche propre d'une relation (bande source → cible), ticket b58a0a13 ; une relation s'ouvre pour l'instant dans la fiche générique (source et cible en lecture seule).
+- Tests : `backend/tests/test_cartographie_objects.py`, `frontend/src/cartographie/CartoObjects.test.tsx`.

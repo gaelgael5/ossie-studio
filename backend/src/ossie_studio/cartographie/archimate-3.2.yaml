@@ -13,6 +13,8 @@
 #   layer        couche (absent pour une relation)
 #   label        libellé français (nom par défaut d'un nouveau type de l'espace)
 #   definition   définition courte en français (fenêtre « Ajouter un type »)
+#   verbs        relation : comment elle se lit depuis sa source (out) et depuis
+#                sa cible (in), sur la fiche d'un objet (« déclenche » / « déclenché par »)
 #   attributes   attributs propres au type, rangés dans `proprietes` d'un objet ;
 #                noms partagés avec le contrat d'`urban-archimate` :
 #                  label   libellé français
@@ -367,26 +369,32 @@ types:
     kind: relation
     label: Composition
     definition: Un élément est fait d'autres éléments, qui n'existent pas sans lui.
+    verbs: {out: se compose de, in: fait partie de}
   Aggregation:
     kind: relation
     label: Agrégation
     definition: Un élément regroupe d'autres éléments, qui peuvent exister sans lui.
+    verbs: {out: regroupe, in: regroupé dans}
   Assignment:
     kind: relation
     label: Affectation
     definition: Un élément est chargé d'un comportement ou en est responsable (qui fait quoi).
+    verbs: {out: affecté à, in: mené par}
   Realization:
     kind: relation
     label: Réalisation
     definition: Un élément concrétise un élément plus abstrait.
+    verbs: {out: réalise, in: réalisé par}
   Serving:
     kind: relation
     label: Sert
     definition: Un élément rend un service à un autre.
+    verbs: {out: sert, in: servi par}
   Access:
     kind: relation
     label: Accès
     definition: Un comportement lit ou écrit une information.
+    verbs: {out: accède à, in: accédé par}
     attributes:
       acces:
         label: Sens de l'accès
@@ -396,6 +404,7 @@ types:
     kind: relation
     label: Influence
     definition: Un élément agit, en bien ou en mal, sur un élément de motivation.
+    verbs: {out: influence, in: influencé par}
     attributes:
       modificateur:
         label: Force (+, ++, -, --…)
@@ -403,18 +412,22 @@ types:
     kind: relation
     label: Déclenchement
     definition: Un comportement en déclenche un autre, l'un après l'autre.
+    verbs: {out: déclenche, in: déclenché par}
   Flow:
     kind: relation
     label: Flux
     definition: Un comportement transmet quelque chose à un autre (information, marchandise, argent).
+    verbs: {out: transmet à, in: reçoit de}
   Specialization:
     kind: relation
     label: Spécialisation
     definition: Un élément est un cas particulier d'un autre élément du même type.
+    verbs: {out: spécialise, in: spécialisé par}
   Association:
     kind: relation
     label: Association
     definition: Un lien entre deux éléments qui ne relève d'aucune autre relation, dirigé ou non.
+    verbs: {out: associé à, in: associé à}
     attributes:
       dirigee:
         label: Dirigée

@@ -1558,6 +1558,8 @@ export interface ArchimateTypeInfo {
   attributes: CartoAttribute[]
   /** Types de relation auxquels ce type peut prendre part. */
   relations: string[]
+  /** Relation : comment elle se lit depuis sa source (out) et depuis sa cible (in). */
+  verbs: { out: string; in: string }
 }
 
 export interface CartoCatalog {
@@ -1589,8 +1591,70 @@ export interface CartoTypeDetail {
   objects: number
   /** Propriété ajoutée → nombre d'objets qui y ont une valeur. */
   usage: Record<string, number>
+  /** Le schéma des propriétés d'un objet de ce type (attributs ArchiMate + ajoutées). */
+  object_schema: Record<string, unknown>
   state: 'created' | 'modified' | null
   problems: { path: string; code: string; detail: string; field: string }[]
+}
+
+export interface CartoDates {
+  created_at: string
+  created_by: string
+  updated_at: string
+  updated_by: string
+}
+
+export interface CartoObjectSummary {
+  key: string
+  type: string
+  type_title: string
+  archimate: string
+  name: string
+  excerpt: string
+  /** Les premières propriétés renseignées, pour la vignette. */
+  properties: { name: string; value: string }[]
+  relations: number
+  is_relation: boolean
+  source: string | null
+  target: string | null
+  path: string
+  /** Dates et auteurs d'après les commits publiés ; null : seulement dans le brouillon. */
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+}
+
+export interface CartoRelationSide {
+  key: string
+  name: string
+  type: string
+  type_title: string
+  archimate: string
+  properties: Record<string, unknown>
+  other: { key: string | null; name: string | null; type_title: string | null; exists: boolean }
+}
+
+export interface CartoObjectDetail {
+  key: string
+  type: string
+  type_title: string
+  archimate: string
+  name: string
+  documentation: string
+  properties: Record<string, unknown>
+  source: string | null
+  target: string | null
+  path: string
+  schema: Record<string, unknown> | null
+  relations: { outgoing: CartoRelationSide[]; incoming: CartoRelationSide[] }
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+  problems: { path: string; code: string; detail: string; field: string }[]
+}
+
+export interface CartoObjectBody {
+  name: string
+  documentation: string
+  properties: Record<string, unknown>
 }
 
 export interface CartoTypePreview {
@@ -2246,6 +2310,28 @@ export const api = {
   deleteCartoType: (spaceId: string, branchId: string, slug: string) =>
     apiFetch<{ deleted: string; revision: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`,
+      { method: 'DELETE' },
+    ),
+  listCartoObjects: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; objects: CartoObjectSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
+    ),
+  getCartoObject: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<CartoObjectDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`),
+  // Clé (unique dans l'espace) et type de l'espace : saisis à la création, figés ensuite.
+  createCartoObject: (spaceId: string, branchId: string, body: CartoObjectBody & { key: string; type: string }) =>
+    apiFetch<CartoObjectDetail & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  saveCartoObject: (spaceId: string, branchId: string, key: string, body: CartoObjectBody) =>
+    apiFetch<CartoObjectDetail & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  deleteCartoObject: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
       { method: 'DELETE' },
     ),
   createCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>

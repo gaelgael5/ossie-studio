@@ -201,6 +201,8 @@ def test_attributs_propres() -> None:
         "type": "string",
         "title": "Sens de l'accès",
         "enum": ["Read", "Write", "ReadWrite"],
+        "x-labels": {"Read": "lecture", "Write": "écriture", "ReadWrite": "lecture-écriture"},
+        "x-unset": "non précisé",
     }
     interaction = cat.get("BusinessInteraction")
     assert interaction is not None and interaction.attributes == ()

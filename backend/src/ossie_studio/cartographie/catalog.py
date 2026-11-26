@@ -39,10 +39,15 @@ class Attribute:
     unset: str = ""  # libellé affiché quand l'attribut est absent
 
     def schema(self) -> dict[str, Any]:
-        """Sa forme JSON Schema (valeurs fermées : énumération des valeurs ArchiMate)."""
+        """Sa forme JSON Schema (valeurs fermées : énumération des valeurs ArchiMate).
+        `x-labels` (libellé français de chaque valeur) et `x-unset` (libellé de
+        l'attribut absent) servent à l'affichage ; la validation les ignore."""
         out: dict[str, Any] = {"type": self.type, "title": self.label}
         if self.values:
             out["enum"] = list(self.values)
+            out["x-labels"] = dict(self.values)
+        if self.unset:
+            out["x-unset"] = self.unset
         return out
 
 
@@ -54,6 +59,7 @@ class ArchimateType:
     layer: str = ""
     definition: str = ""
     attributes: tuple[Attribute, ...] = ()
+    verbs: tuple[str, str] = ("", "")  # relation : lue depuis la source, depuis la cible
 
     @property
     def is_relation(self) -> bool:
@@ -105,6 +111,7 @@ def parse_catalog(text: str) -> Catalog:
         attributes = tuple(
             _attribute(str(a), spec or {}) for a, spec in (raw.get("attributes") or {}).items()
         )
+        verbs = raw.get("verbs") or {}
         types[str(name)] = ArchimateType(
             name=str(name),
             kind=str(raw["kind"]),
@@ -112,6 +119,7 @@ def parse_catalog(text: str) -> Catalog:
             layer=str(raw.get("layer") or ""),
             definition=str(raw.get("definition") or ""),
             attributes=attributes,
+            verbs=(str(verbs.get("out") or ""), str(verbs.get("in") or "")),
         )
     return Catalog(
         version=int(data.get("version") or 1),

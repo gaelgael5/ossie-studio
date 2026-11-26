@@ -5,7 +5,18 @@ from __future__ import annotations
 
 from ossie_studio.referentiels.errors import Problem
 
-__all__ = ["CartographieError", "Problem"]
+__all__ = ["CartographieError", "Problem", "problem_payload"]
+
+
+def problem_payload(problem: Problem) -> dict[str, object]:
+    """Un problème pour l'API : le fichier, le code, le détail et, toujours, la
+    propriété en cause (`field`, vide pour le fichier entier)."""
+    return {
+        "path": problem.path,
+        "code": problem.code,
+        "detail": problem.detail,
+        "field": problem.field,
+    }
 
 
 class CartographieError(Exception):

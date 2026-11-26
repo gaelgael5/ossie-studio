@@ -60,12 +60,17 @@ function FieldInput({
   const { t } = useTranslation()
   const text = shown(value)
   if (kind === 'enum') {
+    // Libellés d'affichage facultatifs (attributs ArchiMate de la cartographie) :
+    // `x-labels` pour chaque valeur, `x-unset` pour la valeur absente. La valeur
+    // stockée reste celle de l'énumération.
+    const labels = (schema['x-labels'] ?? {}) as Record<string, string>
+    const unset = typeof schema['x-unset'] === 'string' ? schema['x-unset'] : t('refPanelEmptyOption')
     return (
       <select id={id} aria-label={label} className="input" value={text} disabled={readOnly} onChange={(e) => onChange(parseInput(kind, e.target.value))}>
-        <option value="">{t('refPanelEmptyOption')}</option>
+        <option value="">{unset}</option>
         {(schema.enum as unknown[]).map((option) => (
           <option key={String(option)} value={String(option)}>
-            {String(option)}
+            {labels[String(option)] ?? String(option)}
           </option>
         ))}
       </select>
@@ -219,12 +224,23 @@ function ArrayTable({ ctx, path, items, label }: { ctx: Ctx; path: PathPart[]; i
 
 /** Les champs d'un objet du modèle (la valeur elle-même, un objet imbriqué ou un
  * élément de tableau ouvert dans le panneau). */
-function ObjectFields({ ctx, schema, path }: { ctx: Ctx; schema: Schema | undefined; path: PathPart[] }) {
+function ObjectFields({
+  ctx,
+  schema,
+  path,
+  names,
+}: {
+  ctx: Ctx
+  schema: Schema | undefined
+  path: PathPart[]
+  /** Seulement ces propriétés de premier niveau (fiche d'un objet : les vides repliées). */
+  names?: string[]
+}) {
   const { t } = useTranslation()
   const required = requiredOf(schema)
   return (
     <div className="stack">
-      {propertiesOf(schema).map(([name, sub]) => {
+      {propertiesOf(schema).filter(([name]) => !names || names.includes(name)).map(([name, sub]) => {
         const here = [...path, name]
         const field = fieldPath(here)
         const kind = kindOf(sub)
@@ -273,6 +289,38 @@ function ObjectFields({ ctx, schema, path }: { ctx: Ctx; schema: Schema | undefi
       })}
     </div>
   )
+}
+
+/**
+ * Les champs d'un objet tirés de son schéma, sans le panneau autour : repris par
+ * la fiche d'un objet de cartographie (ticket 6f71bcba). `names` restreint les
+ * propriétés de premier niveau affichées ; `onChange` reçoit la valeur entière.
+ */
+export function SchemaFields({
+  schema,
+  draft,
+  readOnly,
+  problems,
+  onChange,
+  names,
+}: {
+  schema: Schema
+  draft: Value
+  readOnly: boolean
+  problems: FieldProblems
+  onChange: (next: Value) => void
+  names?: string[]
+}) {
+  const ctx: Ctx = {
+    draft,
+    readOnly,
+    lockedKey: [],
+    problems,
+    set: (at, next) => onChange(setAt(draft, at, next) as Value),
+    // Pas de navigation dans un panneau ici : un objet imbriqué se remplit sur place.
+    open: () => undefined,
+  }
+  return <ObjectFields ctx={ctx} schema={schema} path={[]} names={names} />
 }
 
 export function ValuePanel({
