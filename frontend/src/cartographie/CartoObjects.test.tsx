@@ -210,12 +210,35 @@ describe('Cartographie — fiche d’un objet (ticket 6f71bcba)', () => {
     await user.selectOptions(await screen.findByLabelText(/Type d’objet/), 'application')
     await user.type(screen.getByLabelText(/^Nom/), 'X')
     const key = screen.getByLabelText(/^Clé/)
+    await user.clear(key)
     await user.type(key, 'APP-BOUTIQUE')
     expect(screen.getByText('Cette clé est déjà prise dans l’espace.')).toBeInTheDocument()
     await user.clear(key)
     await user.type(key, 'APP--X')
     expect(screen.getByText(/Majuscules, chiffres et tirets simples seulement/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Créer' })).toBeDisabled()
+  })
+
+  it('la clé se calcule depuis le nom, jusqu’à ce qu’on la saisisse (ticket 62a8c315)', async () => {
+    setup('/cartographie/objets/nouveau')
+    const user = userEvent.setup()
+    const name = await screen.findByLabelText(/^Nom/)
+    const key = screen.getByLabelText(/^Clé/)
+    await user.type(name, 'Été / Hiver')
+    expect(key).toHaveValue('ETE-HIVER')
+    // Déjà prise : suffixe.
+    await user.clear(name)
+    await user.type(name, 'App boutique')
+    expect(key).toHaveValue('APP-BOUTIQUE-2')
+    // Ni lettre ni chiffre : clé vide, à saisir.
+    await user.clear(name)
+    await user.type(name, '???')
+    expect(key).toHaveValue('')
+    expect(screen.getByText(/Clé requise/)).toBeInTheDocument()
+    // Saisie à la main : le nom ne la change plus.
+    await user.type(key, 'APP-MAIN')
+    await user.type(name, ' Colis 21')
+    expect(key).toHaveValue('APP-MAIN')
   })
 
   it('propriété obligatoire vide : affichée, enregistrement refusé avec la propriété (critère 5)', async () => {

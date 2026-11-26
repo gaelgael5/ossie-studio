@@ -375,6 +375,18 @@ input[type='radio'] {
   flex: 1;
 }
 
+/* Écran qui prend toute la largeur, environ 2 cm de marge (fiche d'un objet de
+   cartographie, ticket 62a8c315) : la page l'active en posant `page-wide`. */
+.page:has(.page-wide) {
+  max-width: none;
+  padding-inline: 2cm;
+}
+@media (max-width: 700px) {
+  .page:has(.page-wide) {
+    padding-inline: 16px;
+  }
+}
+
 .page-head {
   display: flex;
   justify-content: space-between;
@@ -3734,6 +3746,21 @@ td.cell-error {
 .carto-changed {
   color: var(--warn-fg);
   font-size: 0.9rem;
+}
+/* Retour + chemin, collés en haut pendant le défilement. */
+.carto-object-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-block: 8px;
+  background: var(--bg);
+}
+.carto-object-bar .breadcrumb {
+  margin-bottom: 0;
 }
 .carto-object-layout {
   display: grid;

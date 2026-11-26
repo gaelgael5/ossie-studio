@@ -27,6 +27,10 @@ export interface UnsavedState {
 
 interface Registry {
   entries: Record<string, UnsavedState>
+  /** Même registre, tenu à jour sans attendre un rendu : la garde le lit au
+   * moment de la navigation (un écran qui vient d'enregistrer puis navigue
+   * aussitôt ne doit pas être retenu — bug 62a8c315, objet créé deux fois). */
+  live: React.MutableRefObject<Record<string, UnsavedState>>
   set: (id: string, state: UnsavedState | null) => void
   saves: React.MutableRefObject<Record<string, () => Promise<unknown>>>
 }
@@ -35,22 +39,24 @@ const UnsavedContext = createContext<Registry | null>(null)
 
 export function UnsavedProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<Record<string, UnsavedState>>({})
+  const live = useRef<Record<string, UnsavedState>>({})
   const saves = useRef<Record<string, () => Promise<unknown>>>({})
   const set = useCallback((id: string, state: UnsavedState | null) => {
-    setEntries((prev) => {
-      if (state === null) {
-        if (!(id in prev)) return prev
-        const next = { ...prev }
-        delete next[id]
-        return next
-      }
+    const prev = live.current
+    let next: Record<string, UnsavedState>
+    if (state === null) {
+      if (!(id in prev)) return
+      next = { ...prev }
+      delete next[id]
+    } else {
       const old = prev[id]
-      if (old && old.dirty === state.dirty && old.saveable === state.saveable && old.label === state.label)
-        return prev
-      return { ...prev, [id]: state }
-    })
+      if (old && old.dirty === state.dirty && old.saveable === state.saveable && old.label === state.label) return
+      next = { ...prev, [id]: state }
+    }
+    live.current = next
+    setEntries(next)
   }, [])
-  const value = useMemo(() => ({ entries, set, saves }), [entries, set])
+  const value = useMemo(() => ({ entries, live, set, saves }), [entries, set])
   // La garde de navigation a besoin d'un routeur de données (useBlocker) ; sous
   // un MemoryRouter (tests), seule l'alerte du navigateur reste.
   const dataRouter = useContext(UNSAFE_DataRouterContext)
@@ -62,8 +68,10 @@ export function UnsavedProvider({ children }: { children: ReactNode }) {
   )
 }
 
-/** Déclare l'état d'un onglet ; `save` est relu au moment d'enregistrer. */
-export function useUnsaved(id: string, state: UnsavedState, save: () => Promise<unknown>) {
+/** Déclare l'état d'un onglet ; `save` est relu au moment d'enregistrer.
+ * Rend `release` : à appeler juste après un enregistrement réussi suivi d'une
+ * navigation immédiate (création), pour que la garde ne la retienne pas. */
+export function useUnsaved(id: string, state: UnsavedState, save: () => Promise<unknown>): () => void {
   const registry = useContext(UnsavedContext)
   const set = registry?.set
   const saves = registry?.saves
@@ -80,6 +88,7 @@ export function useUnsaved(id: string, state: UnsavedState, save: () => Promise<
     },
     [set, saves, id],
   )
+  return () => set?.(id, { ...state, dirty: false })
 }
 
 /**
@@ -142,7 +151,8 @@ function LeaveGuard() {
   const dirtyIds = Object.entries(registry.entries).filter(([, s]) => s.dirty)
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
-      dirtyIds.length > 0 && currentLocation.pathname !== nextLocation.pathname,
+      Object.values(registry.live.current).some((s) => s.dirty) &&
+      currentLocation.pathname !== nextLocation.pathname,
   )
   const [saving, setSaving] = useState(false)
   if (blocker.state !== 'blocked') return <BeforeUnload />
