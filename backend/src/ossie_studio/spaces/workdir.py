@@ -136,10 +136,17 @@ class WorkdirManager:
     # tête des écrans : dix écrans ouverts ne fetchent pas dix fois la forge.
     HEAD_FETCH_MIN_SECONDS = 10.0
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, read_fresh_seconds: float = 0.0) -> None:
         root.mkdir(parents=True, exist_ok=True)
         self._root = root
         self._head_cache: dict[str, tuple[float, str]] = {}
+        # Lectures : une copie alignée sur la forge il y a moins de
+        # `read_fresh_seconds` n'est pas réalignée (ticket 2daae568). Sans cela,
+        # chaque lecture refaisait fetch + ls-remote sous le verrou, et les 5 à 6
+        # lectures d'une page se sérialisaient derrière autant d'allers-retours
+        # vers la forge (pages de 5 à 10 s). 0 : réalignement à chaque lecture.
+        self._read_fresh_seconds = read_fresh_seconds
+        self._aligned: dict[str, float] = {}
         self._clock: Callable[[], float] = time.monotonic
         self._askpass = write_askpass(root)
         self._locks: dict[str, asyncio.Lock] = {}
@@ -165,6 +172,36 @@ class WorkdirManager:
         code, _, err = await run_git(["clone", "-q", repo_url, str(workdir)], self._root, env)
         if code != 0:
             raise WorkdirError(_access_code(classify(err)))
+
+    async def _align_for_read(
+        self, workdir: Path, repo_url: str, ref: str, env: dict[str, str], *, force: bool = False
+    ) -> None:
+        """Copie de lecture alignée sur la tête distante de `ref` (sous le verrou
+        de la copie, tenu par l'appelant). Déjà alignée il y a moins de
+        `read_fresh_seconds` : rien à refaire — les lectures qui attendaient le
+        verrou profitent de l'alignement que la première vient de faire. Un
+        changement poussé hors de l'application apparaît donc avec ce délai au
+        plus (même compromis que `published_head`)."""
+        key = str(workdir)
+        at = self._aligned.get(key)
+        if (
+            not force
+            and at is not None
+            and self._clock() - at < self._read_fresh_seconds
+            and (workdir / ".git").exists()
+        ):
+            return
+        self._aligned.pop(key, None)
+        await self._clone_or_refresh(workdir, repo_url, env)
+        if not await self._remote_branch_exists(workdir, ref, env):
+            raise WorkdirError("branch_not_found")
+        await self._checkout_branch(workdir, ref, env)
+        self._aligned[key] = self._clock()
+
+    def _forget_aligned(self, workdir: Path) -> None:
+        """Écriture, poussée ou fetch hors lecture dans cette copie : la lecture
+        suivante se réaligne sur la forge (elle voit ce qui vient d'être publié)."""
+        self._aligned.pop(str(workdir), None)
 
     async def _remote_branch_exists(self, workdir: Path, ref: str, env: dict[str, str]) -> bool:
         code, out, _ = await run_git(["ls-remote", "--heads", "origin", ref], workdir, env)
@@ -202,6 +239,7 @@ class WorkdirManager:
         ref = slug  # la clé de branche EST sa référence git (space_branches.git_ref)
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
+            self._forget_aligned(workdir)
             env = self._env(username, token)
             await self._clone_or_refresh(workdir, repo_url, env)
             if await self._remote_branch_exists(workdir, ref, env):
@@ -235,6 +273,7 @@ class WorkdirManager:
         child_ref = child_slug
         workdir = self._dir(space_id, child_slug)
         async with self._lock(str(workdir)):
+            self._forget_aligned(workdir)
             env = self._env(username, token)
             await self._clone_or_refresh(workdir, repo_url, env)
             if not await self._remote_branch_exists(workdir, base_ref, env):
@@ -273,18 +312,23 @@ class WorkdirManager:
 
     @asynccontextmanager
     async def read_copy(
-        self, space_id: uuid.UUID, slug: str, repo_url: str, username: str, token: str | None
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        *,
+        force: bool = False,
     ) -> AsyncIterator[tuple[Path, dict[str, str], str]]:
         """Copie de lecture alignée sur la forge, sous son verrou : rend
-        (répertoire, environnement git, sha de la tête publiée)."""
+        (répertoire, environnement git, sha de la tête publiée). `force` :
+        réaligne même si la copie vient de l'être."""
         ref = slug  # la clé de branche EST sa référence git (space_branches.git_ref)
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
             env = self._env(username, token)
-            await self._clone_or_refresh(workdir, repo_url, env)
-            if not await self._remote_branch_exists(workdir, ref, env):
-                raise WorkdirError("branch_not_found")
-            await self._checkout_branch(workdir, ref, env)
+            await self._align_for_read(workdir, repo_url, ref, env, force=force)
             head = await self._sha(workdir, "HEAD", env) or ""
             yield workdir, env, head
 
@@ -299,7 +343,13 @@ class WorkdirManager:
         now = self._clock()
         if cached is not None and now - cached[0] < self.HEAD_FETCH_MIN_SECONDS:
             return cached[1]
-        async with self.read_copy(space_id, slug, repo_url, username, token) as (_c, _e, head):
+        # La vérification de tête est faite pour voir la forge bouger : elle
+        # réaligne toujours (déjà limitée à une fois par HEAD_FETCH_MIN_SECONDS).
+        async with self.read_copy(space_id, slug, repo_url, username, token, force=True) as (
+            _c,
+            _e,
+            head,
+        ):
             self._head_cache[key] = (now, head)
             return head
 
@@ -338,6 +388,7 @@ class WorkdirManager:
         ref = slug  # la clé de branche EST sa référence git (space_branches.git_ref)
         copy = self._dir(space_id, slug)
         async with self._lock(str(copy)):
+            self._forget_aligned(copy)
             read_env = self._env(read_username, read_token)
             push_env = {
                 **self._env(push_username, push_token),
@@ -437,10 +488,7 @@ class WorkdirManager:
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
             env = self._env(username, token)
-            await self._clone_or_refresh(workdir, repo_url, env)
-            if not await self._remote_branch_exists(workdir, ref, env):
-                raise WorkdirError("branch_not_found")
-            await self._checkout_branch(workdir, ref, env)
+            await self._align_for_read(workdir, repo_url, ref, env)
             return read_fn(workdir)
 
     async def review_inputs(
@@ -460,10 +508,7 @@ class WorkdirManager:
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
             env = self._env(username, token)
-            await self._clone_or_refresh(workdir, repo_url, env)
-            if not await self._remote_branch_exists(workdir, ref, env):
-                raise WorkdirError("branch_not_found")
-            await self._checkout_branch(workdir, ref, env)
+            await self._align_for_read(workdir, repo_url, ref, env)
             head_sha = await self._sha(workdir, "HEAD", env) or ""
             return head_sha, tree_fn(workdir)
 
@@ -485,10 +530,7 @@ class WorkdirManager:
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
             env = self._env(username, token)
-            await self._clone_or_refresh(workdir, repo_url, env)
-            if not await self._remote_branch_exists(workdir, ref, env):
-                raise WorkdirError("branch_not_found")
-            await self._checkout_branch(workdir, ref, env)
+            await self._align_for_read(workdir, repo_url, ref, env)
             fmt = _UNIT_SEP.join(["%H", "%an", "%aI", "%s"])
             code, out, err = await run_git(
                 ["log", f"--pretty=format:{fmt}", f"--max-count={int(limit)}", "--", *paths],
@@ -524,10 +566,7 @@ class WorkdirManager:
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
             env = self._env(username, token)
-            await self._clone_or_refresh(workdir, repo_url, env)
-            if not await self._remote_branch_exists(workdir, ref, env):
-                raise WorkdirError("branch_not_found")
-            await self._checkout_branch(workdir, ref, env)
+            await self._align_for_read(workdir, repo_url, ref, env)
             fmt = "\x1e" + _UNIT_SEP.join(["%H", "%an", "%aI", "%s"])
             code, out, err = await run_git(
                 [
@@ -589,10 +628,7 @@ class WorkdirManager:
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
             env = self._env(username, token)
-            await self._clone_or_refresh(workdir, repo_url, env)
-            if not await self._remote_branch_exists(workdir, ref, env):
-                raise WorkdirError("branch_not_found")
-            await self._checkout_branch(workdir, ref, env)
+            await self._align_for_read(workdir, repo_url, ref, env)
             code, out, _ = await run_git(["show", f"{sha}:{rel_path}"], workdir, env)
             return out if code == 0 else None
 
@@ -609,6 +645,7 @@ class WorkdirManager:
         ref = slug  # la clé de branche EST sa référence git (space_branches.git_ref)
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
+            self._forget_aligned(workdir)
             env = self._env(username, token)
             await self._clone_or_refresh(workdir, repo_url, env)
             if not await self._remote_branch_exists(workdir, ref, env):
@@ -683,6 +720,7 @@ class WorkdirManager:
         ref = slug  # la clé de branche EST sa référence git (space_branches.git_ref)
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
+            self._forget_aligned(workdir)
             env = self._env(username, token)
             await self._clone_or_refresh(workdir, repo_url, env)
             if not await self._remote_branch_exists(workdir, ref, env):
@@ -711,6 +749,7 @@ class WorkdirManager:
         ref = slug  # la clé de branche EST sa référence git (space_branches.git_ref)
         workdir = self._dir(space_id, slug)
         async with self._lock(str(workdir)):
+            self._forget_aligned(workdir)
             env = self._env(username, token)
             await self._clone_or_refresh(workdir, repo_url, env)
             if not await self._remote_branch_exists(workdir, ref, env):
@@ -797,6 +836,7 @@ class WorkdirManager:
         key = viewed_slug or "_map"
         workdir = self._dir(space_id, key)
         async with self._lock(str(workdir)):
+            self._forget_aligned(workdir)
             env = self._env(username, token)
             await self._clone_or_refresh(workdir, repo_url, env)
             await run_git(["fetch", "-q", "origin", _VERSION_FETCH_REFSPEC], workdir, env)

@@ -43,6 +43,8 @@ def make_settings(tmp_path: Path, database_url: str, master_key: str = TEST_MAST
         sources_volume_path=sources,
         session_secret=TEST_SESSION_SECRET,
         secrets_master_key=master_key,
+        # Les tests modifient la forge entre deux lectures : réalignement à chaque fois.
+        git_read_fresh_seconds=0,
         _env_file=None,  # type: ignore[call-arg]
     )
 

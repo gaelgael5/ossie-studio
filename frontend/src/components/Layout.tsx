@@ -6,7 +6,7 @@ import { api, sessionCapabilities } from '../apiClient'
 import { useSession } from '../hooks'
 import { LanguageSelector } from '../LanguageSelector'
 import { useWorkspace } from '../workspace'
-import { DraftBar, DraftViewSelect } from './DraftBar'
+import { DraftBar, DraftViewSelect, draftQuery } from './DraftBar'
 import { useBranchHead } from '../useBranchHead'
 import { Brand } from './Brand'
 
@@ -124,8 +124,7 @@ function useBranchDraft() {
   const { pathname } = useLocation()
   const shown = showsBranchDraftBar(pathname) && !!ws.spaceId && !!ws.branchId
   const draft = useQuery({
-    queryKey: ['draft', ws.spaceId, ws.branchId],
-    queryFn: () => api.myDraft(ws.spaceId as string, ws.branchId as string),
+    ...draftQuery(ws.spaceId as string, ws.branchId as string),
     enabled: shown,
   })
   const count = shown ? (draft.data?.count ?? 0) : 0
