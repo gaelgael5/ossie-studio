@@ -3565,3 +3565,25 @@ td.cell-error {
   width: auto;
   min-width: 180px;
 }
+
+/* Publication dans le menu de l'utilisateur (ticket e7e377b0) : une pastille
+   signale qu'il y a un brouillon à publier. */
+.topnav-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--warn-fg);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+.topnav-dropdown-menu .menuitem-strong {
+  font-weight: 700;
+}
+.topnav-dropdown-menu .menu-sep {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}

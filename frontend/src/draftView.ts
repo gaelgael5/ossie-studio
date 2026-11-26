@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from 'react'
+
 // Vue d'une branche choisie par la personne qui a un brouillon : « fusionnée »
 // (la branche avec son brouillon, par défaut), « publiée » (sans le brouillon),
 // « brouillon » (seulement ses objets). Préférence d'affichage, mémorisée par
@@ -18,12 +20,31 @@ export function readDraftView(branchId: string | null): DraftViewMode {
   }
 }
 
+// Le choix se fait dans le menu du haut et se lit aussi dans la barre du
+// brouillon (ticket e7e377b0) : un petit magasin notifie les deux.
+const listeners = new Set<() => void>()
+
 export function writeDraftView(branchId: string, mode: DraftViewMode): void {
   try {
     window.localStorage.setItem(KEY(branchId), mode)
   } catch {
     // Stockage indisponible (navigation privée) : la préférence ne survit pas.
   }
+  listeners.forEach((l) => l())
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+/** Vue choisie pour la branche, relue à chaque changement. */
+export function useDraftView(branchId: string | null): DraftViewMode {
+  return useSyncExternalStore(
+    subscribe,
+    () => readDraftView(branchId),
+    () => 'merged',
+  )
 }
 
 /** Ajoute `view=published` aux lectures de la branche quand la vue publiée est
