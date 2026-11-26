@@ -116,6 +116,22 @@ def incoming(target: str, cat: Catalog | None = None) -> dict[str, list[str]]:
     return {s: rels for s, rels in out.items() if rels}
 
 
+@cache
+def involved_relations(name: str) -> tuple[str, ...]:
+    """Les types de relation auxquels un type ArchiMate peut prendre part, comme
+    source ou comme cible, dans l'ordre du catalogue (fenêtre « Ajouter un type »).
+    Le regroupement et la jonction, qui acceptent toute relation, ne comptent pas
+    comme autre extrémité : ils rendraient la liste identique pour tous."""
+    cat = catalog()
+    found: set[str] = set()
+    for other in cat.types:
+        if other in ALWAYS_ALLOWED and other != name:
+            continue
+        found.update(allowed_relations(name, other, cat))
+        found.update(allowed_relations(other, name, cat))
+    return tuple(r.name for r in cat.relations() if r.name in found)
+
+
 # --- Points de vue ------------------------------------------------------------------------
 
 

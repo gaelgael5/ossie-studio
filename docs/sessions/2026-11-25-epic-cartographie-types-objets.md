@@ -20,6 +20,10 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 
 - **Règles de relation** : on reprend la table d'**Archi** (version 3.2, licence MIT, notice conservée) (« 1. oui »), Gael n'ayant pas la table de la spécification sous la main.
 - **Pas de ticket chez `urban-archimate`** (« 1. oui ») : son composant ne tient déjà aucune table, il demande à Ossie par le délégué `allowedRelations(cléSource, cléCible)`.
+- **Menu** : « Cartographie » juste après « Modèles » (l'ancienne entrée « Domaines »), avant « Gouvernance ».
+- **Branche racine** (critère 8 de e7521e80) : comme les Référentiels et les Modèles, ce que la personne fait va dans **son brouillon**, sur toute branche, racine comprise, puis se fusionne et se publie ; « + Ajouter » n'est masqué que sans le droit « Cartographie : modifier ».
+- **Onglet « Objets »** : il n'apparaît qu'avec son ticket (6f71bcba), pas d'onglet vide.
+- **Pictogramme** du type ArchiMate dans les vignettes et la liste de la fenêtre d'ajout (couleur de l'application).
 - **Noms des attributs alignés sur le contrat d'`urban-archimate`** (« 2. oui go ») : `acces` (`Read`, `Write`, `ReadWrite` ; absent = non précisé, plus de valeur `Access`), `modificateur` (influence, au lieu de `force`), `dirigee` (association, au lieu de `orientee`). Le critère 5 de 0e088eaa (« quatre valeurs ») devient trois valeurs et l'absence.
 
 ## Tickets
@@ -28,7 +32,7 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 |---|---|
 | f8167ae1 — Format des types et des objets dans l'espace Git (enabler) | En review |
 | 0e088eaa — Types ArchiMate 3.2 en version de base, règles de relation (enabler) | En review |
-| e7521e80 — Espace « Cartographie » : types en vignettes, filtre, ajouter un type | Prêt pour dev |
+| e7521e80 — Espace « Cartographie » : types en vignettes, filtre, ajouter un type | En review |
 | 5c39d4df — Types : personnaliser un type | Prêt pour dev |
 | 6f71bcba — Objets : créer, modifier, supprimer à la main | Prêt pour dev |
 | b58a0a13 — Relations : relier deux objets (fiche d'une relation) | Prêt pour dev |
@@ -53,3 +57,12 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 - `space.py` : `allowed_between` et `relation_types_between` (objets de l'espace, un type suit son `x-archimate`) ; une relation non permise est signalée à la lecture et refusée à l'écriture (`relation_not_allowed`) — décision prise en latitude (« interdit : inventer une relation absente de la spécification »).
 - La jonction reste **un** type `Junction` avec l'attribut `jonction` (comme la spécification et Archi) ; `urban-archimate` parle d'`AndJunction` / `OrJunction` (format d'échange) : la traduction relève du fichier de règles du modèle (epic « Cartographie — modèles et vues »).
 - Tests : `backend/tests/test_cartographie_catalog.py` (critères 1 à 6, fidélité à la table d'Archi, fichiers d'Archi inattendus).
+
+## Notes techniques (écran « Cartographie », e7521e80)
+
+- Droits « Cartographie : consulter / modifier » (`cartographie:read`, `cartographie:write`), par espace (`authz/catalog.py`).
+- Routes `api/cartographie.py`, sous `/api/spaces/{s}/branches/{b}/cartographie` : `GET /catalogue` (couches, types ArchiMate avec libellé, définition, pictogramme, attributs, relations auxquelles ils prennent part — `rules.involved_relations`, sans compter le regroupement et la jonction —, propriétés de base `model.BASE_PROPERTIES`), `GET /types` (vignettes : propriétés ajoutées, objets, état `created` / `modified` dans le brouillon), `POST /types/apercu` (fichier exact, rien n'est lu ni écrit), `POST /types` (brouillon ; refus `carto_type_exists`, `carto_type_invalid`, `invalid_request` avec `label_required`, `slug_invalid`, `archimate_unknown`).
+- Liste indexée en mémoire par empreinte de `cartographie/` : l'index des Référentiels est devenu `api/list_index.py`, partagé.
+- Journal : la cartographie publiée apparaît dans la page Historique (`carto_type`, `carto_object`), comme les Référentiels (`audit/git_history.py`).
+- Écran : `pages/CartographiePage.tsx`, `cartographie/AddTypeDialog.tsx`, `cartographie/ArchimateIcon.tsx`. Un clic sur une vignette ne fait encore rien (fenêtre d'édition : ticket 5c39d4df).
+- Tests : `backend/tests/test_cartographie_screen.py`, `frontend/src/pages/CartographiePage.test.tsx`, ordre du menu dans `App.test.tsx`.

@@ -186,6 +186,8 @@ ERROR_CODES: tuple[str, ...] = (
     "referentiel_link_property",
     "referentiel_link_taken",
     "referentiel_link_incomplete",
+    "carto_type_exists",
+    "carto_type_invalid",
     "example_encoding",
     "example_json",
     "publish_in_progress",

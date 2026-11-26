@@ -34,6 +34,13 @@ class CartographieTarget:
             self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token, fn
         )
 
+    async def signature(self, prefix: str) -> tuple[str, list[str]]:
+        """Empreinte de ce que la lecture verrait sous `prefix`, et chemins du
+        brouillon sous ce préfixe (voir `DraftWorkdir.prefix_signature`)."""
+        return await self.workdir.prefix_signature(
+            self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token, prefix
+        )
+
     async def cartographie(self) -> Cartographie:
         result: Cartographie = await self.read(read_cartographie)
         return result

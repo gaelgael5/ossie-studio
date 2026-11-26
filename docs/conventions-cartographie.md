@@ -159,8 +159,10 @@ la propriété en cause) ; type inconnu ou mal formé.
 
 ## Écriture
 
-Dans le brouillon de la personne, par commit local (`cartographie.service.CartographieTarget`),
-comme les sources et les référentiels. Refus nommés (`CartographieError`) :
+Dans le brouillon de la personne (`cartographie.service.CartographieTarget`), comme les
+sources, les référentiels et les modèles, sur toute branche, racine comprise ; rien
+n'atteint la branche avant la publication. L'écran « Cartographie » et ses routes
+(`api/cartographie.py`) passent par là. Refus nommés (`CartographieError`) :
 `type_exists`, `type_not_found`, `type_archimate_frozen`, `type_invalid`,
 `object_key_taken`, `object_not_found`, `object_type_frozen`, `object_invalid`,
 `object_keys_duplicate`, `object_in_use`. Une relation non permise est refusée

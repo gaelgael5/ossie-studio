@@ -1535,6 +1535,55 @@ export interface AuditPage {
   types: string[]
 }
 
+// --- Cartographie (epic « Cartographie — types et objets », ticket e7521e80) --------------
+
+export interface CartoAttribute {
+  name: string
+  label: string
+  type: string
+  /** Valeurs ArchiMate (stockées) et leur libellé français (affiché). */
+  values: { value: string; label: string }[]
+  /** Libellé affiché quand l'attribut est absent. */
+  unset: string
+}
+
+export interface ArchimateTypeInfo {
+  name: string
+  kind: 'element' | 'relation'
+  layer: string
+  label: string
+  definition: string
+  /** Pictogramme SVG d'un trait (`currentColor`), servi par Ossie. */
+  icon: string
+  attributes: CartoAttribute[]
+  /** Types de relation auxquels ce type peut prendre part. */
+  relations: string[]
+}
+
+export interface CartoCatalog {
+  archimate: string
+  layers: { key: string; label: string }[]
+  base: { name: string; type: string; required: boolean }[]
+  types: ArchimateTypeInfo[]
+}
+
+export interface CartoTypeSummary {
+  slug: string
+  title: string
+  archimate: string
+  path: string
+  properties: number
+  objects: number
+  /** created : créé dans le brouillon, pas encore publié ; modified : modifié. */
+  state: 'created' | 'modified' | null
+}
+
+export interface CartoTypePreview {
+  path: string
+  yaml: string
+  problems: { path: string; code: string; detail: string; field: string }[]
+}
+
 // --- Référentiels (epic « Référentiels », ticket 829a86a7) ---------------------------------
 
 export interface ReferentielSummary {
@@ -2159,6 +2208,23 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  getCartoCatalog: (spaceId: string, branchId: string) =>
+    apiFetch<CartoCatalog>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/catalogue`),
+  listCartoTypes: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; types: CartoTypeSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types`,
+    ),
+  // Le fichier que créerait l'ajout (chemin et contenu exacts) ; rien n'est écrit.
+  previewCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>
+    apiFetch<CartoTypePreview>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/apercu`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  createCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>
+    apiFetch<{ type: CartoTypeSummary; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
   previewReferentielModel: (spaceId: string, branchId: string, name: string, model: Record<string, unknown>) =>
     apiFetch<ReferentielModelPreview>(
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/modele/apercu`,

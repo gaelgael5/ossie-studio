@@ -43,6 +43,8 @@ const MAIN_NAV: NavEntry[] = [
     ],
   },
   { key: 'navDomains', to: '/domaines', capability: 'curation:read', prefix: '/domaines' },
+  // Juste après « Modèles », avant « Gouvernance » (Gael, epic « Cartographie »).
+  { key: 'navCartographie', to: '/cartographie', capability: 'cartographie:read', prefix: '/cartographie' },
   { key: 'navGovernance', to: '/governance/tags', capability: 'governance:read', prefix: '/governance' },
 ]
 

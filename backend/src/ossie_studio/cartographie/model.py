@@ -38,6 +38,12 @@ OBJECTS_DIR = f"{CARTO_DIR}/objets"
 TYPE_SUFFIX = ".schema.yaml"
 OBJECT_SUFFIX = ".yaml"
 ARCHIMATE_KEY = "x-archimate"
+# La base de tout objet, hors `proprietes` : (nom, type, requis).
+BASE_PROPERTIES: tuple[tuple[str, str, bool], ...] = (
+    ("cle", "string", True),
+    ("nom", "string", True),
+    ("documentation", "string", False),
+)
 _KEY = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
 _PROPERTY_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 

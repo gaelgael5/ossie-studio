@@ -115,3 +115,53 @@ def referentiel_events(commits: list[PathCommit], filters: AuditFilters) -> list
                 out.append(event)
     out.sort(key=lambda e: e.at, reverse=True)
     return out
+
+
+# --- Cartographie (epic « Cartographie — types et objets ») : elle aussi vit dans Git --------
+
+CARTO_TYPE = "carto_type"
+CARTO_OBJECT = "carto_object"
+CARTOGRAPHIE_TYPES = (CARTO_TYPE, CARTO_OBJECT)
+_CARTO_TYPE_SUFFIX = ".schema.yaml"
+
+
+def _carto_target(path: str) -> tuple[str, str] | None:
+    """(type d'objet du journal, identifiant) d'un fichier de la cartographie : un
+    type (`cartographie/types/<slug>.schema.yaml`, son slug) ou un objet
+    (`cartographie/objets/<type>/<clé en minuscules>.yaml`, sa clé)."""
+    parts = PurePosixPath(path).parts
+    if len(parts) == 3 and parts[:2] == ("cartographie", "types"):
+        if parts[2].endswith(_CARTO_TYPE_SUFFIX):
+            return CARTO_TYPE, parts[2][: -len(_CARTO_TYPE_SUFFIX)]
+    if len(parts) == 4 and parts[:2] == ("cartographie", "objets"):
+        if parts[3].endswith(".yaml"):
+            return CARTO_OBJECT, parts[3][: -len(".yaml")].upper()
+    return None
+
+
+def cartographie_events(commits: list[PathCommit], filters: AuditFilters) -> list[AuditEvent]:
+    """Un événement par type ou objet de la cartographie touché par un commit
+    publié : créé, modifié ou supprimé selon son fichier."""
+    out: list[AuditEvent] = []
+    for commit in commits:
+        for status, path in commit.files:
+            found = _carto_target(path)
+            if found is None:
+                continue
+            object_type, object_id = found
+            event = AuditEvent(
+                at=datetime.fromisoformat(commit.date),
+                actor_label=commit.author,
+                actor_id=None,
+                action=_ACTIONS.get(status, UPDATED),
+                object_type=object_type,
+                object_id=object_id,
+                object_label=object_id,
+                detail={"commit": commit.sha[:12], "message": commit.message},
+                origin="git",
+                ref=commit.sha,
+            )
+            if _keep(event, filters):
+                out.append(event)
+    out.sort(key=lambda e: e.at, reverse=True)
+    return out
