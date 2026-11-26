@@ -24,7 +24,7 @@ dans `dev`, PR #10).
 | Ticket | Sujet | Statut |
 |---|---|---|
 | e338fe14 | Format du modèle, du fichier de règles et du fichier graphique | en revue |
-| 00d7cd6d | Fichier de règles par défaut | à faire |
+| 00d7cd6d | Fichier de règles par défaut | en revue |
 | 5a05c7bb | Onglet « Modèles » | à faire |
 | f5421cc7 | Ouvrir un modèle | à faire |
 | c3dd045c | Enregistrer un modèle | à faire |
@@ -58,3 +58,17 @@ dans `dev`, PR #10).
   permet) ; la règle par défaut d'Ossie arrive avec 00d7cd6d.
 - Composant servi sous `/api/archimate` (`urban_archimate.mount`), comme
   `urban-json-editor` sous `/api/jslt-editor`.
+
+## Notes techniques (règle par défaut, 00d7cd6d)
+
+- `diagram.default_rule(space)` : un seul bloc pour tout l'espace (nom, documentation,
+  attributs ArchiMate des relations, toutes les propriétés ajoutées des types). Un
+  chemin qui ne mène à rien pour un objet n'y fait rien paraître (le composant ignore
+  une valeur absente), d'où un bloc unique plutôt qu'un bloc par type.
+- Le délégué de pose (f5421cc7) pourra rendre `rule_block(with_default(...))` : un bloc
+  sans `type` est ignoré par le composant, qui retombe sur le `defaut` déjà reçu.
+- Le nom d'échange des attributs est dans le catalogue (`exchange`), pas en dur dans le
+  code. La jonction (élément, attribut `jonction`) n'en a pas encore : le composant
+  n'applique les attributs qu'aux relations, et le nom attend le ticket 759f0fd8.
+- « Créé vide » : le fichier de règles créé avec un modèle porte seulement `lang: fr`
+  (la langue du modèle produit par le composant, `en` sinon).

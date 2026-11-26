@@ -39,7 +39,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -66,6 +66,9 @@ CONTRACT_SCHEMA = urban_archimate.STATIC_DIR / "hydrated-model.schema.json"
 # Un chemin de valeur du fichier de règles (`$.nom`, `$.proprietes.acces`) : la même
 # grammaire que le composant (`src/rules/paths.ts`).
 VALUE_PATH = re.compile(r"^\$(?:\.[A-Za-z0-9_-]+)+$")
+# Le fichier de règles proposé à la création d'un modèle, et sa langue.
+STANDARD_RULES = "standard"
+DEFAULT_LANG = "fr"
 # Signalé sans refuser : une entrée du graphique qui ne correspond à rien est ignorée.
 WARNINGS = frozenset({"graphic_entry_unknown"})
 
@@ -502,6 +505,38 @@ def _is_relation(space: Cartographie, cat: Catalog, obj: CartoObject) -> bool:
     return base.is_relation if base is not None else obj.is_relation
 
 
+def default_rule(space: Cartographie, cat: Catalog | None = None) -> dict[str, Any]:
+    """La règle par défaut, livrée avec Ossie (ticket 00d7cd6d) : elle s'applique à
+    tout objet sans règle propre, si bien qu'un premier modèle s'affiche sans rien
+    écrire. `name` ← nom, `documentation` ← documentation ; chaque attribut propre à un
+    type ArchiMate (sens d'un accès, force d'une influence…) ← la même propriété de
+    l'objet, déjà en valeur ArchiMate ; chaque propriété ajoutée à un type de l'espace
+    ← une propriété ArchiMate du même nom, dont le composant déduit la définition du
+    schéma du type. Un chemin qui ne mène à rien pour un objet n'y fait rien paraître."""
+    cat = cat or catalog()
+    block: dict[str, Any] = {"name": "$.nom", "documentation": "$.documentation"}
+    for archimate_type in cat.types.values():
+        for attribute in archimate_type.attributes:
+            if attribute.exchange:
+                block.setdefault(attribute.exchange, f"$.proprietes.{attribute.name}")
+    names = dict.fromkeys(
+        name for slug in sorted(space.types) for name in space.types[slug].properties
+    )
+    if names:
+        block["properties"] = [
+            {"propertyDefinitionRef": name, "value": f"$.proprietes.{name}"} for name in names
+        ]
+    return block
+
+
+def with_default(rules: Rules, space: Cartographie, cat: Catalog | None = None) -> Rules:
+    """Les règles telles que le composant les reçoit : le bloc `defaut` est toujours là
+    (celui du fichier s'il en a un, sinon la règle par défaut d'Ossie)."""
+    if rules.default is not None:
+        return rules
+    return replace(rules, default=default_rule(space, cat))
+
+
 def rule_block(
     rules: Rules, obj: CartoObject, space: Cartographie, cat: Catalog | None = None
 ) -> dict[str, Any] | None:
@@ -743,6 +778,7 @@ def save_diagram(
     """Écrit le modèle et son graphique. Refus nommé (rien n'est écrit) si le modèle
     ne passe pas les contrôles (« model_invalid »), si son identifiant est déjà pris
     par un autre modèle, s'il existe déjà (création) ou n'existe pas (modification).
+    À la création, un fichier de règles absent est créé vide (`lang` seule).
 
     Les entrées du graphique qui ne correspondent à rien ne sont pas écrites ; elles
     sont rendues en avertissement."""
@@ -760,14 +796,18 @@ def save_diagram(
             raise CartographieError("model_id_taken", status=409, id=diagram.id, slug=other)
     problems = _shape("model", path, diagram.document())
     problems += _shape("graphic", diagram.graphic, graphic.document())
+    missing_rules = not (root / diagram.rules).is_file()
     if not problems:
         space = read_cartographie(root, cat)
         problems = check_diagram(diagram, path, slug, space, cat)
-        if not (root / diagram.rules).is_file():
+        if missing_rules and not create:
             problems.append(Problem(diagram.rules, "rules_missing"))
     if problems:
         raise CartographieError("model_invalid", problems=problems)
     warnings = check_graphic(graphic, diagram.graphic, diagram)
+    if missing_rules:  # création : le fichier de règles est créé vide, la règle par défaut suffit
+        (root / RULES_DIR).mkdir(parents=True, exist_ok=True)
+        (root / diagram.rules).write_text(dump_rules(Rules(lang=DEFAULT_LANG)), encoding="utf-8")
     (root / MODELS_DIR).mkdir(parents=True, exist_ok=True)
     (root / path).write_text(dump_diagram(diagram), encoding="utf-8")
     (root / diagram.graphic).write_text(dump_graphic(graphic.pruned(diagram)), encoding="utf-8")
@@ -816,7 +856,8 @@ def hydrate(read: DiagramRead, space: Cartographie) -> dict[str, Any]:
         out["nom"] = diagram.name
     if diagram.description:
         out["description"] = diagram.description
-    out["regles"] = {"chemin": diagram.rules, "data": read.rules.document()}
+    rules = with_default(read.rules, space)  # jamais sans bloc `defaut`
+    out["regles"] = {"chemin": diagram.rules, "data": rules.document()}
     out["graphique"] = {"chemin": diagram.graphic, "data": read.graphic.document()}
     out["types"] = [
         {"chemin": type_path(slug), "data": space.types[slug].document()}

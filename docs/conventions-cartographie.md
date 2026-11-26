@@ -203,6 +203,18 @@ des trois fichiers ; le modèle stocké est le modèle hydraté sans les `data`.
   `dx`, `dy` ; `l`, `h`) et `vues.<vue>.connexions.<connexion>` (`ancre_source`,
   `ancre_cible` parmi gauche/droite/haut/bas, `points`, `libelle`).
 
+**La règle par défaut** (enabler 00d7cd6d, `diagram.default_rule`) est livrée avec
+Ossie et s'applique à tout objet sans règle propre : `name` ← `$.nom`, `documentation`
+← `$.documentation`, chaque attribut propre à un type ArchiMate ← la même propriété
+de l'objet sous son nom du format d'échange (`accessType` ← `$.proprietes.acces`,
+`modifier` ← `$.proprietes.modificateur`, `isDirected` ← `$.proprietes.dirigee` ; le
+catalogue porte ce nom, `exchange`), et chaque propriété ajoutée à un type de l'espace
+← une propriété ArchiMate du même nom. Elle n'est **jamais écrite** dans un fichier :
+elle est mise dans le bloc `defaut` du modèle hydraté (`with_default`), sauf si le
+fichier de règles a son propre `defaut`. Le composant ne reçoit donc jamais de modèle
+sans `defaut`. Créer un modèle dont le fichier de règles n'existe pas le crée vide
+(`lang: fr`). La jonction attend le ticket 759f0fd8 d'`urban-archimate`.
+
 **Écriture déterministe** : clés dans l'ordre du contrat, valeurs vides omises, une
 géométrie par ligne (`N1: {x: 40, y: 60, l: 320, h: 180}`), un nombre entier écrit en
 flottant redevient entier. Déplacer un nœud ne change donc qu'une ligne, du seul

@@ -37,6 +37,7 @@ class Attribute:
     type: str = "string"  # string | boolean
     values: dict[str, str] = field(default_factory=dict)  # valeur ArchiMate → libellé
     unset: str = ""  # libellé affiché quand l'attribut est absent
+    exchange: str = ""  # nom dans le format d'échange ArchiMate (`accessType`…)
 
     def schema(self) -> dict[str, Any]:
         """Sa forme JSON Schema (valeurs fermées : énumération des valeurs ArchiMate).
@@ -102,6 +103,7 @@ def _attribute(name: str, data: dict[str, Any]) -> Attribute:
         type=str(data.get("type") or "string"),
         values={str(k): str(v) for k, v in values.items()},
         unset=str(data.get("unset") or ""),
+        exchange=str(data.get("exchange") or ""),
     )
 
 
