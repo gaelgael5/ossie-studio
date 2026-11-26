@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ossie_studio.api.branches import WorkdirDep
 from ossie_studio.api.cartographie import api_error, cartographie_target, draft_states
@@ -43,6 +43,7 @@ from ossie_studio.cartographie.diagram import (
     read_diagram,
     rules_path,
     save_diagram,
+    save_drawing,
     toolbox,
 )
 from ossie_studio.cartographie.errors import CartographieError, problem_payload
@@ -70,6 +71,16 @@ class ModelBody(BaseModel):
     rules: str = STANDARD_RULES  # slug du fichier de règles
     view: str = ""  # nom de la première vue
     viewpoint: str = ""  # son point de vue ArchiMate (vide : aucun)
+
+
+class DrawingBody(BaseModel):
+    """Ce que rend `save()` du composant : le modèle sans les `data`, le graphique, les
+    nouvelles relations (contrat d'urban-archimate)."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+    modele: dict[str, Any]
+    graphique: dict[str, Any]
+    nouvelles_relations: list[Any] = Field(default=[], alias="nouvellesRelations")
 
 
 def _rules_name(path: str) -> str:
@@ -260,6 +271,47 @@ async def get_model(
         raise ApiError(exc.code, status_code=502) from None
     dates = await carto_history(conn, crypto, manager, space_id, branch_id, MODELS_DIR)
     return _decorate(item, dates, await draft_states(conn, workdir, branch_id))
+
+
+@router.put("/{slug}")
+async def save_model(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieWrite,
+    workdir: DraftWorkdirDep,
+    manager: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: DrawingBody,
+) -> dict[str, object]:
+    """Enregistre un modèle depuis le composant, dans un seul commit local du
+    brouillon : les nouvelles relations (fichiers créés et validés comme tout objet),
+    le modèle et son graphique. Une relation refusée (clé prise, propriété invalide,
+    relation non permise) : rien n'est écrit, l'erreur nomme sa clé
+    (« carto_model_relation_refused »)."""
+
+    def write(root: Path) -> dict[str, Any]:
+        created, warnings = save_drawing(
+            root, slug, body.modele, body.graphique, body.nouvelles_relations
+        )
+        space = read_cartographie(root)
+        return {
+            **_summary(read_diagram(root, slug, space), space),
+            "created_relations": created,
+            "warnings": [problem_payload(p) for p in warnings],
+        }
+
+    target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
+    try:
+        item, revision = await target.write(f"enregistre le modèle {slug}", write)
+    except CartographieError as exc:
+        raise api_error(exc) from None
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    dates = await carto_history(conn, crypto, manager, space_id, branch_id, MODELS_DIR)
+    states = await draft_states(conn, workdir, branch_id)
+    return {**_decorate(item, dates, states), "revision": revision}
 
 
 @router.delete("/{slug}")

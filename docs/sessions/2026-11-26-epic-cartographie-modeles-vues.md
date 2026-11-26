@@ -27,7 +27,7 @@ dans `dev`, PR #10).
 | 00d7cd6d | Fichier de règles par défaut | en revue |
 | 5a05c7bb | Onglet « Modèles » | en revue |
 | f5421cc7 | Ouvrir un modèle | en revue |
-| c3dd045c | Enregistrer un modèle | à faire |
+| c3dd045c | Enregistrer un modèle | en revue |
 | be89037a | Primitives MCP modèles et vues | à faire |
 | cb9d99b3 | Vérification d'intention (avec Gael) | à faire |
 
@@ -100,3 +100,14 @@ dans `dev`, PR #10).
 - Défauts vus côté composant (à proposer à Gael pour `urban-archimate`) : libellé d'un
   élément qui en contient d'autres dessiné au centre, masqué par ses enfants ; contour
   noir de focus sur la surface après un clic.
+
+## Notes techniques (enregistrer, c3dd045c)
+
+- Le composant met la clé d'une nouvelle relation dans `relationships` mais pas son
+  document dans `documents` (contrat) : Ossie l'ajoute après avoir créé le fichier.
+- Tout ou rien sans mécanisme en plus : si l'écriture lève, le brouillon n'est pas
+  enregistré et sa vue est reconstruite (`spaces/views.py`).
+- `_write_if_changed` : on ne réécrit un fichier du modèle que si son contenu change.
+- Contrat vérifié de bout en bout : la sortie réelle de `save()` (0.1.1), capturée dans
+  le navigateur après une pose, est acceptée par `save_drawing` ; le nouveau nœud tient
+  sur une ligne du graphique.

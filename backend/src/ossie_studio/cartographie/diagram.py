@@ -50,9 +50,9 @@ from jsonschema import Draft202012Validator
 
 from ossie_studio.cartographie.catalog import Catalog, catalog
 from ossie_studio.cartographie.errors import CartographieError, Problem
-from ossie_studio.cartographie.model import CARTO_DIR, CartoObject, type_path
+from ossie_studio.cartographie.model import CARTO_DIR, CartoObject, object_path, type_path
 from ossie_studio.cartographie.rules import viewpoints
-from ossie_studio.cartographie.space import Cartographie, read_cartographie
+from ossie_studio.cartographie.space import Cartographie, read_cartographie, save_object
 from ossie_studio.cartographie.space import delete_object as delete_space_object
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.slugs import is_valid_slug
@@ -131,6 +131,7 @@ def _validators() -> dict[str, Draft202012Validator]:
         "model": _validator(model),
         "rules": _validator({"$ref": "#/$defs/regles"}),
         "graphic": _validator({"$ref": "#/$defs/graphique"}),
+        "relation": _validator({"$ref": "#/$defs/objet"}),
     }
 
 
@@ -334,7 +335,11 @@ class Diagram:
 def parse_diagram(text: str, path: str = "") -> Diagram:
     """Lit le document d'un modèle. Lève CartographieError « model_unreadable » ou
     « model_invalid » (problèmes de forme, avec leur place)."""
-    data = _load("model", path, text)
+    return diagram_from(_load("model", path, text))
+
+
+def diagram_from(data: dict[str, Any]) -> Diagram:
+    """Le modèle d'un document déjà contrôlé (forme du contrat)."""
     return Diagram(
         id=data["id"],
         rules=data["regles"],
@@ -425,7 +430,11 @@ class Graphic:
 def parse_graphic(text: str, path: str = "") -> Graphic:
     """Lit un fichier graphique (vide : aucun dessin). Lève CartographieError
     « graphic_unreadable » ou « graphic_invalid »."""
-    data = _load("graphic", path, text)
+    return graphic_from(_load("graphic", path, text))
+
+
+def graphic_from(data: dict[str, Any]) -> Graphic:
+    """Le graphique d'un document déjà contrôlé (forme du contrat)."""
     return Graphic(
         views={
             view_id: ViewGraphic(
@@ -812,9 +821,24 @@ def save_diagram(
         (root / RULES_DIR).mkdir(parents=True, exist_ok=True)
         (root / diagram.rules).write_text(dump_rules(Rules(lang=DEFAULT_LANG)), encoding="utf-8")
     (root / MODELS_DIR).mkdir(parents=True, exist_ok=True)
-    (root / path).write_text(dump_diagram(diagram), encoding="utf-8")
-    (root / diagram.graphic).write_text(dump_graphic(graphic.pruned(diagram)), encoding="utf-8")
+    _write_if_changed(root / path, diagram, parse_diagram, dump_diagram)
+    _write_if_changed(root / diagram.graphic, graphic.pruned(diagram), parse_graphic, dump_graphic)
     return sorted(set(warnings))
+
+
+def _write_if_changed[T](
+    file: Path, value: T, parse: Callable[[str, str], T], dump: Callable[[T], str]
+) -> None:
+    """Écrit `value` sauf si le fichier dit déjà la même chose : un fichier écrit à la
+    main garde sa mise en forme (et ses commentaires) tant que son contenu ne change
+    pas, et enregistrer un déplacement ne touche que le graphique."""
+    if file.is_file():
+        try:
+            if parse(file.read_text(encoding="utf-8"), "") == value:
+                return
+        except (CartographieError, UnicodeDecodeError):
+            pass  # illisible : réécrit
+    file.write_text(dump(value), encoding="utf-8")
 
 
 def _diagram_id(root: Path, slug: str) -> str | None:
@@ -1024,6 +1048,76 @@ def drop(
     if block is not None:
         out["regles"] = block
     return out
+
+
+# --- Enregistrer depuis le composant (ticket c3dd045c) ------------------------------------
+
+
+def save_drawing(
+    root: Path,
+    slug: str,
+    modele: Any,
+    graphique: Any,
+    new_relations: list[Any],
+    cat: Catalog | None = None,
+) -> tuple[list[str], list[Problem]]:
+    """Enregistre ce que rend le composant : les nouvelles relations tracées (chacune
+    créée comme tout objet : clé unique, schéma du type, relation permise), puis le
+    modèle tel quel, les documents des nouvelles relations ajoutés, et son graphique,
+    après les contrôles du format. Rend les clés créées et les avertissements.
+
+    Une nouvelle relation refusée l'est avec sa clé (« model_relation_refused ») ;
+    l'appelant écrit tout dans une seule opération du brouillon, si bien qu'un refus,
+    à quelque étape que ce soit, n'écrit rien."""
+    cat = cat or catalog()
+    path = diagram_path(slug)
+    if not is_valid_slug(slug) or not (root / path).is_file():
+        raise CartographieError("model_not_found", status=404, slug=slug)
+    problems = _shape("model", path, modele)
+    problems += _shape("graphic", graphic_path(slug), graphique)
+    if problems:
+        raise CartographieError("model_invalid", problems=problems)
+    created: list[CartoObject] = []
+    for index, data in enumerate(new_relations):
+        relation = _new_relation(data, index)
+        try:
+            save_object(root, relation, create=True, cat=cat)
+        except CartographieError as exc:
+            raise CartographieError(
+                "model_relation_refused",
+                status=exc.status,
+                problems=exc.problems,
+                key=relation.key,
+                reason=exc.code,
+            ) from None
+        created.append(relation)
+    diagram = diagram_from(modele)
+    for relation in created:
+        document = object_path(relation.type, relation.key)
+        if document not in diagram.documents:
+            diagram.documents.append(document)
+    warnings = save_diagram(root, slug, diagram, graphic_from(graphique), create=False, cat=cat)
+    return [relation.key for relation in created], warnings
+
+
+def _new_relation(data: Any, index: int) -> CartoObject:
+    """Une nouvelle relation rendue par le composant (forme d'un objet du contrat)."""
+    key = str(data.get("cle") or "") if isinstance(data, dict) else ""
+    problems = _shape("relation", f"nouvellesRelations[{index}]", data)
+    if problems:
+        raise CartographieError(
+            "model_relation_refused", problems=problems, key=key, reason="relation_invalid"
+        )
+    properties = data.get("proprietes")
+    return CartoObject(
+        key=data["cle"],
+        type=data["type"],
+        name=str(data.get("nom") or "").strip(),
+        documentation=str(data.get("documentation") or ""),
+        properties=properties if isinstance(properties, dict) else {},
+        source=data.get("source"),
+        target=data.get("cible"),
+    )
 
 
 # --- Le modèle hydraté (entrée du composant) ----------------------------------------------

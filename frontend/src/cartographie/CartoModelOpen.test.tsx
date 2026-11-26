@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -26,7 +27,7 @@ class FakeArchimate extends HTMLElement {
     return Promise.resolve({ warnings: [] })
   }
   save() {
-    return { modele: {}, graphique: {}, nouvellesRelations: [] }
+    return SAVED
   }
 }
 
@@ -35,6 +36,11 @@ beforeAll(() => {
 })
 
 const BASE = '/api/spaces/s1/branches/b1/cartographie'
+const SAVED = {
+  modele: { id: 'MOD-BOUTIQUE', regles: 'r', graphique: 'g', elements: ['APP-BOUTIQUE'] },
+  graphique: { vues: { 'VUE-1': { noeuds: { N1: { x: 80, y: 60 } } } } },
+  nouvellesRelations: [{ cle: 'REL-NOUVELLE', type: 'acces', source: 'A', cible: 'B' }],
+}
 const HYDRATED = { id: 'MOD-BOUTIQUE', regles: { chemin: 'r', data: {} }, graphique: { chemin: 'g', data: {} } }
 const SUMMARY = {
   slug: 'boutique', id: 'MOD-BOUTIQUE', name: 'Boutique', description: '', path: 'p', graphic: 'g', rules: 'r',
@@ -42,16 +48,26 @@ const SUMMARY = {
   preview: { boxes: [], links: [] }, dates: null, state: null, problems: [],
 }
 
-function setup(options: { capabilities?: string[]; refused?: boolean } = {}) {
+function setup(options: { capabilities?: string[]; refused?: boolean; saveRefused?: boolean } = {}) {
   const calls: string[] = []
+  const puts: string[] = []
   const capabilities = options.capabilities ?? ['cartographie:read', 'cartographie:write']
   vi.stubGlobal(
     'fetch',
-    vi.fn((path: string) => {
+    vi.fn((path: string, init?: RequestInit) => {
       calls.push(path)
       let status = 200
       let body: unknown = {}
-      if (path === '/api/session') body = { authenticated: true, capabilities }
+      if (init?.method === 'PUT') {
+        puts.push(String(init.body))
+        if (options.saveRefused) {
+          status = 409
+          body = {
+            error: 'carto_model_relation_refused',
+            error_args: { key: 'REL-NOUVELLE', reason: 'object_key_taken', problems: [] },
+          }
+        } else body = { ...SUMMARY, revision: 'draft:3', created_relations: ['REL-NOUVELLE'] }
+      } else if (path === '/api/session') body = { authenticated: true, capabilities }
       else if (path === `${BASE}/modeles/boutique`) body = SUMMARY
       else if (path === `${BASE}/modeles/boutique/hydrate` && options.refused) {
         status = 409
@@ -90,7 +106,7 @@ function setup(options: { capabilities?: string[]; refused?: boolean } = {}) {
       </MemoryRouter>
     </QueryClientProvider>,
   )
-  return calls
+  return Object.assign(calls, { puts })
 }
 
 afterEach(() => {
@@ -155,5 +171,40 @@ describe('Cartographie — ouvrir un modèle (ticket f5421cc7)', () => {
     setup({ refused: true })
     expect(await screen.findByText(/APP-ABSENT/)).toBeInTheDocument()
     expect(FakeArchimate.last).toBeNull()
+  })
+
+  it('enregistrer : ce que rend le composant part vers Ossie, puis le modèle est rechargé (ticket c3dd045c)', async () => {
+    const calls = setup()
+    const diagram = await element()
+    const save = screen.getByRole('button', { name: 'Enregistrer' })
+    expect(save).toBeDisabled()
+    act(() => {
+      diagram.dispatchEvent(new CustomEvent('changed', { detail: { scope: 'graphics' } }))
+    })
+    expect(await screen.findByText('modifié, non enregistré')).toBeInTheDocument()
+    const hydrations = () => calls.filter((c) => c.endsWith('/hydrate')).length
+    const before = hydrations()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() => expect(calls.puts).toHaveLength(1))
+    expect(JSON.parse(calls.puts[0])).toEqual(SAVED)
+    await waitFor(() => expect(hydrations()).toBeGreaterThan(before))
+    await waitFor(() => expect(screen.queryByText('modifié, non enregistré')).not.toBeInTheDocument())
+  })
+
+  it('une nouvelle relation refusée : l’erreur nomme sa clé, le dessin reste modifié', async () => {
+    setup({ saveRefused: true })
+    const diagram = await element()
+    act(() => {
+      diagram.dispatchEvent(new CustomEvent('changed', { detail: { scope: 'model' } }))
+    })
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Enregistrer' }))
+    expect(await screen.findByText(/REL-NOUVELLE/)).toBeInTheDocument()
+    expect(screen.getByText('modifié, non enregistré')).toBeInTheDocument()
+  })
+
+  it('sans le droit de modifier : pas de bouton « Enregistrer »', async () => {
+    setup({ capabilities: ['cartographie:read'] })
+    await element()
+    expect(screen.queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
   })
 })

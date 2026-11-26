@@ -335,3 +335,144 @@ async def test_relations_permises_avec_le_schema_du_type(space: ApiSpace) -> Non
     [access] = answer.json()["types"]
     assert access["slug"] == "acces"
     assert access["type_schema"] == {"title": "Accès", "x-archimate": "Access", "type": "object"}
+
+
+# --- Enregistrer un modèle (ticket c3dd045c) -----------------------------------------------
+
+
+async def _saved_form(space: ApiSpace) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Ce que rendrait `save()` du composant juste après l'ouverture : le modèle sans
+    les `data` (chemins seuls, sans `types`) et le graphique."""
+    hydrated = (await space.client.get(_url(space, "/boutique-applicatif/hydrate"))).json()
+    modele = {
+        k: v for k, v in hydrated.items() if k not in ("types", "regles", "graphique", "documents")
+    }
+    modele["regles"] = hydrated["regles"]["chemin"]
+    modele["graphique"] = hydrated["graphique"]["chemin"]
+    modele["documents"] = [d["chemin"] for d in hydrated["documents"]]
+    return modele, hydrated["graphique"]["data"]
+
+
+async def _draft_paths(space: ApiSpace) -> set[str]:
+    draft = (await space.client.get(f"{space.base}/draft")).json()
+    return {o["path"] for o in draft["objects"]}
+
+
+async def test_deplacer_un_noeud_et_enregistrer(space: ApiSpace) -> None:
+    modele, graphique = await _saved_form(space)
+    graphique["vues"]["VUE-COOPERATION"]["noeuds"]["N1"]["x"] = 80
+    answer = await space.client.put(
+        _url(space, "/boutique-applicatif"),
+        json={"modele": modele, "graphique": graphique, "nouvellesRelations": []},
+    )
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["revision"] and answer.json()["created_relations"] == []
+    # Critère 1 : seul le fichier graphique change.
+    assert await _draft_paths(space) == {"cartographie/modeles/boutique-applicatif.graphique.yaml"}
+    hydrated = (await space.client.get(_url(space, "/boutique-applicatif/hydrate"))).json()
+    assert hydrated["graphique"]["data"]["vues"]["VUE-COOPERATION"]["noeuds"]["N1"]["x"] == 80
+
+
+async def test_poser_un_objet_et_tracer_une_relation(space: ApiSpace) -> None:
+    modele, graphique = await _saved_form(space)
+    # Critère 2 : « Facture » posée ; critère 3 : un accès tracé vers elle, rempli.
+    modele["documents"].append("cartographie/objets/document-metier/obj-facture.yaml")
+    modele["elements"].append("OBJ-FACTURE")
+    modele["relationships"].append("REL-BOUTIQUE-LIT-FACTURE")
+    view = modele["vues"][0]
+    view["noeuds"].append({"id": "N3", "element": "OBJ-FACTURE"})
+    view["connexions"].append(
+        {"id": "C2", "relationship": "REL-BOUTIQUE-LIT-FACTURE", "de": "N1", "vers": "N3"}
+    )
+    relation = {
+        "cle": "REL-BOUTIQUE-LIT-FACTURE",
+        "type": "acces",
+        "nom": "Lit la facture",
+        "source": "APP-BOUTIQUE",
+        "cible": "OBJ-FACTURE",
+        "proprietes": {"acces": "Read"},
+    }
+    answer = await space.client.put(
+        _url(space, "/boutique-applicatif"),
+        json={"modele": modele, "graphique": graphique, "nouvellesRelations": [relation]},
+    )
+    assert answer.status_code == 200, answer.text
+    saved = answer.json()
+    assert saved["created_relations"] == ["REL-BOUTIQUE-LIT-FACTURE"]
+    assert saved["elements"] == 3 and saved["relationships"] == 2
+    # Un seul enregistrement du brouillon : la relation créée, le modèle modifié ; le
+    # fichier de « Facture » n'est pas touché.
+    assert await _draft_paths(space) == {
+        "cartographie/objets/acces/rel-boutique-lit-facture.yaml",
+        "cartographie/modeles/boutique-applicatif.modele.yaml",
+    }
+    hydrated = (await space.client.get(_url(space, "/boutique-applicatif/hydrate"))).json()
+    keys = [d["data"]["cle"] for d in hydrated["documents"]]
+    assert "OBJ-FACTURE" in keys and "REL-BOUTIQUE-LIT-FACTURE" in keys
+    detail = (
+        await space.client.get(f"{space.base}/cartographie/objets/REL-BOUTIQUE-LIT-FACTURE")
+    ).json()
+    assert detail["properties"] == {"acces": "Read"}
+
+
+async def test_cle_de_relation_deja_prise_rien_n_est_ecrit(space: ApiSpace) -> None:
+    modele, graphique = await _saved_form(space)
+    graphique["vues"]["VUE-COOPERATION"]["noeuds"]["N1"]["x"] = 80
+    taken = {
+        "cle": "REL-ECRIT-COMMANDE",
+        "type": "acces",
+        "nom": "Doublon",
+        "source": "APP-BOUTIQUE",
+        "cible": "OBJ-FACTURE",
+    }
+    answer = await space.client.put(
+        _url(space, "/boutique-applicatif"),
+        json={"modele": modele, "graphique": graphique, "nouvellesRelations": [taken]},
+    )
+    # Critère 4 : rien n'est écrit, l'erreur nomme la clé.
+    assert (answer.status_code, answer.json()["error"]) == (409, "carto_model_relation_refused")
+    assert answer.json()["error_args"]["key"] == "REL-ECRIT-COMMANDE"
+    assert answer.json()["error_args"]["reason"] == "object_key_taken"
+    assert await _draft_paths(space) == set()
+    # Une relation non permise est refusée de même, avec le problème en cause.
+    refused = dict(
+        taken, cle="REL-COMPOSE", type="acces", source="OBJ-COMMANDE", cible="APP-BOUTIQUE"
+    )
+    answer = await space.client.put(
+        _url(space, "/boutique-applicatif"),
+        json={"modele": modele, "graphique": graphique, "nouvellesRelations": [refused]},
+    )
+    assert answer.json()["error_args"]["reason"] == "object_invalid"
+    assert {p["code"] for p in answer.json()["error_args"]["problems"]} == {"relation_not_allowed"}
+    assert await _draft_paths(space) == set()
+
+
+async def test_retirer_un_objet_de_toutes_les_vues(space: ApiSpace) -> None:
+    modele, graphique = await _saved_form(space)
+    # Critère 5 : le composant rend le modèle propre, sans la commande ni sa relation.
+    modele["documents"] = ["cartographie/objets/application/app-boutique.yaml"]
+    modele["elements"], modele["relationships"] = ["APP-BOUTIQUE"], []
+    modele["vues"][0]["noeuds"] = [{"id": "N1", "element": "APP-BOUTIQUE"}]
+    modele["vues"][0].pop("connexions")
+    answer = await space.client.put(
+        _url(space, "/boutique-applicatif"),
+        json={"modele": modele, "graphique": graphique, "nouvellesRelations": []},
+    )
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["keys"] == ["APP-BOUTIQUE"]
+    objects = f"{space.base}/cartographie/objets"
+    assert (await space.client.get(f"{objects}/OBJ-COMMANDE")).status_code == 200
+    # Le graphique ne garde que les nœuds encore présents.
+    hydrated = (await space.client.get(_url(space, "/boutique-applicatif/hydrate"))).json()
+    assert list(hydrated["graphique"]["data"]["vues"]["VUE-COOPERATION"]["noeuds"]) == ["N1"]
+
+
+async def test_enregistrer_un_modele_incoherent_refuse(space: ApiSpace) -> None:
+    modele, graphique = await _saved_form(space)
+    modele["elements"].append("APP-ABSENT")
+    answer = await space.client.put(
+        _url(space, "/boutique-applicatif"),
+        json={"modele": modele, "graphique": graphique, "nouvellesRelations": []},
+    )
+    assert answer.json()["error"] == "carto_model_invalid"
+    assert await _draft_paths(space) == set()

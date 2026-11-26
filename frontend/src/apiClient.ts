@@ -2462,6 +2462,17 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
+  /** Enregistre ce que rend `save()` du composant (modèle, graphique, nouvelles relations). */
+  saveCartoModel: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    body: { modele: Record<string, unknown>; graphique: Record<string, unknown>; nouvellesRelations: Record<string, unknown>[] },
+  ) =>
+    apiFetch<CartoModelSummary & { revision: string | null; created_relations: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
   deleteCartoModel: (spaceId: string, branchId: string, slug: string) =>
     apiFetch<{ deleted: string; revision: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}`,

@@ -206,6 +206,7 @@ ERROR_CODES: tuple[str, ...] = (
     "carto_model_slug_invalid",
     "carto_model_name_missing",
     "carto_model_invalid",
+    "carto_model_relation_refused",
     "carto_rules_invalid",
     "carto_rules_slug_invalid",
     "example_encoding",

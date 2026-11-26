@@ -402,7 +402,9 @@ def _git(root: Path, *args: str) -> str:
 def test_deplacer_un_noeud_ne_touche_que_le_graphique(root: Path) -> None:
     read = read_diagram(root, SLUG)
     assert read.diagram is not None
-    save_diagram(root, SLUG, read.diagram, read.graphic, create=False)
+    # Point de départ : les fichiers sous la forme écrite par Ossie.
+    (root / diagram_path(SLUG)).write_text(dump_diagram(read.diagram), encoding="utf-8")
+    (root / graphic_path(SLUG)).write_text(dump_graphic(read.graphic), encoding="utf-8")
     _git(root, "init", "-q")
     _git(root, "add", "-A")
     _git(root, "commit", "-qm", "avant")
@@ -418,6 +420,22 @@ def test_deplacer_un_noeud_ne_touche_que_le_graphique(root: Path) -> None:
 
 
 # --- Écriture : refus nommés ---------------------------------------------------------------
+
+
+def test_un_fichier_ecrit_a_la_main_garde_sa_forme_tant_qu_il_ne_change_pas(root: Path) -> None:
+    read = read_diagram(root, SLUG)
+    assert read.diagram is not None
+    save_diagram(root, SLUG, read.diagram, read.graphic, create=False)
+    assert (root / diagram_path(SLUG)).read_text(encoding="utf-8") == MODEL  # commentaires gardés
+    assert (root / graphic_path(SLUG)).read_text(encoding="utf-8") == GRAPHIC
+    read.diagram.name = "Boutique"
+    save_diagram(root, SLUG, read.diagram, read.graphic, create=False)
+    assert (
+        (root / diagram_path(SLUG))
+        .read_text(encoding="utf-8")
+        .startswith("id: MOD-BOUTIQUE-APPLICATIF\nnom: Boutique\n")
+    )
+    assert (root / graphic_path(SLUG)).read_text(encoding="utf-8") == GRAPHIC
 
 
 def test_enregistrer_un_modele_refuse_ce_qui_ne_passe_pas(root: Path) -> None:

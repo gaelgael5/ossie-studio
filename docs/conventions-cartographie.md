@@ -264,6 +264,17 @@ autre problème refuse l'ouverture (`model_invalid`, 409). Sans le droit
 « Cartographie : modifier », le diagramme est en lecture seule. Le thème suit Ossie
 par le raccord `urban-archimate { --ua-* }` de `styles.css` (repris du contrat).
 
+**Enregistrer un modèle** (ticket c3dd045c) : « Enregistrer » (ou Ctrl+S) envoie ce
+que rend `save()` du composant à `PUT …/modeles/{slug}` (`diagram.save_drawing`), en
+une seule écriture du brouillon : chaque nouvelle relation est créée comme tout objet
+(clé unique, schéma du type, relation permise ; refus `model_relation_refused` avec
+sa clé et la raison), ses documents sont ajoutés au modèle, puis le modèle et son
+graphique sont écrits après les contrôles du format. Un refus, à quelque étape que ce
+soit, n'écrit rien (la vue du brouillon est reconstruite). Un fichier n'est réécrit
+que si son contenu change : un fichier écrit à la main garde sa forme, et un
+déplacement ne touche que le graphique. Après l'enregistrement, le modèle est
+réhydraté (les nouvelles relations deviennent des objets existants).
+
 **Le composant** est servi par l'application sous `/api/archimate`
 (`urban_archimate.mount`, paquet `urban-archimate==0.1.1`) : `urban-archimate.js` et
 le schéma.
