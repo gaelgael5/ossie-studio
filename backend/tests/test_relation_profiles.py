@@ -187,3 +187,37 @@ async def test_api_profil_apercu_et_index(sp: ApiSpace) -> None:
     assert virtual and virtual[0]["label"] == "BV.ACCOUNT_HUB.ACCOUNT_HK"
     assert virtual[0]["target"]["title"] == "ACCOUNT_HUB"
     assert (await sp.client.delete(f"{gov}/etoile")).status_code == 204
+
+
+async def test_api_profil_fourni_modifie_puis_retabli(sp: ApiSpace) -> None:
+    """Ticket 1bce7eb9 : le profil fourni se modifie sous son identifiant, les
+    sources qui l'ont coché suivent ; le supprimer rétablit l'original."""
+    forge_edit(sp, _files(profiles=["ossie-datavault"]))
+    gov = f"{sp.base}/governance/relation-profiles"
+    sat = {"file": f"{_slug('BV.SAT_ACCOUNT')}.schema.yaml"}
+
+    async def virtual() -> list[str]:
+        r = await sp.client.get(f"{sp.base}/raw-explorer/dwh/object", params=sat)
+        return [x["label"] for x in r.json()["references"] if x.get("virtual")]
+
+    assert await virtual() == ["BV.ACCOUNT_HUB.ACCOUNT_HK"]
+    # Une règle qui ne trouve plus rien : l'index suit la version de l'espace.
+    body = {
+        "name": "Data Vault maison",
+        "rules": [{"column": "(?<nom>[A-Z]+)_HK", "table": "H_{nom}", "target_column": "{nom}_HK"}],
+    }
+    r = await sp.client.put(f"{gov}/ossie-datavault", json=body)
+    assert r.status_code == 200, r.text
+    listing = (await sp.client.get(gov)).json()["profiles"]
+    assert [p["id"] for p in listing] == ["ossie-datavault"]
+    assert listing[0]["builtin"] and listing[0]["customized"]
+    assert listing[0]["profile"]["name"] == "Data Vault maison"
+    assert await virtual() == []
+    assert (await sp.client.delete(f"{gov}/ossie-datavault")).status_code == 204
+    listing = (await sp.client.get(gov)).json()["profiles"]
+    assert listing[0]["profile"]["name"] == "Data Vault 2.0" and not listing[0]["customized"]
+    assert await virtual() == ["BV.ACCOUNT_HUB.ACCOUNT_HK"]
+    # Rien à rétablir : 404 ; préfixe réservé pour un profil qui n'est pas fourni.
+    assert (await sp.client.delete(f"{gov}/ossie-datavault")).status_code == 404
+    bad = await sp.client.put(f"{gov}/ossie-autre", json=body)
+    assert bad.status_code == 400

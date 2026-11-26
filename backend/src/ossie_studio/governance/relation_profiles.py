@@ -93,7 +93,9 @@ def parse_profile(
     declared = str(data.get("id") or profile_id)
     if declared != profile_id or not is_valid_rule_id(profile_id):
         errors.append("relation_profile_id_invalid")
-    elif profile_id.startswith(BUILTIN_PREFIX) and not builtin:
+    elif profile_id.startswith(BUILTIN_PREFIX) and not builtin and not is_builtin_id(profile_id):
+        # Le préfixe reste réservé ; seul un profil FOURNI peut être remplacé
+        # par une version de l'espace, sous son identifiant (ticket 1bce7eb9).
         errors.append("relation_profile_id_reserved")
     raw_rules = data.get("rules")
     rules: list[RelationRule] = []
@@ -209,7 +211,13 @@ def builtin_profiles() -> list[RelationProfile]:
     ]
 
 
+def is_builtin_id(profile_id: str) -> bool:
+    return any(p.id == profile_id for p in builtin_profiles())
+
+
 def all_profiles(root: Path) -> dict[str, RelationProfile]:
+    # Un fichier de l'espace au nom d'un profil fourni le remplace (ticket
+    # 1bce7eb9) : les sources qui l'ont coché suivent sans rien re-cocher.
     profiles = {p.id: p for p in builtin_profiles()}
     for f in read_profile_files(root):
         if f.profile is not None:

@@ -1160,6 +1160,8 @@ export interface RelationProfileFile {
   profile: (RelationProfileInput & { id: string }) | null
   errors: string[]
   builtin: boolean
+  /** Profil fourni remplacé par une version de l'espace (ticket 1bce7eb9). */
+  customized?: boolean
 }
 export interface RelationPreview {
   relations: number
