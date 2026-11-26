@@ -201,7 +201,8 @@ def _registry() -> FunctionRegistry:
     fonction utile qu'une version apporte, pour une protection que le filtre de module
     donne déjà — la frontière à défendre est cœur / plugin, pas fonction par fonction.
     La contrepartie revient à qui monte la version : relire ce qui ENTRE dans le profil
-    et ce qui en SORT, puis l'annoncer. Mesuré au passage 0.1.0 → 0.2.1 : 56 → 69.
+    et ce qui en SORT, puis l'annoncer. Mesuré au passage 0.1.0 → 0.2.1 : 56 → 69 ;
+    0.2.1 → 0.8.0 : 69 → 205, aucune sortie.
     """
     registry = FunctionRegistry()
     for name in default_registry.names():
@@ -221,7 +222,20 @@ def _registry() -> FunctionRegistry:
         # silence à la faveur d'une montée de version ; détail dans LESSONS.md.
         if not info.function.__module__.startswith(_CORE_MODULE):
             continue
-        registry.register(name, info.function, info.path_args, info.description)
+        # Toute la description, pas seulement nom et chemins : depuis urban-json 0.8.0,
+        # `ifelse`, `map`, `filter`, `reduce`… reçoivent des arguments NON évalués
+        # (`lazy_args`). Les recopier sans eux faisait échouer ces fonctions dans le
+        # moteur de Miles (« 'str' object is not callable »), alors qu'elles marchaient
+        # dans celui d'urban-json. Garde ajoutée au passage 0.2.1 → 0.8.0.
+        registry.register(
+            name,
+            info.function,
+            info.path_args,
+            info.description,
+            lazy_args=info.lazy_args,
+            description_en=info.description_en,
+            doc=info.doc,
+        )
     # Écart voulu au convert du moteur (voir _strict_convert) : il le remplace.
     registry.register(CAST_FUNCTION, _strict_convert, (), _CAST_DESCRIPTION)
     return registry
