@@ -18,14 +18,25 @@ export function useChooseDraftView(): (branchId: string, mode: DraftViewMode) =>
   }
 }
 
+/** Lecture de mon brouillon par le menu du haut (pastille, liste « Vue », bandeau).
+ * Gardée 30 s entre deux pages (ticket 2daae568) : elle relit tout le brouillon et
+ * la tête publiée, et entrait dans la file des lectures Git de chaque page. Toute
+ * écriture invalide déjà la requête `draft` : la pastille reste juste. */
+export function draftQuery(spaceId: string, branchId: string) {
+  return {
+    queryKey: ['draft', spaceId, branchId],
+    queryFn: () => api.myDraft(spaceId, branchId),
+    staleTime: 30_000,
+  }
+}
+
 /** Liste « Vue » du menu du haut (ticket e7e377b0) : seulement si j'ai un brouillon. */
 export function DraftViewSelect({ spaceId, branchId }: { spaceId: string; branchId: string }) {
   const { t } = useTranslation()
   const mode = useDraftView(branchId)
   const choose = useChooseDraftView()
   const draft = useQuery({
-    queryKey: ['draft', spaceId, branchId],
-    queryFn: () => api.myDraft(spaceId, branchId),
+    ...draftQuery(spaceId, branchId),
   })
   if (!draft.data || draft.data.count === 0) return null
   return (
@@ -57,8 +68,7 @@ export function DraftBar({ spaceId, branchId }: { spaceId: string; branchId: str
   const chooseDraftView = useChooseDraftView()
   const [opened, setOpened] = useState<string | null>(null)
   const draft = useQuery({
-    queryKey: ['draft', spaceId, branchId],
-    queryFn: () => api.myDraft(spaceId, branchId),
+    ...draftQuery(spaceId, branchId),
   })
   const data = draft.data
   if (!data || data.count === 0) return null

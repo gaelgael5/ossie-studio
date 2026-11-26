@@ -124,7 +124,7 @@ async def test_qui_reference_l_objet(app: FastAPI, space: ApiSpace) -> None:
 
 
 async def test_ce_que_l_objet_reference_et_les_deux_sens(app: FastAPI, space: ApiSpace) -> None:
-    out = await _ok(app, AGENT, _args(space, direction="outgoing"))
+    out = await _ok(app, AGENT, _args(space, branch="draft", direction="outgoing"))
     assert out["view"] == "draft"
     assert {(e["to"], e["cardinality"]) for e in out["edges"]} == {
         ("ventes/customer.schema.yaml", "1"),
@@ -152,7 +152,7 @@ async def test_le_brouillon_de_la_personne_compte(app: FastAPI, space: ApiSpace)
             "properties": {"order": {"$ref": "order.schema.yaml"}},
         },
     )
-    draft = await _ok(app, AGENT, _args(space, direction="incoming"))
+    draft = await _ok(app, AGENT, _args(space, branch="draft", direction="incoming"))
     assert "ventes/refund.schema.yaml" in {e["from"] for e in draft["edges"]}
     published = await _ok(app, KEY, _args(space, direction="incoming"))
     assert "ventes/refund.schema.yaml" not in {e["from"] for e in published["edges"]}

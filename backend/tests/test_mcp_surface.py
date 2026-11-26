@@ -155,6 +155,16 @@ def test_catalogue_et_implementations_concordent() -> None:
     assert len({p.id for p in CATALOG}) == len(CATALOG)
 
 
+def test_toutes_les_primitives_declarent_branch() -> None:
+    """Ticket aa19569b : `branch` sur chaque primitive, annoncé au client MCP."""
+    sans = [
+        pid
+        for pid, impl in IMPLEMENTATIONS.items()
+        if "branch" not in impl.args_model.model_json_schema().get("properties", {})
+    ]
+    assert sans == []
+
+
 async def test_profil_lecture_livre_avec_toutes_les_lectures(app: FastAPI) -> None:
     async with app.state.pool.acquire() as conn:
         row = await conn.fetchrow("SELECT * FROM agent_profiles WHERE slug = 'lecture'")

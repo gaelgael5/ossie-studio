@@ -145,15 +145,15 @@ async def test_tags_dans_le_brouillon_modifications_partielles(
     assert relinked["tag"]["links"] == {}
     assert relinked["tag"]["description"] == "PII"
 
-    draft = await _ok(app, AGENT, "list_tags", _ids(space, view="draft"))
+    draft = await _ok(app, AGENT, "list_tags", _ids(space, branch="draft"))
     assert [t["id"] for t in draft["tags"]] == ["gouvernance/pii"]
     assert draft["unpublished_changes"]
-    published = await _ok(app, AGENT, "list_tags", _ids(space, view="published"))
+    published = await _ok(app, AGENT, "list_tags", _ids(space))
     assert published["tags"] == []
 
     deleted = await _ok(app, AGENT, "delete_tag", _ids(space, tag_id="gouvernance/pii"))
     assert deleted["deleted"] == "gouvernance/pii"
-    assert (await _ok(app, AGENT, "list_tags", _ids(space, view="draft")))["tags"] == []
+    assert (await _ok(app, AGENT, "list_tags", _ids(space, branch="draft")))["tags"] == []
 
 
 async def test_classifications_et_niveaux_dans_le_brouillon(app: FastAPI, space: ApiSpace) -> None:
@@ -205,10 +205,10 @@ async def test_classifications_et_niveaux_dans_le_brouillon(app: FastAPI, space:
     assert refused == {"error": "invalid_request", "fields": ["scheme_primary_multivalue"]}
 
     await _ok(app, AGENT, "delete_level", {**ids, "level_id": secret["id"]})
-    draft = await _ok(app, AGENT, "list_classifications", _ids(space, view="draft"))
+    draft = await _ok(app, AGENT, "list_classifications", _ids(space, branch="draft"))
     assert [lv["name"] for lv in draft["schemes"][0]["levels"]] == ["Interne", "Public"]
     assert draft["unpublished_changes"]
-    published = await _ok(app, AGENT, "list_classifications", _ids(space, view="published"))
+    published = await _ok(app, AGENT, "list_classifications", _ids(space))
     assert published["schemes"] == []
 
     deleted = await _ok(app, AGENT, "delete_classification", ids)
@@ -235,10 +235,10 @@ async def test_certifications_dans_le_brouillon(app: FastAPI, space: ApiSpace) -
     )
     assert updated["certification"] == {**cert, "rank": 2}
 
-    draft = await _ok(app, AGENT, "list_certifications", _ids(space, view="draft"))
+    draft = await _ok(app, AGENT, "list_certifications", _ids(space, branch="draft"))
     assert [c["name"] for c in draft["certifications"]] == ["Or"]
     assert draft["unpublished_changes"]
-    published = await _ok(app, AGENT, "list_certifications", _ids(space, view="published"))
+    published = await _ok(app, AGENT, "list_certifications", _ids(space))
     assert published["certifications"] == []
 
     deleted = await _ok(
@@ -283,6 +283,12 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
             "create_tag",
             _ids(space, tag_id="GOUVERNANCE/pii"),
             {"error": "tag_id_taken", "tag_id": "gouvernance/pii"},
+        ),
+        (
+            # Ticket aa19569b : en écriture, seul le brouillon est accepté.
+            "create_tag",
+            _ids(space, tag_id="gouvernance/autre", branch="main"),
+            {"error": "branch_unsupported", "branch": "main", "accepted": ["draft"]},
         ),
         (
             "create_tag",
@@ -498,5 +504,5 @@ async def test_ecran_refuse_un_ordre_de_niveaux_avec_doublon(
         json={"name": "Public", "short_name": "PUB", "label": "Ouvert"},
     )
     assert response.status_code == 200
-    draft = await _ok(app, AGENT, "list_classifications", _ids(space))
+    draft = await _ok(app, AGENT, "list_classifications", _ids(space, branch="draft"))
     assert draft["schemes"][0]["levels"][0]["label"] == "Ouvert"

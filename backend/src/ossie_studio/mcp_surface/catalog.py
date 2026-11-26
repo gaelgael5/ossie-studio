@@ -43,7 +43,7 @@ class Primitive:
 # profil agent existant, sauf à ceux marqués « toutes les primitives de lecture »
 # s'il s'agit d'une lecture.
 _DRAFT_NOTE = (
-    " With view='draft', items marked unpublished come from the user's draft: "
+    " With branch='draft', items marked unpublished come from the user's draft: "
     "not validated, not yet published."
 )
 
@@ -387,10 +387,10 @@ CATALOG: tuple[Primitive, ...] = (
         access="write",
         capability="curation:review",
         description=(
-            "Apply decisions to the review read with get_review (same head_sha): refresh "
-            "changed fields, add appeared fields, remove disappeared fields or objects, retain "
-            "new objects. Undecided changes are left as they are. Every decision must match "
-            "the review. Written to the user's draft."
+            "Apply decisions to the review read with get_review on branch='draft' (same "
+            "head_sha): refresh changed fields, add appeared fields, remove disappeared fields "
+            "or objects, retain new objects. Undecided changes are left as they are. Every "
+            "decision must match the review. Written to the user's draft."
         ),
         person_only=True,
         destructive=True,

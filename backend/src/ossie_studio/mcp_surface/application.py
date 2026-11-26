@@ -73,7 +73,7 @@ class EntryPointsArgs(SourceArgs):
 
 async def _entries(ctx: PrimitiveContext, args: SourceArgs) -> tuple[BranchView, SourceEntries]:
     source_dir(args.source)  # slug invalide → erreur nommée
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
     try:
         key, signature = await ensure_index(
             ctx.conn, bv.workdir, bv.space, bv.branch.id, bv.branch.git_ref, bv.username, bv.token

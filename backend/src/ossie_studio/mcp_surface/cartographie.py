@@ -39,14 +39,14 @@ from ossie_studio.cartographie.diagram import (
 from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.model import CartoObject
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
-from ossie_studio.mcp_surface.branch import BranchView, ViewArgs, open_branch
+from ossie_studio.mcp_surface.branch import BranchArgs, BranchView, open_branch
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
 
 Nature = Literal["object", "relation"]
 MAX_OBJECTS = 100
 
 
-class CartoTypesArgs(ViewArgs):
+class CartoTypesArgs(BranchArgs):
     catalogue: bool = Field(
         default=False,
         description=(
@@ -56,7 +56,7 @@ class CartoTypesArgs(ViewArgs):
     )
 
 
-class CartoObjectsArgs(ViewArgs):
+class CartoObjectsArgs(BranchArgs):
     type: str | None = Field(
         default=None,
         description=(
@@ -75,11 +75,11 @@ class CartoObjectsArgs(ViewArgs):
     offset: int = Field(default=0, ge=0, description="Objects to skip (for the next page).")
 
 
-class CartoObjectArgs(ViewArgs):
+class CartoObjectArgs(BranchArgs):
     key: str = Field(description="Functional key of the object or relationship, e.g. 'APP-SHOP'.")
 
 
-class CartoModelsArgs(ViewArgs):
+class CartoModelsArgs(BranchArgs):
     contains: str | None = Field(
         default=None,
         description=(
@@ -88,7 +88,7 @@ class CartoModelsArgs(ViewArgs):
     )
 
 
-class CartoModelArgs(ViewArgs):
+class CartoModelArgs(BranchArgs):
     slug: str = Field(description="Slug of the model, as list_carto_models gives it.")
 
 
@@ -102,8 +102,8 @@ def _nature(base: ArchimateType | None) -> Nature:
     return "relation" if base is not None and base.is_relation else "object"
 
 
-async def _read(ctx: PrimitiveContext, args: ViewArgs) -> tuple[BranchView, Cartographie]:
-    bv = await open_branch(ctx, args, args.view)
+async def _read(ctx: PrimitiveContext, args: BranchArgs) -> tuple[BranchView, Cartographie]:
+    bv = await open_branch(ctx, args)
     space: Cartographie = await bv.read(read_cartographie)
     return bv, space
 
@@ -262,7 +262,7 @@ def _model_unpublished(bv: BranchView, read: DiagramRead) -> bool:
 
 
 async def list_carto_models(ctx: PrimitiveContext, args: CartoModelsArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
     space, reads = await bv.read(_read_models)
     wanted = args.contains.strip() if args.contains else ""
     if wanted and wanted not in space.objects:
@@ -330,7 +330,7 @@ def _kept(space: Cartographie, cat: Catalog, key: str) -> dict[str, Any]:
 
 
 async def get_carto_model(ctx: PrimitiveContext, args: CartoModelArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
 
     def read(root: Any) -> tuple[Cartographie, DiagramRead]:
         space = read_cartographie(root)

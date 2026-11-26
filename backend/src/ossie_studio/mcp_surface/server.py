@@ -35,6 +35,7 @@ from pydantic import ValidationError
 from starlette.applications import Starlette
 
 from ossie_studio.mcp_surface.authz import allowed_primitives, authorize, caller_user
+from ossie_studio.mcp_surface.branch import check_branch
 from ossie_studio.mcp_surface.caller import McpCaller, current_caller
 from ossie_studio.mcp_surface.catalog import BY_ID, CATALOG, Primitive
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
@@ -45,9 +46,9 @@ log = structlog.get_logger(__name__)
 _INSTRUCTIONS = (
     "Ossie-studio builds a semantic layer from data sources versioned in Git spaces. "
     "Start with list_spaces to find a space and a branch, then use their ids with the other "
-    "tools. When you act for a user, reads show by default the published content plus the "
-    "user's unpublished draft (view='draft'); items marked unpublished are not validated yet. "
-    "Pass view='published' to see only what has been published."
+    "tools. Reads show the published content by default; pass branch='draft' to also see the "
+    "unpublished draft of the user you act for (items marked unpublished are not validated "
+    "yet). Writes always go to that user's draft."
 )
 
 
@@ -145,6 +146,13 @@ def build_session_manager(app: Starlette) -> StreamableHTTPSessionManager:
             except ValidationError as exc:
                 fields = sorted({".".join(str(p) for p in err["loc"]) for err in exc.errors()})
                 return _refusal("invalid_arguments", fields=fields)
+            # `branch` contrôlé ici pour toutes les primitives, y compris celles
+            # qui ne lisent que le brouillon (get_my_draft, préparation) et ne
+            # passent pas par open_branch : une valeur inconnue est refusée partout.
+            try:
+                check_branch(getattr(args, "branch", None))
+            except PrimitiveError as exc:
+                return _refusal(exc.code, **exc.detail)
             space_id = getattr(args, "space_id", None)
             if isinstance(space_id, uuid.UUID) and not await authorize(
                 conn, caller, name, space_id

@@ -193,7 +193,7 @@ async def test_vue_brouillon_et_vue_publiee(app: FastAPI, space: ApiSpace) -> No
         "cartographie/objets/application/app-crm.yaml",
         {"cle": "APP-CRM", "type": "application", "nom": "CRM"},
     )
-    draft = await _ok(app, AGENT, "list_carto_objects", space, type="application")
+    draft = await _ok(app, AGENT, "list_carto_objects", space, type="application", branch="draft")
     assert draft["view"] == "draft"
     crm = next(o for o in draft["objects"] if o["key"] == "APP-CRM")
     assert crm["unpublished"] is True

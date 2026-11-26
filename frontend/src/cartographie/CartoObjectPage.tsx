@@ -18,6 +18,7 @@ import { MarkdownView } from '../components/MarkdownView'
 import type { MarkdownEditorHandle } from '../components/MarkdownEditor'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
+import { asciiLower } from '../slug'
 import { useWorkspace } from '../workspace'
 import type { FieldProblems } from '../referentiels/ValuePanel'
 import { UnsavedProvider, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
@@ -48,6 +49,20 @@ const FIELD_CODES: Record<string, string> = {
   property_required: 'value_required',
   property_unknown: 'value_unknown_property',
   property_invalid: 'other',
+}
+
+/** Clé proposée à partir du nom (ticket 62a8c315) : majuscules sans accents,
+ * tirets à la place du reste ; suffixe -2, -3… si elle est déjà prise. Vide si
+ * le nom n'a ni lettre ni chiffre (la personne la saisit alors elle-même). */
+export function keyFromName(name: string, taken: Set<string>): string {
+  const base = asciiLower(name)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  if (!base || !taken.has(base)) return base
+  let n = 2
+  while (taken.has(`${base}-${n}`)) n += 1
+  return `${base}-${n}`
 }
 
 function same(a: unknown, b: unknown): boolean {
@@ -98,7 +113,7 @@ function ObjectScreen({ spaceId, branchId, objectKey }: { spaceId: string; branc
   const errors = [catalog.error, types.error, objects.error, detail.error].flatMap((e) => (e ? errorMessages(t, e) : []))
   const ready = catalog.data && types.data && objects.data && (isNew || detail.data)
   return (
-    <main className="stack">
+    <main className="stack page-wide">
       <ErrorList messages={errors} />
       {!ready && errors.length === 0 ? <p className="muted">{t('loading')}</p> : null}
       {detail.error ? (
@@ -151,9 +166,11 @@ function ObjectEditor({
   const relationArchimate = new Set(catalog.types.filter((ty) => ty.kind === 'relation').map((ty) => ty.name))
   // Une relation se crée en reliant deux objets (ticket « Relations ») : pas ici.
   const choosable = types.filter((ty) => !relationArchimate.has(ty.archimate))
-  const [key, setKey] = useState(detail?.key ?? '')
   const [type, setType] = useState(detail?.type ?? '')
   const [name, setName] = useState(detail?.name ?? '')
+  // Clé saisie à la main ; null : elle suit le nom (création seulement, figée ensuite).
+  const [manualKey, setManualKey] = useState<string | null>(null)
+  const key = detail?.key ?? manualKey ?? keyFromName(name, takenKeys)
   const [documentation, setDocumentation] = useState(detail?.documentation ?? '')
   const [properties, setProperties] = useState<Props>(detail?.properties ?? {})
   const [opened, setOpened] = useState<string[]>([])
@@ -171,7 +188,9 @@ function ObjectEditor({
 
   const keyError = isNew
     ? !key
-      ? null
+      ? name.trim()
+        ? t('cartoKeyRequired')
+        : null
       : !KEY_FORMAT.test(key)
         ? t('cartoKeyFormat')
         : takenKeys.has(key)
@@ -202,18 +221,28 @@ function ObjectEditor({
         : api.saveCartoObject(spaceId, branchId, detail.key, body()),
     onSuccess: async (saved) => {
       queryClient.setQueryData(['carto-object', spaceId, branchId, saved.key], saved)
+      if (isNew) {
+        // Fiche de l'objet créé tout de suite : ni garde « quitter sans
+        // enregistrer » (elle relançait la création → objet en double), ni
+        // attente des listes et du brouillon, rafraîchis en arrière-plan.
+        release()
+        navigate(cartoObjectPath(saved.key), { replace: true })
+        void invalidate()
+        return
+      }
       await invalidate()
-      if (isNew) navigate(cartoObjectPath(saved.key), { replace: true })
     },
   })
   const remove = useMutation({
     mutationFn: () => api.deleteCartoObject(spaceId, branchId, detail?.key ?? ''),
     onSuccess: async () => {
-      await invalidate()
+      // Objet supprimé : plus rien à enregistrer, la garde ne retient pas.
+      release()
       navigate('/cartographie/objets')
+      void invalidate()
     },
   })
-  useUnsaved(EDITOR_ID, { label: detail?.name ?? t('cartoNewObjectTitle'), dirty: !readOnly && dirty, saveable }, () =>
+  const release = useUnsaved(EDITOR_ID, { label: detail?.name ?? t('cartoNewObjectTitle'), dirty: !readOnly && dirty, saveable }, () =>
     save.mutateAsync(),
   )
   useSaveShortcut(() => EDITOR_ID)
@@ -232,9 +261,24 @@ function ObjectEditor({
   return (
     <>
       <div>
-        <div className="breadcrumb">
-          <Link to="/cartographie/objets">{t('cartoTitle')}</Link> › {t('cartoTabObjects')} ›{' '}
-          {isNew ? t('cartoNewObjectTitle') : detail.key}
+        {/* Retour à gauche du chemin, collé en haut pendant le défilement (Gael). */}
+        <div className="carto-object-bar">
+          {from ? (
+            <>
+              <Link to={cartoObjectPath(from.key)} className="btn btn-sm">
+                {`← ${from.name}`}
+              </Link>
+              <span className="muted small">{t('cartoOpenedFrom')}</span>
+            </>
+          ) : (
+            <Link to="/cartographie/objets" className="btn btn-sm">
+              {t('cartoBackToObjects')}
+            </Link>
+          )}
+          <div className="breadcrumb">
+            <Link to="/cartographie/objets">{t('cartoTitle')}</Link> › {t('cartoTabObjects')} ›{' '}
+            {isNew ? t('cartoNewObjectTitle') : detail.key}
+          </div>
         </div>
         <div className="page-head">
           <div className="carto-object-title">
@@ -268,6 +312,8 @@ function ObjectEditor({
                 disabled={!dirty}
                 onClick={() => {
                   if (isNew) {
+                    // Annuler est un choix explicite : pas de question en sortant.
+                    release()
                     navigate('/cartographie/objets')
                     return
                   }
@@ -293,20 +339,6 @@ function ObjectEditor({
             </div>
           ) : null}
         </div>
-        <div className="row">
-          {from ? (
-            <>
-              <Link to={cartoObjectPath(from.key)} className="btn btn-sm">
-                {`← ${from.name}`}
-              </Link>
-              <span className="muted small">{t('cartoOpenedFrom')}</span>
-            </>
-          ) : (
-            <Link to="/cartographie/objets" className="btn btn-sm">
-              {t('cartoBackToObjects')}
-            </Link>
-          )}
-        </div>
       </div>
       {isRelation && detail?.ends ? (
         <RelationBand catalog={catalog} detail={detail} properties={properties} />
@@ -320,6 +352,19 @@ function ObjectEditor({
         <div className="stack">
           <section className="panel carto-section" aria-label={t('cartoIdentity')}>
             <h2 className="carto-detail-title">{t('cartoIdentity')}</h2>
+            {/* Le nom d'abord : la clé s'en déduit (ticket 62a8c315). */}
+            <div className="field">
+              <label className="field-label" htmlFor="carto-object-name">
+                {t('cartoName')} <span className="text-danger">*</span>
+              </label>
+              <input
+                id="carto-object-name"
+                className="input"
+                value={name}
+                readOnly={readOnly}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
             <div className="form-grid">
               <div className="field">
                 <label className="field-label" htmlFor="carto-object-key">
@@ -331,7 +376,7 @@ function ObjectEditor({
                   value={key}
                   disabled={!isNew || readOnly}
                   placeholder={isNew ? 'APP-BOUTIQUE' : undefined}
-                  onChange={(e) => setKey(e.target.value.toUpperCase())}
+                  onChange={(e) => setManualKey(e.target.value.toUpperCase())}
                 />
                 {keyError ? <span className="field-error">{keyError}</span> : null}
                 <span className="field-hint">{isNew ? t('cartoKeyHintNew') : t('cartoKeyHint')}</span>
@@ -364,18 +409,6 @@ function ObjectEditor({
                 )}
                 <span className="field-hint">{t('cartoTypeHint')}</span>
               </div>
-            </div>
-            <div className="field">
-              <label className="field-label" htmlFor="carto-object-name">
-                {t('cartoName')} <span className="text-danger">*</span>
-              </label>
-              <input
-                id="carto-object-name"
-                className="input"
-                value={name}
-                readOnly={readOnly}
-                onChange={(e) => setName(e.target.value)}
-              />
             </div>
             <div className="field">
               <div className="row carto-doc-head">

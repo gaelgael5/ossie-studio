@@ -151,7 +151,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Injectable : les tests la remplacent par un client branché sur un faux IdP.
     app.state.http_client_factory = _default_http_client_factory
     app.state.git_probe = prove_five_rights
-    app.state.workdir_manager = WorkdirManager(settings.work_volume_path)
+    app.state.workdir_manager = WorkdirManager(
+        settings.work_volume_path, read_fresh_seconds=settings.git_read_fresh_seconds
+    )
     app.state.draft_views = DraftViewManager(app.state.workdir_manager)
     app.state.source_downloader = SourceDownloader(settings.sources_volume_path)
     app.state.source_collector = SourceCollector(app.state.source_downloader)

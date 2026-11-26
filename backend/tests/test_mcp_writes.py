@@ -164,7 +164,7 @@ async def test_l_agent_cure_dans_le_brouillon_sans_rien_publier(
     assert refreshed["refreshed"] == ["order.schema.yaml"]
 
     # Rien n'est publié : le publié n'a aucun asset ; le brouillon en a deux.
-    published = await _ok(app, AGENT, "list_assets", _ids(space, view="published"))
+    published = await _ok(app, AGENT, "list_assets", _ids(space))
     assert published["assets"] == []
     draft = await _ok(
         app, AGENT, "get_my_draft", {"space_id": space.space_id, "branch_id": space.branch_id}
@@ -178,7 +178,10 @@ async def test_l_agent_cure_dans_le_brouillon_sans_rien_publier(
 
     removed = await _ok(app, AGENT, "remove_asset", order)
     assert removed["changed"] is True and removed["asset"] is None
-    names = [a["path"] for a in (await _ok(app, AGENT, "list_assets", _ids(space)))["assets"]]
+    names = [
+        a["path"]
+        for a in (await _ok(app, AGENT, "list_assets", _ids(space, branch="draft")))["assets"]
+    ]
     assert names == ["customer.schema.yaml"]
 
 

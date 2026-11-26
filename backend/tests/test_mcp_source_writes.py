@@ -113,8 +113,8 @@ async def _refusal(app: FastAPI, token: str, name: str, args: dict[str, Any]) ->
     return data
 
 
-async def _sources(app: FastAPI, space: ApiSpace, view: str = "draft") -> dict[str, Any]:
-    listed = await _ok(app, AGENT, "list_sources", _branch(space, view=view))
+async def _sources(app: FastAPI, space: ApiSpace, branch: str = "draft") -> dict[str, Any]:
+    listed = await _ok(app, AGENT, "list_sources", _branch(space, branch=branch))
     return {s["slug"]: s for s in listed["sources"]}
 
 
@@ -127,7 +127,7 @@ async def test_declarer_modifier_supprimer_une_source_git(app: FastAPI, space: A
     assert declared["changed_paths"] == ["sources/api/manifest.yaml"]
     draft = await _sources(app, space)
     assert draft["api"]["unpublished_changes"] == 1
-    assert "api" not in await _sources(app, space, view="published")
+    assert "api" not in await _sources(app, space, branch="")
 
     updated = await _ok(
         app,
@@ -213,7 +213,9 @@ async def test_parcours_openapi_jusqu_a_la_collecte(
     )
     assert deposited["contract"]["schema_count"] == 2
     assert any(p.startswith("sources/boutique/contrats/") for p in deposited["changed_paths"])
-    contracts = await _ok(app, AGENT, "list_contracts", _branch(space, source="boutique"))
+    contracts = await _ok(
+        app, AGENT, "list_contracts", _branch(space, branch="draft", source="boutique")
+    )
     assert [c["version"] for c in contracts["contracts"]] == ["v1"]
 
     # L'agent ne remplace jamais une version existante.
@@ -227,7 +229,9 @@ async def test_parcours_openapi_jusqu_a_la_collecte(
 
     collected = await _ok(app, AGENT, "collect_source", _branch(space, source="boutique"))
     assert collected["state"] == "done", collected
-    schemas = await _ok(app, AGENT, "list_raw_schemas", _branch(space, source="boutique"))
+    schemas = await _ok(
+        app, AGENT, "list_raw_schemas", _branch(space, branch="draft", source="boutique")
+    )
     assert {s["path"] for s in schemas["schemas"]} == {
         "v1-commande.schema.yaml",
         "v1-ligne.schema.yaml",
@@ -244,9 +248,9 @@ async def test_parcours_openapi_jusqu_a_la_collecte(
         app, AGENT, "remove_contract", _branch(space, source="boutique", version="v1")
     )
     assert removed["changed_paths"]
-    assert (await _ok(app, AGENT, "list_contracts", _branch(space, source="boutique")))[
-        "contracts"
-    ] == []
+    assert (
+        await _ok(app, AGENT, "list_contracts", _branch(space, branch="draft", source="boutique"))
+    )["contracts"] == []
     gone = await _refusal(
         app, AGENT, "remove_contract", _branch(space, source="boutique", version="v1")
     )

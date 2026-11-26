@@ -123,7 +123,7 @@ async def _collected_in_draft(app: FastAPI, space: ApiSpace) -> dict[str, Any]:
     await draft_write(app, space, "sources/ventes/raw/customer.schema.yaml", customer)
     await draft_write(app, space, "sources/ventes/raw/legacy.schema.yaml", None)  # retenu disparu
     await draft_write(app, space, "sources/ventes/raw/order.schema.yaml", {"title": "Order"})
-    return await _ok(app, AGENT, "get_review", _ids(space))
+    return await _ok(app, AGENT, "get_review", _ids(space, branch="draft"))
 
 
 # --- Critères 1 et 2 : règles de tri ------------------------------------------------------
@@ -137,7 +137,7 @@ async def test_regles_de_tri_posees_rejouees_effacees(app: FastAPI, space: ApiSp
     posed = await _ok(app, AGENT, "set_tri_rules", _ids(space, rules=rules))
     assert posed["changed"] is True
     assert posed["changed_paths"] == ["sources/ventes/manifest.yaml"]
-    read = await _ok(app, AGENT, "get_tri_rules", _ids(space))
+    read = await _ok(app, AGENT, "get_tri_rules", _ids(space, branch="draft"))
     assert (
         read["rules"]
         == posed["rules"]
@@ -150,7 +150,7 @@ async def test_regles_de_tri_posees_rejouees_effacees(app: FastAPI, space: ApiSp
     cleared = await _ok(app, AGENT, "set_tri_rules", _ids(space, rules=[]))
     assert (
         cleared["rules"] == []
-        and (await _ok(app, AGENT, "get_tri_rules", _ids(space)))["rules"] == []
+        and (await _ok(app, AGENT, "get_tri_rules", _ids(space, branch="draft")))["rules"] == []
     )
 
 
@@ -204,13 +204,18 @@ async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) 
     assert applied["review"]["objects"] == []
     assert "up_to_date" not in applied["review"]  # plus de point de reprise
 
-    customer = await _ok(app, AGENT, "read_asset", _ids(space, path="customer.schema.yaml"))
+    customer = await _ok(
+        app, AGENT, "read_asset", _ids(space, branch="draft", path="customer.schema.yaml")
+    )
     fields = {f["name"]: f for f in customer["fields"]}
     assert fields["email"]["retained"] is True and fields["name"]["type"] == "integer"
-    assets = {a["path"] for a in (await _ok(app, AGENT, "list_assets", _ids(space)))["assets"]}
+    assets = {
+        a["path"]
+        for a in (await _ok(app, AGENT, "list_assets", _ids(space, branch="draft")))["assets"]
+    }
     assert assets == {"customer.schema.yaml", "order.schema.yaml"}
     # Rien n'est publié.
-    published = await _ok(app, AGENT, "list_assets", _ids(space, view="published"))
+    published = await _ok(app, AGENT, "list_assets", _ids(space))
     assert {a["path"] for a in published["assets"]} == {
         "customer.schema.yaml",
         "legacy.schema.yaml",
@@ -221,7 +226,7 @@ async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) 
 
 
 async def test_revue_perimee_refusee_sans_ecriture(app: FastAPI, space: ApiSpace) -> None:
-    first = await _ok(app, AGENT, "get_review", _ids(space))
+    first = await _ok(app, AGENT, "get_review", _ids(space, branch="draft"))
     forge_edit(space, {"sources/ventes/raw/order.schema.yaml": json.dumps({"title": "Order"})})
     before = await _draft_paths(app, space)
     stale = await _refusal(app, AGENT, "apply_review", _ids(space, head_sha=first["head_sha"]))
@@ -259,7 +264,7 @@ async def test_decision_qui_ne_correspond_pas_a_la_revue_refusee(
     ]
     # Aucune écriture partielle : la décision valide n'a pas été appliquée.
     assert await _draft_paths(app, space) == before
-    still = await _ok(app, AGENT, "get_review", _ids(space))
+    still = await _ok(app, AGENT, "get_review", _ids(space, branch="draft"))
     assert still["objects"] == review["objects"]
 
 

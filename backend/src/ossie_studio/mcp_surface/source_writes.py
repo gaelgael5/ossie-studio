@@ -282,7 +282,7 @@ async def get_collect_status(ctx: PrimitiveContext, args: SourceWriteArgs) -> di
 
 
 async def list_contracts(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
     views = await bv.read(lambda root: read_contracts_view(root, args.source))
     return {
         "view": bv.view,
