@@ -32,6 +32,7 @@ dependencies = [
     "urban-json-editor==0.4.0",
     "snowflake-connector-python>=3.12",
     "urban-archimate==0.1.3",
+    "urban-bpmn==0.1.1",
 ]
 
 [dependency-groups]
@@ -87,5 +88,5 @@ mypy_path = "src"
 packages = ["ossie_studio"]
 
 [[tool.mypy.overrides]]
-module = ["authlib.*", "asyncpg.*", "urban_archimate"]
+module = ["authlib.*", "asyncpg.*", "urban_archimate", "urban_bpmn"]
 ignore_missing_imports = true

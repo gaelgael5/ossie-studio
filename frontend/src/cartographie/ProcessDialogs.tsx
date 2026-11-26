@@ -3,8 +3,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../apiClient'
-import type { CartoProcessCheck, CartoProcessSummary } from '../apiClient'
+import type { CartoBpmnObject, CartoProcessCheck, CartoProcessSummary } from '../apiClient'
 import { errorMessages } from '../errors'
+import { asciiLower } from '../slug'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 import { ProcessPreview } from './ProcessPreview'
@@ -13,7 +14,9 @@ import { cartoProcessPath } from './ProcessesTab'
 // Fenêtres de l'onglet Processus (ticket 7e061c3e, maquette validée par Gael) : créer un
 // processus, importer un fichier BPMN produit par un autre outil (vérifications et
 // aperçu avant d'écrire ; le fichier est gardé tel quel), rattacher un processus au
-// processus métier dont il est le détail.
+// processus métier dont il est le détail. Pour l'éditeur (ticket 48335b93) : la demande
+// de rattachement à l'ouverture d'un processus non rattaché, et le choix de l'objet
+// qu'un élément du dessin désigne.
 
 const KEY_FORMAT = /^[A-Z0-9]+(?:-[A-Z0-9]+)*$/
 const PROCESSES_DIR = 'cartographie/processus'
@@ -380,6 +383,118 @@ export function AttachProcessDialog({
         >
           {t('cartoProcessAttachConfirm')}
         </BusyButton>
+      </div>
+    </Dialog>
+  )
+}
+
+/** À l'ouverture d'un processus non rattaché (ticket 48335b93, critère 6) : le rattacher
+ * d'abord à un processus métier, ou « Continuer sans » (la boîte à outils montre alors
+ * tout l'espace). */
+export function AttachPrompt({
+  spaceId,
+  branchId,
+  process,
+  choices,
+  onContinue,
+}: {
+  spaceId: string
+  branchId: string
+  process: CartoProcessSummary
+  choices: BusinessProcessChoice[]
+  onContinue: () => void
+}) {
+  const { t } = useTranslation()
+  const invalidate = useInvalidate()
+  const [detail, setDetail] = useState('')
+  const attach = useMutation({
+    mutationFn: () => api.attachCartoProcess(spaceId, branchId, process.key, detail),
+    onSuccess: () => invalidate(),
+  })
+  return (
+    <section className="panel carto-attach-prompt stack" aria-label={t('cartoAttachPromptTitle')}>
+      <h2 className="carto-detail-title">{t('cartoAttachPromptTitle')}</h2>
+      <p className="muted">{t('cartoAttachPromptText')}</p>
+      <ErrorList messages={attach.error ? errorMessages(t, attach.error) : []} />
+      <DetailField value={detail} onChange={setDetail} choices={choices} hint={t('cartoAttachProcessHint')} />
+      <div className="row">
+        <BusyButton
+          type="button"
+          className="btn btn-primary"
+          busy={attach.isPending}
+          busyText={t('cartoAttachBusy')}
+          disabled={!detail}
+          onClick={() => attach.mutate()}
+        >
+          {t('cartoAttachPromptAttach')}
+        </BusyButton>
+        <button type="button" className="btn" onClick={onContinue}>
+          {t('cartoAttachPromptContinue')}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+/** Le choix de l'objet qu'un élément du dessin désigne (délégué « attach » de
+ * l'éditeur) : participant → acteurs, couloir → rôles, objet de données → objets métier,
+ * stockage → applications. */
+export function ObjectPickerDialog({
+  choices,
+  current,
+  onChoose,
+  onCancel,
+}: {
+  choices: CartoBpmnObject[]
+  current?: string
+  onChoose: (chosen: CartoBpmnObject) => void
+  onCancel: () => void
+}) {
+  const { t } = useTranslation()
+  const [search, setSearch] = useState('')
+  const [chosen, setChosen] = useState(current ?? '')
+  const needle = asciiLower(search.trim())
+  const shown = choices.filter((c) => !needle || asciiLower(`${c.nom} ${c.cle}`).includes(needle))
+  const picked = choices.find((c) => c.cle === chosen)
+  return (
+    <Dialog title={t('cartoBpmnAttachTitle')} onClose={onCancel}>
+      {choices.length === 0 ? (
+        <p className="muted">{t('cartoBpmnAttachNone')}</p>
+      ) : (
+        <>
+          <input
+            type="search"
+            className="input"
+            aria-label={t('cartoObjectSearch')}
+            placeholder={t('cartoObjectSearch')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <ul className="carto-pick-list" role="listbox" aria-label={t('cartoBpmnAttachTitle')}>
+            {shown.map((c) => (
+              <li key={c.cle}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={c.cle === chosen}
+                  className={`carto-pick${c.cle === chosen ? ' active' : ''}`}
+                  onClick={() => setChosen(c.cle)}
+                >
+                  <span>{c.nom}</span>
+                  <span className="mono muted small">{c.cle}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div className="row modal-foot">
+        <button type="button" className="btn" onClick={onCancel}>
+          {t('cancelEdit')}
+        </button>
+        <button type="button" className="btn btn-primary" disabled={!picked} onClick={() => picked && onChoose(picked)}>
+          {t('cartoProcessAttachConfirm')}
+        </button>
       </div>
     </Dialog>
   )

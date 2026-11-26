@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import httpx
 import structlog
 import urban_archimate
+import urban_bpmn
 import urban_json_editor
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
@@ -17,7 +18,7 @@ from ossie_studio.api.agent_profiles import router as api_agent_profiles_router
 from ossie_studio.api.api_keys import router as api_api_keys_router
 from ossie_studio.api.audit import router as api_audit_router
 from ossie_studio.api.branches import router as api_branches_router
-from ossie_studio.api.cartographie import ARCHIMATE_EDITOR_PATH
+from ossie_studio.api.cartographie import ARCHIMATE_EDITOR_PATH, BPMN_EDITOR_PATH
 from ossie_studio.api.cartographie import router as api_cartographie_router
 from ossie_studio.api.cartographie_models import router as api_cartographie_models_router
 from ossie_studio.api.cartographie_objects import router as api_cartographie_objects_router
@@ -197,6 +198,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     urban_json_editor.mount(app, JSLT_EDITOR_PATH)
     # Éditeur de diagrammes ArchiMate (urban-archimate) : ses assets sous /api aussi.
     urban_archimate.mount(app, ARCHIMATE_EDITOR_PATH)
+    # Et celui des processus BPMN (urban-bpmn), même principe.
+    urban_bpmn.mount(app, BPMN_EDITOR_PATH)
     app.include_router(api_sources_router)
     app.include_router(api_space_plugins_router)
     app.include_router(api_parsing_router)

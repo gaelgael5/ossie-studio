@@ -1759,6 +1759,32 @@ export interface CartoModelBody {
 
 // --- Processus BPMN de la cartographie (epic « Cartographie — processus BPMN », 7e061c3e) ---
 
+/** Un objet de la cartographie tel que le voit l'éditeur BPMN (`ReferencedObject`). */
+export interface CartoBpmnObject {
+  cle: string
+  nom: string
+  type: string
+}
+
+/** La relation qui manque à un objet posé (l'écran en fait la phrase et l'action). */
+export interface CartoBpmnMissing {
+  code: 'process_drop_not_linked'
+  relation: string
+  source: string
+  source_name: string
+  target: string
+  target_name: string
+}
+
+/** Ce que rend Ossie quand un objet est posé dans l'éditeur BPMN (ticket 48335b93). */
+export interface CartoBpmnDrop {
+  nom: string
+  type: string
+  genre: 'participant' | 'couloir' | 'objet-donnees' | 'stockage-donnees' | 'collaboration'
+  membres?: (CartoBpmnObject & { genre: CartoBpmnDrop['genre'] })[]
+  avertissement?: CartoBpmnMissing
+}
+
 /** L'aperçu du dessin d'un processus : formes (nature simplifiée) et liens (points). */
 export interface CartoProcessPreview {
   boxes: { x: number; y: number; l: number; h: number; kind: 'pool' | 'lane' | 'event' | 'gateway' | 'task' | 'data' | 'other'; label: string }[]
@@ -2556,6 +2582,24 @@ export const api = {
   deleteCartoProcess: (spaceId: string, branchId: string, key: string) =>
     apiFetch<{ deleted: string; revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}`, {
       method: 'DELETE',
+    }),
+  /** La boîte à outils de l'éditeur BPMN : « Liés au processus », puis les autres. */
+  getCartoProcessToolbox: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ detail_of: string | null; groupes: CartoToolGroup[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/outils`,
+    ),
+  dropCartoProcessObject: (spaceId: string, branchId: string, key: string, objectKey: string, collaboration: string) =>
+    apiFetch<CartoBpmnDrop>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/pose/${encodeURIComponent(objectKey)}?collaboration=${encodeURIComponent(collaboration)}`,
+    ),
+  listCartoProcessAttachable: (spaceId: string, branchId: string, key: string, element: string) =>
+    apiFetch<{ element: string; objets: CartoBpmnObject[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/rattachables?element=${encodeURIComponent(element)}`,
+    ),
+  saveCartoProcess: (spaceId: string, branchId: string, key: string, content: string) =>
+    apiFetch<CartoProcessSummary & { revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
     }),
   createCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>
     apiFetch<{ type: CartoTypeSummary; revision: string | null }>(

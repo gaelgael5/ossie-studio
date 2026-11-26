@@ -4268,15 +4268,57 @@ urban-archimate {
   background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
   background-size: 14px 14px;
 }
-.carto-process-canvas {
-  height: calc(100vh - 340px);
-  min-height: 420px;
-  margin-top: 12px;
+/* Page d'un processus (ticket 48335b93) : l'éditeur urban-bpmn occupe la page. */
+.carto-process-editor {
+  /* Les calques de l'éditeur (filigrane bpmn.io…) restent sous les fenêtres d'Ossie. */
+  isolation: isolate;
+  height: calc(100vh - 290px);
+  min-height: 480px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  background-color: var(--bg);
-  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
-  background-size: 14px 14px;
+  background: var(--panel);
+  overflow: hidden;
+}
+/* Raccord du composant urban-bpmn (son contrat : variables --ub-*). */
+urban-bpmn {
+  --ub-police: var(--font-ui);
+  --ub-texte: var(--text);
+  --ub-fond: var(--bg);
+  --ub-bordure: var(--border);
+  --ub-accent: var(--primary);
+}
+.carto-attach-prompt {
+  max-width: 640px;
+  margin-top: 12px;
+}
+.carto-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.carto-pick {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.carto-pick:hover {
+  background: var(--surface-muted);
+}
+.carto-pick.active {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
 }
 .carto-process-unattached {
   display: inline-block;

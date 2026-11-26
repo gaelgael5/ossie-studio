@@ -350,3 +350,36 @@ Code : `api/cartographie_processes.py` (routes sous
   le détail BPMN » (fenêtre de création, processus métier déjà choisi).
 - **Droits** : lecture avec `cartographie:read`, toute écriture avec
   `cartographie:write`.
+
+### L'éditeur d'un processus (feature 48335b93)
+
+Le composant `urban-bpmn` (paquet `urban-bpmn==0.1.1`) est servi par l'application sous
+`/api/bpmn` (`urban_bpmn.mount`). Code : `cartographie/process_tools.py`, routes dans
+`api/cartographie_processes.py`, front `CartoProcessPage.tsx`, `ProcessEditor.tsx`,
+`urbanBpmn.ts`.
+
+- **Ouvrir** (`GET …/{clé}/contenu`) : le XML tel quel et les objets référencés avec leur
+  nom à jour (`references`) ; le composant affiche et réexporte ces noms.
+- **Processus non rattaché** : l'écran demande d'abord le processus métier (« Rattacher
+  et ouvrir ») ; « Continuer sans » ouvre l'éditeur, la boîte montre alors tout l'espace.
+- **Boîte à outils** (`GET …/{clé}/outils`) : groupe `lies` (« Liés au processus » :
+  acteurs, rôles, collaborations affectés au processus métier — Assignment ; objets
+  métier qu'il accède — Access ; applications qui le servent — Serving), puis `autres`
+  (« Autres objets de l'espace », du même genre) ; sans processus métier, un seul groupe
+  `objets`. Outil : libellé, pictogramme ArchiMate du type, `clé · type` au survol.
+- **Pose** (`GET …/{clé}/pose/{objet}?collaboration=`) : acteur → `participant`, rôle →
+  `couloir`, objet métier → `objet-donnees`, application → `stockage-donnees`,
+  collaboration → `collaboration` avec ses `membres` (acteurs et rôles qu'elle agrège ou
+  compose). Tout autre type est refusé (`process_drop_unsupported`) : à décider avec Gael.
+  Non relié, l'objet porte un avertissement qui nomme la relation qui manque (`relation`,
+  `source`, `target`) ; un acteur membre de la collaboration désignée par le dessin est
+  relié. L'écran en fait la phrase et l'action « Créer la relation » : la fenêtre
+  « Nouvelle relation » s'ouvre avec les deux extrémités et le type choisis, et se ferme
+  sans quitter l'éditeur. La pose n'est jamais bloquée ; rien n'est créé d'office.
+- **Rattacher un élément du dessin** (délégué `attach`, `GET …/{clé}/rattachables?element=`) :
+  participant → acteurs, couloir → rôles, objet de données → objets métier, stockage →
+  applications, collaboration → collaborations, processus → processus métier ; une tâche
+  ne se rattache à rien.
+- **Enregistrer** (`PUT …/{clé}`, Ctrl+S) : le XML rendu par le composant, contrôlé comme
+  tout processus (BPMN lisible, dessin, clés existantes et du bon type) ; refusé sinon,
+  rien n'est écrit. Sans `cartographie:write` : lecture seule.

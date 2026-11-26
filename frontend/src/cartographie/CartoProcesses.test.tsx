@@ -223,12 +223,4 @@ describe('Cartographie — onglet Processus (ticket 7e061c3e)', () => {
     expect(screen.queryByRole('button', { name: '+ Nouveau processus' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Rattacher…' })).not.toBeInTheDocument()
   })
-
-  it('la page d’un processus montre son dessin et propose de le rattacher', async () => {
-    setup({ at: '/cartographie/processus/PRC-RETOURS' })
-    expect(await screen.findByRole('heading', { name: 'Traitement des retours' })).toBeInTheDocument()
-    expect(screen.getByText('Non rattaché à un processus métier')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Rattacher…' })).toBeInTheDocument()
-    expect(document.querySelectorAll('.carto-process-canvas .carto-bpmn-shape')).toHaveLength(4)
-  })
 })

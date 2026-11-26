@@ -50,6 +50,8 @@ from ossie_studio.spaces.workdir import WorkdirError
 # Assets du composant de diagramme `urban-archimate` (sous /api : seul préfixe relayé
 # par le nginx du front ; jamais par un CDN).
 ARCHIMATE_EDITOR_PATH = "/api/archimate"
+# Et ceux de l'éditeur de processus BPMN `urban-bpmn` (ticket 48335b93).
+BPMN_EDITOR_PATH = "/api/bpmn"
 
 router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/cartographie")
 

@@ -217,6 +217,7 @@ ERROR_CODES: tuple[str, ...] = (
     "carto_process_not_bpmn",
     "carto_process_name_missing",
     "carto_process_too_large",
+    "carto_process_drop_unsupported",
     "example_encoding",
     "example_json",
     "publish_in_progress",

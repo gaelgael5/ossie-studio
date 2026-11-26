@@ -22,7 +22,7 @@ tous ses tickets livrés).
 |---|---|---|
 | 1d35290d | Format et rangement d'un processus BPMN | en revue |
 | 7e061c3e | Processus : liste, création, import | en revue |
-| 48335b93 | Ouvrir et enregistrer un processus | attend `urban-bpmn` sur PyPI |
+| 48335b93 | Ouvrir et enregistrer un processus | en revue |
 | 883ca50f | Vérification d'intention (avec Gael) | à faire |
 
 ## Notes techniques (format, 1d35290d)
@@ -43,7 +43,7 @@ tous ses tickets livrés).
 
 - Détail des routes et de l'écran : `docs/conventions-cartographie.md`, « L'onglet
   Processus ».
-- Écarts au ticket :
+- Écarts au ticket (validés par Gael le 26 novembre : 1 et 3 ; 2 expliqué) :
   - « Lecture seule à la racine » remplacé par la règle des droits : sans
     `cartographie:write`, ni création ni import ni rattachement (la racine se modifie par
     le brouillon, comme les modèles).
@@ -52,5 +52,19 @@ tous ses tickets livrés).
 - L'aperçu est calculé côté serveur à partir de la section `bpmndi` (pas de rendu
   bpmn-js dans la liste) ; les libellés des tâches passent à la ligne, coupés par « … »
   en dernier recours.
-- La page d'un processus montre son aperçu : l'éditeur urban-bpmn y viendra avec
+- La page d'un processus montrait son aperçu ; l'éditeur urban-bpmn l'a remplacé avec
   48335b93.
+
+## Notes techniques (éditeur, 48335b93)
+
+- `urban-bpmn==0.1.1` monté sous `/api/bpmn` ; `urban-archimate` passé en 0.1.3 le même
+  jour (panneaux masquables et redimensionnables, zoom).
+- Détail : `docs/conventions-cartographie.md`, « L'éditeur d'un processus ».
+- Le XML réellement rendu par le composant après deux poses est gardé en fixture
+  (`tests/fixtures/bpmn/urban-bpmn-enregistre.bpmn`) et s'enregistre sans problème.
+- Le filigrane bpmn.io (licence) est gardé ; l'éditeur est isolé (`isolation: isolate`)
+  pour qu'il reste sous les fenêtres d'Ossie.
+- Critère 8 traité comme au ticket 2 : la règle des droits, pas la racine.
+- Ajouté au-delà du ticket : le délégué « attach » (rattacher un élément existant, utile
+  après un import), annoncé par la fenêtre d'import (« les couloirs pourront ensuite être
+  rattachés aux rôles depuis l'éditeur »).

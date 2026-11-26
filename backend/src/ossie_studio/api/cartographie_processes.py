@@ -1,6 +1,7 @@
 """Processus BPMN de la cartographie : liste en vignettes, créer, importer un fichier
 BPMN, rattacher à un processus métier, supprimer (epic « Cartographie — processus
-BPMN », ticket 7e061c3e).
+BPMN », ticket 7e061c3e) ; ouvrir dans l'éditeur urban-bpmn — boîte à outils, pose
+d'un objet, objets rattachables — et enregistrer (ticket 48335b93).
 
 Un processus = un fichier BPMN gardé tel quel (voir `cartographie.process`), écrit dans
 le brouillon de la personne, sur toute branche. Les dates viennent de l'historique Git
@@ -14,7 +15,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import WorkdirDep
@@ -40,6 +41,11 @@ from ossie_studio.cartographie.process import (
     save_process,
     with_detail,
     with_process_name,
+)
+from ossie_studio.cartographie.process_tools import (
+    attach_choices,
+    process_drop,
+    process_toolbox,
 )
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
 from ossie_studio.deps import ConnDep
@@ -75,6 +81,11 @@ class CheckBody(BaseModel):
 class AttachBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     detail_of: str | None = None
+
+
+class SaveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    content: str = ""  # le XML BPMN rendu par le composant
 
 
 def _end(space: Cartographie, key: str | None) -> dict[str, Any] | None:
@@ -374,6 +385,122 @@ async def process_content(
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     return result
+
+
+async def _read_space(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: User,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    fn: Callable[[Path], dict[str, Any]],
+) -> dict[str, object]:
+    target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
+    try:
+        result: dict[str, object] = await target.read(fn)
+    except CartographieError as exc:
+        raise api_error(exc) from None
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    return result
+
+
+@router.get("/{key}/outils")
+async def process_tools(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    key: str,
+) -> dict[str, object]:
+    """La boîte à outils de l'éditeur : « Liés au processus » (relations ArchiMate du
+    processus métier détaillé), puis les autres objets de l'espace du même genre."""
+
+    def read(root: Path) -> dict[str, Any]:
+        space = read_cartographie(root)
+        found = read_process(root, key, space)
+        detail = found.process.detail_of if found.process else None
+        return {"detail_of": detail, "groupes": process_toolbox(space, detail)}
+
+    return await _read_space(conn, crypto, user, workdir, space_id, branch_id, read)
+
+
+@router.get("/{key}/pose/{object_key}")
+async def process_drop_route(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    key: str,
+    object_key: str,
+    collaboration: str = Query(default=""),
+) -> dict[str, object]:
+    """Ce que devient l'objet posé (nom, type, genre BPMN, membres d'une collaboration),
+    avec l'avertissement de la relation qui manque. `collaboration` : celle que le
+    dessin désigne en ce moment (sinon celle du fichier)."""
+
+    def read(root: Path) -> dict[str, Any]:
+        space = read_cartographie(root)
+        found = read_process(root, key, space)
+        process = found.process
+        detail = process.detail_of if process else None
+        collabs = [r.key for r in process.collaborations] if process else []
+        current = collaboration.strip() or (collabs[0] if collabs else None)
+        return process_drop(space, object_key, detail, current)
+
+    return await _read_space(conn, crypto, user, workdir, space_id, branch_id, read)
+
+
+@router.get("/{key}/rattachables")
+async def process_attach_choices(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    key: str,
+    element: str = Query(default=""),
+) -> dict[str, object]:
+    """Les objets qu'un élément du dessin peut désigner (`element` : son type BPMN,
+    « bpmn:Lane »…) : participant → acteurs, couloir → rôles, objet de données →
+    objets métier, stockage → applications, collaboration, processus métier."""
+
+    def read(root: Path) -> dict[str, Any]:
+        read_process(root, key)  # le processus doit exister
+        return {"element": element, "objets": attach_choices(read_cartographie(root), element)}
+
+    return await _read_space(conn, crypto, user, workdir, space_id, branch_id, read)
+
+
+@router.put("/{key}")
+async def save_process_route(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieWrite,
+    workdir: DraftWorkdirDep,
+    manager: WorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    key: str,
+    body: SaveBody,
+) -> dict[str, object]:
+    """Enregistre ce que rend l'éditeur : le XML tel quel, après contrôle (BPMN lisible,
+    dessin, références vers des clés existantes et du bon type) ; refusé sinon, rien
+    n'est écrit."""
+
+    def write(root: Path) -> None:
+        save_process(root, key, _checked(body.content), create=False)
+
+    return await _write(
+        conn, crypto, workdir, manager, space_id, branch_id, user,
+        f"enregistre le processus {key}", key, write,
+    )  # fmt: skip
 
 
 @router.post("/{key}/rattacher")
