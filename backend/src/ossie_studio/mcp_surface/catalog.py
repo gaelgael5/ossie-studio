@@ -528,6 +528,50 @@ CATALOG: tuple[Primitive, ...] = (
             "give every key property."
         ),
     ),
+    # --- Cartographie : types et objets ArchiMate (ticket 41bf680e)
+    Primitive(
+        id="list_carto_types",
+        domain="cartographie",
+        access="read",
+        capability="cartographie:read",
+        description=(
+            "List the object types of the space's business cartography: each is an ArchiMate 3.2 "
+            "type plus a name given by the people (slug, name, ArchiMate type, layer, nature "
+            "'object' or 'relation', object count). With catalogue=true, also every ArchiMate "
+            "3.2 type of the catalogue, used or not." + _DRAFT_NOTE
+        ),
+        idempotent=True,
+    ),
+    Primitive(
+        id="list_carto_objects",
+        domain="cartographie",
+        access="read",
+        capability="cartographie:read",
+        description=(
+            "List the objects and relationships of the cartography (a relationship is an object "
+            "with a source and a target), optionally filtered by type (a space type slug, or an "
+            "ArchiMate type such as 'ApplicationComponent'), nature ('object' or 'relation') "
+            "and name (part of the name or key, case and accents ignored). Summaries: key, "
+            "name, type, ArchiMate type, nature, and source and target for a relationship. "
+            "Paged: 'total' and 'has_more' (use offset for the next page). Use it before "
+            "creating anything, to find what already exists." + _DRAFT_NOTE
+        ),
+        idempotent=True,
+    ),
+    Primitive(
+        id="get_carto_object",
+        domain="cartographie",
+        access="read",
+        capability="cartographie:read",
+        description=(
+            "Read one object or relationship of the cartography by its key: name, type, "
+            "ArchiMate type, nature, documentation (markdown), properties (ArchiMate attributes "
+            "as ArchiMate values, with their French label in property_labels), source and target "
+            "for a relationship, and its incoming and outgoing relationships (key, type, "
+            "direction, the other end) to explore step by step." + _DRAFT_NOTE
+        ),
+        idempotent=True,
+    ),
     # --- Gouvernance
     Primitive(
         id="list_tags",

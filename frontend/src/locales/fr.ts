@@ -1194,6 +1194,7 @@ export const fr = {
       curation: 'Curation',
       governance: 'Gouvernance',
       referentiels: 'Référentiels',
+      cartographie: 'Cartographie',
     },
     mcpPrim: {
       list_referentiels: 'Lister les référentiels publiés',
@@ -1201,6 +1202,9 @@ export const fr = {
       search_referentiel_values: 'Chercher des valeurs d’un référentiel',
       get_referentiel_value: 'Lire une valeur d’un référentiel par sa clé',
       get_reference_graph: 'Voisinage d’un objet raw : ce qu’il référence et qui le référence',
+      list_carto_types: 'Lister les types de la cartographie (et le catalogue ArchiMate)',
+      list_carto_objects: 'Lister les objets et relations de la cartographie',
+      get_carto_object: 'Lire un objet ou une relation de la cartographie par sa clé',
       list_modules: 'Lister les modules d’une source (fichiers de projet, dépendances)',
       get_module: 'Lire un module : ses objets, ses fonctions libres, ses points d’entrée',
       get_functions: 'Lire les méthodes d’un objet raw',

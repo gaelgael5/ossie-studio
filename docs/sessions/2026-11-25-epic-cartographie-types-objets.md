@@ -36,7 +36,7 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 | 5c39d4df — Types : personnaliser un type | En review |
 | 6f71bcba — Objets : créer, modifier, supprimer à la main | En review |
 | b58a0a13 — Relations : relier deux objets (fiche d'une relation) | En review |
-| 41bf680e — Primitives MCP de lecture des types et des objets | Prêt pour dev |
+| 41bf680e — Primitives MCP de lecture des types et des objets | En review |
 | 38c9d26c — Clôture (avec Gael, jamais seul) | — |
 
 ## Notes techniques (format, f8167ae1)
@@ -95,3 +95,13 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 - Écran : fenêtre « Nouvelle relation » (`cartographie/RelateDialog.tsx`) depuis la fiche d'un objet, la fiche d'une relation ou une vignette (« Relier… » au survol) — cible cherchée par nom ou clé (objets et relations), types permis seulement (les types ArchiMate permis sans type de l'espace sont nommés), clé proposée à partir des deux clés (`REL-<source sans préfixe>-<cible sans préfixe>`, suffixe si prise), nom proposé (« Accède à Commande »), attributs et propriétés, fichier créé ; après création, la fiche de la relation s'ouvre.
 - Fiche d'une relation (même page que celle d'un objet) : bande source → cible (noms cliquables, type et valeur de l'attribut, « écriture → lecture » quand elle change), relations sur cette relation et « + Relier… », règle ArchiMate, suppression refusée si une autre relation l'utilise (nommée). Le retour ramène à la fiche de l'objet d'où l'on vient (état de navigation).
 - Tests : `backend/tests/test_cartographie_relations.py`, `frontend/src/cartographie/CartoRelations.test.tsx`.
+
+## Notes techniques (primitives MCP, 41bf680e)
+
+- Trois primitives, pas plus (Gael : « n'explosons pas la liste des API »), domaine `cartographie`, capacité `cartographie:read`, lecture seule (`mcp_surface/cartographie.py`) :
+  - `list_carto_types` : types de l'espace (slug, nom, type ArchiMate, couche, nature `object` ou `relation`, nombre d'objets) ; `catalogue: true` ajoute les 72 types ArchiMate 3.2 ;
+  - `list_carto_objects` : filtres facultatifs et combinables `type` (slug de l'espace ou type ArchiMate), `nature`, `name` (nom ou clé, sans casse ni accents), pagination `limit` / `offset` avec `total` et `has_more` (convention de `search_referentiel_values`) ; résumés avec source et cible pour une relation ;
+  - `get_carto_object` : documentation, propriétés (valeurs ArchiMate) et `property_labels` (libellés français), source et cible, relations entrantes et sortantes ; clé inconnue → `carto_object_not_found` avec la clé.
+- Même lecture que l'écran (`cartographie.space.read_cartographie`) ; vue brouillon pour un agent connecté (ce qui vient du brouillon est marqué `unpublished`), publiée pour une clé d'API (le brouillon y est refusé).
+- Noms en anglais comme le reste du catalogue MCP (`nature`, `name`), valeurs `object` / `relation`.
+- Tests : `backend/tests/test_mcp_cartographie.py`.

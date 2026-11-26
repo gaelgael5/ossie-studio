@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ossie_studio.mcp_surface import application as app_map
+from ossie_studio.mcp_surface import cartographie as carto
 from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
 from ossie_studio.mcp_surface import reads, references, source_writes, writes
@@ -48,6 +49,10 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "read_asset": Implementation(ObjectArgs, reads.read_asset),
     "get_tri_rules": Implementation(SourceArgs, reads.get_tri_rules),
     "get_review": Implementation(SourceArgs, reads.get_review),
+    # Cartographie : types et objets ArchiMate (ticket 41bf680e)
+    "list_carto_types": Implementation(carto.CartoTypesArgs, carto.list_carto_types),
+    "list_carto_objects": Implementation(carto.CartoObjectsArgs, carto.list_carto_objects),
+    "get_carto_object": Implementation(carto.CartoObjectArgs, carto.get_carto_object),
     "list_tags": Implementation(ViewArgs, reads.list_tags),
     "list_classifications": Implementation(ViewArgs, reads.list_classifications),
     # Écriture (brouillon de la personne)
