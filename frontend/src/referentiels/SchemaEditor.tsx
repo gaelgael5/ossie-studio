@@ -1,6 +1,6 @@
 import { type JsonSchema, SchemaFieldsEditor, en, fr } from 'jsonjoy-builder'
 import 'jsonjoy-builder/styles.css'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import type { Parsed } from './modelRules'
@@ -15,6 +15,10 @@ const YamlEditor = lazy(async () => {
  * L'éditeur de modèle repris de Miles (`portail/frontend/src/dataModels/SchemaEditor.tsx`) :
  * l'éditeur visuel JSONJoy à gauche, le YAML dans Monaco à droite, sur le même modèle en
  * mémoire. Le parent tient le texte et sa lecture ; rien n'est écrit ici.
+ *
+ * Repris tel quel par la fenêtre d'édition d'un type de cartographie (ticket
+ * 5c39d4df) : `before` s'affiche au-dessus de l'éditeur visuel (propriétés de base
+ * en lecture seule), `yamlActions` à côté du titre du YAML.
  */
 export default function SchemaEditor({
   path,
@@ -23,6 +27,9 @@ export default function SchemaEditor({
   readOnly,
   onVisual,
   onYaml,
+  visualTitle,
+  before,
+  yamlActions,
 }: {
   path: string
   text: string
@@ -30,12 +37,16 @@ export default function SchemaEditor({
   readOnly: boolean
   onVisual: (schema: Record<string, unknown>) => void
   onYaml: (text: string) => void
+  visualTitle?: string
+  before?: ReactNode
+  yamlActions?: ReactNode
 }) {
   const { t, i18n } = useTranslation()
   return (
     <div className="model-editor">
-      <section aria-label={t('refModelVisual')}>
-        <h2>{t('refModelVisual')}</h2>
+      <section aria-label={visualTitle ?? t('refModelVisual')}>
+        <h2>{visualTitle ?? t('refModelVisual')}</h2>
+        {before}
         {parsed.ok ? (
           <SchemaFieldsEditor
             value={parsed.model as JsonSchema}
@@ -50,7 +61,10 @@ export default function SchemaEditor({
         )}
       </section>
       <section aria-label={t('refModelYaml')}>
-        <h2>{t('refModelYaml')}</h2>
+        <div className="row model-editor-head">
+          <h2>{t('refModelYaml')}</h2>
+          {yamlActions}
+        </div>
         <Suspense fallback={<p className="muted">{t('loading')}</p>}>
           <YamlEditor path={path} value={text} onChange={onYaml} readOnly={readOnly} />
         </Suspense>

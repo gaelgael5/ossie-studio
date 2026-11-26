@@ -1,0 +1,462 @@
+# Catalogue des types ArchiMate 3.2 livré avec l'application (epic « Cartographie
+# — types et objets »). Format posé par l'enabler f8167ae1, contenu complété par
+# l'enabler 0e088eaa. Ossie est la source unique de ce catalogue : le composant de
+# dessin `urban-archimate` le reçoit par ses délégués, il n'en tient pas de copie.
+#
+# Les règles de relation et la liste des éléments de chaque point de vue ne sont
+# pas ici : elles sont lues dans les fichiers d'Archi recopiés tels quels
+# (`archi/`, licence MIT, voir `archi/README.md`).
+#
+# layers       couches, dans l'ordre d'affichage → libellé français
+# types        pour chaque type ArchiMate (identifiant de la spécification) :
+#   kind         element | relation
+#   layer        couche (absent pour une relation)
+#   label        libellé français (nom par défaut d'un nouveau type de l'espace)
+#   definition   définition courte en français (fenêtre « Ajouter un type »)
+#   verbs        relation : comment elle se lit depuis sa source (out) et depuis
+#                sa cible (in), sur la fiche d'un objet (« déclenche » / « déclenché par »)
+#   attributes   attributs propres au type, rangés dans `proprietes` d'un objet ;
+#                noms partagés avec le contrat d'`urban-archimate` :
+#                  label   libellé français
+#                  type    string | boolean (défaut string)
+#                  values  valeurs ArchiMate (ce qui est stocké) → libellé français
+#                  unset   libellé affiché quand l'attribut est absent
+#   L'icône d'un type est `icons/<type>.svg` (pictogramme d'un trait, sans couleur).
+# viewpoints   points de vue : identifiant → libellé français ; l'identifiant est
+#              celui d'Archi, avec des tirets au lieu des soulignés.
+version: 1
+archimate: "3.2"
+
+layers:
+  strategy: Stratégie
+  business: Métier
+  application: Application
+  technology: Technologie
+  physical: Physique
+  motivation: Motivation
+  implementation: Mise en œuvre et migration
+  other: Autres
+
+types:
+  # --- Stratégie -----------------------------------------------------------------------
+  Resource:
+    kind: element
+    layer: strategy
+    label: Ressource
+    definition: Un bien, matériel ou immatériel, que l'organisation possède ou contrôle (argent, personnel, savoir-faire, équipement).
+  Capability:
+    kind: element
+    layer: strategy
+    label: Capacité
+    definition: Ce que l'organisation sait faire, indépendamment de la manière dont elle le fait.
+  ValueStream:
+    kind: element
+    layer: strategy
+    label: Chaîne de valeur
+    definition: Une suite d'étapes qui crée de la valeur pour un client ou une partie prenante, du début à la fin.
+  CourseOfAction:
+    kind: element
+    layer: strategy
+    label: Plan d'action
+    definition: Une manière choisie d'atteindre un objectif, en mobilisant des capacités et des ressources.
+
+  # --- Métier --------------------------------------------------------------------------
+  BusinessActor:
+    kind: element
+    layer: business
+    label: Acteur métier
+    definition: Une personne, une équipe ou une organisation qui agit dans l'entreprise (un client, un service, un partenaire).
+  BusinessRole:
+    kind: element
+    layer: business
+    label: Rôle métier
+    definition: Une responsabilité tenue par un acteur, par exemple « vendeur » ou « gestionnaire de commandes ».
+  BusinessCollaboration:
+    kind: element
+    layer: business
+    label: Collaboration métier
+    definition: Un regroupement de rôles ou d'acteurs qui travaillent ensemble.
+  BusinessInterface:
+    kind: element
+    layer: business
+    label: Interface métier
+    definition: Un point de contact par lequel un service métier est accessible (guichet, site web, téléphone).
+  BusinessProcess:
+    kind: element
+    layer: business
+    label: Processus métier
+    definition: Une suite d'activités qui produit un résultat précis, par exemple « traiter une commande ».
+  BusinessFunction:
+    kind: element
+    layer: business
+    label: Fonction métier
+    definition: Un ensemble stable d'activités regroupées par compétence ou par moyen, par exemple « comptabilité ».
+  BusinessInteraction:
+    kind: element
+    layer: business
+    label: Interaction métier
+    definition: Une activité menée ensemble par plusieurs rôles ou acteurs, comme une négociation.
+  BusinessEvent:
+    kind: element
+    layer: business
+    label: Événement métier
+    definition: Un fait qui déclenche ou interrompt une activité, comme « commande reçue ».
+  BusinessService:
+    kind: element
+    layer: business
+    label: Service métier
+    definition: Ce que l'entreprise rend à ses clients ou à d'autres services, vu de l'extérieur.
+  BusinessObject:
+    kind: element
+    layer: business
+    label: Objet métier
+    definition: Une information manipulée par le métier, par exemple une commande, une facture, un client.
+  Contract:
+    kind: element
+    layer: business
+    label: Contrat
+    definition: Un accord qui fixe les droits et les obligations des parties, comme des conditions de vente.
+  Representation:
+    kind: element
+    layer: business
+    label: Représentation
+    definition: La forme visible d'une information métier, comme un document, un formulaire ou un message.
+  Product:
+    kind: element
+    layer: business
+    label: Produit
+    definition: Un ensemble de services, d'informations et de contrats proposé comme un tout aux clients.
+
+  # --- Application ---------------------------------------------------------------------
+  ApplicationComponent:
+    kind: element
+    layer: application
+    label: Composant applicatif
+    definition: Un logiciel ou une partie de logiciel que l'on peut déployer et remplacer, comme une application ou un service web.
+  ApplicationCollaboration:
+    kind: element
+    layer: application
+    label: Collaboration applicative
+    definition: Un regroupement de composants applicatifs qui travaillent ensemble.
+  ApplicationInterface:
+    kind: element
+    layer: application
+    label: Interface applicative
+    definition: Le point d'accès par lequel une application rend ses services disponibles, comme un écran ou une API.
+  ApplicationFunction:
+    kind: element
+    layer: application
+    label: Fonction applicative
+    definition: Un ensemble de traitements regroupés selon ce qu'ils font, assuré par un composant applicatif.
+  ApplicationInteraction:
+    kind: element
+    layer: application
+    label: Interaction applicative
+    definition: Un traitement mené ensemble par plusieurs composants applicatifs.
+  ApplicationProcess:
+    kind: element
+    layer: application
+    label: Processus applicatif
+    definition: Une suite de traitements automatisés qui produit un résultat précis.
+  ApplicationEvent:
+    kind: element
+    layer: application
+    label: Événement applicatif
+    definition: Un fait qui déclenche ou interrompt un traitement, comme l'arrivée d'un fichier.
+  ApplicationService:
+    kind: element
+    layer: application
+    label: Service applicatif
+    definition: Ce qu'une application rend à ses utilisateurs ou à d'autres applications, vu de l'extérieur.
+  DataObject:
+    kind: element
+    layer: application
+    label: Objet de données
+    definition: Une donnée structurée manipulée par une application, comme une table ou un message.
+
+  # --- Technologie ---------------------------------------------------------------------
+  Node:
+    kind: element
+    layer: technology
+    label: Nœud
+    definition: Une ressource de calcul ou de stockage qui héberge des logiciels, comme un serveur ou un cluster.
+  Device:
+    kind: element
+    layer: technology
+    label: Appareil
+    definition: Un matériel qui exécute des logiciels, comme un ordinateur, un téléphone ou un terminal.
+  SystemSoftware:
+    kind: element
+    layer: technology
+    label: Logiciel système
+    definition: Un logiciel qui fournit un environnement d'exécution, comme un système d'exploitation ou une base de données.
+  TechnologyCollaboration:
+    kind: element
+    layer: technology
+    label: Collaboration technologique
+    definition: Un regroupement de nœuds qui travaillent ensemble.
+  TechnologyInterface:
+    kind: element
+    layer: technology
+    label: Interface technologique
+    definition: Le point d'accès par lequel un nœud rend ses services disponibles, comme un port réseau.
+  Path:
+    kind: element
+    layer: technology
+    label: Chemin
+    definition: Une liaison entre nœuds qui leur permet d'échanger des données.
+  CommunicationNetwork:
+    kind: element
+    layer: technology
+    label: Réseau de communication
+    definition: Les moyens physiques qui transportent les données entre appareils, comme un réseau local.
+  TechnologyFunction:
+    kind: element
+    layer: technology
+    label: Fonction technologique
+    definition: Un ensemble de traitements techniques regroupés selon ce qu'ils font, assuré par un nœud.
+  TechnologyProcess:
+    kind: element
+    layer: technology
+    label: Processus technologique
+    definition: Une suite de traitements techniques qui produit un résultat précis, comme une sauvegarde.
+  TechnologyInteraction:
+    kind: element
+    layer: technology
+    label: Interaction technologique
+    definition: Un traitement technique mené ensemble par plusieurs nœuds.
+  TechnologyEvent:
+    kind: element
+    layer: technology
+    label: Événement technologique
+    definition: Un fait technique qui déclenche ou interrompt un traitement, comme une panne.
+  TechnologyService:
+    kind: element
+    layer: technology
+    label: Service technologique
+    definition: Ce que l'infrastructure rend aux applications ou à d'autres nœuds, comme l'hébergement ou le stockage.
+  Artifact:
+    kind: element
+    layer: technology
+    label: Artefact
+    definition: Un fichier produit ou utilisé par des logiciels, comme un exécutable, un script ou un fichier de configuration.
+
+  # --- Physique ------------------------------------------------------------------------
+  Equipment:
+    kind: element
+    layer: physical
+    label: Équipement
+    definition: Une machine ou un outil physique, comme une chaîne de production ou un véhicule.
+  Facility:
+    kind: element
+    layer: physical
+    label: Installation
+    definition: Un lieu physique équipé, comme une usine, un entrepôt ou un centre de données.
+  DistributionNetwork:
+    kind: element
+    layer: physical
+    label: Réseau de distribution
+    definition: Un réseau physique qui transporte des matières ou de l'énergie, comme un réseau routier ou électrique.
+  Material:
+    kind: element
+    layer: physical
+    label: Matière
+    definition: Une matière ou un objet physique utilisé ou produit, comme une matière première ou un produit fini.
+
+  # --- Motivation ----------------------------------------------------------------------
+  Stakeholder:
+    kind: element
+    layer: motivation
+    label: Partie prenante
+    definition: Une personne ou un groupe qui a un intérêt dans l'entreprise ou dans ce qu'elle produit.
+  Driver:
+    kind: element
+    layer: motivation
+    label: Moteur
+    definition: Une force, interne ou externe, qui pousse l'entreprise à changer, comme la concurrence ou une loi.
+  Assessment:
+    kind: element
+    layer: motivation
+    label: Évaluation
+    definition: Le résultat de l'analyse d'une situation, comme une force, une faiblesse ou un risque.
+  Goal:
+    kind: element
+    layer: motivation
+    label: Objectif
+    definition: Ce que l'entreprise veut atteindre, dit en termes généraux, comme « augmenter la satisfaction client ».
+  Outcome:
+    kind: element
+    layer: motivation
+    label: Résultat
+    definition: Un résultat concret et mesurable, visé ou obtenu, comme « délai de livraison réduit de deux jours ».
+  Principle:
+    kind: element
+    layer: motivation
+    label: Principe
+    definition: Une règle générale qui guide les décisions, comme « une donnée n'est saisie qu'une fois ».
+  Requirement:
+    kind: element
+    layer: motivation
+    label: Exigence
+    definition: Un besoin précis qu'une solution doit satisfaire.
+  Constraint:
+    kind: element
+    layer: motivation
+    label: Contrainte
+    definition: Une limite imposée à une solution, comme un budget ou une norme.
+  Meaning:
+    kind: element
+    layer: motivation
+    label: Signification
+    definition: Le sens donné à une information ou à un concept dans un contexte précis.
+  Value:
+    kind: element
+    layer: motivation
+    label: Valeur
+    definition: L'utilité ou l'importance de quelque chose pour une partie prenante.
+
+  # --- Mise en œuvre et migration ------------------------------------------------------
+  WorkPackage:
+    kind: element
+    layer: implementation
+    label: Lot de travaux
+    definition: Un ensemble de tâches planifiées pour obtenir un résultat, comme un projet ou une itération.
+  Deliverable:
+    kind: element
+    layer: implementation
+    label: Livrable
+    definition: Un résultat précis produit par un lot de travaux, comme un rapport ou un logiciel.
+  ImplementationEvent:
+    kind: element
+    layer: implementation
+    label: Événement de mise en œuvre
+    definition: Un fait qui marque une étape d'un projet, comme une mise en production ou un jalon.
+  Plateau:
+    kind: element
+    layer: implementation
+    label: Plateau
+    definition: Un état stable de l'architecture à un moment donné, comme l'état actuel ou l'état cible.
+  Gap:
+    kind: element
+    layer: implementation
+    label: Écart
+    definition: La différence entre deux plateaux, c'est-à-dire ce qui doit changer pour passer de l'un à l'autre.
+
+  # --- Autres --------------------------------------------------------------------------
+  Grouping:
+    kind: element
+    layer: other
+    label: Regroupement
+    definition: Un ensemble d'éléments rassemblés selon un critère commun, sans autre sens imposé.
+  Location:
+    kind: element
+    layer: other
+    label: Lieu
+    definition: Un endroit où se trouvent des éléments, comme un site, une ville ou un pays.
+  Junction:
+    kind: element
+    layer: other
+    label: Jonction
+    definition: Un point qui réunit ou partage plusieurs relations du même type, en « et » ou en « ou ».
+    attributes:
+      jonction:
+        label: Type de jonction
+        values: {And: et, Or: ou}
+        unset: et
+
+  # --- Relations -----------------------------------------------------------------------
+  Composition:
+    kind: relation
+    label: Composition
+    definition: Un élément est fait d'autres éléments, qui n'existent pas sans lui.
+    verbs: {out: se compose de, in: fait partie de}
+  Aggregation:
+    kind: relation
+    label: Agrégation
+    definition: Un élément regroupe d'autres éléments, qui peuvent exister sans lui.
+    verbs: {out: regroupe, in: regroupé dans}
+  Assignment:
+    kind: relation
+    label: Affectation
+    definition: Un élément est chargé d'un comportement ou en est responsable (qui fait quoi).
+    verbs: {out: affecté à, in: mené par}
+  Realization:
+    kind: relation
+    label: Réalisation
+    definition: Un élément concrétise un élément plus abstrait.
+    verbs: {out: réalise, in: réalisé par}
+  Serving:
+    kind: relation
+    label: Sert
+    definition: Un élément rend un service à un autre.
+    verbs: {out: sert, in: servi par}
+  Access:
+    kind: relation
+    label: Accès
+    definition: Un comportement lit ou écrit une information.
+    verbs: {out: accède à, in: accédé par}
+    attributes:
+      acces:
+        label: Sens de l'accès
+        values: {Read: lecture, Write: écriture, ReadWrite: lecture-écriture}
+        unset: non précisé
+  Influence:
+    kind: relation
+    label: Influence
+    definition: Un élément agit, en bien ou en mal, sur un élément de motivation.
+    verbs: {out: influence, in: influencé par}
+    attributes:
+      modificateur:
+        label: Force (+, ++, -, --…)
+  Triggering:
+    kind: relation
+    label: Déclenchement
+    definition: Un comportement en déclenche un autre, l'un après l'autre.
+    verbs: {out: déclenche, in: déclenché par}
+  Flow:
+    kind: relation
+    label: Flux
+    definition: Un comportement transmet quelque chose à un autre (information, marchandise, argent).
+    verbs: {out: transmet à, in: reçoit de}
+  Specialization:
+    kind: relation
+    label: Spécialisation
+    definition: Un élément est un cas particulier d'un autre élément du même type.
+    verbs: {out: spécialise, in: spécialisé par}
+  Association:
+    kind: relation
+    label: Association
+    definition: Un lien entre deux éléments qui ne relève d'aucune autre relation, dirigé ou non.
+    verbs: {out: associé à, in: associé à}
+    attributes:
+      dirigee:
+        label: Dirigée
+        type: boolean
+        unset: non dirigée
+
+viewpoints:
+  organization: Organisation
+  business-process-cooperation: Coopération des processus métier
+  product: Produit
+  application-cooperation: Coopération applicative
+  application-structure: Structure applicative
+  application-usage: Usage des applications
+  implementation-deployment: Mise en œuvre et déploiement
+  technology: Technologie
+  technology-usage: Usage de la technologie
+  information-structure: Structure de l'information
+  service-realization: Réalisation des services
+  physical: Physique
+  stakeholder: Parties prenantes
+  goal-realization: Réalisation des objectifs
+  requirements-realization: Réalisation des exigences
+  motivation: Motivation
+  strategy: Stratégie
+  capability: Carte des capacités
+  value-stream: Chaîne de valeur
+  outcome-realization: Réalisation des résultats
+  resource: Carte des ressources
+  project: Projet
+  migration: Migration
+  implementation-migration: Mise en œuvre et migration
+  layered: En couches

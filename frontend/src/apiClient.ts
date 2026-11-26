@@ -1535,6 +1535,153 @@ export interface AuditPage {
   types: string[]
 }
 
+// --- Cartographie (epic « Cartographie — types et objets », ticket e7521e80) --------------
+
+export interface CartoAttribute {
+  name: string
+  label: string
+  type: string
+  /** Valeurs ArchiMate (stockées) et leur libellé français (affiché). */
+  values: { value: string; label: string }[]
+  /** Libellé affiché quand l'attribut est absent. */
+  unset: string
+}
+
+export interface ArchimateTypeInfo {
+  name: string
+  kind: 'element' | 'relation'
+  layer: string
+  label: string
+  definition: string
+  /** Pictogramme SVG d'un trait (`currentColor`), servi par Ossie. */
+  icon: string
+  attributes: CartoAttribute[]
+  /** Types de relation auxquels ce type peut prendre part. */
+  relations: string[]
+  /** Relation : comment elle se lit depuis sa source (out) et depuis sa cible (in). */
+  verbs: { out: string; in: string }
+}
+
+export interface CartoCatalog {
+  archimate: string
+  layers: { key: string; label: string }[]
+  base: { name: string; type: string; required: boolean }[]
+  types: ArchimateTypeInfo[]
+}
+
+export interface CartoTypeSummary {
+  slug: string
+  title: string
+  archimate: string
+  path: string
+  properties: number
+  objects: number
+  /** created : créé dans le brouillon, pas encore publié ; modified : modifié. */
+  state: 'created' | 'modified' | null
+}
+
+export interface CartoTypeDetail {
+  slug: string
+  title: string
+  archimate: string
+  path: string
+  /** Le document du type (title, x-archimate, type, properties, required). */
+  document: Record<string, unknown>
+  yaml: string
+  objects: number
+  /** Propriété ajoutée → nombre d'objets qui y ont une valeur. */
+  usage: Record<string, number>
+  /** Le schéma des propriétés d'un objet de ce type (attributs ArchiMate + ajoutées). */
+  object_schema: Record<string, unknown>
+  state: 'created' | 'modified' | null
+  problems: { path: string; code: string; detail: string; field: string }[]
+}
+
+export interface CartoDates {
+  created_at: string
+  created_by: string
+  updated_at: string
+  updated_by: string
+}
+
+export interface CartoObjectSummary {
+  key: string
+  type: string
+  type_title: string
+  archimate: string
+  name: string
+  excerpt: string
+  /** Les premières propriétés renseignées, pour la vignette. */
+  properties: { name: string; value: string }[]
+  relations: number
+  is_relation: boolean
+  source: string | null
+  target: string | null
+  path: string
+  /** Dates et auteurs d'après les commits publiés ; null : seulement dans le brouillon. */
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+}
+
+export interface CartoRelationSide {
+  key: string
+  name: string
+  type: string
+  type_title: string
+  archimate: string
+  properties: Record<string, unknown>
+  other: { key: string | null; name: string | null; type_title: string | null; exists: boolean }
+}
+
+export interface CartoEnd {
+  key: string | null
+  name: string | null
+  type_title: string | null
+  archimate: string | null
+  is_relation: boolean
+  exists: boolean
+}
+
+export interface CartoRelationTypeChoice {
+  slug: string
+  title: string
+  archimate: string
+  object_schema: Record<string, unknown>
+}
+
+export interface CartoObjectDetail {
+  /** Relation : ses deux extrémités, et les types ArchiMate permis entre elles. */
+  ends?: { source: CartoEnd; target: CartoEnd }
+  rule?: string[]
+  key: string
+  type: string
+  type_title: string
+  archimate: string
+  name: string
+  documentation: string
+  properties: Record<string, unknown>
+  source: string | null
+  target: string | null
+  path: string
+  schema: Record<string, unknown> | null
+  relations: { outgoing: CartoRelationSide[]; incoming: CartoRelationSide[] }
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+  problems: { path: string; code: string; detail: string; field: string }[]
+}
+
+export interface CartoObjectBody {
+  name: string
+  documentation: string
+  properties: Record<string, unknown>
+}
+
+export interface CartoTypePreview {
+  path: string
+  yaml: string
+  problems: { path: string; code: string; detail: string; field: string }[]
+}
+
 // --- Référentiels (epic « Référentiels », ticket 829a86a7) ---------------------------------
 
 export interface ReferentielSummary {
@@ -2159,6 +2306,68 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  getCartoCatalog: (spaceId: string, branchId: string) =>
+    apiFetch<CartoCatalog>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/catalogue`),
+  listCartoTypes: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; types: CartoTypeSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types`,
+    ),
+  // Le fichier que créerait l'ajout (chemin et contenu exacts) ; rien n'est écrit.
+  previewCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>
+    apiFetch<CartoTypePreview>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/apercu`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getCartoType: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CartoTypeDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`),
+  // Libellé et propriétés ajoutées ; le slug et le type ArchiMate sont figés.
+  saveCartoType: (spaceId: string, branchId: string, slug: string, schema: Record<string, unknown>) =>
+    apiFetch<CartoTypeDetail & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`,
+      { method: 'PUT', body: JSON.stringify({ schema }) },
+    ),
+  deleteCartoType: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`,
+      { method: 'DELETE' },
+    ),
+  listCartoObjects: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; objects: CartoObjectSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
+    ),
+  getCartoObject: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<CartoObjectDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`),
+  // « + Relier… » : types ArchiMate permis de `source` vers `target`, et types de
+  // relation de l'espace qui reposent sur eux (ticket b58a0a13).
+  listRelationTypes: (spaceId: string, branchId: string, source: string, target: string) =>
+    apiFetch<{ archimate: string[]; types: CartoRelationTypeChoice[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(source)}/relations-permises?cible=${encodeURIComponent(target)}`,
+    ),
+  // Clé (unique dans l'espace) et type de l'espace : saisis à la création, figés ensuite.
+  createCartoObject: (
+    spaceId: string,
+    branchId: string,
+    body: CartoObjectBody & { key: string; type: string; source?: string; target?: string },
+  ) =>
+    apiFetch<CartoObjectDetail & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  saveCartoObject: (spaceId: string, branchId: string, key: string, body: CartoObjectBody) =>
+    apiFetch<CartoObjectDetail & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  deleteCartoObject: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      { method: 'DELETE' },
+    ),
+  createCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>
+    apiFetch<{ type: CartoTypeSummary; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
   previewReferentielModel: (spaceId: string, branchId: string, name: string, model: Record<string, unknown>) =>
     apiFetch<ReferentielModelPreview>(
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/modele/apercu`,

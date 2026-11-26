@@ -1052,6 +1052,27 @@ test('menu : « Référentiels » juste après « Espaces » (epic Référentiel
   expect(labels).toContain('Gouvernance')
 })
 
+test('menu : « Cartographie » juste après « Modèles », avant « Gouvernance »', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: [...ADMIN_CAPS, 'curation:read', 'cartographie:read'],
+      },
+    },
+  })
+  renderAt('/')
+  const nav = await screen.findByRole('navigation', { name: 'Ossie Studio' })
+  await waitFor(() => expect(within(nav).getByRole('link', { name: 'Cartographie' })).toBeInTheDocument())
+  const labels = [...nav.querySelectorAll('.topnav-menu > .topnav-item, .topnav-menu > .topnav-dropdown > .topnav-item')]
+    .map((el) => (el.textContent ?? '').replace(' ▾', ''))
+    .filter((text) => ['Modèles', 'Cartographie', 'Gouvernance'].includes(text))
+  expect(labels).toEqual(['Modèles', 'Cartographie', 'Gouvernance'])
+})
+
 test('menu : « Sources » et « Curation » regroupés dans le bloc « Collecte »', async () => {
   await i18n.changeLanguage('fr')
   mockFetch({
