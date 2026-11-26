@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 
 from ossie_studio.spaces.branch_service import KIND_CHILD, db_create_branch
 from tests.conftest import create_plain_user, login
@@ -222,3 +222,104 @@ async def test_journal_d_audit(space: ApiSpace) -> None:
     assert [(e["object_id"], e["action"]) for e in objects.json()["events"]] == [
         ("ACT-DUPONT", "created")
     ]
+
+
+# --- Ticket 5c39d4df : personnaliser un type ---------------------------------------------------
+
+VENTE = "title: Processus de vente\nx-archimate: BusinessProcess\ntype: object\n"
+
+
+def _publish_vente(space: ApiSpace, objects: int = 2) -> None:
+    files: dict[str, str | None] = {"cartographie/types/processus-de-vente.schema.yaml": VENTE}
+    for i in range(objects):
+        files[f"cartographie/objets/processus-de-vente/prc-{i}.yaml"] = (
+            f"cle: PRC-{i}\ntype: processus-de-vente\nnom: Vente {i}\n"
+        )
+    forge_edit(space, files)
+
+
+async def _save(space: ApiSpace, slug: str, schema: dict[str, object]) -> Response:
+    return await space.client.put(_url(space, f"/types/{slug}"), json={"schema": schema})
+
+
+CANAL = {"type": "string", "enum": ["site", "magasin"], "description": "Canal de la vente"}
+
+
+async def test_ajouter_une_propriete_canal(space: ApiSpace) -> None:
+    _publish_vente(space)
+    detail = (await space.client.get(_url(space, "/types/processus-de-vente"))).json()
+    assert detail["objects"] == 2 and detail["usage"] == {}
+    assert detail["yaml"] == VENTE
+    schema = {**detail["document"], "properties": {"canal": CANAL}}
+    answer = await _save(space, "processus-de-vente", schema)
+    assert answer.status_code == 200, answer.text
+    saved = answer.json()
+    assert "canal:" in saved["yaml"] and saved["state"] == "modified"
+    assert saved["usage"] == {"canal": 0}
+    assert forge_read(space, "cartographie/types/processus-de-vente.schema.yaml") == VENTE
+
+
+async def test_renommer_garde_le_fichier_et_le_type_archimate(space: ApiSpace) -> None:
+    _publish_vente(space)
+    detail = (await space.client.get(_url(space, "/types/processus-de-vente"))).json()
+    renamed = await _save(space, "processus-de-vente", {**detail["document"], "title": "Vente"})
+    assert renamed.status_code == 200, renamed.text
+    listing = await _types(space)
+    assert [(t["slug"], t["title"], t["objects"]) for t in listing] == [
+        ("processus-de-vente", "Vente", 2)
+    ]
+    frozen = await _save(
+        space, "processus-de-vente", {**detail["document"], "x-archimate": "BusinessEvent"}
+    )
+    assert frozen.status_code == 409
+    assert frozen.json()["error"] == "carto_type_archimate_frozen"
+    unknown_key = await _save(
+        space, "processus-de-vente", {**detail["document"], "description": "x"}
+    )
+    assert unknown_key.status_code == 400
+    assert unknown_key.json()["error_args"]["keys"] == ["description"]
+
+
+async def test_retirer_une_propriete_utilisee_refuse(space: ApiSpace) -> None:
+    forge_edit(
+        space,
+        {
+            "cartographie/types/processus-de-vente.schema.yaml": (
+                VENTE + "properties:\n  canal:\n    type: string\n    enum:\n    - site\n"
+                "    - magasin\n"
+            ),
+            "cartographie/objets/processus-de-vente/prc-1.yaml": (
+                "cle: PRC-1\ntype: processus-de-vente\nnom: V\nproprietes:\n  canal: site\n"
+            ),
+            "cartographie/objets/processus-de-vente/prc-2.yaml": (
+                "cle: PRC-2\ntype: processus-de-vente\nnom: W\nproprietes:\n  canal: magasin\n"
+            ),
+        },
+    )
+    detail = (await space.client.get(_url(space, "/types/processus-de-vente"))).json()
+    assert detail["usage"] == {"canal": 2}
+    removed = await _save(space, "processus-de-vente", {**detail["document"], "properties": {}})
+    assert removed.status_code == 409
+    error = removed.json()
+    assert error["error"] == "carto_property_in_use"
+    assert error["error_args"]["properties"] == {"canal": 2}
+    # Retirer une valeur utilisée de l'énumération rendrait un objet invalide.
+    narrowed = {**detail["document"], "properties": {"canal": {"type": "string", "enum": ["site"]}}}
+    broken = await _save(space, "processus-de-vente", narrowed)
+    assert broken.status_code == 409
+    assert broken.json()["error"] == "carto_type_objects_invalid"
+    assert broken.json()["error_args"]["objects"] == 1
+
+
+async def test_supprimer_un_type(space: ApiSpace) -> None:
+    _publish_vente(space, objects=1)
+    refused = await space.client.delete(_url(space, "/types/processus-de-vente"))
+    assert refused.status_code == 409
+    assert refused.json()["error"] == "carto_type_in_use"
+    assert refused.json()["error_args"]["objects"] == 1
+    await _add(space, "Atelier", "atelier", "BusinessInteraction")
+    deleted = await space.client.delete(_url(space, "/types/atelier"))
+    assert deleted.status_code == 200, deleted.text
+    assert [t["slug"] for t in await _types(space)] == ["processus-de-vente"]
+    missing = await space.client.get(_url(space, "/types/atelier"))
+    assert missing.status_code == 404 and missing.json()["error"] == "carto_type_not_found"

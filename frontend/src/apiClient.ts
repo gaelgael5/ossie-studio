@@ -1578,6 +1578,21 @@ export interface CartoTypeSummary {
   state: 'created' | 'modified' | null
 }
 
+export interface CartoTypeDetail {
+  slug: string
+  title: string
+  archimate: string
+  path: string
+  /** Le document du type (title, x-archimate, type, properties, required). */
+  document: Record<string, unknown>
+  yaml: string
+  objects: number
+  /** Propriété ajoutée → nombre d'objets qui y ont une valeur. */
+  usage: Record<string, number>
+  state: 'created' | 'modified' | null
+  problems: { path: string; code: string; detail: string; field: string }[]
+}
+
 export interface CartoTypePreview {
   path: string
   yaml: string
@@ -2220,6 +2235,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  getCartoType: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CartoTypeDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`),
+  // Libellé et propriétés ajoutées ; le slug et le type ArchiMate sont figés.
+  saveCartoType: (spaceId: string, branchId: string, slug: string, schema: Record<string, unknown>) =>
+    apiFetch<CartoTypeDetail & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`,
+      { method: 'PUT', body: JSON.stringify({ schema }) },
+    ),
+  deleteCartoType: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`,
+      { method: 'DELETE' },
+    ),
   createCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>
     apiFetch<{ type: CartoTypeSummary; revision: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types`,

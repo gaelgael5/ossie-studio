@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
 import type { ArchimateTypeInfo, CartoCatalog, CartoTypeSummary } from '../apiClient'
 import { errorMessages } from '../errors'
@@ -17,6 +18,11 @@ import { ArchimateIcon } from '../cartographie/ArchimateIcon'
 // celle de l'application (Gael : pas de couleurs de couche ArchiMate) ; la couche
 // se lit dans le texte. Les écritures vont dans le brouillon de la personne, sur
 // toute branche (comme les Référentiels) ; la barre du brouillon est celle du Layout.
+
+/** L'adresse de la fenêtre d'édition d'un type (ticket 5c39d4df). */
+export function cartoTypePath(slug: string): string {
+  return `/cartographie/types/${encodeURIComponent(slug)}`
+}
 
 /** Pseudo-couche des types de relation, pour le filtre. */
 export const RELATION_LAYER = 'relation'
@@ -178,7 +184,11 @@ function TypesTab({
 function TypeCard({ summary, info }: { summary: CartoTypeSummary; info: ArchimateTypeInfo | undefined }) {
   const { t } = useTranslation()
   return (
-    <article className={`carto-card${summary.state === 'created' ? ' carto-card-new' : ''}`} aria-label={summary.title}>
+    <Link
+      to={cartoTypePath(summary.slug)}
+      className={`carto-card carto-card-link${summary.state === 'created' ? ' carto-card-new' : ''}`}
+      aria-label={summary.title}
+    >
       <div className="carto-card-head">
         <h2 className="carto-card-title">{summary.title}</h2>
         {summary.state === 'created' ? <span className="badge carto-badge-new">{t('cartoNew')}</span> : null}
@@ -192,6 +202,6 @@ function TypeCard({ summary, info }: { summary: CartoTypeSummary; info: Archimat
         <span>{t('cartoPropertiesCount', { count: summary.properties })}</span>
         <span>{t('cartoObjectsCount', { count: summary.objects })}</span>
       </div>
-    </article>
+    </Link>
   )
 }

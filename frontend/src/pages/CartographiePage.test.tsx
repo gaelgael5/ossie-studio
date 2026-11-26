@@ -107,28 +107,30 @@ afterEach(() => {
 describe('Cartographie — types en vignettes (ticket e7521e80)', () => {
   it('une vignette par type, avec son type ArchiMate et ses nombres (critère 5)', async () => {
     setup()
-    const client = await screen.findByRole('article', { name: 'Client' })
+    const client = await screen.findByRole('link', { name: 'Client' })
+    // Un clic sur la vignette ouvre la fenêtre d'édition du type (ticket 5c39d4df).
+    expect(client).toHaveAttribute('href', '/cartographie/types/client')
     expect(within(client).getByText('Acteur métier')).toBeInTheDocument()
     expect(within(client).getByText('2 propriétés')).toBeInTheDocument()
     expect(within(client).getByText('12 objets')).toBeInTheDocument()
-    const internal = screen.getByRole('article', { name: 'Service interne' })
+    const internal = screen.getByRole('link', { name: 'Service interne' })
     expect(within(internal).getByText('Acteur métier')).toBeInTheDocument()
     expect(within(internal).getByText('nouveau')).toBeInTheDocument()
   })
 
   it('filtre par couche, par nom et par type ArchiMate (critère 7)', async () => {
     setup()
-    await screen.findByRole('article', { name: 'Client' })
+    await screen.findByRole('link', { name: 'Client' })
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Application' }))
-    expect(screen.getByRole('article', { name: 'Application' })).toBeInTheDocument()
-    expect(screen.queryByRole('article', { name: 'Client' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Application' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Client' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Application' }))
     await user.type(screen.getByRole('searchbox', { name: 'Filtrer par nom…' }), 'interne')
-    expect(screen.getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['Service interne'])
+    expect(screen.getAllByRole('link').map((a) => a.getAttribute('aria-label'))).toEqual(['Service interne'])
     await user.clear(screen.getByRole('searchbox', { name: 'Filtrer par nom…' }))
     await user.selectOptions(screen.getByRole('combobox'), 'BusinessActor')
-    expect(screen.getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['Client', 'Service interne'])
+    expect(screen.getAllByRole('link').map((a) => a.getAttribute('aria-label'))).toEqual(['Client', 'Service interne'])
   })
 
   it('choisir un type sans rien saisir : nom par défaut, puis ajout (critères 1 et 2)', async () => {
@@ -189,7 +191,7 @@ describe('Cartographie — types en vignettes (ticket e7521e80)', () => {
 
   it('sans le droit de modifier : vignettes visibles, pas de « + Ajouter » (critère 8)', async () => {
     setup({ capabilities: ['cartographie:read'] })
-    expect(await screen.findByRole('article', { name: 'Client' })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Client' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '+ Ajouter' })).not.toBeInTheDocument()
   })
 })

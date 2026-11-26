@@ -33,7 +33,7 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 | f8167ae1 — Format des types et des objets dans l'espace Git (enabler) | En review |
 | 0e088eaa — Types ArchiMate 3.2 en version de base, règles de relation (enabler) | En review |
 | e7521e80 — Espace « Cartographie » : types en vignettes, filtre, ajouter un type | En review |
-| 5c39d4df — Types : personnaliser un type | Prêt pour dev |
+| 5c39d4df — Types : personnaliser un type | En review |
 | 6f71bcba — Objets : créer, modifier, supprimer à la main | Prêt pour dev |
 | b58a0a13 — Relations : relier deux objets (fiche d'une relation) | Prêt pour dev |
 | 41bf680e — Primitives MCP de lecture des types et des objets | Prêt pour dev |
@@ -64,5 +64,15 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 - Routes `api/cartographie.py`, sous `/api/spaces/{s}/branches/{b}/cartographie` : `GET /catalogue` (couches, types ArchiMate avec libellé, définition, pictogramme, attributs, relations auxquelles ils prennent part — `rules.involved_relations`, sans compter le regroupement et la jonction —, propriétés de base `model.BASE_PROPERTIES`), `GET /types` (vignettes : propriétés ajoutées, objets, état `created` / `modified` dans le brouillon), `POST /types/apercu` (fichier exact, rien n'est lu ni écrit), `POST /types` (brouillon ; refus `carto_type_exists`, `carto_type_invalid`, `invalid_request` avec `label_required`, `slug_invalid`, `archimate_unknown`).
 - Liste indexée en mémoire par empreinte de `cartographie/` : l'index des Référentiels est devenu `api/list_index.py`, partagé.
 - Journal : la cartographie publiée apparaît dans la page Historique (`carto_type`, `carto_object`), comme les Référentiels (`audit/git_history.py`).
-- Écran : `pages/CartographiePage.tsx`, `cartographie/AddTypeDialog.tsx`, `cartographie/ArchimateIcon.tsx`. Un clic sur une vignette ne fait encore rien (fenêtre d'édition : ticket 5c39d4df).
+- Écran : `pages/CartographiePage.tsx`, `cartographie/AddTypeDialog.tsx`, `cartographie/ArchimateIcon.tsx`. Un clic sur une vignette ouvre la fenêtre d'édition du type (ticket 5c39d4df).
 - Tests : `backend/tests/test_cartographie_screen.py`, `frontend/src/pages/CartographiePage.test.tsx`, ordre du menu dans `App.test.tsx`.
+
+## Notes techniques (personnaliser un type, 5c39d4df)
+
+- Routes `GET`, `PUT`, `DELETE /cartographie/types/{slug}` : le document du type, son YAML, le nombre d'objets et l'usage de chaque propriété ajoutée ; l'enregistrement garde le slug et le type ArchiMate (`carto_type_archimate_frozen`) ; les clés hors format (`$defs`, `description`…) sont refusées plutôt que perdues (`invalid_request`, `schema_keys`).
+- Règles dans `space.save_type` (pour tout écrivain, écran ou agent) : retirer une propriété utilisée par des objets est refusé (`carto_property_in_use`, nombre d'objets par propriété) ; **toute autre modification qui rendrait des objets invalides aussi** (`carto_type_objects_invalid`, avec les problèmes) — par exemple retirer une valeur utilisée d'une énumération, ou rendre requise une propriété que des objets n'ont pas. Décision prise en latitude, comme les Référentiels (les valeurs doivent rester valides) : on ajoute la propriété en facultatif, on remplit les objets, puis on la rend requise. Renommer une propriété utilisée revient à la retirer : refusé.
+- `space.delete_type` : refusé tant que le type a des objets (`carto_type_in_use`).
+- Écran `cartographie/CartoTypePage.tsx` (adresse `/cartographie/types/<slug>`, ouverte par un clic sur une vignette) : en-tête (libellé, couche en étiquette sobre, Renommer, type ArchiMate figé, fichier, nombre d'objets, retour aux types), bandeau du type ArchiMate, propriétés de base en lecture seule, éditeur visuel et YAML repris des Référentiels (`SchemaEditor`, qui accepte maintenant un contenu au-dessus de l'éditeur visuel et des actions à côté du YAML), garde de sortie sans enregistrer, Ctrl+S, suppression du type en deux temps.
+- Les refus sont aussi vérifiés avant l'envoi : type ArchiMate changé dans le YAML, libellé vide, propriété utilisée retirée, clé hors format.
+- Critère 1, « formulaire des objets » : le schéma des propriétés d'un objet comprend déjà les propriétés ajoutées (`model.properties_schema`) ; le formulaire lui-même arrive avec le ticket « Objets » (6f71bcba).
+- Tests : `backend/tests/test_cartographie_screen.py` (partie 5c39d4df), `frontend/src/cartographie/CartoTypePage.test.tsx`.

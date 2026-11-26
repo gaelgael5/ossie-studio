@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import CartographieRead, CartographieWrite
@@ -25,6 +25,7 @@ from ossie_studio.api.list_index import ListIndex
 from ossie_studio.cartographie.catalog import ArchimateType, catalog
 from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.model import (
+    ARCHIMATE_KEY,
     BASE_PROPERTIES,
     CARTO_DIR,
     CartoType,
@@ -34,7 +35,7 @@ from ossie_studio.cartographie.model import (
 )
 from ossie_studio.cartographie.rules import involved_relations
 from ossie_studio.cartographie.service import CartographieTarget
-from ossie_studio.cartographie.space import Cartographie, save_type
+from ossie_studio.cartographie.space import Cartographie, delete_type, save_type
 from ossie_studio.deps import ConnDep
 from ossie_studio.drafts.store import db_get_draft, db_list_object_states
 from ossie_studio.drafts.workdir import DraftWorkdir
@@ -55,6 +56,11 @@ class TypeBody(BaseModel):
     label: str = ""
     slug: str = ""
     archimate: str = ""
+
+
+class SchemaBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    schema_: dict[str, Any] = Field(alias="schema")
 
 
 def api_error(exc: CartographieError) -> ApiError:
@@ -252,3 +258,123 @@ async def create_type(
         "state": "created",
     }
     return {"type": item, "revision": revision}
+
+
+# --- Personnaliser un type (ticket 5c39d4df) -------------------------------------------------
+
+# Clés de premier niveau d'un type que l'on accepte : le reste serait perdu à
+# l'écriture, il est refusé plutôt que d'être effacé en silence.
+_TYPE_KEYS = {"$schema", "title", ARCHIMATE_KEY, "type", "properties", "required"}
+
+
+def _from_schema(slug: str, schema: dict[str, Any]) -> CartoType:
+    unsupported = sorted(set(schema) - _TYPE_KEYS)
+    if unsupported:
+        raise ApiError("invalid_request", status_code=400, fields=["schema_keys"], keys=unsupported)
+    if schema.get("type", "object") != "object":
+        raise ApiError("invalid_request", status_code=400, fields=["schema_type"])
+    properties = schema.get("properties") or {}
+    required = schema.get("required") or []
+    if not isinstance(properties, dict) or not isinstance(required, list):
+        raise ApiError("invalid_request", status_code=400, fields=["schema_properties"])
+    return CartoType(
+        slug=slug,
+        title=str(schema.get("title") or "").strip(),
+        archimate=str(schema.get(ARCHIMATE_KEY) or ""),
+        properties=properties,
+        required=[str(r) for r in required],
+    )
+
+
+def _detail(space: Cartographie, slug: str, states: dict[str, str]) -> dict[str, object]:
+    ctype = space.types.get(slug)
+    if ctype is None:
+        raise ApiError("carto_type_not_found", status_code=404, slug=slug)
+    path = type_path(slug)
+    state = states.get(path)
+    return {
+        "slug": slug,
+        "title": ctype.title,
+        "archimate": ctype.archimate,
+        "path": path,
+        "document": ctype.document(),
+        "yaml": dump_type(ctype),
+        "objects": len(space.objects_of(slug)),
+        "usage": space.property_usage(slug),
+        "state": state if state in ("created", "modified") else None,
+        "problems": [p.payload() for p in space.problems if p.path == path],
+    }
+
+
+@router.get("/types/{slug}")
+async def get_type(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    """Un type de l'espace (vue de la personne) : son document, son YAML, le nombre
+    de ses objets et, pour chaque propriété ajoutée, le nombre d'objets qui
+    l'utilisent."""
+    target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
+    try:
+        space = await target.cartographie()
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    return _detail(space, slug, await _draft_states(conn, workdir, branch_id))
+
+
+@router.put("/types/{slug}")
+async def save_type_route(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    body: SchemaBody,
+) -> dict[str, object]:
+    """Enregistre un type dans le brouillon : libellé et propriétés ajoutées. Le
+    slug et le type ArchiMate sont figés ; retirer une propriété utilisée par des
+    objets, ou rendre des objets invalides, est refusé."""
+    ctype = _from_schema(slug, body.schema_)
+    target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
+    try:
+        _saved, revision = await target.write(
+            f"modifie le type {slug}", lambda root: save_type(root, ctype, create=False)
+        )
+        space = await target.cartographie()
+    except CartographieError as exc:
+        raise api_error(exc) from None
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    states = await _draft_states(conn, workdir, branch_id)
+    return {**_detail(space, slug, states), "revision": revision}
+
+
+@router.delete("/types/{slug}")
+async def delete_type_route(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieWrite,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, object]:
+    """Supprime un type dans le brouillon ; refusé (« carto_type_in_use ») tant
+    qu'il a des objets."""
+    target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
+    try:
+        _none, revision = await target.write(
+            f"supprime le type {slug}", lambda root: delete_type(root, slug)
+        )
+    except CartographieError as exc:
+        raise api_error(exc) from None
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    return {"deleted": slug, "revision": revision}

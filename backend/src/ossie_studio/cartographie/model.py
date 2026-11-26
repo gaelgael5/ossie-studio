@@ -62,7 +62,8 @@ def object_path(type_slug: str, key: str) -> str:
     return f"{OBJECTS_DIR}/{type_slug}/{key.lower()}{OBJECT_SUFFIX}"
 
 
-def _empty(value: Any) -> bool:
+def is_empty(value: Any) -> bool:
+    """Une valeur facultative vide : elle n'est pas écrite."""
     return value is None or value == "" or value == [] or value == {}
 
 
@@ -177,7 +178,7 @@ class CartoObject:
         doc["nom"] = self.name
         if self.documentation:
             doc["documentation"] = self.documentation
-        properties = {k: v for k, v in self.properties.items() if not _empty(v)}
+        properties = {k: v for k, v in self.properties.items() if not is_empty(v)}
         if properties:
             doc["proprietes"] = properties
         return doc
@@ -228,7 +229,7 @@ def check_object(
         problems.append(Problem(path, "relation_endpoint_missing"))
     if not relation and obj.is_relation:
         problems.append(Problem(path, "object_not_relation"))
-    properties = {k: v for k, v in obj.properties.items() if not _empty(v)}
+    properties = {k: v for k, v in obj.properties.items() if not is_empty(v)}
     validator = Draft202012Validator(properties_schema(ctype, base))
     for error in sorted(validator.iter_errors(properties), key=lambda e: list(e.absolute_path)):
         where = "/".join(str(p) for p in error.absolute_path)

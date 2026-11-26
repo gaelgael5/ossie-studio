@@ -36,6 +36,7 @@ from ossie_studio.cartographie.model import (
     check_type,
     dump_object,
     dump_type,
+    is_empty,
     object_location,
     object_path,
     parse_object,
@@ -60,6 +61,20 @@ class Cartographie:
         return sorted(
             k for k, (_p, o) in self.objects.items() if key in (o.source, o.target) and k != key
         )
+
+    def objects_of(self, slug: str) -> list[tuple[str, CartoObject]]:
+        """Les objets (chemin, objet) d'un type de l'espace."""
+        return [(p, o) for p, o in self.objects.values() if o.type == slug]
+
+    def property_usage(self, slug: str) -> dict[str, int]:
+        """Pour chaque propriété ajoutée d'un type : le nombre de ses objets qui y
+        ont une valeur (non vide)."""
+        ctype = self.types.get(slug)
+        objects = self.objects_of(slug)
+        return {
+            name: sum(1 for _p, o in objects if not is_empty(o.properties.get(name)))
+            for name in (ctype.properties if ctype else {})
+        }
 
     def archimate(self, key: str) -> str | None:
         """Le type ArchiMate d'un objet (celui de son type) ; None s'il est inconnu."""
@@ -151,7 +166,12 @@ def save_type(
     root: Path, ctype: CartoType, *, create: bool, cat: Catalog | None = None
 ) -> CartoType:
     """Crée ou modifie un type de l'espace. Le slug et `x-archimate` d'un type
-    existant sont figés ; seuls le libellé et les propriétés ajoutées changent."""
+    existant sont figés ; seuls le libellé et les propriétés ajoutées changent.
+
+    Les objets du type doivent rester valides : retirer une propriété qu'ils
+    utilisent est refusé (« property_in_use », avec le nombre d'objets par
+    propriété), et toute autre modification qui rendrait des objets invalides
+    aussi (« type_objects_invalid », avec les problèmes)."""
     cat = cat or catalog()
     space = read_cartographie(root, cat)
     current = space.types.get(ctype.slug)
@@ -164,10 +184,47 @@ def save_type(
     problems = check_type(ctype, cat)
     if problems:
         raise CartographieError("type_invalid", problems=problems)
+    if current is not None:
+        _refuse_breaking_objects(space, current, ctype, cat)
     target = root / type_path(ctype.slug)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(dump_type(ctype), encoding="utf-8")
     return ctype
+
+
+def _refuse_breaking_objects(
+    space: Cartographie, current: CartoType, ctype: CartoType, cat: Catalog
+) -> None:
+    usage = space.property_usage(current.slug)
+    in_use = {name: usage[name] for name in sorted(set(current.properties) - set(ctype.properties))}
+    in_use = {name: count for name, count in in_use.items() if count}
+    if in_use:
+        raise CartographieError("property_in_use", status=409, slug=current.slug, properties=in_use)
+    broken = [
+        p
+        for path, obj in space.objects_of(current.slug)
+        for p in check_object(obj, path, ctype, cat)
+        if p.code.startswith("property_")
+    ]
+    if broken:
+        raise CartographieError(
+            "type_objects_invalid",
+            status=409,
+            problems=broken,
+            slug=current.slug,
+            objects=len({p.path for p in broken}),
+        )
+
+
+def delete_type(root: Path, slug: str, cat: Catalog | None = None) -> None:
+    """Supprime le fichier d'un type ; refusé tant qu'il a des objets."""
+    space = read_cartographie(root, cat or catalog())
+    if slug not in space.types:
+        raise CartographieError("type_not_found", status=404, slug=slug)
+    objects = len(space.objects_of(slug))
+    if objects:
+        raise CartographieError("type_in_use", status=409, slug=slug, objects=objects)
+    (root / type_path(slug)).unlink()
 
 
 def save_object(

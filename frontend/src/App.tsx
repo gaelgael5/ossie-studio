@@ -27,6 +27,7 @@ import { CurationPage } from './pages/CurationPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { DomainPage, DomainsPage } from './pages/DomainsPage'
 import { CartographiePage } from './pages/CartographiePage'
+import { CartoTypePage } from './cartographie/CartoTypePage'
 import { ReferentielsPage } from './pages/ReferentielsPage'
 import { SourceDetailPage } from './pages/SourceDetailPage'
 import { ParsingPluginsPage } from './pages/ParsingPluginsPage'
@@ -135,6 +136,7 @@ function AppRoutes() {
         <Route path="/referentiels/:name" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/referentiels/:name/parametrage" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/cartographie" element={gate('cartographie:read', <CartographiePage />)} />
+        <Route path="/cartographie/types/:slug" element={gate('cartographie:read', <CartoTypePage />)} />
         <Route path="/domaines" element={gate('curation:read', <DomainsPage />)} />
         <Route path="/domaines/:name" element={gate('curation:read', <DomainPage />)} />
         <Route path="/secrets" element={gate('secrets:read', <SecretsPage />)} />

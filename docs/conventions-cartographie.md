@@ -165,5 +165,11 @@ n'atteint la branche avant la publication. L'écran « Cartographie » et ses ro
 (`api/cartographie.py`) passent par là. Refus nommés (`CartographieError`) :
 `type_exists`, `type_not_found`, `type_archimate_frozen`, `type_invalid`,
 `object_key_taken`, `object_not_found`, `object_type_frozen`, `object_invalid`,
-`object_keys_duplicate`, `object_in_use`. Une relation non permise est refusée
-(`object_invalid`, problème `relation_not_allowed`).
+`object_keys_duplicate`, `object_in_use`, `property_in_use`, `type_objects_invalid`,
+`type_in_use`. Une relation non permise est refusée (`object_invalid`, problème
+`relation_not_allowed`).
+
+Modifier un type ne doit jamais rendre ses objets invalides : retirer une propriété
+qu'ils utilisent est refusé (`property_in_use`, avec le nombre d'objets), comme toute
+autre modification qui casserait leurs valeurs (`type_objects_invalid`). Un type ne
+se supprime pas tant qu'il a des objets (`type_in_use`).
