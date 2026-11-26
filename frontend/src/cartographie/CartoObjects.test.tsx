@@ -73,11 +73,11 @@ const APP_SCHEMA = {
     irritants: { type: 'string' },
   },
 }
-function appDetail(properties: Record<string, unknown>) {
+function appDetail(properties: Record<string, unknown>, schema: Record<string, unknown> = APP_SCHEMA) {
   return {
     key: 'APP-BOUTIQUE', type: 'application', type_title: 'Application', archimate: 'ApplicationComponent',
     name: 'Boutique en ligne', documentation: 'Site de vente.\n', properties, source: null, target: null,
-    path: 'cartographie/objets/application/app-boutique.yaml', schema: APP_SCHEMA,
+    path: 'cartographie/objets/application/app-boutique.yaml', schema,
     relations: { outgoing: [], incoming: [] }, dates: DATES, state: null, problems: [],
   }
 }
@@ -95,10 +95,10 @@ const PRISE = {
 
 type Call = { method: string; path: string; body?: string }
 
-function setup(url: string, options: { capabilities?: string[]; app?: Record<string, unknown> } = {}) {
+function setup(url: string, options: { capabilities?: string[]; app?: Record<string, unknown>; schema?: Record<string, unknown> } = {}) {
   const calls: Call[] = []
   const capabilities = options.capabilities ?? ['cartographie:read', 'cartographie:write']
-  let app = appDetail(options.app ?? { criticite: 'haute', responsable: 'Équipe Ventes', version: 'v2', protocole: 'REST' })
+  let app = appDetail(options.app ?? { criticite: 'haute', responsable: 'Équipe Ventes', version: 'v2', protocole: 'REST' }, options.schema)
   vi.stubGlobal(
     'fetch',
     vi.fn((path: string, init?: RequestInit) => {
@@ -294,6 +294,39 @@ describe('Cartographie — fiche d’un objet (ticket 6f71bcba)', () => {
     await user.click(screen.getByRole('button', { name: 'Confirmer la suppression' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE')).toBe(true))
     expect(await screen.findByRole('link', { name: 'Prise de commande' })).toBeInTheDocument()
+  })
+
+  it('la description d’une propriété s’affiche sous son champ', async () => {
+    const schema = { ...APP_SCHEMA, properties: { ...APP_SCHEMA.properties, criticite: { type: 'string', enum: ['haute', 'basse'], description: 'Impact d’une panne sur les ventes' } } }
+    setup('/cartographie/objets/APP-BOUTIQUE', { schema })
+    await screen.findByRole('heading', { name: 'Boutique en ligne' })
+    expect(screen.getByText('Impact d’une panne sur les ventes')).toBeInTheDocument()
+  })
+
+  it('« Ouvrir » sur un élément d’un tableau d’objets l’ouvre sur place', async () => {
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        serveurs: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { nom: { type: 'string' }, ports: { type: 'array', items: { type: 'integer' }, description: 'Ports ouverts' } },
+          },
+        },
+      },
+    }
+    setup('/cartographie/objets/APP-BOUTIQUE', { schema, app: { serveurs: [{ nom: 'web', ports: [80, 443] }] } })
+    await screen.findByRole('heading', { name: 'Boutique en ligne' })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'ouvrir ›' }))
+    const crumbs = screen.getByRole('navigation', { name: 'Chemin dans la valeur' })
+    expect(crumbs).toHaveTextContent('Propriétés › serveurs[0]')
+    expect(screen.getByText('Ports ouverts')).toBeInTheDocument()
+    expect(screen.getByLabelText('ports[1]')).toHaveValue(443)
+    await user.click(within(crumbs).getByRole('button', { name: 'Propriétés' }))
+    expect(screen.getByRole('button', { name: 'ouvrir ›' })).toBeInTheDocument()
   })
 
   it('sans le droit de modifier : fiche visible, rien de modifiable (critère 10)', async () => {
