@@ -18,6 +18,17 @@ dans `dev`, PR #10).
   attribut `jonction` (`And`, `Or`, absent = et) ; c'est le composant qui s'adapte.
   Ticket créé dans le backlog d'`urban-archimate` (759f0fd8, epic b5767e97) ; tant
   qu'il n'est pas livré, une jonction ne s'affiche pas correctement dans un modèle.
+- **Choix validés par Gael** (« 2. ok ») : lecture seule selon le droit « Cartographie :
+  modifier » (pas selon la branche) ; pas d'outil « type de relation » dans la boîte à
+  outils (une relation se trace avec la flèche « relier ») ; un modèle « à nettoyer »
+  s'ouvre sans ses documents inutiles et l'enregistrement le nettoie.
+- **Défauts du composant** : deux tickets créés chez `urban-archimate` à la demande de
+  Gael (a857558d : libellé d'un conteneur caché par ses enfants ; cb826af6 : contour
+  sombre autour de la surface après un clic).
+- **Jonction côté composant** : faite sur `main` d'`urban-archimate` (0.1.2, pas encore
+  publiée), clé de règle `junctionType`. À la publication : passer Ossie en 0.1.2 et
+  donner à l'attribut `jonction` du catalogue son nom d'échange (`exchange:
+  junctionType`) pour que la règle par défaut le transmette.
 
 ## Tickets
 
