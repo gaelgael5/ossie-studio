@@ -1,0 +1,60 @@
+# Session du 26 novembre 2026 — Epic « Cartographie — modèles et vues » (développement)
+
+Epic docflow **4976292f** (workspace `ossie-studio`, bloc `backlog`) : ouvrir, dessiner
+et enregistrer des modèles ArchiMate à partir des objets de la cartographie, avec le
+composant `urban-archimate` (dépôt à part, livré en 0.1.1 sur PyPI). Suite de l'epic
+« Cartographie — types et objets » (65d94dd0).
+Branche : **`feature/cartographie-types-objets`** (déjà fusionnée une première fois
+dans `dev`, PR #10).
+
+> **Règle (Gael)** : on pousse **uniquement sur sa branche**. C'est **toujours Gael** qui décide quand fusionner sur `dev`.
+
+## Décisions de Gael (26 novembre)
+
+- **Intégrer la partie diagramme d'`urban-archimate`** et prendre les tickets de l'epic
+  dans l'ordre : format, règles par défaut, onglet « Modèles », ouvrir, enregistrer,
+  primitives MCP ; montrer le résultat de chacun.
+- **Jonction** (option « b ») : Ossie garde **un seul type `Junction`** avec son
+  attribut `jonction` (`And`, `Or`, absent = et) ; c'est le composant qui s'adapte.
+  Ticket créé dans le backlog d'`urban-archimate` (759f0fd8, epic b5767e97) ; tant
+  qu'il n'est pas livré, une jonction ne s'affiche pas correctement dans un modèle.
+
+## Tickets
+
+| Ticket | Sujet | Statut |
+|---|---|---|
+| e338fe14 | Format du modèle, du fichier de règles et du fichier graphique | en revue |
+| 00d7cd6d | Fichier de règles par défaut | à faire |
+| 5a05c7bb | Onglet « Modèles » | à faire |
+| f5421cc7 | Ouvrir un modèle | à faire |
+| c3dd045c | Enregistrer un modèle | à faire |
+| be89037a | Primitives MCP modèles et vues | à faire |
+| cb9d99b3 | Vérification d'intention (avec Gael) | à faire |
+
+## Notes techniques (format, e338fe14)
+
+- `cartographie/diagram.py` : `Diagram`, `View`, `Node`, `Connection` ; `Rules` ;
+  `Graphic`, `ViewGraphic`. Lecture `parse_*`, écriture `dump_*` (déterministe, une
+  géométrie par ligne en style en ligne YAML), contrôles `check_diagram`,
+  `check_rules`, `check_graphic`, lecture complète `read_diagram`, écriture
+  `save_diagram` / `save_rules`, `hydrate` pour le composant.
+- **Formes** : le JSON Schema livré par le paquet `urban-archimate`
+  (`static/hydrated-model.schema.json`) est relu ; le schéma du modèle stocké en est
+  déduit (références sans `data`, sans `types`). Une évolution du contrat se propage
+  donc sans recopie.
+- **Codes** des contrôles en anglais comme le reste d'Ossie ; correspondance avec ceux
+  du composant : `cle-retenue-sans-document` → `model_key_without_document`,
+  `relation-extremite-non-retenue` → `model_relation_end_not_retained`,
+  `noeud-cle-non-retenue` → `model_node_not_retained`, `connexion-cle-non-retenue` →
+  `model_connection_not_retained`, `connexion-noeud-inconnu` →
+  `model_connection_node_unknown`, `document-sans-objet-retenu` →
+  `model_document_unused`, `graphique-*-inconnu(e)` → `graphic_entry_unknown`.
+- « Se réécrivent octet pour octet » : l'exemple écrit à la main (commentaires, style
+  en ligne) se lit sans erreur ; sa forme écrite par Ossie se relit et se réécrit à
+  l'identique (les commentaires ne sont pas conservés, comme pour les objets).
+- Le fichier graphique a un chemin imposé (`<slug du modèle>.graphique.yaml`) : un par
+  modèle, jamais partagé.
+- Un `defaut` écrit dans le fichier de règles est accepté (le schéma du contrat le
+  permet) ; la règle par défaut d'Ossie arrive avec 00d7cd6d.
+- Composant servi sous `/api/archimate` (`urban_archimate.mount`), comme
+  `urban-json-editor` sous `/api/jslt-editor`.

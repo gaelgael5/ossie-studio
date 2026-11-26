@@ -1068,6 +1068,7 @@ dependencies = [
     { name = "tree-sitter-kotlin" },
     { name = "tree-sitter-python" },
     { name = "tree-sitter-typescript" },
+    { name = "urban-archimate" },
     { name = "urban-json" },
     { name = "urban-json-editor" },
     { name = "uvicorn", extra = ["standard"] },
@@ -1113,6 +1114,7 @@ requires-dist = [
     { name = "tree-sitter-kotlin", specifier = ">=1.1.0" },
     { name = "tree-sitter-python", specifier = ">=0.25.0" },
     { name = "tree-sitter-typescript", specifier = ">=0.23.2" },
+    { name = "urban-archimate", specifier = "==0.1.1" },
     { name = "urban-json", specifier = "==0.2.1" },
     { name = "urban-json-editor", specifier = "==0.3.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
@@ -1887,6 +1889,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ff/50/0195198eb1d75bab716bb0a813abea4cc394bfa17a92a189f021a34859af/typing_inspection-0.4.5.tar.gz", hash = "sha256:7f16c411e7930dc79596d42ab44672a3fe5f60eb34b781a1647e7872363120c7", size = 81194, upload-time = "2026-11-04T14:13:23.774Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/de/0c/ea2544850a7c135e15033a5c7a8e7211136184b7ae63e2239d557c2b3019/typing_inspection-0.4.5-py3-none-any.whl", hash = "sha256:bc210535442b39e1bf2805e0c7a17dfd6a4ace760c84c7f7d16245d23a6b1c39", size = 14874, upload-time = "2026-11-04T14:13:22.616Z" },
+]
+
+[[package]]
+name = "urban-archimate"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "starlette" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/57/a5/cc696f21c2a93861b83a0bf82b938206b2b5f6c16168162d8cf4245ee599/urban_archimate-0.1.1.tar.gz", hash = "sha256:21a5c62b0612f788c04d168599547d227be745ed94d947d03f427ca1fd8cb81a", size = 952509, upload-time = "2026-11-26T08:12:45.886Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f9/d1/a9b8f5de7e90c7b56868df560258d4b6304aa8f232c1978bf42ef19d7096/urban_archimate-0.1.1-py3-none-any.whl", hash = "sha256:3942fc98bd1cede8ff76beac8c5489716d1691e7c5acee83fde96557b7211c75", size = 973537, upload-time = "2026-11-26T08:12:44.125Z" },
 ]
 
 [[package]]

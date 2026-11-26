@@ -1,4 +1,4 @@
-# Conventions — cartographie (types, objets, relations)
+# Conventions — cartographie (types, objets, relations, modèles)
 
 Epic « Cartographie — types et objets » (docflow 65d94dd0), enablers f8167ae1 (format)
 et 0e088eaa (catalogue ArchiMate 3.2, règles de relation, points de vue).
@@ -173,3 +173,61 @@ Modifier un type ne doit jamais rendre ses objets invalides : retirer une propri
 qu'ils utilisent est refusé (`property_in_use`, avec le nombre d'objets), comme toute
 autre modification qui casserait leurs valeurs (`type_objects_invalid`). Un type ne
 se supprime pas tant qu'il a des objets (`type_in_use`).
+
+## Un modèle (diagramme) : trois fichiers
+
+Epic « Cartographie — modèles et vues » (docflow 4976292f), enabler e338fe14. Code :
+`cartographie/diagram.py`. Les structures sont **celles du composant `urban-archimate`**
+(son `docs/contrat.md`) : Ossie relit le JSON Schema livré avec le paquet Python
+(`urban_archimate.STATIC_DIR / "hydrated-model.schema.json"`) pour contrôler la forme
+des trois fichiers ; le modèle stocké est le modèle hydraté sans les `data`.
+
+- **Le modèle** — `cartographie/modeles/<slug>.modele.yaml` : `id` (clé), `nom`,
+  `description`, `regles` (chemin), `graphique` (chemin), `documents` (chemins des
+  objets chargés), `elements` et `relationships` (clés retenues), `vues` (`id`, `nom`,
+  `point_de_vue` facultatif, `noeuds`, `connexions`). Un nœud a son propre `id` et
+  porte un `element` (clé), une `note` ou un `cadre`, avec ses `enfants` ; une
+  connexion porte `relationship` (clé), `de` et `vers` (identifiants de nœuds).
+  **Ni coordonnée ni contenu d'objet** (décisions de Gael).
+- **Le fichier de règles** — `cartographie/regles/<slug>.rules.yaml` : `lang`,
+  `defaut` (facultatif), `elements` et `relationships`, des blocs rangés par `type`
+  (slug d'un type de l'espace ; à défaut, un type ArchiMate) avec `name`,
+  `documentation`, `properties` (`propertyDefinitionRef`, `value`) et les attributs
+  ArchiMate (`accessType`, `modifier`, `isDirected`…). Une valeur est un chemin dans
+  l'objet (`$.nom`, `$.proprietes.acces`) ou un littéral. **Règle d'un objet** : celle
+  de son type, sinon celle de son type ArchiMate (`x-archimate`), sinon `defaut`
+  (`diagram.rule_block`). Les définitions de propriété et l'identifiant ArchiMate ne
+  sont pas stockés : le composant les déduit (schéma du type, clé).
+- **Le fichier graphique** — `cartographie/modeles/<slug>.graphique.yaml`, un par
+  modèle (son chemin est imposé) : `vues.<vue>.noeuds.<nœud>` (`x`, `y` ou `relatif`,
+  `dx`, `dy` ; `l`, `h`) et `vues.<vue>.connexions.<connexion>` (`ancre_source`,
+  `ancre_cible` parmi gauche/droite/haut/bas, `points`, `libelle`).
+
+**Écriture déterministe** : clés dans l'ordre du contrat, valeurs vides omises, une
+géométrie par ligne (`N1: {x: 40, y: 60, l: 320, h: 180}`), un nombre entier écrit en
+flottant redevient entier. Déplacer un nœud ne change donc qu'une ligne, du seul
+fichier graphique. Le graphique est réécrit dans l'ordre du modèle, sans les entrées
+qui ne correspondent à rien.
+
+**Contrôles à la lecture** (`diagram.read_diagram`), chacun avec l'identifiant en cause
+(`detail`) et sa place dans le fichier (`field`) — les cinq du contrat :
+`model_key_without_document` (clé retenue absente des documents),
+`model_relation_end_not_retained`, `model_node_not_retained`,
+`model_connection_not_retained`, `model_connection_node_unknown`,
+`model_document_unused`, et `graphic_entry_unknown` (avertissement : ignorée,
+jamais un refus). En plus : forme (`model_invalid`, `rules_invalid`,
+`graphic_invalid`), fichier absent ou illisible (`*_missing`, `*_unreadable`),
+document absent ou en double, clé répétée, élément qui est une relation (ou
+l'inverse), vue, nœud ou connexion en double, point de vue inconnu, chemin des règles
+ou du graphique hors de sa place ; dans les règles, type inconnu, dans la mauvaise
+section ou réglé deux fois, chemin de valeur mal écrit.
+
+**Écriture** (`save_diagram`, `save_rules`) : refus nommés `model_exists`,
+`model_not_found`, `model_id_taken`, `model_slug_invalid`, `model_invalid`,
+`rules_invalid` ; rien n'est écrit en cas de refus. **Hydratation** (`hydrate`) : le
+modèle que reçoit le composant (règles, graphique, schémas des types présents et
+objets avec leur `data`) ; un modèle incohérent est refusé (`model_invalid`, 409).
+
+**Le composant** est servi par l'application sous `/api/archimate`
+(`urban_archimate.mount`, paquet `urban-archimate==0.1.1`) : `urban-archimate.js` et
+le schéma.

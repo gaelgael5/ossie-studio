@@ -9,4 +9,6 @@ fichier.
   écritures refusées tant qu'une clé est en double) ;
 - `history` : dates et auteurs tirés de l'historique Git ;
 - `service` : lecture et écriture dans le brouillon de la personne.
+- `diagram` : le format d'un modèle (diagramme) : modèle, règles, graphique, et le
+  modèle hydraté que reçoit le composant `urban-archimate`.
 """
