@@ -1,4 +1,4 @@
-# Conventions — cartographie (types, objets, relations, modèles)
+# Conventions — cartographie (types, objets, relations, modèles, processus)
 
 Epic « Cartographie — types et objets » (docflow 65d94dd0), enablers f8167ae1 (format)
 et 0e088eaa (catalogue ArchiMate 3.2, règles de relation, points de vue).
@@ -286,3 +286,38 @@ sa clé et son nom, note, cadre, imbrication — et connexions ; **jamais le des
 **Le composant** est servi par l'application sous `/api/archimate`
 (`urban_archimate.mount`, paquet `urban-archimate==0.1.2`) : `urban-archimate.js` et
 le schéma.
+
+## Un processus BPMN
+
+Epic « Cartographie — processus BPMN » (docflow f97e7afe), enabler 1d35290d. Code :
+`cartographie/process.py`.
+
+- **Un fichier XML BPMN 2.0 standard**, dessin compris (`bpmndi`), rangé dans
+  `cartographie/processus/<clé en minuscules>.bpmn`. La clé (règle des clés de la
+  cartographie) est aussi l'`id` du `bpmn:definitions`.
+- **Gardé tel quel** : Ossie lit avec `defusedxml` (entités refusées) et ne fait que des
+  retouches ciblées du texte — `id` du document aligné sur la clé
+  (`with_definitions_id`), rattachement au processus métier (`with_detail`). Préfixes,
+  extensions d'autres outils, commentaires et dessin sont conservés.
+- **Rattachements** : l'extension du composant `urban-bpmn`, `<urban:reference cle type/>`
+  dans `bpmn:extensionElements` (espace de noms
+  `https://github.com/gaelgael5/urban-bpmn/schema/1.0`). Sur `bpmn:process` : le
+  processus métier détaillé (`BusinessProcess`) ; sur `bpmn:collaboration` : la
+  collaboration métier (`BusinessCollaboration`, une seule) ; sur un participant, un
+  couloir, un objet ou un stockage de données : l'objet Ossie. Quand Ossie ajoute une
+  référence, il déclare l'espace de noms sur la balise elle-même.
+- **Noms** : le XML garde le nom de chaque élément rattaché ; la source est l'objet Ossie.
+  `referenced_objects` donne la liste (clé, nom à jour, type) que le composant reçoit à
+  l'ouverture (`references`) et applique.
+- **Contrôles à la lecture** (`read_process`, identifiant en cause et élément BPMN) :
+  `process_unreadable` (message de l'analyseur), `process_not_bpmn`,
+  `process_no_diagram`, `process_id_mismatch`, `process_reference_unknown`,
+  `process_detail_not_business_process`,
+  `process_collaboration_not_business_collaboration`, `process_collaboration_multiple`.
+  Supprimer un objet référencé reste permis : la référence est signalée à la lecture.
+- **Écriture** (`save_process`) : refus nommés `process_key_invalid`, `process_exists`,
+  `process_not_found`, `process_invalid` ; rien n'est écrit en cas de refus.
+  `new_process_xml` crée un processus avec un événement de début dessiné.
+- Vérifié avec bpmn-moddle (l'analyseur de bpmn.io) : les fichiers créés ou retouchés
+  par Ossie se lisent sans avertissement, l'extension ignorée ; avec l'extension
+  d'urban-bpmn chargée, le rattachement est retrouvé.
