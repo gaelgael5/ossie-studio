@@ -221,7 +221,7 @@ export function GovernanceRelationProfilesPage() {
           ref={editorRef}
           role="dialog"
           aria-label={t('relationProfileEditTitle')}
-          className="panel panel-form stack"
+          className="panel panel-form panel-form-wide stack"
         >
           <div className="panel-head">
             <h3 className="panel-title">{t('relationProfileEditTitle')}</h3>
@@ -271,7 +271,7 @@ export function GovernanceRelationProfilesPage() {
             <legend className="field-label">{t('relationProfileRules')}</legend>
             <span className="field-hint">{t('relationProfileRulesHint')}</span>
             {form.rules.map((r, i) => (
-              <div className="row" key={i}>
+              <div className="relation-rule-row" key={i}>
                 <input
                   className="input mono"
                   aria-label={t('relationRuleColumn')}
