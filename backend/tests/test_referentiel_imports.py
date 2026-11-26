@@ -14,6 +14,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from ossie_studio.referentiels.jslt_engine import function_registry
 from ossie_studio.referentiels.model import dump_model
 from ossie_studio.referentiels.repo import model_path, values_path
 from ossie_studio.referentiels.values import dump_values
@@ -290,3 +291,6 @@ async def test_editeur_et_catalogue_servis_par_l_application(space: ApiSpace) ->
     assert script.status_code == 200
     catalog = (await space.client.get("/api/jslt-functions")).json()
     assert len(catalog["functions"]) > 10
+    # Exactement ce qu'accepte le moteur des imports : ni plugin ni fonction écartée.
+    names = {f["name"] for f in catalog["functions"]}
+    assert names == set(function_registry().names()) and "today" not in names

@@ -33,6 +33,11 @@ from ossie_studio.referentiels.jslt_profile import Violation, check_profile, unk
 
 CAST_FUNCTION = "convert"
 _CORE_MODULE = "urban_json.functions."
+# Fonctions du cœur écartées malgré tout (Gael, 26/11/2026) : `today` rend la date du
+# jour, donc un import rejoué un autre jour donnerait un autre résultat. `now` et `uuid`,
+# présentes depuis urban-json 0.2.1, restent admises : personne ne s'en sert pour
+# l'instant, et Gael a choisi de ne bloquer que `today`.
+_EXCLUDED = frozenset({"today"})
 _CAST_DESCRIPTION = (
     "Convertit une valeur selon un suffixe #type (integer, decimal, boolean, string,"
     " datetime, time, uuid, uri). Une valeur absente reste absente ; une valeur"
@@ -202,7 +207,7 @@ def _registry() -> FunctionRegistry:
     donne déjà — la frontière à défendre est cœur / plugin, pas fonction par fonction.
     La contrepartie revient à qui monte la version : relire ce qui ENTRE dans le profil
     et ce qui en SORT, puis l'annoncer. Mesuré au passage 0.1.0 → 0.2.1 : 56 → 69 ;
-    0.2.1 → 0.8.0 : 69 → 205, aucune sortie.
+    0.2.1 → 0.8.0 : 69 → 205, aucune sortie ; `today` écartée ensuite (`_EXCLUDED`).
     """
     registry = FunctionRegistry()
     for name in default_registry.names():
@@ -221,6 +226,8 @@ def _registry() -> FunctionRegistry:
         # SQL — entrait dans le profil d'écriture de Miles. Garde du 22/10/2026 tombée en
         # silence à la faveur d'une montée de version ; détail dans LESSONS.md.
         if not info.function.__module__.startswith(_CORE_MODULE):
+            continue
+        if name.lower() in _EXCLUDED:
             continue
         # Toute la description, pas seulement nom et chemins : depuis urban-json 0.8.0,
         # `ifelse`, `map`, `filter`, `reduce`… reçoivent des arguments NON évalués

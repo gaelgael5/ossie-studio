@@ -8,6 +8,7 @@ from urban_json import default_registry
 
 from ossie_studio.referentiels.jslt_engine import (
     _CORE_MODULE,
+    OutsideProfileError,
     compile_template,
     evaluate,
     function_registry,
@@ -51,3 +52,14 @@ def test_registre_isole_fidele_au_coeur() -> None:
             theirs.doc,
         ), name
     assert any(registry.describe(n).lazy_args for n in registry.names())  # type: ignore[union-attr]
+
+
+def test_today_ecartee() -> None:
+    """`today` dépend du jour d'exécution : refusée, nommée ; `now` et `uuid` restent
+    (décision de Gael, 26/11/2026)."""
+    with pytest.raises(OutsideProfileError) as refused:
+        compile_template('{"jour": today()}')
+    [violation] = refused.value.violations
+    assert (violation.construct, violation.detail) == ("fonction_inconnue", "today")
+    names = set(function_registry().names())
+    assert "today" not in names and {"now", "uuid"} <= names
