@@ -1633,7 +1633,26 @@ export interface CartoRelationSide {
   other: { key: string | null; name: string | null; type_title: string | null; exists: boolean }
 }
 
+export interface CartoEnd {
+  key: string | null
+  name: string | null
+  type_title: string | null
+  archimate: string | null
+  is_relation: boolean
+  exists: boolean
+}
+
+export interface CartoRelationTypeChoice {
+  slug: string
+  title: string
+  archimate: string
+  object_schema: Record<string, unknown>
+}
+
 export interface CartoObjectDetail {
+  /** Relation : ses deux extrémités, et les types ArchiMate permis entre elles. */
+  ends?: { source: CartoEnd; target: CartoEnd }
+  rule?: string[]
   key: string
   type: string
   type_title: string
@@ -2318,8 +2337,18 @@ export const api = {
     ),
   getCartoObject: (spaceId: string, branchId: string, key: string) =>
     apiFetch<CartoObjectDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`),
+  // « + Relier… » : types ArchiMate permis de `source` vers `target`, et types de
+  // relation de l'espace qui reposent sur eux (ticket b58a0a13).
+  listRelationTypes: (spaceId: string, branchId: string, source: string, target: string) =>
+    apiFetch<{ archimate: string[]; types: CartoRelationTypeChoice[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(source)}/relations-permises?cible=${encodeURIComponent(target)}`,
+    ),
   // Clé (unique dans l'espace) et type de l'espace : saisis à la création, figés ensuite.
-  createCartoObject: (spaceId: string, branchId: string, body: CartoObjectBody & { key: string; type: string }) =>
+  createCartoObject: (
+    spaceId: string,
+    branchId: string,
+    body: CartoObjectBody & { key: string; type: string; source?: string; target?: string },
+  ) =>
     apiFetch<CartoObjectDetail & { revision: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
       { method: 'POST', body: JSON.stringify(body) },

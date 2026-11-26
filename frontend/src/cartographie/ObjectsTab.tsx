@@ -5,6 +5,7 @@ import type { CartoCatalog, CartoObjectSummary, CartoTypeSummary } from '../apiC
 import { asciiLower } from '../slug'
 import { ArchimateIcon } from './ArchimateIcon'
 import { shortDate } from './dates'
+import { RelateDialog } from './RelateDialog'
 
 // Onglet Objets de la Cartographie (ticket 6f71bcba) : les objets de l'espace en
 // vignettes, hors relations par défaut, avec une barre de filtre (nom ou clé, type
@@ -26,11 +27,15 @@ function updatedOf(o: CartoObjectSummary): string {
 }
 
 export function ObjectsTab({
+  spaceId,
+  branchId,
   catalog,
   types,
   objects,
   editable,
 }: {
+  spaceId: string
+  branchId: string
   catalog: CartoCatalog
   types: CartoTypeSummary[]
   objects: CartoObjectSummary[]
@@ -41,6 +46,7 @@ export function ObjectsTab({
   const [type, setType] = useState('')
   const [sort, setSort] = useState<Sort>('name')
   const [shown, setShown] = useState(PAGE)
+  const [relating, setRelating] = useState<CartoObjectSummary | null>(null)
   const icons = useMemo(() => new Map(catalog.types.map((ty) => [ty.name, ty.icon])), [catalog])
   const elements = objects.filter((o) => !o.is_relation)
   const relations = objects.filter((o) => o.is_relation)
@@ -118,7 +124,7 @@ export function ObjectsTab({
       {objects.length === 0 && !editable ? <p className="empty-note">{t('cartoObjectsEmpty')}</p> : null}
       <div className="carto-grid carto-object-grid">
         {visible.map((o) => (
-          <ObjectCard key={o.key} object={o} icon={icons.get(o.archimate)} />
+          <ObjectCard key={o.key} object={o} icon={icons.get(o.archimate)} onRelate={editable ? () => setRelating(o) : null} />
         ))}
         {editable && type !== RELATIONS_FILTER ? (
           <Link to={NEW_OBJECT_PATH} className="carto-card carto-card-add">
@@ -127,6 +133,16 @@ export function ObjectsTab({
           </Link>
         ) : null}
       </div>
+      {relating ? (
+        <RelateDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          catalog={catalog}
+          source={relating}
+          objects={objects}
+          onClose={() => setRelating(null)}
+        />
+      ) : null}
       {sorted.length > visible.length ? (
         <div className="row carto-more">
           <span className="muted">{t('cartoObjectsShown', { shown: visible.length, total: sorted.length })}</span>
@@ -147,7 +163,15 @@ function Pill({ active, label, count, onClick }: { active: boolean; label: strin
   )
 }
 
-function ObjectCard({ object, icon }: { object: CartoObjectSummary; icon: string | undefined }) {
+function ObjectCard({
+  object,
+  icon,
+  onRelate,
+}: {
+  object: CartoObjectSummary
+  icon: string | undefined
+  onRelate: (() => void) | null
+}) {
   const { t, i18n } = useTranslation()
   const dates = object.dates
   const when = dates
@@ -156,7 +180,9 @@ function ObjectCard({ object, icon }: { object: CartoObjectSummary; icon: string
       : t('cartoUpdatedOn', { date: shortDate(dates.updated_at, i18n.resolvedLanguage) })
     : t('cartoUnpublishedDate')
   return (
-    <Link to={cartoObjectPath(object.key)} className="carto-card carto-card-link carto-object-card" aria-label={object.name}>
+    // Toute la vignette ouvre la fiche (lien étendu) ; « Relier… » apparaît au survol.
+    <article className="carto-card carto-card-link carto-object-card">
+      <Link to={cartoObjectPath(object.key)} className="carto-card-cover" aria-label={object.name} />
       <div className="carto-object-head">
         <span className="carto-icon-tile">{icon ? <ArchimateIcon svg={icon} /> : null}</span>
         <span className="mono muted small">{object.type_title}</span>
@@ -177,8 +203,13 @@ function ObjectCard({ object, icon }: { object: CartoObjectSummary; icon: string
       ) : null}
       <div className="carto-card-foot">
         <span>{t('cartoRelationsCount', { count: object.relations })}</span>
+        {onRelate ? (
+          <button type="button" className="btn btn-sm carto-relate-btn" onClick={onRelate}>
+            {t('cartoRelateShort')}
+          </button>
+        ) : null}
         <span className="mono muted small">{when}</span>
       </div>
-    </Link>
+    </article>
   )
 }

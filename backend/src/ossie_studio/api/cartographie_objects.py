@@ -177,6 +177,31 @@ def _side(space: Cartographie, relation_key: str, other_key: str | None) -> dict
     }
 
 
+def _end(space: Cartographie, key: str | None) -> dict[str, Any]:
+    """Une extrémité d'une relation : l'objet (ou la relation) et son type."""
+    found = space.objects.get(key or "")
+    ctype = space.types.get(found[1].type) if found else None
+    return {
+        "key": key,
+        "name": found[1].name if found else None,
+        "type_title": ctype.title if ctype else None,
+        "archimate": ctype.archimate if ctype else None,
+        "is_relation": found[1].is_relation if found else False,
+        "exists": found is not None,
+    }
+
+
+def _relation_parts(space: Cartographie, obj: CartoObject) -> dict[str, Any]:
+    """Pour la fiche d'une relation : ses deux extrémités et la règle ArchiMate
+    entre leurs types (les types de relation permis)."""
+    ends = {"source": _end(space, obj.source), "target": _end(space, obj.target)}
+    try:
+        allowed = space.allowed(obj.source or "", obj.target or "")
+    except CartographieError:
+        allowed = []
+    return {"ends": ends, "rule": allowed}
+
+
 def _detail(
     space: Cartographie, key: str, dates: dict[str, FileDates], states: dict[str, str]
 ) -> dict[str, Any]:
@@ -191,6 +216,7 @@ def _detail(
     incoming = [k for k in users if space.objects[k][1].target == key]
     state = states.get(path)
     return {
+        **(_relation_parts(space, obj) if obj.is_relation else {}),
         "key": obj.key,
         "type": obj.type,
         "type_title": ctype.title if ctype else obj.type,
@@ -386,3 +412,42 @@ async def delete_object_route(
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     return {"deleted": key, "revision": revision}
+
+
+@router.get("/{key}/relations-permises")
+async def allowed_relation_types(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    key: str,
+    cible: str,
+) -> dict[str, object]:
+    """Ce que « + Relier… » propose de l'objet `key` vers `cible` (objet ou
+    relation) : les types de relation ArchiMate permis, et les types de relation
+    de l'espace qui reposent sur eux, avec le schéma des propriétés d'une relation
+    de ce type."""
+    target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
+    try:
+        space = await target.cartographie()
+        archimate = space.allowed(key, cible)
+        types = space.relation_types(key, cible)
+    except CartographieError as exc:
+        raise api_error(exc) from None
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    cat = catalog()
+    return {
+        "archimate": archimate,
+        "types": [
+            {
+                "slug": t.slug,
+                "title": t.title,
+                "archimate": t.archimate,
+                "object_schema": properties_schema(t, cat.get(t.archimate)),
+            }
+            for t in types
+        ],
+    }

@@ -76,6 +76,25 @@ class Cartographie:
             for name in (ctype.properties if ctype else {})
         }
 
+    def allowed(self, source_key: str, target_key: str, cat: Catalog | None = None) -> list[str]:
+        """Les types de relation ArchiMate permis de l'objet `source_key` vers
+        l'objet (ou la relation) `target_key`. Refus nommé si l'un manque."""
+        for key in (source_key, target_key):
+            if key not in self.objects:
+                raise CartographieError("object_not_found", status=404, key=key)
+        source, target = self.archimate(source_key), self.archimate(target_key)
+        if source is None or target is None:
+            return []
+        return allowed_relations(source, target, cat or catalog())
+
+    def relation_types(
+        self, source_key: str, target_key: str, cat: Catalog | None = None
+    ) -> list[CartoType]:
+        """Les types de relation de l'espace permis entre ces deux objets, par libellé."""
+        permitted = set(self.allowed(source_key, target_key, cat))
+        found = [t for t in self.types.values() if t.archimate in permitted]
+        return sorted(found, key=lambda t: (t.title.casefold(), t.slug))
+
     def archimate(self, key: str) -> str | None:
         """Le type ArchiMate d'un objet (celui de son type) ; None s'il est inconnu."""
         found = self.objects.get(key)
@@ -277,8 +296,7 @@ def allowed_between(
     """Les types de relation ArchiMate permis de l'objet `source_key` vers l'objet
     (ou la relation) `target_key`. Refus nommé si l'un des deux n'existe pas."""
     cat = cat or catalog()
-    space = read_cartographie(root, cat)
-    return _allowed(space, source_key, target_key, cat)
+    return read_cartographie(root, cat).allowed(source_key, target_key, cat)
 
 
 def relation_types_between(
@@ -288,17 +306,4 @@ def relation_types_between(
     objets (ceux dont le `x-archimate` est permis), par libellé : ce que proposent
     « + Relier… » et le délégué des relations permises du diagramme."""
     cat = cat or catalog()
-    space = read_cartographie(root, cat)
-    permitted = set(_allowed(space, source_key, target_key, cat))
-    found = [t for t in space.types.values() if t.archimate in permitted]
-    return sorted(found, key=lambda t: (t.title.casefold(), t.slug))
-
-
-def _allowed(space: Cartographie, source_key: str, target_key: str, cat: Catalog) -> list[str]:
-    for key in (source_key, target_key):
-        if key not in space.objects:
-            raise CartographieError("object_not_found", status=404, key=key)
-    source, target = space.archimate(source_key), space.archimate(target_key)
-    if source is None or target is None:
-        return []
-    return allowed_relations(source, target, cat)
+    return read_cartographie(root, cat).relation_types(source_key, target_key, cat)

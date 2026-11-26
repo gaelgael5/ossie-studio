@@ -40,9 +40,10 @@ class Attribute:
 
     def schema(self) -> dict[str, Any]:
         """Sa forme JSON Schema (valeurs fermées : énumération des valeurs ArchiMate).
-        `x-labels` (libellé français de chaque valeur) et `x-unset` (libellé de
-        l'attribut absent) servent à l'affichage ; la validation les ignore."""
-        out: dict[str, Any] = {"type": self.type, "title": self.label}
+        `x-labels` (libellé français de chaque valeur), `x-unset` (libellé de
+        l'attribut absent) et `x-archimate` (attribut propre au type ArchiMate,
+        toujours affiché sur la fiche) servent à l'écran ; la validation les ignore."""
+        out: dict[str, Any] = {"type": self.type, "title": self.label, "x-archimate": True}
         if self.values:
             out["enum"] = list(self.values)
             out["x-labels"] = dict(self.values)

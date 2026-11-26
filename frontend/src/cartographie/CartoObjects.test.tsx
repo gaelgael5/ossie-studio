@@ -149,7 +149,7 @@ function setup(url: string, options: { capabilities?: string[]; app?: Record<str
   return calls
 }
 
-const names = () => screen.getAllByRole('link').filter((a) => a.classList.contains('carto-object-card')).map((a) => a.getAttribute('aria-label'))
+const names = () => screen.getAllByRole('link').filter((a) => a.classList.contains('carto-card-cover')).map((a) => a.getAttribute('aria-label'))
 
 afterEach(() => {
   vi.unstubAllGlobals()

@@ -35,7 +35,7 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 | e7521e80 — Espace « Cartographie » : types en vignettes, filtre, ajouter un type | En review |
 | 5c39d4df — Types : personnaliser un type | En review |
 | 6f71bcba — Objets : créer, modifier, supprimer à la main | En review |
-| b58a0a13 — Relations : relier deux objets (fiche d'une relation) | Prêt pour dev |
+| b58a0a13 — Relations : relier deux objets (fiche d'une relation) | En review |
 | 41bf680e — Primitives MCP de lecture des types et des objets | Prêt pour dev |
 | 38c9d26c — Clôture (avec Gael, jamais seul) | — |
 
@@ -86,3 +86,12 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 - Écran : onglet Objets (`cartographie/ObjectsTab.tsx`, adresse `/cartographie/objets`) — recherche nom ou clé, pastilles par type avec leur nombre et une pastille Relations, sélecteur de type, tri, 24 vignettes puis « Afficher 24 de plus » ; fiche (`cartographie/CartoObjectPage.tsx`, `/cartographie/objets/<clé>` et `/cartographie/objets/nouveau`) — identité (clé contrôlée à la saisie : forme et unicité), documentation rédigée dans BlockNote comme en Curation (appliquée à la fiche, enregistrée avec elle), propriétés par le formulaire des Référentiels (`SchemaFields`, exporté de `ValuePanel.tsx`) avec les facultatives vides repliées et « + Renseigner une propriété », relations en lecture seule (la ligne ouvre la fiche de la relation, le nom celle de l'objet lié), fichier et dates, suppression en deux temps, garde de sortie et Ctrl+S.
 - Hors de ce ticket : « Relier… » et la fiche propre d'une relation (bande source → cible), ticket b58a0a13 ; une relation s'ouvre pour l'instant dans la fiche générique (source et cible en lecture seule).
 - Tests : `backend/tests/test_cartographie_objects.py`, `frontend/src/cartographie/CartoObjects.test.tsx`.
+
+## Notes techniques (relations, b58a0a13)
+
+- Route `GET /cartographie/objets/{clé}/relations-permises?cible=…` : les types ArchiMate permis de la source vers la cible (objet ou relation), et les types de relation de l'espace qui reposent sur eux, avec le schéma des propriétés d'une relation de ce type. Logique dans `Cartographie.allowed` / `Cartographie.relation_types` (les fonctions `space.allowed_between` / `relation_types_between` s'y appuient).
+- Fiche d'une relation : le détail porte `ends` (source et cible, nom, type, type ArchiMate) et `rule` (types ArchiMate permis entre leurs types). La création passe par `POST /cartographie/objets` avec `source` et `cible` ; une relation non permise est refusée (`relation_not_allowed`).
+- Le schéma d'un attribut ArchiMate porte `x-archimate: true` : sur la fiche et dans la fenêtre, il n'est jamais replié (« le sens est demandé »).
+- Écran : fenêtre « Nouvelle relation » (`cartographie/RelateDialog.tsx`) depuis la fiche d'un objet, la fiche d'une relation ou une vignette (« Relier… » au survol) — cible cherchée par nom ou clé (objets et relations), types permis seulement (les types ArchiMate permis sans type de l'espace sont nommés), clé proposée à partir des deux clés (`REL-<source sans préfixe>-<cible sans préfixe>`, suffixe si prise), nom proposé (« Accède à Commande »), attributs et propriétés, fichier créé ; après création, la fiche de la relation s'ouvre.
+- Fiche d'une relation (même page que celle d'un objet) : bande source → cible (noms cliquables, type et valeur de l'attribut, « écriture → lecture » quand elle change), relations sur cette relation et « + Relier… », règle ArchiMate, suppression refusée si une autre relation l'utilise (nommée). Le retour ramène à la fiche de l'objet d'où l'on vient (état de navigation).
+- Tests : `backend/tests/test_cartographie_relations.py`, `frontend/src/cartographie/CartoRelations.test.tsx`.

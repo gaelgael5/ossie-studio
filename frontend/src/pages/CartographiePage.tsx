@@ -119,7 +119,14 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
         <TypesTab catalog={catalog.data} types={types} editable={editable} onAdd={() => setAdding(true)} />
       ) : null}
       {catalog.data && list.data && objects.data && objectsTab ? (
-        <ObjectsTab catalog={catalog.data} types={types} objects={objects.data.objects} editable={editable} />
+        <ObjectsTab
+          spaceId={spaceId}
+          branchId={branchId}
+          catalog={catalog.data}
+          types={types}
+          objects={objects.data.objects}
+          editable={editable}
+        />
       ) : null}
       {adding && catalog.data ? (
         <AddTypeDialog

@@ -1,12 +1,13 @@
 import { lazy, Suspense, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
 import type {
   ArchimateTypeInfo,
   CartoCatalog,
   CartoObjectDetail,
+  CartoObjectSummary,
   CartoRelationSide,
   CartoTypeSummary,
 } from '../apiClient'
@@ -18,12 +19,15 @@ import type { MarkdownEditorHandle } from '../components/MarkdownEditor'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
-import { SchemaFields } from '../referentiels/ValuePanel'
 import type { FieldProblems } from '../referentiels/ValuePanel'
 import { UnsavedProvider, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
 import { ArchimateIcon } from './ArchimateIcon'
+import { FoldedProperties, isEmpty, missingRequired, propertyNames } from './FoldedProperties'
+import type { Props } from './FoldedProperties'
 import { longDate } from './dates'
 import { cartoObjectPath } from './ObjectsTab'
+import { RelateDialog } from './RelateDialog'
+import type { RelateSource } from './RelateDialog'
 
 // Fiche d'un objet de cartographie (ticket 6f71bcba), pour un objet existant
 // (/cartographie/objets/<clé>) ou à créer (/cartographie/objets/nouveau) :
@@ -43,23 +47,8 @@ const FIELD_CODES: Record<string, string> = {
   property_invalid: 'other',
 }
 
-type Props = Record<string, unknown>
-
-function isEmpty(value: unknown): boolean {
-  return value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0)
-}
-
 function same(a: unknown, b: unknown): boolean {
   return (isEmpty(a) && isEmpty(b)) || JSON.stringify(a) === JSON.stringify(b)
-}
-
-function propertiesOf(schema: Props | null | undefined): [string, Props][] {
-  const props = (schema?.properties ?? {}) as Record<string, Props>
-  return Object.entries(props)
-}
-
-function requiredOf(schema: Props | null | undefined): string[] {
-  return Array.isArray(schema?.required) ? (schema.required as string[]) : []
 }
 
 export function CartoObjectPage() {
@@ -97,7 +86,6 @@ function ObjectScreen({ spaceId, branchId, objectKey }: { spaceId: string; branc
   const objects = useQuery({
     queryKey: ['carto-objects', spaceId, branchId],
     queryFn: () => api.listCartoObjects(spaceId, branchId),
-    enabled: isNew,
   })
   const detail = useQuery({
     queryKey: ['carto-object', spaceId, branchId, objectKey],
@@ -105,7 +93,7 @@ function ObjectScreen({ spaceId, branchId, objectKey }: { spaceId: string; branc
     enabled: !isNew,
   })
   const errors = [catalog.error, types.error, objects.error, detail.error].flatMap((e) => (e ? errorMessages(t, e) : []))
-  const ready = catalog.data && types.data && (isNew ? objects.data : detail.data)
+  const ready = catalog.data && types.data && objects.data && (isNew || detail.data)
   return (
     <main className="stack">
       <ErrorList messages={errors} />
@@ -122,7 +110,7 @@ function ObjectScreen({ spaceId, branchId, objectKey }: { spaceId: string; branc
           branchId={branchId}
           catalog={catalog.data}
           types={types.data.types}
-          takenKeys={new Set((objects.data?.objects ?? []).map((o) => o.key))}
+          objects={objects.data.objects}
           detail={detail.data ?? null}
           readOnly={!canWrite}
         />
@@ -136,7 +124,7 @@ function ObjectEditor({
   branchId,
   catalog,
   types,
-  takenKeys,
+  objects,
   detail,
   readOnly,
 }: {
@@ -144,14 +132,19 @@ function ObjectEditor({
   branchId: string
   catalog: CartoCatalog
   types: CartoTypeSummary[]
-  takenKeys: Set<string>
+  objects: CartoObjectSummary[]
   detail: CartoObjectDetail | null
   readOnly: boolean
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  // D'où l'on vient (fiche d'un objet → fiche d'une relation) : le retour y ramène.
+  const from = (useLocation().state as { from?: { key: string; name: string } } | null)?.from
+  const takenKeys = new Set(objects.map((o) => o.key))
+  const [relating, setRelating] = useState(false)
   const isNew = detail === null
+  const isRelation = Boolean(detail?.ends)
   const relationArchimate = new Set(catalog.types.filter((ty) => ty.kind === 'relation').map((ty) => ty.name))
   // Une relation se crée en reliant deux objets (ticket « Relations ») : pas ici.
   const choosable = types.filter((ty) => !relationArchimate.has(ty.archimate))
@@ -182,8 +175,7 @@ function ObjectEditor({
           ? t('cartoKeyTaken')
           : null
     : null
-  const required = requiredOf(schema)
-  const missing = required.filter((p) => isEmpty(properties[p]))
+  const missing = missingRequired(schema, properties)
   const changed = isNew
     ? 0
     : [name !== detail.name, documentation !== detail.documentation].filter(Boolean).length +
@@ -294,10 +286,24 @@ function ObjectEditor({
             </div>
           ) : null}
         </div>
-        <Link to="/cartographie/objets" className="btn btn-sm">
-          {t('cartoBackToObjects')}
-        </Link>
+        <div className="row">
+          {from ? (
+            <>
+              <Link to={cartoObjectPath(from.key)} className="btn btn-sm">
+                {`← ${from.name}`}
+              </Link>
+              <span className="muted small">{t('cartoOpenedFrom')}</span>
+            </>
+          ) : (
+            <Link to="/cartographie/objets" className="btn btn-sm">
+              {t('cartoBackToObjects')}
+            </Link>
+          )}
+        </div>
       </div>
+      {isRelation && detail?.ends ? (
+        <RelationBand catalog={catalog} detail={detail} properties={properties} />
+      ) : null}
       <ErrorList messages={save.error ? errorMessages(t, save.error) : []} />
       <ErrorList messages={remove.error ? errorMessages(t, remove.error) : []} />
       {detail && detail.problems.length > 0 ? (
@@ -364,7 +370,6 @@ function ObjectEditor({
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
-            {detail?.source || detail?.target ? <Endpoints detail={detail} /> : null}
             <div className="field">
               <div className="row carto-doc-head">
                 <span className="field-label">{t('cartoDocumentation')}</span>
@@ -404,15 +409,35 @@ function ObjectEditor({
           />
         </div>
         <div className="stack">
-          {detail ? <RelationsSection catalog={catalog} detail={detail} /> : null}
+          {detail ? (
+            <RelationsSection
+              catalog={catalog}
+              detail={detail}
+              onRelate={readOnly ? null : () => setRelating(true)}
+            />
+          ) : null}
           {detail && used.length > 0 ? (
             <p className="carto-in-use" role="note">
-              {t('cartoDeleteRefused', { count: used.length, relations: used.map((r) => r.key).join(', ') })}
+              {t(isRelation ? 'cartoDeleteRefusedRelation' : 'cartoDeleteRefused', {
+                count: used.length,
+                relations: used.map((r) => r.key).join(', '),
+              })}
             </p>
           ) : null}
+          {isRelation && detail ? <RuleSection catalog={catalog} detail={detail} /> : null}
           <FileSection detail={detail} typeSlug={type} keyValue={key} />
         </div>
       </div>
+      {relating && detail ? (
+        <RelateDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          catalog={catalog}
+          source={relateSource(detail)}
+          objects={objects}
+          onClose={() => setRelating(false)}
+        />
+      ) : null}
       {writing ? (
         <WriteDialog
           initial={documentation}
@@ -428,21 +453,90 @@ function ObjectEditor({
   )
 }
 
-function Endpoints({ detail }: { detail: CartoObjectDetail }) {
+function relateSource(detail: CartoObjectDetail): RelateSource {
+  return { key: detail.key, name: detail.name, type_title: detail.type_title, archimate: detail.archimate }
+}
+
+/** Fiche d'une relation : source → cible, reliées par le type et la valeur de son
+ * attribut (« écriture → lecture » quand elle change). Figées : un clic sur un nom
+ * ouvre la fiche de l'objet. */
+function RelationBand({ catalog, detail, properties }: { catalog: CartoCatalog; detail: CartoObjectDetail; properties: Props }) {
   const { t } = useTranslation()
+  const info = catalog.types.find((ty) => ty.name === detail.archimate)
+  const label = (values: Props) => {
+    for (const a of info?.attributes ?? []) {
+      const found = a.values.find((v) => v.value === values[a.name])?.label
+      if (found) return found
+    }
+    return ''
+  }
+  const before = label(detail.properties)
+  const now = label(properties)
+  const value = before && now && before !== now ? `${before} → ${now}` : now || before
+  const ends = detail.ends!
   return (
-    <div className="form-grid">
-      {(['source', 'target'] as const).map((end) => (
-        <div key={end} className="field">
-          <span className="field-label">{t(`cartoEnd_${end}`)} 🔒</span>
-          {detail[end] ? (
-            <Link to={cartoObjectPath(detail[end] as string)} className="link-strong mono">
-              {detail[end]}
-            </Link>
-          ) : null}
-        </div>
-      ))}
-    </div>
+    <section className="panel carto-section" aria-label={t('cartoBandTitle')}>
+      <div className="carto-band carto-relate-band">
+        {(['source', 'target'] as const).map((end, index) => {
+          const e = ends[end]
+          const icon = catalog.types.find((ty) => ty.name === e.archimate)?.icon
+          const card = (
+            <div key={end} className="carto-end">
+              <span className="carto-icon-tile carto-icon-tile-lg">{icon ? <ArchimateIcon svg={icon} className="archimate-icon-lg" /> : null}</span>
+              <div className="carto-end-text">
+                <span className="carto-filter-label">{t(`cartoEnd_${end}`)}</span>
+                {e.exists && e.key ? (
+                  <Link to={cartoObjectPath(e.key)} className="link-strong">
+                    {e.name}
+                  </Link>
+                ) : (
+                  <span className="text-danger">{e.key}</span>
+                )}
+                <span className="mono muted small">{e.key}</span>
+              </div>
+              <span className="mono muted small carto-end-type">
+                {t('cartoEndType', {
+                  type: e.is_relation ? t('cartoRelationOf', { type: e.type_title }) : e.type_title,
+                })}
+              </span>
+            </div>
+          )
+          if (index === 0) {
+            return [
+              card,
+              <div key="arrow" className="carto-arrow">
+                <strong>{detail.type_title}</strong>
+                {value ? <span className="carto-arrow-value">{value}</span> : null}
+                <span className="carto-arrow-line" aria-hidden="true" />
+              </div>,
+            ]
+          }
+          return card
+        })}
+      </div>
+      <p className="muted small">{t('cartoBandHint')}</p>
+    </section>
+  )
+}
+
+function RuleSection({ catalog, detail }: { catalog: CartoCatalog; detail: CartoObjectDetail }) {
+  const { t } = useTranslation()
+  const label = (name: string | null | undefined) => catalog.types.find((ty) => ty.name === name)?.label ?? name ?? '—'
+  const ends = detail.ends!
+  const source = ends.source.is_relation ? t('cartoARelation') : label(ends.source.archimate)
+  const target = ends.target.is_relation ? t('cartoARelation') : label(ends.target.archimate)
+  return (
+    <section className="panel carto-section" aria-label={t('cartoRuleTitle')}>
+      <h2 className="carto-detail-title">{t('cartoRuleTitle')}</h2>
+      <p>{t('cartoRuleText', { source, target })}</p>
+      <div className="carto-chips">
+        {(detail.rule ?? []).map((name) => (
+          <span key={name} className={name === detail.archimate ? 'carto-prop-chip' : 'pill'}>
+            {label(name)}
+          </span>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -472,14 +566,7 @@ function PropertiesSection({
   onOpen: (property: string) => void
 }) {
   const { t } = useTranslation()
-  const all = propertiesOf(schema).map(([name]) => name)
-  const required = requiredOf(schema)
-  // Toujours affichées : les obligatoires et les renseignées (avant ou pendant la
-  // saisie) ; les facultatives vides restent repliées jusqu'à « + Renseigner ».
-  const visible = all.filter(
-    (p) => required.includes(p) || !isEmpty(saved[p]) || !isEmpty(properties[p]) || opened.includes(p),
-  )
-  const folded = all.filter((p) => !visible.includes(p))
+  const all = propertyNames(schema)
   return (
     <section className="panel carto-section" aria-label={t('cartoPropertiesOf', { type: typeTitle })}>
       <div className="row carto-section-head">
@@ -492,38 +579,22 @@ function PropertiesSection({
       </div>
       {!schema ? <p className="muted">{t('cartoChooseTypeFirst')}</p> : null}
       {schema && all.length === 0 ? <p className="muted">{t('cartoNoProperties')}</p> : null}
-      {schema && visible.length > 0 ? (
-        <SchemaFields schema={schema} draft={properties} readOnly={readOnly} problems={problems} onChange={onChange} names={visible} />
+      {schema ? (
+        <FoldedProperties
+          schema={schema}
+          values={properties}
+          saved={saved}
+          opened={opened}
+          readOnly={readOnly}
+          problems={problems}
+          onChange={onChange}
+          onOpen={onOpen}
+        />
       ) : null}
       {missing.length > 0 ? (
         <p className="field-error" role="alert">
           {t('cartoMissingRequired', { properties: missing.join(', ') })}
         </p>
-      ) : null}
-      {folded.length > 0 ? (
-        <div className="carto-folded">
-          <span className="muted">{t('cartoFolded', { count: folded.length })}</span>
-          {folded.map((p) => (
-            <span key={p} className="pill">
-              {p}
-            </span>
-          ))}
-          {!readOnly ? (
-            <select
-              className="select carto-fill"
-              aria-label={t('cartoFill')}
-              value=""
-              onChange={(e) => e.target.value && onOpen(e.target.value)}
-            >
-              <option value="">{t('cartoFill')}</option>
-              {folded.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
-          ) : null}
-        </div>
       ) : null}
     </section>
   )
@@ -536,18 +607,34 @@ function relationLabel(r: CartoRelationSide, info: ArchimateTypeInfo | undefined
     const label = a.values.find((v) => v.value === value)?.label
     if (label) return label
   }
-  return info?.verbs[direction] ?? ''
+  return info?.verbs?.[direction] ?? ''
 }
 
-function RelationsSection({ catalog, detail }: { catalog: CartoCatalog; detail: CartoObjectDetail }) {
+function RelationsSection({
+  catalog,
+  detail,
+  onRelate,
+}: {
+  catalog: CartoCatalog
+  detail: CartoObjectDetail
+  onRelate: (() => void) | null
+}) {
   const { t } = useTranslation()
   const { outgoing, incoming } = detail.relations
+  const title = detail.ends ? t('cartoRelationsOnRelation') : t('cartoRelationsTitle')
   return (
-    <section className="panel carto-section" aria-label={t('cartoRelationsTitle')}>
-      <h2 className="carto-detail-title">
-        {t('cartoRelationsTitle')} · {outgoing.length + incoming.length}
-      </h2>
-      <p className="muted small">{t('cartoRelationsHint')}</p>
+    <section className="panel carto-section" aria-label={title}>
+      <div className="row carto-section-head">
+        <h2 className="carto-detail-title">
+          {title} · {outgoing.length + incoming.length}
+        </h2>
+        {onRelate ? (
+          <button type="button" className="btn btn-sm btn-primary" onClick={onRelate}>
+            {t('cartoRelate')}
+          </button>
+        ) : null}
+      </div>
+      <p className="muted small">{detail.ends ? t('cartoRelationsOnRelationHint') : t('cartoRelationsHint')}</p>
       {outgoing.length + incoming.length === 0 ? <p className="muted">{t('cartoRelationsNone')}</p> : null}
       {(['out', 'in'] as const).map((direction) => {
         const rows = direction === 'out' ? outgoing : incoming
@@ -558,7 +645,13 @@ function RelationsSection({ catalog, detail }: { catalog: CartoCatalog; detail: 
               {t(`cartoRelations_${direction}`)} · {rows.length}
             </div>
             {rows.map((r) => (
-              <RelationRow key={r.key} relation={r} direction={direction} info={catalog.types.find((ty) => ty.name === r.archimate)} />
+              <RelationRow
+                key={r.key}
+                relation={r}
+                direction={direction}
+                info={catalog.types.find((ty) => ty.name === r.archimate)}
+                from={{ key: detail.key, name: detail.name }}
+              />
             ))}
           </div>
         )
@@ -571,13 +664,16 @@ function RelationRow({
   relation,
   direction,
   info,
+  from,
 }: {
   relation: CartoRelationSide
   direction: 'out' | 'in'
   info: ArchimateTypeInfo | undefined
+  from: { key: string; name: string }
 }) {
   const navigate = useNavigate()
-  const open = () => navigate(cartoObjectPath(relation.key))
+  // La fiche de la relation garde d'où l'on vient : son retour y ramène.
+  const open = () => navigate(cartoObjectPath(relation.key), { state: { from } })
   return (
     <div
       className="carto-relation-row"

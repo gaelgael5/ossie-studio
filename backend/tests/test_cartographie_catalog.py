@@ -200,6 +200,7 @@ def test_attributs_propres() -> None:
     assert acces.schema() == {
         "type": "string",
         "title": "Sens de l'accès",
+        "x-archimate": True,
         "enum": ["Read", "Write", "ReadWrite"],
         "x-labels": {"Read": "lecture", "Write": "écriture", "ReadWrite": "lecture-écriture"},
         "x-unset": "non précisé",

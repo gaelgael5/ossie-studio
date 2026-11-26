@@ -3818,3 +3818,120 @@ td.cell-error {
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+/* Relations de la cartographie (ticket b58a0a13). */
+.carto-object-card {
+  position: relative;
+}
+.carto-card-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: var(--radius);
+}
+.carto-card-cover:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.carto-relate-btn {
+  position: relative;
+  z-index: 2;
+  opacity: 0;
+}
+.carto-object-card:hover .carto-relate-btn,
+.carto-object-card:focus-within .carto-relate-btn {
+  opacity: 1;
+}
+.carto-relate-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+}
+@media (max-width: 760px) {
+  .carto-relate-band {
+    grid-template-columns: 1fr;
+  }
+}
+.carto-end {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  min-width: 0;
+}
+.carto-end-empty {
+  justify-content: center;
+  border-style: dashed;
+  min-height: 72px;
+}
+.carto-end-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.carto-end-type {
+  margin-left: auto;
+  text-align: right;
+}
+.carto-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--primary);
+  text-align: center;
+}
+.carto-arrow-value {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  font-size: 0.85rem;
+}
+.carto-arrow-line {
+  display: block;
+  width: 100%;
+  border-top: 2px dashed var(--primary);
+  position: relative;
+}
+.carto-arrow-line::after {
+  content: '>';
+  position: absolute;
+  right: -4px;
+  top: -0.85em;
+  font-weight: 700;
+}
+.carto-target-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) auto 1fr;
+  gap: 8px;
+}
+.carto-target-type {
+  text-align: right;
+}
+.carto-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.carto-choice.active {
+  border-color: var(--primary);
+  box-shadow: inset 4px 0 0 var(--primary);
+}
+.carto-choice-def {
+  display: block;
+}
+.carto-relate-foot {
+  align-items: center;
+}
+.carto-relate-foot > span {
+  margin-right: auto;
+}
