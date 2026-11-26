@@ -152,7 +152,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.http_client_factory = _default_http_client_factory
     app.state.git_probe = prove_five_rights
     app.state.workdir_manager = WorkdirManager(
-        settings.work_volume_path, read_fresh_seconds=settings.git_read_fresh_seconds
+        settings.work_volume_path, read_follows_forge=settings.git_read_follows_forge
     )
     app.state.draft_views = DraftViewManager(app.state.workdir_manager)
     app.state.source_downloader = SourceDownloader(settings.sources_volume_path)

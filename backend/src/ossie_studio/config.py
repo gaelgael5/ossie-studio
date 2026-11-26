@@ -41,9 +41,10 @@ class Settings(BaseSettings):
     # si absente, on la déduit de la requête entrante.
     public_base_url: str = ""
 
-    # Lectures de branche : une copie alignée sur la forge il y a moins de ce
-    # délai (secondes) n'est pas réalignée (ticket 2daae568). 0 : à chaque lecture.
-    git_read_fresh_seconds: float = 5.0
+    # Lectures de branche : réaligner la copie sur la forge à chaque lecture
+    # (ticket 2daae568). Faux en service : seule l'application pousse, et la
+    # publication réaligne la copie. Vrai pour les tests qui modifient la forge.
+    git_read_follows_forge: bool = False
 
     # Taille maximale d'un contrat OpenAPI déposé (octets). Au-delà : refus.
     openapi_max_contract_bytes: int = 5 * 1024 * 1024

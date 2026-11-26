@@ -132,21 +132,23 @@ class WorkdirManager:
     le volume de travail, réalignées sur la tête distante à chaque geste, avec
     un verrou par répertoire pour que deux gestes ne se piétinent pas."""
 
-    # Délai minimal entre deux fetchs d'une même copie pour la vérification de
-    # tête des écrans : dix écrans ouverts ne fetchent pas dix fois la forge.
+    # Durée de la valeur en cache de la vérification de tête des écrans : dix
+    # écrans ouverts ne prennent pas dix fois le verrou de la copie.
     HEAD_FETCH_MIN_SECONDS = 10.0
 
-    def __init__(self, root: Path, read_fresh_seconds: float = 0.0) -> None:
+    def __init__(self, root: Path, *, read_follows_forge: bool = False) -> None:
         root.mkdir(parents=True, exist_ok=True)
         self._root = root
         self._head_cache: dict[str, tuple[float, str]] = {}
-        # Lectures : une copie alignée sur la forge il y a moins de
-        # `read_fresh_seconds` n'est pas réalignée (ticket 2daae568). Sans cela,
-        # chaque lecture refaisait fetch + ls-remote sous le verrou, et les 5 à 6
-        # lectures d'une page se sérialisaient derrière autant d'allers-retours
-        # vers la forge (pages de 5 à 10 s). 0 : réalignement à chaque lecture.
-        self._read_fresh_seconds = read_fresh_seconds
-        self._aligned: dict[str, float] = {}
+        # Lectures sans aller-retour vers la forge (ticket 2daae568, décision de
+        # Gael) : seule l'application pousse sur la forge, donc une copie alignée
+        # le reste jusqu'à la prochaine publication, qui la réaligne. Avant,
+        # chaque lecture refaisait fetch + ls-remote sous le verrou et les 5 à 6
+        # lectures d'une page se sérialisaient (pages de 5 à 10 s).
+        # `read_follows_forge` : réalignement à chaque lecture (tests qui
+        # modifient la forge directement) ; jamais en service.
+        self._read_follows_forge = read_follows_forge
+        self._aligned: set[str] = set()
         self._clock: Callable[[], float] = time.monotonic
         self._askpass = write_askpass(root)
         self._locks: dict[str, asyncio.Lock] = {}
@@ -177,31 +179,29 @@ class WorkdirManager:
         self, workdir: Path, repo_url: str, ref: str, env: dict[str, str], *, force: bool = False
     ) -> None:
         """Copie de lecture alignée sur la tête distante de `ref` (sous le verrou
-        de la copie, tenu par l'appelant). Déjà alignée il y a moins de
-        `read_fresh_seconds` : rien à refaire — les lectures qui attendaient le
-        verrou profitent de l'alignement que la première vient de faire. Un
-        changement poussé hors de l'application apparaît donc avec ce délai au
-        plus (même compromis que `published_head`)."""
+        de la copie, tenu par l'appelant). Déjà alignée depuis le démarrage du
+        service : lue telle quelle, sans contacter la forge. Une modification
+        faite sur la forge hors de l'application n'est donc vue qu'à la
+        prochaine publication de la branche (ou au redémarrage)."""
         key = str(workdir)
-        at = self._aligned.get(key)
         if (
             not force
-            and at is not None
-            and self._clock() - at < self._read_fresh_seconds
+            and not self._read_follows_forge
+            and key in self._aligned
             and (workdir / ".git").exists()
         ):
             return
-        self._aligned.pop(key, None)
+        self._aligned.discard(key)
         await self._clone_or_refresh(workdir, repo_url, env)
         if not await self._remote_branch_exists(workdir, ref, env):
             raise WorkdirError("branch_not_found")
         await self._checkout_branch(workdir, ref, env)
-        self._aligned[key] = self._clock()
+        self._aligned.add(key)
 
     def _forget_aligned(self, workdir: Path) -> None:
-        """Écriture, poussée ou fetch hors lecture dans cette copie : la lecture
-        suivante se réaligne sur la forge (elle voit ce qui vient d'être publié)."""
-        self._aligned.pop(str(workdir), None)
+        """Geste qui a fetché ou poussé dans cette copie sans la réaligner : la
+        lecture suivante la réaligne sur la forge."""
+        self._aligned.discard(str(workdir))
 
     async def _remote_branch_exists(self, workdir: Path, ref: str, env: dict[str, str]) -> bool:
         code, out, _ = await run_git(["ls-remote", "--heads", "origin", ref], workdir, env)
@@ -336,20 +336,16 @@ class WorkdirManager:
         self, space_id: uuid.UUID, slug: str, repo_url: str, username: str, token: str | None
     ) -> str:
         """Sha de la tête publiée, pour que les écrans se rafraîchissent quand elle
-        bouge. Au plus un fetch toutes les HEAD_FETCH_MIN_SECONDS par copie ;
+        bouge. Au plus une lecture de la copie toutes les HEAD_FETCH_MIN_SECONDS ;
         entre deux, la valeur en cache."""
         key = str(self._dir(space_id, slug))
         cached = self._head_cache.get(key)
         now = self._clock()
         if cached is not None and now - cached[0] < self.HEAD_FETCH_MIN_SECONDS:
             return cached[1]
-        # La vérification de tête est faite pour voir la forge bouger : elle
-        # réaligne toujours (déjà limitée à une fois par HEAD_FETCH_MIN_SECONDS).
-        async with self.read_copy(space_id, slug, repo_url, username, token, force=True) as (
-            _c,
-            _e,
-            head,
-        ):
+        # Tête de la copie locale : elle bouge à la publication par
+        # l'application, qui la réaligne (pas de fetch, ticket 2daae568).
+        async with self.read_copy(space_id, slug, repo_url, username, token) as (_c, _e, head):
             self._head_cache[key] = (now, head)
             return head
 
@@ -408,7 +404,12 @@ class WorkdirManager:
                     copy, head, ref, objects, message, push_env
                 )
                 if pushed:
+                    # Publication : la copie est réalignée sur la tête qui vient
+                    # d'être poussée — c'est la seule récupération dont les
+                    # lectures ont besoin (décision de Gael, ticket 2daae568).
                     await self._checkout_branch(copy, ref, read_env)
+                    self._aligned.add(str(copy))
+                    self._head_cache.pop(str(copy), None)
                     log.info("draft_published", space_id=str(space_id), ref=ref, attempt=attempt)
                     return sha
                 low = err.lower()
