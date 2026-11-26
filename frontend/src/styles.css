@@ -3354,3 +3354,21 @@ td.cell-error {
   cursor: pointer;
   padding: 4px 0;
 }
+
+/* Profils de relations (ticket 1bce7eb9) : une règle tient sur une ligne
+   « colonne → table . colonne visée × » ; le panneau s'élargit pour cela. */
+.panel-form.panel-form-wide {
+  max-width: 960px;
+}
+.relation-rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+@media (max-width: 700px) {
+  .relation-rule-row {
+    grid-template-columns: 1fr;
+  }
+}
