@@ -125,9 +125,11 @@ async def _draft_text(app: FastAPI, space: ApiSpace, rel: str, text: str) -> Non
 # --- Vue publiée et vue brouillon ------------------------------------------------------
 
 
-async def test_cle_lit_le_publie_l_agent_voit_aussi_le_brouillon(
+async def test_sans_branch_l_agent_lit_le_publie_avec_draft_aussi_le_brouillon(
     app: FastAPI, space: ApiSpace
 ) -> None:
+    """Ticket aa19569b : `branch` absent → publiée, même pour un agent connecté
+    pour une personne ; `branch: draft` → publiée + brouillon, marqué."""
     # Source déclarée dans le brouillon de la personne seulement.
     await _draft_text(app, space, "sources/achats/manifest.yaml", _manifest("achats"))
 
@@ -135,7 +137,11 @@ async def test_cle_lit_le_publie_l_agent_voit_aussi_le_brouillon(
     assert published["view"] == "published"
     assert [s["slug"] for s in published["sources"]] == ["ventes"]
 
-    draft = await _ok(app, AGENT, "list_sources", _ids(space))
+    by_default = await _ok(app, AGENT, "list_sources", _ids(space))
+    assert by_default["view"] == "published"
+    assert [s["slug"] for s in by_default["sources"]] == ["ventes"]
+
+    draft = await _ok(app, AGENT, "list_sources", _ids(space, branch="draft"))
     assert draft["view"] == "draft"
     by_slug = {s["slug"]: s for s in draft["sources"]}
     assert set(by_slug) == {"ventes", "achats"}
@@ -143,12 +149,29 @@ async def test_cle_lit_le_publie_l_agent_voit_aussi_le_brouillon(
     assert by_slug["ventes"]["unpublished_changes"] == 0
     assert by_slug["ventes"]["connection"] == "gh"
 
-    only_published = await _ok(app, AGENT, "list_sources", _ids(space, view="published"))
-    assert [s["slug"] for s in only_published["sources"]] == ["ventes"]
+    # Vide : comme absent.
+    empty = await _ok(app, AGENT, "list_sources", _ids(space, branch=""))
+    assert empty["view"] == "published"
+
+
+async def test_branch_autre_que_draft_refusee(app: FastAPI, space: ApiSpace) -> None:
+    result = await call_tool(app, AGENT, "list_sources", _ids(space, branch="main"))
+    assert result.is_error
+    body = json.loads(result.content[0].text)
+    assert body["error"] == "branch_unsupported"
+    assert body["accepted"] == ["draft"]
+    # Aussi sur les primitives qui ne lisent que le brouillon.
+    assert await _refusal(app, AGENT, "get_my_draft", _ids(space, branch="main")) == (
+        "branch_unsupported"
+    )
+    # L'ancien paramètre `view` n'existe plus.
+    assert await _refusal(app, AGENT, "list_sources", _ids(space, view="draft")) == (
+        "invalid_arguments"
+    )
 
 
 async def test_cle_ne_peut_pas_demander_le_brouillon(app: FastAPI, space: ApiSpace) -> None:
-    assert await _refusal(app, KEY, "list_sources", _ids(space, view="draft")) == (
+    assert await _refusal(app, KEY, "list_sources", _ids(space, branch="draft")) == (
         "draft_requires_person"
     )
     # Les primitives du brouillon ne sont même pas proposées à une clé.
@@ -165,7 +188,7 @@ async def test_schemas_bruts_listes_et_lus_avec_la_marque_du_brouillon(
     changed = {**CUSTOMER, "properties": {**CUSTOMER["properties"], "email": {"type": "string"}}}
     await draft_write(app, space, "sources/ventes/raw/customer.schema.yaml", changed)
 
-    listed = await _ok(app, AGENT, "list_raw_schemas", _ids(space, source="ventes"))
+    listed = await _ok(app, AGENT, "list_raw_schemas", _ids(space, branch="draft", source="ventes"))
     by_path = {s["path"]: s for s in listed["schemas"]}
     assert set(by_path) == {"customer.schema.yaml", "order.schema.yaml"}
     assert by_path["customer.schema.yaml"]["unpublished"] is True
@@ -174,10 +197,12 @@ async def test_schemas_bruts_listes_et_lus_avec_la_marque_du_brouillon(
     assert by_path["order.schema.yaml"]["unpublished"] is False
 
     customer = _ids(space, source="ventes", path="customer.schema.yaml")
-    draft = await _ok(app, AGENT, "read_raw_schema", customer)
+    draft = await _ok(app, AGENT, "read_raw_schema", {**customer, "branch": "draft"})
     assert "email" in draft["schema"]["properties"] and draft["unpublished"] is True
     published = await _ok(app, KEY, "read_raw_schema", customer)
     assert published["schema"] == CUSTOMER and published["unpublished"] is False
+    # Sans `branch`, l'agent lit lui aussi le publié.
+    assert (await _ok(app, AGENT, "read_raw_schema", customer))["schema"] == CUSTOMER
 
 
 async def test_schema_et_source_introuvables_nommes(app: FastAPI, space: ApiSpace) -> None:
@@ -260,7 +285,7 @@ async def test_gouvernance_lue_avec_le_brouillon(
     created = await client.post(f"{space.base}/governance/tags", json={"id": "gouvernance/pii"})
     assert created.status_code == 201, created.text
 
-    draft = await _ok(app, AGENT, "list_tags", _ids(space))
+    draft = await _ok(app, AGENT, "list_tags", _ids(space, branch="draft"))
     assert [t["id"] for t in draft["tags"]] == ["gouvernance/pii"]
     assert draft["unpublished_changes"] >= 1
     published = await _ok(app, KEY, "list_tags", _ids(space))

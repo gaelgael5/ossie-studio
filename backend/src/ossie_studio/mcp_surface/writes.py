@@ -45,9 +45,7 @@ class SourceWriteArgs(BranchArgs):
 
 
 class ObjectWriteArgs(SourceWriteArgs):
-    path: str = Field(
-        description="Schema file name, e.g. 'customer.schema.yaml' (from the lists)."
-    )
+    path: str = Field(description="Schema file name, e.g. 'customer.schema.yaml' (from the lists).")
 
 
 class RetainArgs(ObjectWriteArgs):
@@ -129,7 +127,7 @@ async def open_for_write(ctx: PrimitiveContext, args: BranchArgs) -> tuple[Branc
     Deuxième barrière derrière le catalogue : sans personne (clé d'API), refus."""
     if ctx.user is None:
         raise PrimitiveError("draft_requires_person")
-    return await open_branch(ctx, args, "draft"), ctx.user
+    return await open_branch(ctx, args, write=True), ctx.user
 
 
 def write_target(ctx: PrimitiveContext, bv: BranchView, author: str) -> CurationTarget:
@@ -187,7 +185,7 @@ async def _asset_after(ctx: PrimitiveContext, args: ObjectWriteArgs) -> dict[str
             ObjectArgs(
                 space_id=args.space_id,
                 branch_id=args.branch_id,
-                view="draft",
+                branch="draft",
                 source=args.source,
                 path=args.path,
             ),

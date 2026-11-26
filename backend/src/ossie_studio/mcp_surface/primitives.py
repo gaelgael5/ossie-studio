@@ -11,10 +11,9 @@ from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
 from ossie_studio.mcp_surface import reads, references, source_writes, writes
 from ossie_studio.mcp_surface import referentiels as refs
-from ossie_studio.mcp_surface.branch import BranchArgs, ObjectArgs, SourceArgs, ViewArgs
+from ossie_studio.mcp_surface.branch import BranchArgs, BranchParam, ObjectArgs, SourceArgs
 from ossie_studio.mcp_surface.core import (
     Implementation,
-    NoArgs,
     PrimitiveContext,
     PrimitiveError,
 )
@@ -22,7 +21,7 @@ from ossie_studio.mcp_surface.core import (
 __all__ = ["IMPLEMENTATIONS", "PrimitiveContext", "PrimitiveError"]
 
 IMPLEMENTATIONS: Mapping[str, Implementation] = {
-    "list_spaces": Implementation(NoArgs, reads.list_spaces),
+    "list_spaces": Implementation(BranchParam, reads.list_spaces),
     "list_versions": Implementation(BranchArgs, reads.list_versions),
     "get_my_draft": Implementation(BranchArgs, reads.get_my_draft),
     "get_publish_readiness": Implementation(BranchArgs, reads.get_publish_readiness),
@@ -34,7 +33,7 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "verify_impact": Implementation(prep.ImpactArgs, prep.verify_impact),
     "get_validation_log": Implementation(BranchArgs, prep.get_validation_log),
     "accept_validation_warning": Implementation(prep.WarningArgs, prep.accept_validation_warning),
-    "list_sources": Implementation(ViewArgs, reads.list_sources),
+    "list_sources": Implementation(BranchArgs, reads.list_sources),
     "list_raw_schemas": Implementation(SourceArgs, reads.list_raw_schemas),
     "read_raw_schema": Implementation(ObjectArgs, reads.read_raw_schema),
     "get_reference_graph": Implementation(
@@ -55,8 +54,8 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "get_carto_object": Implementation(carto.CartoObjectArgs, carto.get_carto_object),
     "list_carto_models": Implementation(carto.CartoModelsArgs, carto.list_carto_models),
     "get_carto_model": Implementation(carto.CartoModelArgs, carto.get_carto_model),
-    "list_tags": Implementation(ViewArgs, reads.list_tags),
-    "list_classifications": Implementation(ViewArgs, reads.list_classifications),
+    "list_tags": Implementation(BranchArgs, reads.list_tags),
+    "list_classifications": Implementation(BranchArgs, reads.list_classifications),
     # Écriture (brouillon de la personne)
     "retain_asset": Implementation(writes.RetainArgs, writes.retain_asset),
     "remove_asset": Implementation(writes.ObjectWriteArgs, writes.remove_asset),
@@ -89,7 +88,7 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     ),
     "get_referentiel_value": Implementation(refs.ValueByKeyArgs, refs.get_referentiel_value),
     # Gouvernance
-    "list_certifications": Implementation(ViewArgs, reads.list_certifications),
+    "list_certifications": Implementation(BranchArgs, reads.list_certifications),
     "create_tag": Implementation(gov.CreateTagArgs, gov.create_tag),
     "update_tag": Implementation(gov.UpdateTagArgs, gov.update_tag),
     "delete_tag": Implementation(gov.TagArgs, gov.delete_tag),

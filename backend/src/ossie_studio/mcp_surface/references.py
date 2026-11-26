@@ -54,7 +54,7 @@ async def get_reference_graph(ctx: PrimitiveContext, args: ReferenceGraphArgs) -
     source_dir(args.source)  # slug invalide → erreur nommée
     if not is_schema_file(args.path):
         raise PrimitiveError("schema_not_found", path=args.path)
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
     try:
         key, signature = await ensure_index(
             ctx.conn, bv.workdir, bv.space, bv.branch.id, bv.branch.git_ref, bv.username, bv.token

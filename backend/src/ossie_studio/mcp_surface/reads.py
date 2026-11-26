@@ -30,15 +30,15 @@ from ossie_studio.governance.repo import (
 )
 from ossie_studio.mcp_surface.branch import (
     BranchArgs,
+    BranchParam,
     BranchView,
     ObjectArgs,
     SourceArgs,
-    ViewArgs,
     branch_of,
     open_branch,
     source_dir,
 )
-from ossie_studio.mcp_surface.core import NoArgs, PrimitiveContext, PrimitiveError
+from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
 from ossie_studio.models import SpaceBranch, User
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.sources.asset_files import extend_name
@@ -91,7 +91,7 @@ def _source_exists(root: Path, directory: str) -> bool:
 # --- Se repérer -----------------------------------------------------------------------
 
 
-async def list_spaces(ctx: PrimitiveContext, _args: NoArgs) -> dict[str, Any]:
+async def list_spaces(ctx: PrimitiveContext, _args: BranchParam) -> dict[str, Any]:
     # Clé d'API : tous les espaces. Connexion OAuth : ceux que la personne voit.
     if ctx.user is None:
         spaces = await db_list_spaces(ctx.conn)
@@ -193,8 +193,8 @@ def _source_payload(entry: SourceEntry, bv: BranchView) -> dict[str, Any]:
     }
 
 
-async def list_sources(ctx: PrimitiveContext, args: ViewArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
+async def list_sources(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
+    bv = await open_branch(ctx, args)
     entries = await bv.read(read_sources_tree)
     return {"view": bv.view, "sources": [_source_payload(e, bv) for e in entries]}
 
@@ -216,7 +216,7 @@ async def _curation_objects(
 
 async def list_raw_schemas(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
     directory = source_dir(args.source)
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
     objects = await _curation_objects(bv, args.source, directory, with_rules=False)
     return {
         "view": bv.view,
@@ -240,7 +240,7 @@ async def read_raw_schema(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, 
     directory = source_dir(args.source)
     if not is_schema_file(args.path):
         raise PrimitiveError("schema_not_found", path=args.path)
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
 
     def read(root: Path) -> tuple[str, Any]:
         if not _source_exists(root, directory):
@@ -279,7 +279,7 @@ def _asset_unpublished(bv: BranchView, directory: str, path: str) -> bool:
 
 async def list_assets(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
     directory = source_dir(args.source)
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
     objects = await _curation_objects(bv, args.source, directory, with_rules=True)
     return {
         "view": bv.view,
@@ -318,7 +318,7 @@ async def read_asset(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
     directory = source_dir(args.source)
     if not is_schema_file(args.path):
         raise PrimitiveError("asset_not_retained", path=args.path)
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
 
     def read(root: Path) -> Any:
         if not _source_exists(root, directory):
@@ -364,7 +364,7 @@ async def read_asset(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
 
 async def get_tri_rules(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
     directory = source_dir(args.source)
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
 
     def read(root: Path) -> list[dict[str, Any]] | None:
         return read_tri_rules_raw(root, args.source) if _source_exists(root, directory) else None
@@ -409,7 +409,7 @@ def review_payload(head_sha: str, review: ReviewResult) -> dict[str, Any]:
 
 
 async def get_review(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
     head_sha, review = await compute_review(bv, args.source)
     return {"view": bv.view, "source": args.source, **review_payload(head_sha, review)}
 
@@ -417,8 +417,8 @@ async def get_review(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
 # --- Gouvernance ----------------------------------------------------------------------
 
 
-async def list_tags(ctx: PrimitiveContext, args: ViewArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
+async def list_tags(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
+    bv = await open_branch(ctx, args)
     tags = await bv.read(read_tags)
     return {
         "view": bv.view,
@@ -427,8 +427,8 @@ async def list_tags(ctx: PrimitiveContext, args: ViewArgs) -> dict[str, Any]:
     }
 
 
-async def list_classifications(ctx: PrimitiveContext, args: ViewArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
+async def list_classifications(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
+    bv = await open_branch(ctx, args)
     schemes = await bv.read(read_schemes)
     return {
         "view": bv.view,
@@ -437,8 +437,8 @@ async def list_classifications(ctx: PrimitiveContext, args: ViewArgs) -> dict[st
     }
 
 
-async def list_certifications(ctx: PrimitiveContext, args: ViewArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
+async def list_certifications(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
+    bv = await open_branch(ctx, args)
     certs = await bv.read(read_certs)
     return {
         "view": bv.view,

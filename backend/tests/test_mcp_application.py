@@ -203,7 +203,7 @@ async def test_list_modules(app: FastAPI, space: ApiSpace) -> None:
 
 
 async def test_get_module(app: FastAPI, space: ApiSpace) -> None:
-    data = await _ok(app, AGENT, "get_module", _args(space, module="Boutique.Api"))
+    data = await _ok(app, AGENT, "get_module", _args(space, branch="draft", module="Boutique.Api"))
     assert data["view"] == "draft"
     assert data["module"]["project"] == PROJECTS["Api"]
     assert [o["title"] for o in data["objects"]] == ["CommandesController"]
@@ -291,7 +291,7 @@ async def test_le_brouillon_de_la_personne_compte(app: FastAPI, space: ApiSpace)
         nature="console",
     )
     await draft_write(app, space, f"{RAW}/{extra['$id']}", extra)
-    draft = await _ok(app, AGENT, "list_modules", _args(space))
+    draft = await _ok(app, AGENT, "list_modules", _args(space, branch="draft"))
     published = await _ok(app, KEY, "list_modules", _args(space))
     assert "Boutique.Batch" in {m["title"] for m in draft["modules"]}
     assert "Boutique.Batch" not in {m["title"] for m in published["modules"]}
