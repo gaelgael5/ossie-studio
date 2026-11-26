@@ -1649,6 +1649,8 @@ export interface CartoRelationTypeChoice {
   title: string
   archimate: string
   object_schema: Record<string, unknown>
+  /** Le schéma du type (titre, `x-archimate`, propriétés ajoutées), pour le composant de diagramme. */
+  type_schema: Record<string, unknown>
 }
 
 export interface CartoObjectDetail {
@@ -1722,6 +1724,26 @@ export interface CartoModelSummary {
   preview: CartoModelPreview
   dates: CartoDates | null
   state: 'created' | 'modified' | null
+}
+
+/** Un outil de la boîte à outils du diagramme (contrat d'urban-archimate). */
+export interface CartoTool {
+  cle: string
+  libelle: string
+  icone?: string
+}
+
+export interface CartoToolGroup {
+  id: string
+  libelle?: string
+  outils: CartoTool[]
+}
+
+/** Ce que rend le délégué de pose (contrat d'urban-archimate : `DropResult`). */
+export interface CartoDropResult {
+  objet: { chemin: string; data: Record<string, unknown> }
+  schemaType?: { chemin: string; data: Record<string, unknown> }
+  regles?: Record<string, unknown>
 }
 
 export interface CartoModelBody {
@@ -2421,6 +2443,19 @@ export const api = {
   getCartoModel: (spaceId: string, branchId: string, slug: string) =>
     apiFetch<CartoModelSummary & { problems: CartoProblem[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}`,
+    ),
+  /** Le modèle hydraté que reçoit le composant (forme fixée par son contrat). */
+  getCartoModelHydrated: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/hydrate`,
+    ),
+  getCartoModelToolbox: (spaceId: string, branchId: string, slug: string, viewpoint: string) =>
+    apiFetch<{ groupes: CartoToolGroup[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/outils?point_de_vue=${encodeURIComponent(viewpoint)}`,
+    ),
+  dropCartoModelObject: (spaceId: string, branchId: string, slug: string, key: string) =>
+    apiFetch<CartoDropResult>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/pose/${encodeURIComponent(key)}`,
     ),
   createCartoModel: (spaceId: string, branchId: string, body: CartoModelBody) =>
     apiFetch<CartoModelSummary & { revision: string | null }>(

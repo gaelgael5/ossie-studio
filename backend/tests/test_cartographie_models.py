@@ -12,7 +12,9 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from jsonschema import Draft202012Validator
 
+from ossie_studio.cartographie.diagram import contract_schema
 from ossie_studio.spaces.branch_service import KIND_CHILD, db_create_branch
 from tests.conftest import create_plain_user, login
 from tests.space_fixture import ApiSpace, forge_edit, make_api_space
@@ -133,6 +135,10 @@ async def test_modele_a_nettoyer_signale(space: ApiSpace) -> None:
     assert [(p["code"], p["detail"]) for p in detail["problems"]] == [
         ("model_document_unused", "cartographie/objets/document-metier/obj-facture.yaml")
     ]
+    # Il s'ouvre quand même, sans le document en trop (ticket f5421cc7).
+    opened = await space.client.get(_url(space, "/boutique-applicatif/hydrate"))
+    assert opened.status_code == 200, opened.text
+    assert "OBJ-FACTURE" not in {d["data"]["cle"] for d in opened.json()["documents"]}
 
 
 # --- Critère 1 : créer un modèle -------------------------------------------------------------
@@ -240,3 +246,92 @@ async def test_droits(app: FastAPI, space: ApiSpace) -> None:
         assert (await ana.get(_url(space, "/boutique-applicatif"))).status_code == 200
         assert (await ana.post(_url(space), json={"label": "X", "slug": "x"})).status_code == 403
         assert (await ana.delete(_url(space, "/boutique-applicatif"))).status_code == 403
+
+
+# --- Ouvrir un modèle (ticket f5421cc7) : hydratation, boîte à outils, pose ---------------
+
+
+async def test_modele_hydrate_pour_le_composant(space: ApiSpace) -> None:
+    answer = await space.client.get(_url(space, "/boutique-applicatif/hydrate"))
+    assert answer.status_code == 200, answer.text
+    hydrated = answer.json()
+    validator = Draft202012Validator(contract_schema())
+    assert [e.message for e in validator.iter_errors(hydrated)] == []
+    assert [d["data"]["cle"] for d in hydrated["documents"]] == [
+        "APP-BOUTIQUE",
+        "OBJ-COMMANDE",
+        "REL-ECRIT-COMMANDE",
+    ]
+    assert hydrated["graphique"]["data"]["vues"]["VUE-COOPERATION"]["noeuds"]["N1"]["x"] == 40
+    assert hydrated["regles"]["data"]["defaut"]["name"] == "$.nom"
+    # Critère 6 : rien n'est recopié, un objet modifié se voit à la prochaine ouverture.
+    objects = f"{space.base}/cartographie/objets"
+    renamed = await space.client.put(
+        f"{objects}/APP-BOUTIQUE", json={"name": "Boutique web", "documentation": ""}
+    )
+    assert renamed.status_code == 200, renamed.text
+    again = (await space.client.get(_url(space, "/boutique-applicatif/hydrate"))).json()
+    assert again["documents"][0]["data"]["nom"] == "Boutique web"
+
+
+async def test_modele_incoherent_refuse_a_l_ouverture(space: ApiSpace) -> None:
+    forge_edit(
+        space,
+        {
+            "cartographie/modeles/boutique-applicatif.modele.yaml": MODEL.replace(
+                "elements: [APP-BOUTIQUE,", "elements: [APP-ABSENT, APP-BOUTIQUE,"
+            )
+        },
+    )
+    answer = await space.client.get(_url(space, "/boutique-applicatif/hydrate"))
+    assert (answer.status_code, answer.json()["error"]) == (409, "carto_model_invalid")
+    [problem] = answer.json()["error_args"]["problems"]
+    assert (problem["code"], problem["detail"]) == ("model_key_without_document", "APP-ABSENT")
+
+
+async def test_boite_a_outils_objets_existants_par_type(space: ApiSpace) -> None:
+    answer = await space.client.get(_url(space, "/boutique-applicatif/outils"))
+    assert answer.status_code == 200, answer.text
+    groups = answer.json()["groupes"]
+    assert [(g["id"], g["libelle"]) for g in groups] == [
+        ("application", "Application"),
+        ("document-metier", "Document métier"),
+        ("relations", ""),
+    ]
+    assert [t["cle"] for t in groups[1]["outils"]] == ["OBJ-COMMANDE", "OBJ-FACTURE"]
+    assert groups[1]["outils"][1]["libelle"] == "Facture"
+    assert groups[1]["outils"][1]["icone"].startswith("<svg")  # pictogramme du type ArchiMate
+    assert groups[2]["outils"] == [
+        {
+            "cle": "REL-ECRIT-COMMANDE",
+            "libelle": "Écrit la commande (Boutique en ligne → Commande)",
+            "icone": groups[2]["outils"][0]["icone"],
+        }
+    ]
+    # Le point de vue de la vue filtre : « organisation » n'a ni application ni document.
+    organization = await space.client.get(
+        _url(space, "/boutique-applicatif/outils?point_de_vue=organization")
+    )
+    assert [g["id"] for g in organization.json()["groupes"]] == ["relations"]
+
+
+async def test_delegue_de_pose(space: ApiSpace) -> None:
+    answer = await space.client.get(_url(space, "/boutique-applicatif/pose/OBJ-FACTURE"))
+    assert answer.status_code == 200, answer.text
+    dropped = answer.json()
+    assert dropped["objet"] == {
+        "chemin": "cartographie/objets/document-metier/obj-facture.yaml",
+        "data": {"cle": "OBJ-FACTURE", "type": "document-metier", "nom": "Facture"},
+    }
+    assert dropped["schemaType"]["data"]["x-archimate"] == "BusinessObject"
+    assert dropped["regles"]["name"] == "$.nom"  # pas de règle propre : la règle par défaut
+    missing = await space.client.get(_url(space, "/boutique-applicatif/pose/OBJ-ABSENT"))
+    assert (missing.status_code, missing.json()["error"]) == (404, "carto_object_not_found")
+
+
+async def test_relations_permises_avec_le_schema_du_type(space: ApiSpace) -> None:
+    objects = f"{space.base}/cartographie/objets"
+    answer = await space.client.get(f"{objects}/APP-BOUTIQUE/relations-permises?cible=OBJ-FACTURE")
+    [access] = answer.json()["types"]
+    assert access["slug"] == "acces"
+    assert access["type_schema"] == {"title": "Accès", "x-archimate": "Access", "type": "object"}

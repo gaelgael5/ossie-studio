@@ -251,6 +251,19 @@ fichier de règles). Un objet retenu par un modèle ne se supprime pas
 (`object_in_model`, avec le nom des modèles) ; sa fiche liste ses modèles. Le
 journal d'audit compte un modèle et son graphique pour un seul objet (`carto_model`).
 
+**Ouvrir un modèle** (ticket f5421cc7) : la page `/cartographie/modeles/<slug>` crée
+l'élément `<urban-archimate>` (chargé une fois depuis `/api/archimate/urban-archimate.js`,
+`cartographie/urbanArchimate.ts`), lui passe le modèle hydraté (`GET …/{slug}/hydrate`)
+et ses délégués : `toolbox` → `GET …/{slug}/outils?point_de_vue=` (objets existants
+par type avec le pictogramme de leur type ArchiMate, puis les relations existantes ;
+le point de vue filtre ; aucun outil de création), `drop` → `GET …/{slug}/pose/{clé}`
+(objet, schéma de son type, bloc de règles), `allowedRelations` → `GET
+…/objets/{source}/relations-permises?cible=` (types de relation de l'espace avec leur
+`type_schema`). Un modèle « à nettoyer » s'ouvre sans ses documents inutiles ; tout
+autre problème refuse l'ouverture (`model_invalid`, 409). Sans le droit
+« Cartographie : modifier », le diagramme est en lecture seule. Le thème suit Ossie
+par le raccord `urban-archimate { --ua-* }` de `styles.css` (repris du contrat).
+
 **Le composant** est servi par l'application sous `/api/archimate`
 (`urban_archimate.mount`, paquet `urban-archimate==0.1.1`) : `urban-archimate.js` et
 le schéma.

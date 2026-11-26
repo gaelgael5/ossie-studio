@@ -26,7 +26,7 @@ dans `dev`, PR #10).
 | e338fe14 | Format du modèle, du fichier de règles et du fichier graphique | en revue |
 | 00d7cd6d | Fichier de règles par défaut | en revue |
 | 5a05c7bb | Onglet « Modèles » | en revue |
-| f5421cc7 | Ouvrir un modèle | à faire |
+| f5421cc7 | Ouvrir un modèle | en revue |
 | c3dd045c | Enregistrer un modèle | à faire |
 | be89037a | Primitives MCP modèles et vues | à faire |
 | cb9d99b3 | Vérification d'intention (avec Gael) | à faire |
@@ -86,3 +86,17 @@ dans `dev`, PR #10).
 - `diagram.delete_object` vérifie les modèles avant `space.delete_object` (les
   modèles dépendent de l'espace, pas l'inverse : pas d'import circulaire).
 - Catalogue servi à l'écran : les points de vue en plus (`viewpoints`).
+
+## Notes techniques (ouvrir un modèle, f5421cc7)
+
+- Vérifié avec le vrai composant (0.1.1) dans la page : positions du fichier graphique,
+  thème raccordé, boîte à outils d'Ossie filtrée par le point de vue, pose par le
+  délégué.
+- **Pas d'outil « type de relation »** dans la boîte à outils : selon le contrat, tout
+  outil passe par le délégué de pose, qui rend un objet existant. Une nouvelle relation
+  se trace avec la flèche « relier » du composant, qui appelle `allowedRelations`.
+- **Modèle à nettoyer** : le composant refuse un document sans objet retenu ; Ossie ne
+  le transmet pas (`CLEANED_ON_OPEN`), l'enregistrement le retirera du modèle.
+- Défauts vus côté composant (à proposer à Gael pour `urban-archimate`) : libellé d'un
+  élément qui en contient d'autres dessiné au centre, masqué par ses enfants ; contour
+  noir de focus sur la surface après un clic.

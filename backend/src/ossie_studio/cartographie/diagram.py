@@ -72,6 +72,8 @@ STANDARD_RULES = "standard"
 DEFAULT_LANG = "fr"
 # Signalé sans refuser : une entrée du graphique qui ne correspond à rien est ignorée.
 WARNINGS = frozenset({"graphic_entry_unknown"})
+# N'empêche pas d'ouvrir un modèle : le document en trop n'est pas transmis.
+CLEANED_ON_OPEN = frozenset({"model_document_unused"})
 
 # Ordre d'écriture des clés (celui du contrat).
 _NODE_GEOMETRY = ("x", "y", "relatif", "dx", "dy", "l", "h")
@@ -955,18 +957,92 @@ def preview(diagram: Diagram, graphic: Graphic, space: Cartographie) -> dict[str
     return {"boxes": boxes, "links": links}
 
 
+# --- Boîte à outils et délégué de pose (ticket f5421cc7) ----------------------------------
+
+# Le groupe des relations existantes : son libellé est donné par l'écran (traduit).
+RELATIONS_GROUP = "relations"
+
+
+def toolbox(
+    space: Cartographie, viewpoint: str = "", cat: Catalog | None = None
+) -> list[dict[str, Any]]:
+    """La boîte à outils d'une vue : un outil (libellé, pictogramme, clé) par objet
+    existant de l'espace, rangé par type, puis les relations existantes. Le point de
+    vue de la vue (s'il en a un) filtre les types. Aucun outil de création d'objet
+    (Gael : « juste ceux qui existent déjà ») ; notes et cadres viennent du composant."""
+    cat = cat or catalog()
+    vp = viewpoints().get(viewpoint) if viewpoint else None
+    groups: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
+    for ctype in sorted(space.types.values(), key=lambda t: (t.title.casefold(), t.slug)):
+        base = cat.get(ctype.archimate)
+        if base is None or (vp is not None and not vp.allows(base.name)):
+            continue
+        objects = sorted(
+            space.objects_of(ctype.slug), key=lambda po: (po[1].name.casefold(), po[1].key)
+        )
+        if base.is_relation:
+            relations += [_relation_tool(space, obj, base.icon()) for _path, obj in objects]
+        elif objects:
+            tools = [
+                {"cle": o.key, "libelle": o.name or o.key, "icone": base.icon()}
+                for _p, o in objects
+            ]
+            groups.append({"id": ctype.slug, "libelle": ctype.title, "outils": tools})
+    if relations:
+        relations.sort(key=lambda tool: str(tool["libelle"]).casefold())
+        groups.append({"id": RELATIONS_GROUP, "libelle": "", "outils": relations})
+    return groups
+
+
+def _relation_tool(space: Cartographie, obj: CartoObject, icon: str) -> dict[str, Any]:
+    """Une relation existante : son nom, puis ses deux extrémités par leur nom."""
+
+    def name(key: str | None) -> str:
+        found = space.objects.get(key or "")
+        return found[1].name if found else str(key)
+
+    label = f"{obj.name or obj.key} ({name(obj.source)} → {name(obj.target)})"
+    return {"cle": obj.key, "libelle": label, "icone": icon}
+
+
+def drop(
+    read: DiagramRead, space: Cartographie, key: str, cat: Catalog | None = None
+) -> dict[str, Any]:
+    """Ce que rend le délégué de pose pour une clé : l'objet (chemin et contenu), le
+    schéma de son type, et son bloc de règles (règle propre au type, sinon celle de
+    son type ArchiMate, sinon la règle par défaut). Refus nommé si l'objet n'existe pas."""
+    found = space.objects.get(key)
+    if found is None:
+        raise CartographieError("object_not_found", status=404, key=key)
+    path, obj = found
+    out: dict[str, Any] = {"objet": {"chemin": path, "data": obj.document()}}
+    ctype = space.types.get(obj.type)
+    if ctype is not None:
+        out["schemaType"] = {"chemin": type_path(ctype.slug), "data": ctype.document()}
+    block = rule_block(with_default(read.rules or Rules(), space, cat), obj, space, cat)
+    if block is not None:
+        out["regles"] = block
+    return out
+
+
 # --- Le modèle hydraté (entrée du composant) ----------------------------------------------
 
 
 def hydrate(read: DiagramRead, space: Cartographie) -> dict[str, Any]:
     """Le modèle hydraté que reçoit `urban-archimate` : chaque référence (règles,
     graphique, schémas des types présents, objets) porte son contenu en `data`.
-    Refus nommé « model_invalid » (avec les problèmes) si le modèle ne s'ouvre pas."""
-    if read.errors or read.diagram is None or read.rules is None:
-        raise CartographieError("model_invalid", status=409, problems=read.errors, slug=read.slug)
+
+    Un modèle « à nettoyer » s'ouvre quand même : un document sans objet retenu n'est
+    pas transmis (le composant le refuserait), et l'enregistrement le retire du
+    modèle. Tout autre problème refuse l'ouverture (« model_invalid », avec eux)."""
+    blocking = [p for p in read.errors if p.code not in CLEANED_ON_OPEN]
+    if blocking or read.diagram is None or read.rules is None:
+        raise CartographieError("model_invalid", status=409, problems=blocking, slug=read.slug)
     diagram = read.diagram
     by_path = {p: o for p, o in space.objects.values()}
-    objects = [(doc, by_path[doc]) for doc in diagram.documents]
+    retained = set(diagram.elements) | set(diagram.relationships)
+    objects = [(doc, by_path[doc]) for doc in diagram.documents if by_path[doc].key in retained]
     used = list(dict.fromkeys(obj.type for _doc, obj in objects))
     out: dict[str, Any] = {"id": diagram.id}
     if diagram.name:

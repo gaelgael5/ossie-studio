@@ -4065,3 +4065,47 @@ td.cell-error {
   margin: 0;
   padding-left: 18px;
 }
+
+/* Page d'un modèle (ticket f5421cc7) : le diagramme occupe la page. */
+.carto-model-canvas {
+  height: calc(100vh - 290px);
+  min-height: 480px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+/* Raccord du composant urban-archimate (son contrat, « Thème ») : un changement de la
+   palette d'Ossie se propage au composant. */
+urban-archimate {
+  --ua-police: var(--font-ui);
+  --ua-police-mono: var(--mono);
+  --ua-texte: var(--text);
+  --ua-texte-secondaire: var(--muted);
+  --ua-fond: var(--bg);
+  --ua-trame-point: var(--grid-dot);
+  --ua-fond-panneau: var(--panel);
+  --ua-fond-discret: var(--surface-muted);
+  --ua-bordure: var(--border);
+  --ua-bordure-forte: var(--border-strong);
+  --ua-accent: var(--primary);
+  --ua-accent-survol: var(--primary-hover);
+  --ua-accent-texte: var(--primary-fg);
+  --ua-accent-fond: var(--chip-bg);
+  --ua-accent-fond-texte: var(--chip-fg);
+  --ua-erreur: var(--danger-fg);
+  --ua-erreur-fond: var(--danger-bg);
+  --ua-rayon: var(--radius);
+  --ua-rayon-sm: var(--radius-sm);
+  --ua-ombre: var(--shadow);
+  /* notation : blocs et filets d'Ossie ; les lignes de couche gardent la
+     palette du RailMap (couleurs de données, sans token côté Ossie) */
+  --ua-notation-autre: var(--muted);
+  --ua-notation-element: var(--panel);
+  --ua-notation-note: var(--panel);
+  --ua-notation-trait: var(--border-strong);
+  --ua-notation-relation: var(--muted);
+  --ua-notation-texte: var(--text);
+  --ua-notation-fond: var(--panel);
+}

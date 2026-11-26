@@ -1,5 +1,6 @@
 """Modèles de la cartographie : liste en vignettes, créer, supprimer (epic
-« Cartographie — modèles et vues », ticket 5a05c7bb).
+« Cartographie — modèles et vues », ticket 5a05c7bb) ; ouvrir dans le composant
+`urban-archimate` : modèle hydraté, boîte à outils, délégué de pose (ticket f5421cc7).
 
 Un modèle, c'est trois fichiers (voir `cartographie.diagram`) : le modèle et son
 graphique, créés et supprimés ensemble, et un fichier de règles, partagé entre
@@ -11,6 +12,7 @@ Git de la branche ; un modèle du seul brouillon n'en a pas encore.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -32,13 +34,16 @@ from ossie_studio.cartographie.diagram import (
     Graphic,
     View,
     delete_diagram,
+    drop,
     graphic_path,
+    hydrate,
     list_diagrams,
     list_rules,
     preview,
     read_diagram,
     rules_path,
     save_diagram,
+    toolbox,
 )
 from ossie_studio.cartographie.errors import CartographieError, problem_payload
 from ossie_studio.cartographie.history import FileDates
@@ -279,3 +284,86 @@ async def delete_model(
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     return {"deleted": slug, "revision": revision}
+
+
+@router.get("/{slug}/hydrate")
+async def hydrated_model(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+) -> dict[str, Any]:
+    """Le modèle hydraté que reçoit le composant : le document du modèle, chaque
+    référence complétée par son contenu (règles avec le bloc `defaut`, graphique,
+    schémas des types présents, objets). Un modèle incohérent est refusé
+    (« carto_model_invalid », avec les problèmes)."""
+
+    def read(root: Path) -> dict[str, Any]:
+        space = read_cartographie(root)
+        return hydrate(read_diagram(root, slug, space), space)
+
+    return await _read(conn, crypto, workdir, space_id, branch_id, user, read)
+
+
+@router.get("/{slug}/outils")
+async def model_toolbox(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    point_de_vue: str = "",
+) -> dict[str, Any]:
+    """La boîte à outils de la vue courante (délégué `toolbox`) : les objets et les
+    relations existants de l'espace, filtrés par le point de vue de la vue."""
+
+    def read(root: Path) -> dict[str, Any]:
+        read_diagram(root, slug)  # le modèle doit exister
+        return {"groupes": toolbox(read_cartographie(root), point_de_vue)}
+
+    return await _read(conn, crypto, workdir, space_id, branch_id, user, read)
+
+
+@router.get("/{slug}/pose/{key}")
+async def model_drop(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    user: CartographieRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    slug: str,
+    key: str,
+) -> dict[str, Any]:
+    """Le délégué de pose : l'objet posé, le schéma de son type et son bloc de règles."""
+
+    def read(root: Path) -> dict[str, Any]:
+        space = read_cartographie(root)
+        return drop(read_diagram(root, slug, space), space, key)
+
+    return await _read(conn, crypto, workdir, space_id, branch_id, user, read)
+
+
+async def _read(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    user: CartographieRead,
+    fn: Callable[[Path], dict[str, Any]],
+) -> dict[str, Any]:
+    """Une lecture de la branche (vue de la personne), refus nommés compris."""
+    target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
+    try:
+        result: dict[str, Any] = await target.read(fn)
+    except CartographieError as exc:
+        raise api_error(exc) from None
+    except WorkdirError as exc:
+        raise ApiError(exc.code, status_code=502) from None
+    return result

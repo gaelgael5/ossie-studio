@@ -454,6 +454,9 @@ async def allowed_relation_types(
                 "title": t.title,
                 "archimate": t.archimate,
                 "object_schema": properties_schema(t, cat.get(t.archimate)),
+                # Le schéma du type, tel que le reçoit le composant de diagramme
+                # (délégué `allowedRelations` : grille de propriétés d'une relation).
+                "type_schema": t.document(),
             }
             for t in types
         ],
