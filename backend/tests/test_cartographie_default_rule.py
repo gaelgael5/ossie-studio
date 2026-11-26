@@ -184,6 +184,7 @@ def test_regle_par_defaut_tiree_du_catalogue_et_des_types() -> None:
     assert default_rule(space) == {
         "name": "$.nom",
         "documentation": "$.documentation",
+        "junctionType": "$.proprietes.jonction",
         "accessType": "$.proprietes.acces",
         "modifier": "$.proprietes.modificateur",
         "isDirected": "$.proprietes.dirigee",

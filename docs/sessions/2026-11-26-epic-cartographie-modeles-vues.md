@@ -129,3 +129,11 @@ dans `dev`, PR #10).
   quels modèles apparaît un objet » passe par `list_carto_models(contains=…)` et par le
   champ `models` de `get_carto_object`.
 - Aucune coordonnée : `get_carto_model` ne lit pas le graphique dans sa réponse.
+
+## Passage à urban-archimate 0.1.2 (26 novembre)
+
+- Publiée par Gael. Contrat : seule la jonction change (`Junction` + `proprietes.jonction`,
+  clé de règle `junctionType`) ; JSON Schema et types inchangés. La version apporte aussi
+  le glisser-déposer d'un outil sur le dessin et l'ancrage des liens au bord des formes.
+- Ossie : `urban-archimate==0.1.2`, `exchange: junctionType` sur l'attribut `jonction` du
+  catalogue (la règle par défaut le transmet).

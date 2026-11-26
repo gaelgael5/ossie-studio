@@ -213,7 +213,8 @@ catalogue porte ce nom, `exchange`), et chaque propriété ajoutée à un type d
 elle est mise dans le bloc `defaut` du modèle hydraté (`with_default`), sauf si le
 fichier de règles a son propre `defaut`. Le composant ne reçoit donc jamais de modèle
 sans `defaut`. Créer un modèle dont le fichier de règles n'existe pas le crée vide
-(`lang: fr`). La jonction attend le ticket 759f0fd8 d'`urban-archimate`.
+(`lang: fr`). La jonction (élément) transmet son type par `junctionType` ←
+`$.proprietes.jonction` (`urban-archimate` 0.1.2 et plus).
 
 **Écriture déterministe** : clés dans l'ordre du contrat, valeurs vides omises, une
 géométrie par ligne (`N1: {x: 40, y: 60, l: 320, h: 180}`), un nombre entier écrit en
@@ -283,5 +284,5 @@ sa clé et son nom, note, cadre, imbrication — et connexions ; **jamais le des
 `get_carto_object` donne aussi les modèles qui retiennent l'objet (`models`).
 
 **Le composant** est servi par l'application sous `/api/archimate`
-(`urban_archimate.mount`, paquet `urban-archimate==0.1.1`) : `urban-archimate.js` et
+(`urban_archimate.mount`, paquet `urban-archimate==0.1.2`) : `urban-archimate.js` et
 le schéma.
