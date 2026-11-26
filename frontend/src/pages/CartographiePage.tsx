@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
 import type { ArchimateTypeInfo, CartoCatalog, CartoTypeSummary } from '../apiClient'
 import { errorMessages } from '../errors'
@@ -16,10 +16,11 @@ import { ObjectsTab, NEW_OBJECT_PATH } from '../cartographie/ObjectsTab'
 import { ModelsTab, MODELS_TAB_PATH } from '../cartographie/ModelsTab'
 import { NewModelDialog } from '../cartographie/NewModelDialog'
 
-// Écran « Cartographie » (epic « Cartographie — types et objets », ticket e7521e80) :
-// les types de l'espace en vignettes, un filtre, « + Ajouter » ; onglet Objets
-// (ticket 6f71bcba), à l'adresse /cartographie/objets ; onglet Modèles (epic
-// « Cartographie — modèles et vues », ticket 5a05c7bb), /cartographie/modeles. Une seule couleur,
+// Écrans de la cartographie (epic « Cartographie — types et objets ») : Types
+// (ticket e7521e80, /cartographie/types), Objets (ticket 6f71bcba,
+// /cartographie/objets) et Modèles (ticket 5a05c7bb, /cartographie/modeles).
+// D'abord des onglets d'un même écran, ce sont trois écrans indépendants ouverts
+// depuis le menu « Cartographie ▾ » du haut (ticket 1bea81d8, Gael). Une seule couleur,
 // celle de l'application (Gael : pas de couleurs de couche ArchiMate) ; la couche
 // se lit dans le texte. Les écritures vont dans le brouillon de la personne, sur
 // toute branche (comme les Référentiels) ; la barre du brouillon est celle du Layout.
@@ -51,6 +52,9 @@ export function CartographiePage() {
 }
 
 export const OBJECTS_TAB_PATH = '/cartographie/objets'
+export const TYPES_PATH = '/cartographie/types'
+
+type Screen = 'types' | 'objects' | 'models'
 
 
 function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: string }) {
@@ -59,10 +63,11 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const canWrite = sessionCapabilities(session.data).includes('cartographie:write')
   const [adding, setAdding] = useState(false)
   const [newModel, setNewModel] = useState(false)
-  const navigate = useNavigate()
   const pathname = useLocation().pathname
-  const tab = pathname.startsWith(OBJECTS_TAB_PATH) ? 'objects' : pathname.startsWith(MODELS_TAB_PATH) ? 'models' : 'types'
+  // /cartographie (ancien écran à onglets) ouvre les Objets.
+  const tab: Screen = pathname.startsWith(TYPES_PATH) ? 'types' : pathname.startsWith(MODELS_TAB_PATH) ? 'models' : 'objects'
   const objectsTab = tab === 'objects'
+  // Chaque écran ne charge que ce qu'il affiche (le catalogue, petit, sert partout).
   const catalog = useQuery({
     queryKey: ['carto-catalog'],
     queryFn: () => api.getCartoCatalog(spaceId, branchId),
@@ -71,26 +76,31 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const list = useQuery({
     queryKey: ['carto-types', spaceId, branchId],
     queryFn: () => api.listCartoTypes(spaceId, branchId),
+    enabled: tab !== 'models',
   })
   const objects = useQuery({
     queryKey: ['carto-objects', spaceId, branchId],
     queryFn: () => api.listCartoObjects(spaceId, branchId),
+    enabled: tab !== 'types',
   })
   const models = useQuery({
     queryKey: ['carto-models', spaceId, branchId],
     queryFn: () => api.listCartoModels(spaceId, branchId),
+    enabled: tab === 'models',
   })
-  const editable = canWrite && !(list.data?.readonly ?? false)
+  const editable = canWrite && !(list.data?.readonly ?? objects.data?.readonly ?? models.data?.readonly ?? false)
   const types = list.data?.types ?? []
   const errors = [catalog.error, list.error, objects.error, models.error].flatMap((e) =>
     e ? errorMessages(t, e) : [],
   )
   const subtitle = { types: 'cartoSubtitle', objects: 'cartoObjectsSubtitle', models: 'cartoModelsSubtitle' }[tab]
+  const title = { types: 'cartoTabTypes', objects: 'cartoTabObjects', models: 'cartoTabModels' }[tab]
   return (
     <main>
+      <div className="breadcrumb">{t('cartoTitle')}</div>
       <div className="page-head">
         <div>
-          <h1 className="page-title">{t('cartoTitle')}</h1>
+          <h1 className="page-title">{t(title)}</h1>
           <p className="page-sub">{t(subtitle)}</p>
         </div>
         {editable && objectsTab ? (
@@ -109,40 +119,10 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           </button>
         ) : null}
       </div>
-      <div className="tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          className={`tab${tab === 'types' ? ' active' : ''}`}
-          aria-selected={tab === 'types'}
-          onClick={() => navigate('/cartographie')}
-        >
-          {t('cartoTabTypes')}
-          {list.data ? <span className="muted">{types.length}</span> : null}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`tab${objectsTab ? ' active' : ''}`}
-          aria-selected={objectsTab}
-          onClick={() => navigate(OBJECTS_TAB_PATH)}
-        >
-          {t('cartoTabObjects')}
-          {objects.data ? <span className="muted">{objects.data.objects.length}</span> : null}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`tab${tab === 'models' ? ' active' : ''}`}
-          aria-selected={tab === 'models'}
-          onClick={() => navigate(MODELS_TAB_PATH)}
-        >
-          {t('cartoTabModels')}
-          {models.data ? <span className="muted">{models.data.models.length}</span> : null}
-        </button>
-      </div>
       <ErrorList messages={errors} />
-      {list.isLoading || catalog.isLoading ? <p className="muted">{t('loading')}</p> : null}
+      {list.isLoading || catalog.isLoading || objects.isLoading || models.isLoading ? (
+        <p className="muted">{t('loading')}</p>
+      ) : null}
       {catalog.data && list.data && tab === 'types' ? (
         <TypesTab catalog={catalog.data} types={types} editable={editable} onAdd={() => setAdding(true)} />
       ) : null}

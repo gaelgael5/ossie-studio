@@ -274,7 +274,7 @@ function ObjectEditor({
             </Link>
           )}
           <div className="breadcrumb">
-            <Link to="/cartographie/objets">{t('cartoTitle')}</Link> › {t('cartoTabObjects')} ›{' '}
+            {t('cartoTitle')} › <Link to="/cartographie/objets">{t('cartoTabObjects')}</Link> ›{' '}
             {isNew ? t('cartoNewObjectTitle') : detail.key}
           </div>
         </div>

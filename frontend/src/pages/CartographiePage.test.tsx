@@ -92,9 +92,9 @@ function setup(options: { capabilities?: string[]; types?: unknown[] } = {}) {
   )
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryRouter initialEntries={['/cartographie']}>
+      <MemoryRouter initialEntries={['/cartographie/types']}>
         <Routes>
-          <Route path="/cartographie" element={<CartographiePage />} />
+          <Route path="/cartographie/types" element={<CartographiePage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,

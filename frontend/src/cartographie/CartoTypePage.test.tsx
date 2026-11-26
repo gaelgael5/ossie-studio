@@ -104,7 +104,7 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <MemoryRouter initialEntries={['/cartographie/types/processus-de-vente']}>
         <Routes>
-          <Route path="/cartographie" element={<p>liste des types</p>} />
+          <Route path="/cartographie/types" element={<p>liste des types</p>} />
           <Route path="/cartographie/types/:slug" element={<CartoTypePage />} />
         </Routes>
       </MemoryRouter>
@@ -130,7 +130,7 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
     expect(screen.getAllByText('Métier').length).toBeGreaterThan(0)
     expect(screen.getByText(/repose sur Processus métier \(ArchiMate\)/)).toBeInTheDocument()
     expect(screen.getByText(/repose sur/)).toHaveTextContent('cartographie/types/processus-de-vente.schema.yaml · 23 objets')
-    expect(screen.getByRole('link', { name: '← Retour aux types' })).toHaveAttribute('href', '/cartographie')
+    expect(screen.getByRole('link', { name: '← Retour aux types' })).toHaveAttribute('href', '/cartographie/types')
     const base = screen.getByText('Propriétés de base ArchiMate · lecture seule').closest('.panel') as HTMLElement
     for (const name of ['cle', 'nom', 'documentation']) expect(within(base).getByText(name)).toBeInTheDocument()
     expect(within(base).queryByRole('textbox')).not.toBeInTheDocument()
