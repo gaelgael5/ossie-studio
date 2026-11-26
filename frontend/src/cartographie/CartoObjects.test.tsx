@@ -110,6 +110,7 @@ function setup(url: string, options: { capabilities?: string[]; app?: Record<str
       else if (path === `${BASE}/types`) body = { readonly: false, types: TYPES }
       else if (path === `${BASE}/types/application`) body = { object_schema: APP_SCHEMA }
       else if (path === `${BASE}/objets` && method === 'GET') body = { readonly: false, objects: OBJECTS }
+      else if (path === `${BASE}/modeles`) body = { readonly: false, models: [], rules: [] }
       else if (path === `${BASE}/objets` && method === 'POST') {
         const sent = JSON.parse(String(init?.body)) as Record<string, unknown>
         body = { ...appDetail(sent.properties as Record<string, unknown>), key: sent.key, name: sent.name, state: 'created', dates: null, revision: 'draft:1' }
@@ -122,6 +123,7 @@ function setup(url: string, options: { capabilities?: string[]; app?: Record<str
       else if (path === `${BASE}/objets/PRC-PRISE-COMMANDE`) body = PRISE
       else if (path === `${BASE}/objets/PRC-PAIEMENT` && method === 'DELETE') body = { deleted: 'PRC-PAIEMENT' }
       else if (path === `${BASE}/objets/PRC-PAIEMENT`) body = { ...PRISE, key: 'PRC-PAIEMENT', name: 'Paiement en ligne', relations: { outgoing: [], incoming: [] } }
+      else if (path === `${BASE}/objets/OBJ-RETENU`) body = { ...PRISE, key: 'OBJ-RETENU', name: 'Objet retenu', relations: { outgoing: [], incoming: [] }, models: [{ slug: 'boutique', name: 'Boutique — vue applicative' }] }
       else if (path.startsWith(`${BASE}/objets/`)) {
         // Toute autre fiche (relation ouverte, objet créé) : une fiche sans relation.
         const key = decodeURIComponent(path.split('/').at(-1)!)
@@ -284,6 +286,15 @@ describe('Cartographie — fiche d’un objet (ticket 6f71bcba)', () => {
     await screen.findByRole('heading', { name: 'Prise de commande' })
     expect(screen.getByRole('button', { name: 'Supprimer' })).toBeDisabled()
     expect(screen.getByRole('note')).toHaveTextContent('REL-ECRIT-COMMANDE')
+  })
+
+  it('retenu par un modèle : le modèle est nommé, la suppression est refusée (ticket 5a05c7bb, critère 4)', async () => {
+    setup('/cartographie/objets/OBJ-RETENU')
+    await screen.findByRole('heading', { name: 'Objet retenu' })
+    expect(screen.getByRole('button', { name: 'Supprimer' })).toBeDisabled()
+    const section = screen.getByRole('region', { name: 'Modèles' })
+    expect(within(section).getByRole('link', { name: 'Boutique — vue applicative' })).toHaveAttribute('href', '/cartographie/modeles/boutique')
+    expect(within(section).getByRole('note')).toHaveTextContent('Retenu par le modèle Boutique — vue applicative')
   })
 
   it('supprimer un objet non utilisé', async () => {

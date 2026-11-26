@@ -25,7 +25,7 @@ dans `dev`, PR #10).
 |---|---|---|
 | e338fe14 | Format du modèle, du fichier de règles et du fichier graphique | en revue |
 | 00d7cd6d | Fichier de règles par défaut | en revue |
-| 5a05c7bb | Onglet « Modèles » | à faire |
+| 5a05c7bb | Onglet « Modèles » | en revue |
 | f5421cc7 | Ouvrir un modèle | à faire |
 | c3dd045c | Enregistrer un modèle | à faire |
 | be89037a | Primitives MCP modèles et vues | à faire |
@@ -72,3 +72,17 @@ dans `dev`, PR #10).
   n'applique les attributs qu'aux relations, et le nom attend le ticket 759f0fd8.
 - « Créé vide » : le fichier de règles créé avec un modèle porte seulement `lang: fr`
   (la langue du modèle produit par le composant, `en` sinon).
+
+## Notes techniques (onglet « Modèles », 5a05c7bb)
+
+- Maquette « Cartographie — onglet Modèles en vignettes, fenêtre « Nouveau modèle » »
+  (1922071d). Son onglet « Processus » relève d'un autre epic : pas fait ici.
+- Aperçu des vignettes calculé côté serveur (`diagram.preview`) avec les mêmes règles
+  de position que le composant (`src/model/geometry.ts` : relatif, taille par défaut
+  120 × 55, grille de secours) ; dessiné en SVG, trait sarcelle sur la trame.
+- « Branche racine en lecture seule » (critère 5) : remplacé par la décision de Gael
+  du 26 novembre (brouillon sur toute branche) ; sans le droit « Cartographie :
+  modifier », vignettes visibles et ouvrables, sans création ni suppression.
+- `diagram.delete_object` vérifie les modèles avant `space.delete_object` (les
+  modèles dépendent de l'espace, pas l'inverse : pas d'import circulaire).
+- Catalogue servi à l'écran : les points de vue en plus (`viewpoints`).

@@ -1567,6 +1567,8 @@ export interface CartoCatalog {
   layers: { key: string; label: string }[]
   base: { name: string; type: string; required: boolean }[]
   types: ArchimateTypeInfo[]
+  /** Les points de vue ArchiMate (identifiant d'Archi, libellé français). */
+  viewpoints?: { id: string; label: string }[]
 }
 
 export interface CartoTypeSummary {
@@ -1668,6 +1670,8 @@ export interface CartoObjectDetail {
   dates: CartoDates | null
   state: 'created' | 'modified' | null
   problems: { path: string; code: string; detail: string; field: string }[]
+  /** Les modèles qui le retiennent (epic « Cartographie — modèles et vues »). */
+  models: { slug: string; name: string }[]
 }
 
 export interface CartoObjectBody {
@@ -1680,6 +1684,53 @@ export interface CartoTypePreview {
   path: string
   yaml: string
   problems: { path: string; code: string; detail: string; field: string }[]
+}
+
+// --- Modèles de la cartographie (epic « Cartographie — modèles et vues », ticket 5a05c7bb) ---
+
+export interface CartoProblem {
+  path: string
+  code: string
+  detail: string
+  field: string
+}
+
+/** L'aperçu de la première vue d'un modèle : cadres en coordonnées absolues et traits. */
+export interface CartoModelPreview {
+  boxes: { x: number; y: number; l: number; h: number; label: string; kind: 'element' | 'note' | 'cadre' }[]
+  links: { x1: number; y1: number; x2: number; y2: number }[]
+}
+
+export interface CartoModelSummary {
+  slug: string
+  id: string
+  name: string
+  description: string
+  path: string
+  graphic: string
+  rules: string
+  /** Le fichier de règles sans son dossier ni son suffixe (`standard`). */
+  rules_name: string
+  views: { id: string; name: string; viewpoint: string }[]
+  elements: number
+  relationships: number
+  /** Les clés retenues (objets puis relations), pour « contient l'objet ». */
+  keys: string[]
+  /** Documents chargés sans objet retenu : le modèle est à nettoyer. */
+  unused_documents: number
+  errors: number
+  preview: CartoModelPreview
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+}
+
+export interface CartoModelBody {
+  label: string
+  slug: string
+  description: string
+  rules: string
+  view: string
+  viewpoint: string
 }
 
 // --- Référentiels (epic « Référentiels », ticket 829a86a7) ---------------------------------
@@ -2361,6 +2412,24 @@ export const api = {
   deleteCartoObject: (spaceId: string, branchId: string, key: string) =>
     apiFetch<{ deleted: string; revision: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      { method: 'DELETE' },
+    ),
+  listCartoModels: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; models: CartoModelSummary[]; rules: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles`,
+    ),
+  getCartoModel: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CartoModelSummary & { problems: CartoProblem[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}`,
+    ),
+  createCartoModel: (spaceId: string, branchId: string, body: CartoModelBody) =>
+    apiFetch<CartoModelSummary & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  deleteCartoModel: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}`,
       { method: 'DELETE' },
     ),
   createCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>

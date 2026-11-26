@@ -78,6 +78,7 @@ function setup(options: { capabilities?: string[]; types?: unknown[] } = {}) {
       else if (path === `${BASE}/catalogue`) body = CATALOG
       else if (path === `${BASE}/types` && method === 'GET') body = { readonly: false, types: options.types ?? TYPES }
       else if (path === `${BASE}/objets`) body = { readonly: false, objects: [] }
+      else if (path === `${BASE}/modeles`) body = { readonly: false, models: [], rules: [] }
       else if (path === `${BASE}/types/apercu`) {
         const req = JSON.parse(String(init?.body)) as { label: string; slug: string; archimate: string }
         body = {

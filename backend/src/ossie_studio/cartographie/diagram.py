@@ -53,6 +53,7 @@ from ossie_studio.cartographie.errors import CartographieError, Problem
 from ossie_studio.cartographie.model import CARTO_DIR, CartoObject, type_path
 from ossie_studio.cartographie.rules import viewpoints
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
+from ossie_studio.cartographie.space import delete_object as delete_space_object
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.slugs import is_valid_slug
 
@@ -836,6 +837,122 @@ def save_rules(root: Path, slug: str, rules: Rules, cat: Catalog | None = None) 
     (root / RULES_DIR).mkdir(parents=True, exist_ok=True)
     (root / path).write_text(dump_rules(rules), encoding="utf-8")
     return rules
+
+
+def delete_diagram(root: Path, slug: str) -> None:
+    """Supprime un modèle et son graphique ; jamais les objets, ni le fichier de
+    règles (d'autres modèles peuvent s'en servir)."""
+    path = diagram_path(slug)
+    if not is_valid_slug(slug) or not (root / path).is_file():
+        raise CartographieError("model_not_found", status=404, slug=slug)
+    (root / path).unlink()
+    graphic = root / graphic_path(slug)
+    if graphic.is_file():
+        graphic.unlink()
+
+
+def list_rules(root: Path) -> list[str]:
+    """Les slugs des fichiers de règles de la branche."""
+    folder = root / RULES_DIR
+    if not folder.is_dir():
+        return []
+    return sorted(f.name[: -len(RULES_SUFFIX)] for f in folder.glob(f"*{RULES_SUFFIX}"))
+
+
+def models_retaining(root: Path, key: str) -> list[tuple[str, str]]:
+    """Les modèles (slug, nom) qui retiennent un objet ou une relation."""
+    out: list[tuple[str, str]] = []
+    for slug in list_diagrams(root):
+        try:
+            diagram = parse_diagram((root / diagram_path(slug)).read_text(encoding="utf-8"))
+        except (CartographieError, UnicodeDecodeError):
+            continue
+        if key in diagram.elements or key in diagram.relationships:
+            out.append((slug, diagram.name or diagram.id))
+    return out
+
+
+def delete_object(root: Path, key: str, cat: Catalog | None = None) -> None:
+    """Supprime un objet : refusé tant qu'un modèle le retient (« object_in_model »,
+    avec les modèles), puis comme `space.delete_object` (relations qui l'utilisent)."""
+    models = models_retaining(root, key)
+    if models:
+        raise CartographieError(
+            "object_in_model",
+            status=409,
+            key=key,
+            models=", ".join(name for _slug, name in models),
+            slugs=[slug for slug, _name in models],
+        )
+    delete_space_object(root, key, cat)
+
+
+# --- L'aperçu d'une vignette ----------------------------------------------------------------
+
+# Taille d'un nœud sans `l`/`h` et pas de la mise en place de secours : ceux du
+# composant (`src/model/geometry.ts`), pour que l'aperçu ressemble au dessin.
+DEFAULT_NODE_SIZE = (120, 55)
+_FALLBACK_STEP = (160, 95)
+
+
+def resolve_geometry(view: View, drawing: ViewGraphic | None) -> dict[str, tuple[float, ...]]:
+    """La géométrie absolue (x, y, largeur, hauteur) de chaque nœud d'une vue :
+    position absolue, relative à un autre nœud, ou, sans géométrie, une grille
+    dans l'ordre du modèle. Une géométrie circulaire retombe sur la grille."""
+    geometries = drawing.nodes if drawing else {}
+    order = [node.id for _w, node in view.walk()]
+    resolved: dict[str, tuple[float, ...]] = {}
+
+    def resolve(node_id: str, seen: frozenset[str]) -> tuple[float, ...]:
+        if node_id in resolved:
+            return resolved[node_id]
+        geo = geometries.get(node_id) or {}
+        width = geo.get("l", DEFAULT_NODE_SIZE[0])
+        height = geo.get("h", DEFAULT_NODE_SIZE[1])
+        parent = geo.get("relatif")
+        if parent in order and parent not in seen:
+            px, py, *_ = resolve(parent, seen | {node_id})
+            x, y = px + geo.get("dx", 0), py + geo.get("dy", 0)
+        elif "x" in geo or "y" in geo:
+            x, y = geo.get("x", 0), geo.get("y", 0)
+        else:
+            index = order.index(node_id) if node_id in order else 0
+            x = 20 + (index % 5) * _FALLBACK_STEP[0]
+            y = 20 + (index // 5) * _FALLBACK_STEP[1]
+        resolved[node_id] = (x, y, width, height)
+        return resolved[node_id]
+
+    for node_id in order:
+        resolve(node_id, frozenset())
+    return resolved
+
+
+def preview(diagram: Diagram, graphic: Graphic, space: Cartographie) -> dict[str, Any]:
+    """L'aperçu de la première vue, pour une vignette : des cadres (géométrie
+    absolue, libellé, nature) et des traits d'un centre à l'autre."""
+    if not diagram.views:
+        return {"boxes": [], "links": []}
+    view = diagram.views[0]
+    geometry = resolve_geometry(view, graphic.views.get(view.id))
+    boxes: list[dict[str, Any]] = []
+    for _w, node in view.walk():
+        x, y, width, height = geometry[node.id]
+        if node.element is not None:
+            found = space.objects.get(node.element)
+            label, kind = (found[1].name if found else node.element), "element"
+        elif node.note is not None:
+            label, kind = node.note, "note"
+        else:
+            label, kind = node.frame or "", "cadre"
+        boxes.append({"x": x, "y": y, "l": width, "h": height, "label": label, "kind": kind})
+    links = []
+    for connection in view.connections:
+        ends = [geometry.get(connection.source), geometry.get(connection.target)]
+        if ends[0] is None or ends[1] is None:
+            continue
+        (x1, y1, w1, h1), (x2, y2, w2, h2) = ends[0], ends[1]
+        links.append({"x1": x1 + w1 / 2, "y1": y1 + h1 / 2, "x2": x2 + w2 / 2, "y2": y2 + h2 / 2})
+    return {"boxes": boxes, "links": links}
 
 
 # --- Le modèle hydraté (entrée du composant) ----------------------------------------------

@@ -139,6 +139,7 @@ def _catalog_payload() -> dict[str, object]:
         "layers": [{"key": k, "label": label} for k, label in cat.layers.items()],
         "base": [{"name": n, "type": t, "required": r} for n, t, r in BASE_PROPERTIES],
         "types": [_archimate_type(t) for t in cat.types.values()],
+        "viewpoints": [{"id": k, "label": label} for k, label in cat.viewpoints.items()],
     }
 
 

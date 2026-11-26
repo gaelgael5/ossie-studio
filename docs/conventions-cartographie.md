@@ -240,6 +240,17 @@ section ou réglé deux fois, chemin de valeur mal écrit.
 modèle que reçoit le composant (règles, graphique, schémas des types présents et
 objets avec leur `data`) ; un modèle incohérent est refusé (`model_invalid`, 409).
 
+**Onglet « Modèles »** (ticket 5a05c7bb, `api/cartographie_models.py`) : `GET
+…/cartographie/modeles` (vignettes : aperçu de la première vue, vues, nombres, clés
+retenues pour « contient l'objet », documents sans objet retenu, problèmes, dates
+tirées de l'historique du modèle et de son graphique, état du brouillon ; et les
+fichiers de règles), `POST` (créer : identifiant `MOD-<SLUG>`, première vue
+`VUE-<NOM>`, fichier de règles créé vide s'il manque), `GET …/{slug}` (avec les
+problèmes), `DELETE …/{slug}` (le modèle et son graphique, jamais les objets ni le
+fichier de règles). Un objet retenu par un modèle ne se supprime pas
+(`object_in_model`, avec le nom des modèles) ; sa fiche liste ses modèles. Le
+journal d'audit compte un modèle et son graphique pour un seul objet (`carto_model`).
+
 **Le composant** est servi par l'application sous `/api/archimate`
 (`urban_archimate.mount`, paquet `urban-archimate==0.1.1`) : `urban-archimate.js` et
 le schéma.

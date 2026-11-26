@@ -25,6 +25,7 @@ import { ArchimateIcon } from './ArchimateIcon'
 import { FoldedProperties, isEmpty, missingRequired, propertyNames } from './FoldedProperties'
 import type { Props } from './FoldedProperties'
 import { longDate } from './dates'
+import { cartoModelPath } from './ModelsTab'
 import { cartoObjectPath } from './ObjectsTab'
 import { RelateDialog } from './RelateDialog'
 import type { RelateSource } from './RelateDialog'
@@ -253,7 +254,11 @@ function ObjectEditor({
             <div className="page-actions">
               {changed > 0 ? <span className="carto-changed">{t('cartoChangedFields', { count: changed })}</span> : null}
               {!isNew ? (
-                <DeleteObject used={used.length} busy={remove.isPending} onDelete={() => remove.mutate()} />
+                <DeleteObject
+                  used={used.length + (detail.models?.length ?? 0)}
+                  busy={remove.isPending}
+                  onDelete={() => remove.mutate()}
+                />
               ) : null}
               <button
                 type="button"
@@ -424,6 +429,7 @@ function ObjectEditor({
               })}
             </p>
           ) : null}
+          {detail && (detail.models?.length ?? 0) > 0 ? <ModelsSection models={detail.models} /> : null}
           {isRelation && detail ? <RuleSection catalog={catalog} detail={detail} /> : null}
           <FileSection detail={detail} typeSlug={type} keyValue={key} />
         </div>
@@ -701,6 +707,26 @@ function RelationRow({
       </div>
       <span aria-hidden="true">›</span>
     </div>
+  )
+}
+
+/** Les modèles qui retiennent l'objet : il ne se supprime pas tant qu'ils le retiennent. */
+function ModelsSection({ models }: { models: CartoObjectDetail['models'] }) {
+  const { t } = useTranslation()
+  return (
+    <section className="panel carto-section" aria-label={t('cartoObjectModels')}>
+      <h2 className="carto-detail-title">{t('cartoObjectModels')}</h2>
+      <ul className="carto-model-uses">
+        {models.map((m) => (
+          <li key={m.slug}>
+            <Link to={cartoModelPath(m.slug)}>{m.name}</Link>
+          </li>
+        ))}
+      </ul>
+      <p className="carto-in-use" role="note">
+        {t('cartoDeleteRefusedModel', { count: models.length, models: models.map((m) => m.name).join(', ') })}
+      </p>
+    </section>
   )
 }
 

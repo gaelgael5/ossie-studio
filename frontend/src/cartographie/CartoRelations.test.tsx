@@ -90,6 +90,7 @@ function setup(url: string) {
       else if (path === `${BASE}/types`) body = { readonly: false, types: TYPES }
       else if (permitted) body = PERMITTED[`${decodeURIComponent(permitted[1])}>${new URLSearchParams(query).get('cible')}`] ?? { archimate: [], types: [] }
       else if (path === `${BASE}/objets` && method === 'GET') body = { readonly: false, objects: OBJECTS }
+      else if (path === `${BASE}/modeles`) body = { readonly: false, models: [], rules: [] }
       else if (path === `${BASE}/objets` && method === 'POST') {
         const sent = JSON.parse(String(init?.body)) as Record<string, unknown>
         body = { ...objectDetail(String(sent.key), String(sent.name), String(sent.type), 'Accès', 'Access'), revision: 'draft:1' }
