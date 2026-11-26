@@ -284,7 +284,7 @@ sa clé et son nom, note, cadre, imbrication — et connexions ; **jamais le des
 `get_carto_object` donne aussi les modèles qui retiennent l'objet (`models`).
 
 **Le composant** est servi par l'application sous `/api/archimate`
-(`urban_archimate.mount`, paquet `urban-archimate==0.1.2`) : `urban-archimate.js` et
+(`urban_archimate.mount`, paquet `urban-archimate==0.1.3`) : `urban-archimate.js` et
 le schéma.
 
 ## Un processus BPMN

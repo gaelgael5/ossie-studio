@@ -31,7 +31,7 @@ dependencies = [
     "urban-json==0.8.0",
     "urban-json-editor==0.4.0",
     "snowflake-connector-python>=3.12",
-    "urban-archimate==0.1.2",
+    "urban-archimate==0.1.3",
 ]
 
 [dependency-groups]

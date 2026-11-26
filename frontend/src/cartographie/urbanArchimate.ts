@@ -1,4 +1,4 @@
-// Le composant de diagramme `urban-archimate` (paquet Python 0.1.1), servi par
+// Le composant de diagramme `urban-archimate` (paquet Python, version fixée dans backend/pyproject.toml), servi par
 // l'application elle-même sous /api/archimate (voir app.py), jamais par un CDN.
 // Il s'enregistre seul (`<urban-archimate>`) au chargement de son module.
 // Les types ci-dessous reprennent ce dont Ossie se sert dans son contrat
