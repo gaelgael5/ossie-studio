@@ -121,15 +121,23 @@ def referentiel_events(commits: list[PathCommit], filters: AuditFilters) -> list
 
 CARTO_TYPE = "carto_type"
 CARTO_OBJECT = "carto_object"
-CARTOGRAPHIE_TYPES = (CARTO_TYPE, CARTO_OBJECT)
+CARTO_MODEL = "carto_model"
+CARTOGRAPHIE_TYPES = (CARTO_TYPE, CARTO_OBJECT, CARTO_MODEL)
 _CARTO_TYPE_SUFFIX = ".schema.yaml"
+# Un modèle et son graphique : un seul objet du journal, le modèle (son slug).
+_CARTO_MODEL_SUFFIXES = (".modele.yaml", ".graphique.yaml")
 
 
 def _carto_target(path: str) -> tuple[str, str] | None:
     """(type d'objet du journal, identifiant) d'un fichier de la cartographie : un
     type (`cartographie/types/<slug>.schema.yaml`, son slug) ou un objet
-    (`cartographie/objets/<type>/<clé en minuscules>.yaml`, sa clé)."""
+    (`cartographie/objets/<type>/<clé en minuscules>.yaml`, sa clé), ou un modèle
+    (`cartographie/modeles/<slug>.modele.yaml` et son graphique, son slug)."""
     parts = PurePosixPath(path).parts
+    if len(parts) == 3 and parts[:2] == ("cartographie", "modeles"):
+        for suffix in _CARTO_MODEL_SUFFIXES:
+            if parts[2].endswith(suffix):
+                return CARTO_MODEL, parts[2][: -len(suffix)]
     if len(parts) == 3 and parts[:2] == ("cartographie", "types"):
         if parts[2].endswith(_CARTO_TYPE_SUFFIX):
             return CARTO_TYPE, parts[2][: -len(_CARTO_TYPE_SUFFIX)]
@@ -144,10 +152,12 @@ def cartographie_events(commits: list[PathCommit], filters: AuditFilters) -> lis
     publié : créé, modifié ou supprimé selon son fichier."""
     out: list[AuditEvent] = []
     for commit in commits:
+        seen: set[tuple[str, str]] = set()  # un modèle et son graphique : un événement
         for status, path in commit.files:
             found = _carto_target(path)
-            if found is None:
+            if found is None or found in seen:
                 continue
+            seen.add(found)
             object_type, object_id = found
             event = AuditEvent(
                 at=datetime.fromisoformat(commit.date),

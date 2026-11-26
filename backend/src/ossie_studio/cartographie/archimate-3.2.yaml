@@ -21,6 +21,9 @@
 #                  type    string | boolean (défaut string)
 #                  values  valeurs ArchiMate (ce qui est stocké) → libellé français
 #                  unset   libellé affiché quand l'attribut est absent
+#                  exchange  nom de l'attribut dans les règles de traduction d'un modèle
+#                          (`accessType`…, `junctionType` pour la jonction, urban-archimate
+#                          0.1.2 et plus)
 #   L'icône d'un type est `icons/<type>.svg` (pictogramme d'un trait, sans couleur).
 # viewpoints   points de vue : identifiant → libellé français ; l'identifiant est
 #              celui d'Archi, avec des tirets au lieu des soulignés.
@@ -361,6 +364,7 @@ types:
     attributes:
       jonction:
         label: Type de jonction
+        exchange: junctionType
         values: {And: et, Or: ou}
         unset: et
 
@@ -398,6 +402,7 @@ types:
     attributes:
       acces:
         label: Sens de l'accès
+        exchange: accessType
         values: {Read: lecture, Write: écriture, ReadWrite: lecture-écriture}
         unset: non précisé
   Influence:
@@ -408,6 +413,7 @@ types:
     attributes:
       modificateur:
         label: Force (+, ++, -, --…)
+        exchange: modifier
   Triggering:
     kind: relation
     label: Déclenchement
@@ -431,6 +437,7 @@ types:
     attributes:
       dirigee:
         label: Dirigée
+        exchange: isDirected
         type: boolean
         unset: non dirigée
 

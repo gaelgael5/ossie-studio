@@ -47,6 +47,10 @@ from ossie_studio.slugs import is_valid_slug
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
 
+# Assets du composant de diagramme `urban-archimate` (sous /api : seul préfixe relayé
+# par le nginx du front ; jamais par un CDN).
+ARCHIMATE_EDITOR_PATH = "/api/archimate"
+
 router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/cartographie")
 
 # Liste des types : lue une fois par empreinte de `cartographie/` (ticket 0373780f).
@@ -135,6 +139,7 @@ def _catalog_payload() -> dict[str, object]:
         "layers": [{"key": k, "label": label} for k, label in cat.layers.items()],
         "base": [{"name": n, "type": t, "required": r} for n, t, r in BASE_PROPERTIES],
         "types": [_archimate_type(t) for t in cat.types.values()],
+        "viewpoints": [{"id": k, "label": label} for k, label in cat.viewpoints.items()],
     }
 
 

@@ -13,10 +13,13 @@ import { asciiLower } from '../slug'
 import { AddTypeDialog } from '../cartographie/AddTypeDialog'
 import { ArchimateIcon } from '../cartographie/ArchimateIcon'
 import { ObjectsTab, NEW_OBJECT_PATH } from '../cartographie/ObjectsTab'
+import { ModelsTab, MODELS_TAB_PATH } from '../cartographie/ModelsTab'
+import { NewModelDialog } from '../cartographie/NewModelDialog'
 
 // Écran « Cartographie » (epic « Cartographie — types et objets », ticket e7521e80) :
 // les types de l'espace en vignettes, un filtre, « + Ajouter » ; onglet Objets
-// (ticket 6f71bcba), à l'adresse /cartographie/objets. Une seule couleur,
+// (ticket 6f71bcba), à l'adresse /cartographie/objets ; onglet Modèles (epic
+// « Cartographie — modèles et vues », ticket 5a05c7bb), /cartographie/modeles. Une seule couleur,
 // celle de l'application (Gael : pas de couleurs de couche ArchiMate) ; la couche
 // se lit dans le texte. Les écritures vont dans le brouillon de la personne, sur
 // toute branche (comme les Référentiels) ; la barre du brouillon est celle du Layout.
@@ -55,8 +58,11 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const session = useSession()
   const canWrite = sessionCapabilities(session.data).includes('cartographie:write')
   const [adding, setAdding] = useState(false)
+  const [newModel, setNewModel] = useState(false)
   const navigate = useNavigate()
-  const objectsTab = useLocation().pathname.startsWith(OBJECTS_TAB_PATH)
+  const pathname = useLocation().pathname
+  const tab = pathname.startsWith(OBJECTS_TAB_PATH) ? 'objects' : pathname.startsWith(MODELS_TAB_PATH) ? 'models' : 'types'
+  const objectsTab = tab === 'objects'
   const catalog = useQuery({
     queryKey: ['carto-catalog'],
     queryFn: () => api.getCartoCatalog(spaceId, branchId),
@@ -70,22 +76,34 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
     queryKey: ['carto-objects', spaceId, branchId],
     queryFn: () => api.listCartoObjects(spaceId, branchId),
   })
+  const models = useQuery({
+    queryKey: ['carto-models', spaceId, branchId],
+    queryFn: () => api.listCartoModels(spaceId, branchId),
+  })
   const editable = canWrite && !(list.data?.readonly ?? false)
   const types = list.data?.types ?? []
-  const errors = [catalog.error, list.error, objects.error].flatMap((e) => (e ? errorMessages(t, e) : []))
+  const errors = [catalog.error, list.error, objects.error, models.error].flatMap((e) =>
+    e ? errorMessages(t, e) : [],
+  )
+  const subtitle = { types: 'cartoSubtitle', objects: 'cartoObjectsSubtitle', models: 'cartoModelsSubtitle' }[tab]
   return (
     <main>
       <div className="page-head">
         <div>
           <h1 className="page-title">{t('cartoTitle')}</h1>
-          <p className="page-sub">{objectsTab ? t('cartoObjectsSubtitle') : t('cartoSubtitle')}</p>
+          <p className="page-sub">{t(subtitle)}</p>
         </div>
         {editable && objectsTab ? (
           <Link to={NEW_OBJECT_PATH} className="btn btn-primary">
             {t('cartoNewObject')}
           </Link>
         ) : null}
-        {editable && !objectsTab ? (
+        {editable && tab === 'models' ? (
+          <button type="button" className="btn btn-primary" onClick={() => setNewModel(true)}>
+            {t('cartoNewModel')}
+          </button>
+        ) : null}
+        {editable && tab === 'types' ? (
           <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
             {t('cartoAdd')}
           </button>
@@ -95,8 +113,8 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
         <button
           type="button"
           role="tab"
-          className={`tab${objectsTab ? '' : ' active'}`}
-          aria-selected={!objectsTab}
+          className={`tab${tab === 'types' ? ' active' : ''}`}
+          aria-selected={tab === 'types'}
           onClick={() => navigate('/cartographie')}
         >
           {t('cartoTabTypes')}
@@ -112,10 +130,20 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           {t('cartoTabObjects')}
           {objects.data ? <span className="muted">{objects.data.objects.length}</span> : null}
         </button>
+        <button
+          type="button"
+          role="tab"
+          className={`tab${tab === 'models' ? ' active' : ''}`}
+          aria-selected={tab === 'models'}
+          onClick={() => navigate(MODELS_TAB_PATH)}
+        >
+          {t('cartoTabModels')}
+          {models.data ? <span className="muted">{models.data.models.length}</span> : null}
+        </button>
       </div>
       <ErrorList messages={errors} />
       {list.isLoading || catalog.isLoading ? <p className="muted">{t('loading')}</p> : null}
-      {catalog.data && list.data && !objectsTab ? (
+      {catalog.data && list.data && tab === 'types' ? (
         <TypesTab catalog={catalog.data} types={types} editable={editable} onAdd={() => setAdding(true)} />
       ) : null}
       {catalog.data && list.data && objects.data && objectsTab ? (
@@ -126,6 +154,26 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           types={types}
           objects={objects.data.objects}
           editable={editable}
+        />
+      ) : null}
+      {models.data && objects.data && tab === 'models' ? (
+        <ModelsTab
+          spaceId={spaceId}
+          branchId={branchId}
+          models={models.data.models}
+          objects={objects.data.objects}
+          editable={editable}
+          onNew={() => setNewModel(true)}
+        />
+      ) : null}
+      {newModel && catalog.data && models.data ? (
+        <NewModelDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          catalog={catalog.data}
+          rules={models.data.rules}
+          taken={new Set(models.data.models.map((m) => m.slug))}
+          onClose={() => setNewModel(false)}
         />
       ) : null}
       {adding && catalog.data ? (

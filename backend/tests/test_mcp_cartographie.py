@@ -204,3 +204,135 @@ async def test_vue_brouillon_et_vue_publiee(app: FastAPI, space: ApiSpace) -> No
         {"space_id": space.space_id, "branch_id": space.branch_id, "view": "draft"},
     )  # fmt: skip
     assert refused.is_error
+
+
+# --- Modèles et vues (ticket be89037a) -----------------------------------------------------
+
+MODEL = """\
+id: MOD-BOUTIQUE-APPLICATIF
+nom: Boutique — vue applicative
+description: Ce que la boutique expose et ce qu'elle manipule.
+regles: cartographie/regles/standard.rules.yaml
+graphique: cartographie/modeles/boutique-applicatif.graphique.yaml
+documents:
+- cartographie/objets/application/app-boutique.yaml
+- cartographie/objets/processus-de-vente/prc-prise-commande.yaml
+- cartographie/objets/document-metier/obj-commande.yaml
+- cartographie/objets/acces/rel-prise-commande-ecrit-commande.yaml
+elements: [APP-BOUTIQUE, PRC-PRISE-COMMANDE, OBJ-COMMANDE]
+relationships: [REL-PRISE-COMMANDE-ECRIT-COMMANDE]
+vues:
+- id: VUE-1
+  nom: Vue principale
+  point_de_vue: layered
+  noeuds:
+  - id: N1
+    element: APP-BOUTIQUE
+    enfants:
+    - {id: N2, element: PRC-PRISE-COMMANDE}
+  - {id: N3, element: OBJ-COMMANDE}
+  - {id: N4, note: Atelier}
+  connexions:
+  - {id: C1, relationship: REL-PRISE-COMMANDE-ECRIT-COMMANDE, de: N2, vers: N3}
+"""
+
+
+@pytest.fixture
+def with_model(space: ApiSpace) -> ApiSpace:
+    forge_edit(
+        space,
+        {
+            "cartographie/regles/standard.rules.yaml": "lang: fr\n",
+            "cartographie/modeles/boutique-applicatif.modele.yaml": MODEL,
+            "cartographie/modeles/boutique-applicatif.graphique.yaml": (
+                "vues:\n  VUE-1:\n    noeuds:\n      N1: {x: 40, y: 60, l: 320, h: 180}\n"
+            ),
+        },
+    )
+    return space
+
+
+async def test_primitives_des_modeles_offertes(app: FastAPI, with_model: ApiSpace) -> None:
+    names = set(await tool_names(app, KEY))
+    assert {"list_carto_models", "get_carto_model"} <= names
+
+
+async def test_lire_un_modele_sans_le_dessin(app: FastAPI, with_model: ApiSpace) -> None:
+    """Critères 1 et 3."""
+    data = await _ok(app, KEY, "get_carto_model", with_model, slug="boutique-applicatif")
+    assert data["name"] == "Boutique — vue applicative" and data["problems"] == []
+    assert [o["key"] for o in data["objects"]] == [
+        "APP-BOUTIQUE",
+        "PRC-PRISE-COMMANDE",
+        "OBJ-COMMANDE",
+    ]
+    assert data["objects"][0] == {
+        "key": "APP-BOUTIQUE",
+        "name": "Boutique en ligne",
+        "type": "application",
+        "archimate": "ApplicationComponent",
+        "exists": True,
+    }
+    [relation] = data["relations"]
+    assert (relation["key"], relation["source"], relation["target"]) == (
+        "REL-PRISE-COMMANDE-ECRIT-COMMANDE",
+        "PRC-PRISE-COMMANDE",
+        "OBJ-COMMANDE",
+    )
+    [view] = data["views"]
+    assert (view["name"], view["viewpoint"]) == ("Vue principale", "layered")
+    assert view["nodes"] == [
+        {
+            "id": "N1",
+            "element": "APP-BOUTIQUE",
+            "name": "Boutique en ligne",
+            "children": [
+                {"id": "N2", "element": "PRC-PRISE-COMMANDE", "name": "Prise de commande"}
+            ],
+        },
+        {"id": "N3", "element": "OBJ-COMMANDE", "name": "Commande"},
+        {"id": "N4", "note": "Atelier"},
+    ]
+    assert view["connections"] == [
+        {"id": "C1", "relationship": "REL-PRISE-COMMANDE-ECRIT-COMMANDE", "from": "N2", "to": "N3"}
+    ]
+    # Critère 3 : aucune coordonnée.
+    text = json.dumps(data)
+    assert '"x"' not in text and "graphique" not in json.dumps(
+        {k: v for k, v in data.items() if k != "path"}
+    )
+    missing = await call_tool(
+        app, KEY, "get_carto_model",
+        {"space_id": with_model.space_id, "branch_id": with_model.branch_id, "slug": "absent"},
+    )  # fmt: skip
+    assert missing.is_error
+    assert json.loads(missing.content[0].text)["error"] == "carto_model_not_found"
+
+
+async def test_ou_apparait_un_objet(app: FastAPI, with_model: ApiSpace) -> None:
+    """Critère 2."""
+    listing = await _ok(app, KEY, "list_carto_models", with_model)
+    [model] = listing["models"]
+    assert (model["slug"], model["objects"], model["relations"]) == ("boutique-applicatif", 3, 1)
+    assert model["views"] == [{"id": "VUE-1", "name": "Vue principale", "viewpoint": "layered"}]
+    kept = await _ok(app, KEY, "list_carto_models", with_model, contains="APP-BOUTIQUE")
+    assert [m["slug"] for m in kept["models"]] == ["boutique-applicatif"]
+    detail = await _ok(app, KEY, "get_carto_object", with_model, key="APP-BOUTIQUE")
+    assert detail["models"] == [
+        {"slug": "boutique-applicatif", "name": "Boutique — vue applicative"}
+    ]
+    forge_edit(
+        with_model,
+        {
+            "cartographie/objets/document-metier/obj-facture.yaml": (
+                "cle: OBJ-FACTURE\ntype: document-metier\nnom: Facture\n"
+            )
+        },
+    )
+    alone = await _ok(app, KEY, "list_carto_models", with_model, contains="OBJ-FACTURE")
+    assert alone["models"] == []
+    unknown = await call_tool(
+        app, KEY, "list_carto_models",
+        {"space_id": with_model.space_id, "branch_id": with_model.branch_id, "contains": "ABSENT"},
+    )  # fmt: skip
+    assert json.loads(unknown.content[0].text)["error"] == "carto_object_not_found"

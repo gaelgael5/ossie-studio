@@ -53,6 +53,8 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "list_carto_types": Implementation(carto.CartoTypesArgs, carto.list_carto_types),
     "list_carto_objects": Implementation(carto.CartoObjectsArgs, carto.list_carto_objects),
     "get_carto_object": Implementation(carto.CartoObjectArgs, carto.get_carto_object),
+    "list_carto_models": Implementation(carto.CartoModelsArgs, carto.list_carto_models),
+    "get_carto_model": Implementation(carto.CartoModelArgs, carto.get_carto_model),
     "list_tags": Implementation(ViewArgs, reads.list_tags),
     "list_classifications": Implementation(ViewArgs, reads.list_classifications),
     # Écriture (brouillon de la personne)

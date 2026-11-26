@@ -105,3 +105,9 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 - Même lecture que l'écran (`cartographie.space.read_cartographie`) ; vue brouillon pour un agent connecté (ce qui vient du brouillon est marqué `unpublished`), publiée pour une clé d'API (le brouillon y est refusé).
 - Noms en anglais comme le reste du catalogue MCP (`nature`, `name`), valeurs `object` / `relation`.
 - Tests : `backend/tests/test_mcp_cartographie.py`.
+
+## Après la fusion (PR #10) — fiche d'un objet
+
+- La description d'une propriété (`description` de son schéma, sinon son titre s'il dit autre chose que son nom — ainsi « Sens de l'accès » pour `acces`) s'affiche sous son champ.
+- « Ouvrir » sur un élément d'un tableau d'objets l'ouvre sur place dans le formulaire, avec un fil d'Ariane (« Propriétés › serveurs[0] ») pour revenir.
+- Les deux viennent de `SchemaFields` (`referentiels/ValuePanel.tsx`) ; le panneau de valeur des Référentiels n'affiche pas les descriptions (inchangé), et partage maintenant le même fil d'Ariane.

@@ -3935,3 +3935,177 @@ td.cell-error {
 .carto-relate-foot > span {
   margin-right: auto;
 }
+
+/* Onglet Modèles de la cartographie (ticket 5a05c7bb) : l'aperçu en trait sarcelle
+   sur la trame, jamais de couleurs de couche ArchiMate dans l'interface. */
+.carto-model-grid {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.carto-model-card {
+  padding: 0;
+  gap: 0;
+  overflow: visible;
+}
+.carto-model-thumb {
+  position: relative;
+  height: 130px;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
+  background-size: 14px 14px;
+}
+.carto-model-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.carto-preview-box {
+  fill: var(--panel);
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-preview-cadre {
+  fill: none;
+  stroke-dasharray: 4 3;
+}
+.carto-preview-note {
+  stroke: var(--border-strong);
+}
+.carto-preview-link {
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-preview-label {
+  font-family: var(--font-ui);
+  font-size: 7px;
+  fill: var(--text);
+}
+.carto-model-views {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.carto-model-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 8px;
+  flex: 1;
+}
+.carto-model-card .carto-card-foot {
+  position: relative;
+  margin: 0 16px;
+  padding: 10px 0;
+}
+.carto-model-warn {
+  margin: 0;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 0.85rem;
+}
+.carto-model-actions {
+  position: relative;
+  z-index: 2;
+  display: none;
+  gap: 8px;
+}
+.carto-model-card:hover .carto-model-actions,
+.carto-model-card:focus-within .carto-model-actions {
+  display: inline-flex;
+}
+.carto-model-card:hover .carto-model-author,
+.carto-model-card:focus-within .carto-model-author {
+  display: none;
+}
+.carto-model-menu {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: calc(100% - 4px);
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.carto-model-add {
+  min-height: 200px;
+  gap: 6px;
+}
+.carto-model-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.carto-model-viewpoint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.carto-model-viewpoint .select {
+  width: auto;
+}
+.carto-filters .carto-model-contains {
+  max-width: 260px;
+}
+.carto-model-uses {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* Page d'un modèle (ticket f5421cc7) : le diagramme occupe la page. */
+.carto-model-canvas {
+  height: calc(100vh - 290px);
+  min-height: 480px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+/* Raccord du composant urban-archimate (son contrat, « Thème ») : un changement de la
+   palette d'Ossie se propage au composant. */
+urban-archimate {
+  --ua-police: var(--font-ui);
+  --ua-police-mono: var(--mono);
+  --ua-texte: var(--text);
+  --ua-texte-secondaire: var(--muted);
+  --ua-fond: var(--bg);
+  --ua-trame-point: var(--grid-dot);
+  --ua-fond-panneau: var(--panel);
+  --ua-fond-discret: var(--surface-muted);
+  --ua-bordure: var(--border);
+  --ua-bordure-forte: var(--border-strong);
+  --ua-accent: var(--primary);
+  --ua-accent-survol: var(--primary-hover);
+  --ua-accent-texte: var(--primary-fg);
+  --ua-accent-fond: var(--chip-bg);
+  --ua-accent-fond-texte: var(--chip-fg);
+  --ua-erreur: var(--danger-fg);
+  --ua-erreur-fond: var(--danger-bg);
+  --ua-rayon: var(--radius);
+  --ua-rayon-sm: var(--radius-sm);
+  --ua-ombre: var(--shadow);
+  /* notation : blocs et filets d'Ossie ; les lignes de couche gardent la
+     palette du RailMap (couleurs de données, sans token côté Ossie) */
+  --ua-notation-autre: var(--muted);
+  --ua-notation-element: var(--panel);
+  --ua-notation-note: var(--panel);
+  --ua-notation-trait: var(--border-strong);
+  --ua-notation-relation: var(--muted);
+  --ua-notation-texte: var(--text);
+  --ua-notation-fond: var(--panel);
+}

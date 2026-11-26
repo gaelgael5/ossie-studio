@@ -59,7 +59,15 @@ export function FoldedProperties({
   return (
     <>
       {visible.length > 0 ? (
-        <SchemaFields schema={schema} draft={values} readOnly={readOnly} problems={problems} onChange={onChange} names={visible} />
+        <SchemaFields
+          schema={schema}
+          draft={values}
+          readOnly={readOnly}
+          problems={problems}
+          onChange={onChange}
+          names={visible}
+          rootLabel={t('cartoProperties')}
+        />
       ) : null}
       {folded.length > 0 ? (
         <div className="carto-folded">

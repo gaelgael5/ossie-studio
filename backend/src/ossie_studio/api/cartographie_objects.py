@@ -25,6 +25,7 @@ from ossie_studio.api.common import CartographieRead, CartographieWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
 from ossie_studio.api.list_index import ListIndex
 from ossie_studio.cartographie.catalog import catalog
+from ossie_studio.cartographie.diagram import delete_object, models_retaining
 from ossie_studio.cartographie.errors import CartographieError, problem_payload
 from ossie_studio.cartographie.history import FileDates, file_dates
 from ossie_studio.cartographie.model import (
@@ -35,12 +36,7 @@ from ossie_studio.cartographie.model import (
     properties_schema,
 )
 from ossie_studio.cartographie.service import CartographieTarget
-from ossie_studio.cartographie.space import (
-    Cartographie,
-    delete_object,
-    read_cartographie,
-    save_object,
-)
+from ossie_studio.cartographie.space import Cartographie, read_cartographie, save_object
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.spaces.branch_service import db_get_branch
@@ -90,7 +86,7 @@ def _shown(value: Any) -> str:
     return str(value)
 
 
-def _dates(found: FileDates | None) -> dict[str, str] | None:
+def dates_payload(found: FileDates | None) -> dict[str, str] | None:
     if found is None:
         return None
     return {
@@ -101,21 +97,23 @@ def _dates(found: FileDates | None) -> dict[str, str] | None:
     }
 
 
-async def _history(
+async def carto_history(
     conn: ConnDep,
     crypto: CryptoDep,
     manager: WorkdirManager,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
+    prefix: str = OBJECTS_DIR,
 ) -> dict[str, FileDates]:
-    """Dates et auteurs des fichiers d'objets, d'après les commits publiés."""
+    """Dates et auteurs des fichiers sous `prefix` (les objets par défaut), d'après
+    les commits publiés."""
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
     space, username, token = await space_credentials(conn, crypto, space_id)
     try:
         commits = await manager.path_log(
-            space.id, branch.git_ref, space.repo_url, username, token, OBJECTS_DIR, HISTORY_LIMIT
+            space.id, branch.git_ref, space.repo_url, username, token, prefix, HISTORY_LIMIT
         )
     except WorkdirError as exc:
         if exc.code == "branch_not_found":
@@ -146,7 +144,7 @@ def _summary(
         "source": obj.source,
         "target": obj.target,
         "path": path,
-        "dates": _dates(dates.get(path)),
+        "dates": dates_payload(dates.get(path)),
     }
 
 
@@ -203,7 +201,11 @@ def _relation_parts(space: Cartographie, obj: CartoObject) -> dict[str, Any]:
 
 
 def _detail(
-    space: Cartographie, key: str, dates: dict[str, FileDates], states: dict[str, str]
+    space: Cartographie,
+    key: str,
+    dates: dict[str, FileDates],
+    states: dict[str, str],
+    models: list[tuple[str, str]],
 ) -> dict[str, Any]:
     found = space.objects.get(key)
     if found is None:
@@ -232,9 +234,11 @@ def _detail(
             "outgoing": [_side(space, k, space.objects[k][1].target) for k in outgoing],
             "incoming": [_side(space, k, space.objects[k][1].source) for k in incoming],
         },
-        "dates": _dates(dates.get(path)),
+        "dates": dates_payload(dates.get(path)),
         "state": state if state in ("created", "modified") else None,
         "problems": [problem_payload(p) for p in space.problems if p.path == path],
+        # Les modèles qui le retiennent (epic « Cartographie — modèles et vues »).
+        "models": [{"slug": slug, "name": name} for slug, name in models],
     }
 
 
@@ -257,7 +261,7 @@ async def list_objects(
         items = _OBJECTS_INDEX.get(key, signature)
         if items is None:
             space = await target.cartographie()
-            dates = await _history(conn, crypto, manager, space_id, branch_id)
+            dates = await carto_history(conn, crypto, manager, space_id, branch_id)
             items = sorted(
                 (_summary(space, p, o, dates) for p, o in space.objects.values()),
                 key=lambda i: (str(i["name"]).casefold(), str(i["key"])),
@@ -286,10 +290,11 @@ async def get_object(
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     try:
         space = await target.cartographie()
+        models = await target.read(lambda root: models_retaining(root, key))
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
-    dates = await _history(conn, crypto, manager, space_id, branch_id)
-    return _detail(space, key, dates, await draft_states(conn, workdir, branch_id))
+    dates = await carto_history(conn, crypto, manager, space_id, branch_id)
+    return _detail(space, key, dates, await draft_states(conn, workdir, branch_id), models)
 
 
 async def _write_and_read(
@@ -307,13 +312,14 @@ async def _write_and_read(
     try:
         _result, revision = await target.write(intent, fn)
         space = await target.cartographie()
+        models = await target.read(lambda root: models_retaining(root, key))
     except CartographieError as exc:
         raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
-    dates = await _history(conn, crypto, manager, space_id, branch_id)
+    dates = await carto_history(conn, crypto, manager, space_id, branch_id)
     states = await draft_states(conn, target.workdir, branch_id)
-    return {**_detail(space, key, dates, states), "revision": revision}
+    return {**_detail(space, key, dates, states, models), "revision": revision}
 
 
 @router.post("", status_code=201)
@@ -400,8 +406,9 @@ async def delete_object_route(
     branch_id: uuid.UUID,
     key: str,
 ) -> dict[str, object]:
-    """Supprime le fichier d'un objet dans le brouillon ; refusé
-    (« carto_object_in_use », avec les relations) tant qu'une relation l'utilise."""
+    """Supprime le fichier d'un objet dans le brouillon ; refusé tant qu'un modèle le
+    retient (« carto_object_in_model », avec les modèles) ou qu'une relation l'utilise
+    (« carto_object_in_use », avec les relations)."""
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     try:
         _none, revision = await target.write(
@@ -447,6 +454,9 @@ async def allowed_relation_types(
                 "title": t.title,
                 "archimate": t.archimate,
                 "object_schema": properties_schema(t, cat.get(t.archimate)),
+                # Le schéma du type, tel que le reçoit le composant de diagramme
+                # (délégué `allowedRelations` : grille de propriétés d'une relation).
+                "type_schema": t.document(),
             }
             for t in types
         ],
