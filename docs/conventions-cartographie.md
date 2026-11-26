@@ -1,31 +1,74 @@
 # Conventions — cartographie (types, objets, relations)
 
-Epic « Cartographie — types et objets » (docflow 65d94dd0), enabler f8167ae1.
+Epic « Cartographie — types et objets » (docflow 65d94dd0), enablers f8167ae1 (format)
+et 0e088eaa (catalogue ArchiMate 3.2, règles de relation, points de vue).
 On garde la **sémantique** d'ArchiMate 3.2, pas son format de fichier : tout est en
 YAML dans l'espace Git, sous `cartographie/`. Code : `backend/src/ossie_studio/cartographie/`.
 
 ## Le catalogue ArchiMate (livré avec l'application)
 
-`cartographie/archimate-3.2.yaml`, à côté du code (pas dans l'espace Git). Pour
-chaque type ArchiMate : `kind` (`element` ou `relation`), `layer`, `label`
-(libellé français, nom par défaut d'un nouveau type de l'espace) et `attributes`,
-les attributs propres au type, avec pour un attribut à valeurs fermées les
-**valeurs ArchiMate** (stockées) et leur **libellé français** (affiché) :
+`cartographie/archimate-3.2.yaml`, à côté du code (pas dans l'espace Git) : les
+**61 éléments** d'ArchiMate 3.2 (stratégie, métier, application, technologie,
+physique, motivation, mise en œuvre et migration, regroupement, lieu, jonction) et
+ses **11 relations**. Pour chaque type : `kind` (`element` ou `relation`), `layer`
+(couche d'un élément), `label` (libellé français, nom par défaut d'un nouveau type
+de l'espace), `definition` (une phrase en français, pour la fenêtre « Ajouter un
+type ») et `attributes`, les attributs propres au type, avec pour un attribut à
+valeurs fermées les **valeurs ArchiMate** (stockées) et leur **libellé français**
+(affiché), et `unset`, le libellé affiché quand l'attribut est absent :
 
 ```yaml
 Access:
   kind: relation
   label: Accès
+  definition: Un comportement lit ou écrit une information.
   attributes:
     acces:
       label: Sens de l'accès
-      values: {Access: non précisé, Read: lecture, Write: écriture, ReadWrite: lecture-écriture}
+      values: {Read: lecture, Write: écriture, ReadWrite: lecture-écriture}
+      unset: non précisé
 ```
 
+Quatre types ont des attributs propres ; leurs noms sont **ceux du contrat
+d'`urban-archimate`** (décision de Gael du 26 novembre), qui reprend le format
+d'échange de l'Open Group :
+
+| Type | Attribut | Valeurs | Absent |
+|---|---|---|---|
+| Accès (`Access`) | `acces` | `Read`, `Write`, `ReadWrite` | non précisé |
+| Influence (`Influence`) | `modificateur` | texte libre (`+`, `++`, `-`…) | — |
+| Association (`Association`) | `dirigee` | booléen | non dirigée |
+| Jonction (`Junction`) | `jonction` | `And`, `Or` | et |
+
+L'**icône** d'un type est `cartographie/icons/<type>.svg` : le pictogramme ArchiMate
+dessiné d'un trait (`currentColor`, sans couleur de couche), 24 × 24. Le catalogue
+porte aussi le libellé français des couches et des **points de vue**.
+
 Ossie est la **source unique** de ce catalogue et des règles de relation
-(décision de Gael) : le composant de dessin `urban-archimate` les reçoit d'Ossie.
-L'enabler 0e088eaa complète le catalogue (tous les éléments et relations
-d'ArchiMate 3.2, définitions, icônes, règles de relation publiées en JSON).
+(décision de Gael) : le composant de dessin `urban-archimate` n'en tient pas de
+copie, il pose la question à Ossie par ses délégués (`allowedRelations`…).
+
+## Règles de relation et points de vue
+
+On ne retape pas l'annexe des relations de la spécification : on lit la table
+d'**Archi** (l'outil ArchiMate de référence, co-maintenu avec The Open Group),
+recopiée telle quelle dans `cartographie/archi/` avec sa licence MIT (commit et
+procédure de mise à jour dans `archi/README.md`). Code : `cartographie/rules.py`.
+
+- `allowed_relations(source, cible)` : les types de relation permis entre deux types
+  ArchiMate, dans l'ordre du catalogue. Une relation prise comme extrémité vaut le
+  concept `Relationship` d'Archi : d'un Objet métier vers une relation de Flux, seule
+  l'association est permise. `outgoing` / `incoming` donnent toutes les cibles ou
+  toutes les sources possibles d'un type.
+- Entre deux **objets de l'espace** (`space.allowed_between`), un type de l'espace suit
+  le type ArchiMate sur lequel il repose (`x-archimate`) ; `space.relation_types_between`
+  donne les types de relation **de l'espace** que l'on peut créer entre eux (ce que
+  proposent « + Relier… » et le délégué des relations permises du diagramme).
+- **Points de vue** (`viewpoints()`) : les 25 points de vue d'Archi ; identifiant =
+  celui d'Archi avec des tirets (`application-cooperation`), comme dans les modèles
+  d'`urban-archimate`. Comme dans Archi : un point de vue sans élément (`layered`) les
+  autorise tous ; le regroupement, la jonction et toutes les relations sont permis
+  partout.
 
 ## Un type de l'espace
 
@@ -108,7 +151,9 @@ signale : fichier illisible ; objet rangé hors de `cartographie/objets/<type>/`
 (`object_misplaced`) ou sous le dossier d'un autre type (`object_wrong_folder`) ;
 clé différente du nom du fichier (`object_key_mismatch`) ; **clé en double**
 (`object_key_duplicate` — aucune écriture n'est acceptée tant que ce n'est pas
-corrigé) ; extrémité de relation absente (`relation_endpoint_unknown`) ; propriété
+corrigé) ; extrémité de relation absente (`relation_endpoint_unknown`) ; relation
+que les règles d'ArchiMate ne permettent pas entre les types de ses extrémités
+(`relation_not_allowed`, avec « source -> cible : relation ») ; propriété
 hors du schéma (`property_invalid`, `property_unknown`, `property_required`, avec
 la propriété en cause) ; type inconnu ou mal formé.
 
@@ -118,4 +163,5 @@ Dans le brouillon de la personne, par commit local (`cartographie.service.Cartog
 comme les sources et les référentiels. Refus nommés (`CartographieError`) :
 `type_exists`, `type_not_found`, `type_archimate_frozen`, `type_invalid`,
 `object_key_taken`, `object_not_found`, `object_type_frozen`, `object_invalid`,
-`object_keys_duplicate`, `object_in_use`.
+`object_keys_duplicate`, `object_in_use`. Une relation non permise est refusée
+(`object_invalid`, problème `relation_not_allowed`).

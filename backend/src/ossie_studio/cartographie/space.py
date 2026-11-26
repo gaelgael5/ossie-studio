@@ -5,12 +5,18 @@
 `cartographie/objets/<type>/` ou sous le dossier d'un autre type ; une clé qui ne
 correspond pas au nom du fichier ; une clé en double (aucune écriture n'est
 acceptée tant qu'elle n'est pas corrigée) ; une relation dont la source ou la
-cible n'existe pas ; des propriétés hors du schéma du type, avec la propriété en
-cause.
+cible n'existe pas ; une relation que les règles d'ArchiMate ne permettent pas
+entre les types de ses extrémités ; des propriétés hors du schéma du type, avec la
+propriété en cause.
 
 Les écritures opèrent sur une copie de travail (`root`), dans le brouillon de la
 personne (`service`). Elles refusent de changer une clé, le slug ou le
-`x-archimate` d'un type, de supprimer un objet encore utilisé par une relation.
+`x-archimate` d'un type, de supprimer un objet encore utilisé par une relation,
+d'écrire une relation que les règles d'ArchiMate ne permettent pas.
+
+`allowed_between` et `relation_types_between` répondent à « entre ces deux objets,
+quelles relations sont permises ? » (enabler 0e088eaa) : un type de l'espace suit
+le type ArchiMate sur lequel il repose (`x-archimate`).
 """
 
 from __future__ import annotations
@@ -36,6 +42,7 @@ from ossie_studio.cartographie.model import (
     parse_type,
     type_path,
 )
+from ossie_studio.cartographie.rules import allowed_relations
 
 
 @dataclass
@@ -53,6 +60,29 @@ class Cartographie:
         return sorted(
             k for k, (_p, o) in self.objects.items() if key in (o.source, o.target) and k != key
         )
+
+    def archimate(self, key: str) -> str | None:
+        """Le type ArchiMate d'un objet (celui de son type) ; None s'il est inconnu."""
+        found = self.objects.get(key)
+        ctype = self.types.get(found[1].type) if found else None
+        return ctype.archimate if ctype else None
+
+
+def _relation_not_allowed(
+    space: Cartographie, obj: CartoObject, path: str, cat: Catalog
+) -> Problem | None:
+    """Une relation dont le type n'est pas permis entre les types de ses extrémités
+    (rien n'est dit tant qu'un des types est inconnu : c'est signalé ailleurs)."""
+    ctype = space.types.get(obj.type)
+    base = cat.get(ctype.archimate) if ctype else None
+    if base is None or not base.is_relation or not obj.source or not obj.target:
+        return None
+    source, target = space.archimate(obj.source), space.archimate(obj.target)
+    if source is None or target is None or not cat.get(source) or not cat.get(target):
+        return None
+    if base.name in allowed_relations(source, target, cat):
+        return None
+    return Problem(path, "relation_not_allowed", f"{source} -> {target} : {base.name}")
 
 
 def read_cartographie(root: Path, cat: Catalog | None = None) -> Cartographie:
@@ -104,6 +134,9 @@ def read_cartographie(root: Path, cat: Catalog | None = None) -> Cartographie:
                 space.problems.append(Problem(rel, "relation_endpoint_unknown", value, field=end))
         if obj.source == key or obj.target == key:
             space.problems.append(Problem(rel, "relation_self", key))
+        refused = _relation_not_allowed(space, obj, rel, cat)
+        if refused:
+            space.problems.append(refused)
     space.problems = sorted(set(space.problems))
     return space
 
@@ -157,6 +190,9 @@ def save_object(
     for end, value in (("source", obj.source), ("cible", obj.target)):
         if value and (value == obj.key or value not in space.objects):
             problems.append(Problem(path, "relation_endpoint_unknown", value, field=end))
+    refused = _relation_not_allowed(space, obj, path, cat)
+    if refused:
+        problems.append(refused)
     if problems:
         raise CartographieError("object_invalid", problems=problems)
     target = root / path
@@ -176,3 +212,36 @@ def delete_object(root: Path, key: str, cat: Catalog | None = None) -> None:
     if users:
         raise CartographieError("object_in_use", status=409, key=key, relations=users)
     (root / found[0]).unlink()
+
+
+def allowed_between(
+    root: Path, source_key: str, target_key: str, cat: Catalog | None = None
+) -> list[str]:
+    """Les types de relation ArchiMate permis de l'objet `source_key` vers l'objet
+    (ou la relation) `target_key`. Refus nommé si l'un des deux n'existe pas."""
+    cat = cat or catalog()
+    space = read_cartographie(root, cat)
+    return _allowed(space, source_key, target_key, cat)
+
+
+def relation_types_between(
+    root: Path, source_key: str, target_key: str, cat: Catalog | None = None
+) -> list[CartoType]:
+    """Les types de relation **de l'espace** que l'on peut créer entre ces deux
+    objets (ceux dont le `x-archimate` est permis), par libellé : ce que proposent
+    « + Relier… » et le délégué des relations permises du diagramme."""
+    cat = cat or catalog()
+    space = read_cartographie(root, cat)
+    permitted = set(_allowed(space, source_key, target_key, cat))
+    found = [t for t in space.types.values() if t.archimate in permitted]
+    return sorted(found, key=lambda t: (t.title.casefold(), t.slug))
+
+
+def _allowed(space: Cartographie, source_key: str, target_key: str, cat: Catalog) -> list[str]:
+    for key in (source_key, target_key):
+        if key not in space.objects:
+            raise CartographieError("object_not_found", status=404, key=key)
+    source, target = space.archimate(source_key), space.archimate(target_key)
+    if source is None or target is None:
+        return []
+    return allowed_relations(source, target, cat)

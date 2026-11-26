@@ -16,12 +16,18 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 - **Menu** : « Cartographie » devient une entrée du menu principal, avec des onglets (Types, Objets, puis Modèles) (« 3. oui »).
 - Plan de l'enabler f8167ae1 validé (« oui go ») : le format du catalogue est posé ici avec les seuls types utiles aux tests ; l'enabler 0e088eaa le complète.
 
+## Décisions de Gael (26 novembre)
+
+- **Règles de relation** : on reprend la table d'**Archi** (version 3.2, licence MIT, notice conservée) (« 1. oui »), Gael n'ayant pas la table de la spécification sous la main.
+- **Pas de ticket chez `urban-archimate`** (« 1. oui ») : son composant ne tient déjà aucune table, il demande à Ossie par le délégué `allowedRelations(cléSource, cléCible)`.
+- **Noms des attributs alignés sur le contrat d'`urban-archimate`** (« 2. oui go ») : `acces` (`Read`, `Write`, `ReadWrite` ; absent = non précisé, plus de valeur `Access`), `modificateur` (influence, au lieu de `force`), `dirigee` (association, au lieu de `orientee`). Le critère 5 de 0e088eaa (« quatre valeurs ») devient trois valeurs et l'absence.
+
 ## Tickets
 
 | Ticket | Statut |
 |---|---|
 | f8167ae1 — Format des types et des objets dans l'espace Git (enabler) | En review |
-| 0e088eaa — Types ArchiMate 3.2 en version de base, règles de relation (enabler) | À faire |
+| 0e088eaa — Types ArchiMate 3.2 en version de base, règles de relation (enabler) | En review |
 | e7521e80 — Espace « Cartographie » : types en vignettes, filtre, ajouter un type | Prêt pour dev |
 | 5c39d4df — Types : personnaliser un type | Prêt pour dev |
 | 6f71bcba — Objets : créer, modifier, supprimer à la main | Prêt pour dev |
@@ -37,3 +43,13 @@ Branche : **`feature/cartographie-types-objets`**, partie de `dev` (`de68632`).
 - Un objet utilisé par une relation ne peut pas être supprimé (`object_in_use`), règle de l'epic.
 - Conventions : `docs/conventions-cartographie.md`.
 - Tests : `backend/tests/test_cartographie_format.py` (critères 1 à 11, suppression refusée, dates Git, écriture réelle dans le brouillon).
+
+## Notes techniques (catalogue, règles, points de vue — 0e088eaa)
+
+- Catalogue `archimate-3.2.yaml` complet : 61 éléments (dont la jonction) et 11 relations, avec couche, libellé et définition en français ; libellés des couches et des 25 points de vue. `catalog.py` : `definition`, `unset` (libellé d'un attribut absent), `icon()`, `elements(couche)`, `relations()`.
+- Icônes : `cartographie/icons/<type>.svg`, 72 pictogrammes dessinés pour Ossie (pas ceux d'Archi ni d'archimate-js), un trait `currentColor`, 24 × 24.
+- Règles : `cartographie/archi/` contient `relationships.xml`, `viewpoints.xml` et `LICENSE.txt` d'Archi **tels quels** (commit `9826e95b`), lus par `rules.py` avec `defusedxml`. Pas de fichier généré : mettre à jour = recopier les fichiers d'un commit plus récent. Contrôle fait le 26 novembre : la table d'archimate-js exportée par `urban-archimate` ne diffère de celle d'Archi que sur 2 couples (Réseau de distribution → Écart / Événement de mise en œuvre).
+- `rules.py` : `allowed_relations`, `outgoing`, `incoming` (types ArchiMate ; une relation prise comme extrémité = concept `Relationship`), `viewpoints()` (règles d'Archi : point de vue vide = tout, regroupement, jonction et relations toujours permis).
+- `space.py` : `allowed_between` et `relation_types_between` (objets de l'espace, un type suit son `x-archimate`) ; une relation non permise est signalée à la lecture et refusée à l'écriture (`relation_not_allowed`) — décision prise en latitude (« interdit : inventer une relation absente de la spécification »).
+- La jonction reste **un** type `Junction` avec l'attribut `jonction` (comme la spécification et Archi) ; `urban-archimate` parle d'`AndJunction` / `OrJunction` (format d'échange) : la traduction relève du fichier de règles du modèle (epic « Cartographie — modèles et vues »).
+- Tests : `backend/tests/test_cartographie_catalog.py` (critères 1 à 6, fidélité à la table d'Archi, fichiers d'Archi inattendus).
