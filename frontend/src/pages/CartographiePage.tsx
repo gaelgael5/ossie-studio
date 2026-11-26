@@ -15,11 +15,15 @@ import { ArchimateIcon } from '../cartographie/ArchimateIcon'
 import { ObjectsTab, NEW_OBJECT_PATH } from '../cartographie/ObjectsTab'
 import { ModelsTab, MODELS_TAB_PATH } from '../cartographie/ModelsTab'
 import { NewModelDialog } from '../cartographie/NewModelDialog'
+import { ProcessesTab, PROCESSES_TAB_PATH } from '../cartographie/ProcessesTab'
+import { AttachProcessDialog, ImportProcessDialog, NewProcessDialog } from '../cartographie/ProcessDialogs'
+import type { CartoProcessSummary } from '../apiClient'
 
 // Écran « Cartographie » (epic « Cartographie — types et objets », ticket e7521e80) :
 // les types de l'espace en vignettes, un filtre, « + Ajouter » ; onglet Objets
 // (ticket 6f71bcba), à l'adresse /cartographie/objets ; onglet Modèles (epic
-// « Cartographie — modèles et vues », ticket 5a05c7bb), /cartographie/modeles. Une seule couleur,
+// « Cartographie — modèles et vues », ticket 5a05c7bb), /cartographie/modeles ; onglet
+// Processus (epic « Cartographie — processus BPMN », ticket 7e061c3e), /cartographie/processus. Une seule couleur,
 // celle de l'application (Gael : pas de couleurs de couche ArchiMate) ; la couche
 // se lit dans le texte. Les écritures vont dans le brouillon de la personne, sur
 // toute branche (comme les Référentiels) ; la barre du brouillon est celle du Layout.
@@ -59,9 +63,17 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const canWrite = sessionCapabilities(session.data).includes('cartographie:write')
   const [adding, setAdding] = useState(false)
   const [newModel, setNewModel] = useState(false)
+  const [processDialog, setProcessDialog] = useState<'new' | 'import' | null>(null)
+  const [attaching, setAttaching] = useState<CartoProcessSummary | null>(null)
   const navigate = useNavigate()
   const pathname = useLocation().pathname
-  const tab = pathname.startsWith(OBJECTS_TAB_PATH) ? 'objects' : pathname.startsWith(MODELS_TAB_PATH) ? 'models' : 'types'
+  const tab = pathname.startsWith(OBJECTS_TAB_PATH)
+    ? 'objects'
+    : pathname.startsWith(MODELS_TAB_PATH)
+      ? 'models'
+      : pathname.startsWith(PROCESSES_TAB_PATH)
+        ? 'processes'
+        : 'types'
   const objectsTab = tab === 'objects'
   const catalog = useQuery({
     queryKey: ['carto-catalog'],
@@ -80,12 +92,27 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
     queryKey: ['carto-models', spaceId, branchId],
     queryFn: () => api.listCartoModels(spaceId, branchId),
   })
+  const processes = useQuery({
+    queryKey: ['carto-processes', spaceId, branchId],
+    queryFn: () => api.listCartoProcesses(spaceId, branchId),
+  })
   const editable = canWrite && !(list.data?.readonly ?? false)
   const types = list.data?.types ?? []
-  const errors = [catalog.error, list.error, objects.error, models.error].flatMap((e) =>
+  const errors = [catalog.error, list.error, objects.error, models.error, processes.error].flatMap((e) =>
     e ? errorMessages(t, e) : [],
   )
-  const subtitle = { types: 'cartoSubtitle', objects: 'cartoObjectsSubtitle', models: 'cartoModelsSubtitle' }[tab]
+  const subtitle = {
+    types: 'cartoSubtitle',
+    objects: 'cartoObjectsSubtitle',
+    models: 'cartoModelsSubtitle',
+    processes: 'cartoProcessesSubtitle',
+  }[tab]
+  // Les processus métier de l'espace : ce qu'un processus BPMN peut détailler.
+  const businessProcesses = (objects.data?.objects ?? [])
+    .filter((o) => o.archimate === 'BusinessProcess')
+    .map((o) => ({ key: o.key, name: o.name }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const processKeys = new Set((processes.data?.processes ?? []).map((p) => p.key))
   return (
     <main>
       <div className="page-head">
@@ -97,6 +124,16 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           <Link to={NEW_OBJECT_PATH} className="btn btn-primary">
             {t('cartoNewObject')}
           </Link>
+        ) : null}
+        {editable && tab === 'processes' ? (
+          <div className="page-actions">
+            <button type="button" className="btn" onClick={() => setProcessDialog('import')}>
+              {t('cartoImportProcess')}
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => setProcessDialog('new')}>
+              {t('cartoNewProcess')}
+            </button>
+          </div>
         ) : null}
         {editable && tab === 'models' ? (
           <button type="button" className="btn btn-primary" onClick={() => setNewModel(true)}>
@@ -140,6 +177,16 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           {t('cartoTabModels')}
           {models.data ? <span className="muted">{models.data.models.length}</span> : null}
         </button>
+        <button
+          type="button"
+          role="tab"
+          className={`tab${tab === 'processes' ? ' active' : ''}`}
+          aria-selected={tab === 'processes'}
+          onClick={() => navigate(PROCESSES_TAB_PATH)}
+        >
+          {t('cartoTabProcesses')}
+          {processes.data ? <span className="muted">{processes.data.processes.length}</span> : null}
+        </button>
       </div>
       <ErrorList messages={errors} />
       {list.isLoading || catalog.isLoading ? <p className="muted">{t('loading')}</p> : null}
@@ -164,6 +211,44 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           objects={objects.data.objects}
           editable={editable}
           onNew={() => setNewModel(true)}
+        />
+      ) : null}
+      {processes.data && tab === 'processes' ? (
+        <ProcessesTab
+          spaceId={spaceId}
+          branchId={branchId}
+          processes={processes.data.processes}
+          editable={editable}
+          onNew={() => setProcessDialog('new')}
+          onImport={() => setProcessDialog('import')}
+          onAttach={setAttaching}
+        />
+      ) : null}
+      {processDialog === 'new' ? (
+        <NewProcessDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          choices={businessProcesses}
+          taken={processKeys}
+          onClose={() => setProcessDialog(null)}
+        />
+      ) : null}
+      {processDialog === 'import' ? (
+        <ImportProcessDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          choices={businessProcesses}
+          taken={processKeys}
+          onClose={() => setProcessDialog(null)}
+        />
+      ) : null}
+      {attaching ? (
+        <AttachProcessDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          process={attaching}
+          choices={businessProcesses}
+          onClose={() => setAttaching(null)}
         />
       ) : null}
       {newModel && catalog.data && models.data ? (

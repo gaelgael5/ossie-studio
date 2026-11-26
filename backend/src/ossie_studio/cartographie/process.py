@@ -368,6 +368,32 @@ def with_definitions_id(text: str, key: str) -> str:
     return text[: tag.start()] + changed + text[tag.end() :]
 
 
+def with_process_name(text: str, name: str) -> str:
+    """Le même texte, le nom du premier `bpmn:process` remplacé (ajouté s'il manque)."""
+    tag = _start_tag(text, "process")
+    if tag is None:
+        raise CartographieError("process_not_bpmn")
+    original = tag.group(0)
+    value = _escape(name)
+    found = _NAME_ATTR.search(original)
+    if found:
+        changed = original[: found.start(3)] + value + original[found.end(3) :]
+    else:
+        name_end = len(f"{tag.group('prefix')}:" if tag.group("prefix") else "") + len("<process")
+        changed = f'{original[:name_end]} name="{value}"{original[name_end:]}'
+    return text[: tag.start()] + changed + text[tag.end() :]
+
+
+_NAME_ATTR = re.compile(r"""(\sname\s*=\s*)(["'])(.*?)\2""", re.DOTALL)
+
+
+def _escape(value: str) -> str:
+    """Une valeur d'attribut XML (entre guillemets doubles)."""
+    return (
+        value.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+    )
+
+
 def _reference_xml(key: str, type_slug: str) -> str:
     type_attr = f' type="{type_slug}"' if type_slug else ""
     return f'<urban:reference xmlns:urban="{URBAN_NS}" cle="{key}"{type_attr}/>'
@@ -411,6 +437,9 @@ def with_detail(text: str, key: str | None, type_slug: str = "") -> str:
         ext_close = text.find(f"</{ext_prefix}extensionElements>", ext.end())
         inner = text[ext.end() : ext_close]
         inner = _without_urban_references(text, inner)
+        if not reference and not inner.strip():  # plus rien : le conteneur part aussi
+            end = ext_close + len(f"</{ext_prefix}extensionElements>")
+            return text[: ext.start()] + text[end:]
         return text[: ext.end()] + reference + inner + text[ext_close:]
     if key is None:
         return text
@@ -427,9 +456,7 @@ def _direct_child(text: str, start: int, position: int) -> bool:
 
 def new_process_xml(key: str, name: str, detail_of: str | None = None) -> str:
     """Un processus neuf : un événement de début, dessiné."""
-    escaped = (
-        name.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
-    )
+    escaped = _escape(name)
     extension = (
         f"\n    <bpmn:extensionElements>{_reference_xml(detail_of, '')}</bpmn:extensionElements>"
         if detail_of
@@ -487,3 +514,49 @@ def delete_process(root: Path, key: str) -> None:
     if not is_valid_key(key) or not path.is_file():
         raise CartographieError("process_not_found", status=404, key=key)
     path.unlink()
+
+
+# --- Aperçu d'une vignette ------------------------------------------------------------------
+
+
+def _preview_kind(kind: str) -> str:
+    """La nature simplifiée d'une forme, pour l'aperçu (et ses symboles)."""
+    if kind == "participant":
+        return "pool"
+    if kind == "lane":
+        return "lane"
+    if kind.endswith("Event"):
+        return "event"
+    if kind.endswith("Gateway"):
+        return "gateway"
+    if kind in ("dataObjectReference", "dataStoreReference", "dataObject"):
+        return "data"
+    if kind in FLOW_NODES:
+        return "task"
+    return "other"
+
+
+def preview(process: Process, space: Cartographie) -> dict[str, Any]:
+    """L'aperçu du dessin : les formes (géométrie, nature simplifiée, libellé — le nom
+    à jour pour un élément rattaché) et les liens (leurs points)."""
+    by_element = {r.element: r for r in process.references}
+
+    def label(shape: Shape) -> str:
+        ref = by_element.get(shape.element)
+        found = space.objects.get(ref.key) if ref else None
+        return found[1].name if found else shape.name
+
+    return {
+        "boxes": [
+            {
+                "x": s.x,
+                "y": s.y,
+                "l": s.width,
+                "h": s.height,
+                "kind": _preview_kind(s.kind),
+                "label": label(s),
+            }
+            for s in process.shapes
+        ],
+        "links": [{"points": [list(p) for p in e.points]} for e in process.edges if e.points],
+    }

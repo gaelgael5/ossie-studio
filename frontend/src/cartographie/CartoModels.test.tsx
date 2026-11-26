@@ -91,6 +91,7 @@ function setup(options: { capabilities?: string[]; at?: string } = {}) {
       else if (path === `${BASE}/types`) body = { readonly: false, types: [] }
       else if (path === `${BASE}/objets`) body = { readonly: false, objects: OBJECTS }
       else if (path === `${BASE}/modeles` && method === 'GET') body = { readonly: false, models: MODELS, rules: ['metier', 'standard'] }
+      else if (path === `${BASE}/processus`) body = { readonly: false, processes: [] }
       else if (path === `${BASE}/modeles` && method === 'POST') {
         const req = JSON.parse(String(init?.body)) as { slug: string; label: string }
         body = { ...model(req.slug, req.label), state: 'created', dates: null, revision: 'draft:1' }

@@ -4109,3 +4109,153 @@ urban-archimate {
   --ua-notation-texte: var(--text);
   --ua-notation-fond: var(--panel);
 }
+
+/* Onglet Processus de la cartographie (ticket 7e061c3e) : l'aperçu BPMN en trait
+   sarcelle sur la trame, comme celui des modèles. */
+.carto-process-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.carto-bpmn-shape {
+  fill: var(--panel);
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-bpmn-pool,
+.carto-bpmn-lane {
+  fill: none;
+}
+.carto-bpmn-data {
+  stroke-dasharray: 3 2;
+}
+.carto-bpmn-flow {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-bpmn-label {
+  font-family: var(--font-ui);
+  fill: var(--text);
+}
+.carto-process-detail {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.carto-over-cover {
+  position: relative;
+  z-index: 2;
+}
+.carto-process-attach {
+  margin-left: auto;
+}
+.carto-add-link {
+  background: none;
+  border: 0;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.carto-add-sub {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.carto-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .carto-import {
+    grid-template-columns: 1fr;
+  }
+}
+.carto-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px dashed var(--primary);
+  border-radius: var(--radius);
+  background: var(--chip-bg);
+  cursor: pointer;
+}
+.carto-file-badge {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 40px;
+  height: 48px;
+  padding-bottom: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-size: 0.7rem;
+}
+.carto-link {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.carto-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.carto-check {
+  display: flex;
+  gap: 10px;
+}
+.carto-check-mark {
+  width: 1em;
+  font-weight: 700;
+}
+.carto-check-ok .carto-check-mark {
+  color: var(--primary);
+}
+.carto-check-warn .carto-check-mark {
+  color: var(--warn-fg);
+}
+.carto-check-ko .carto-check-mark {
+  color: var(--danger-fg);
+}
+.carto-import-preview {
+  height: 280px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
+  background-size: 14px 14px;
+}
+.carto-process-canvas {
+  height: calc(100vh - 340px);
+  min-height: 420px;
+  margin-top: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
+  background-size: 14px 14px;
+}
+.carto-process-unattached {
+  display: inline-block;
+  margin-top: 6px;
+}
+.carto-bpmn-links {
+  flex-wrap: wrap;
+  gap: 8px;
+}

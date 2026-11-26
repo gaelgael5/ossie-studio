@@ -21,7 +21,7 @@ tous ses tickets livrés).
 | Ticket | Sujet | Statut |
 |---|---|---|
 | 1d35290d | Format et rangement d'un processus BPMN | en revue |
-| 7e061c3e | Processus : liste, création, import | à faire |
+| 7e061c3e | Processus : liste, création, import | en revue |
 | 48335b93 | Ouvrir et enregistrer un processus | attend `urban-bpmn` sur PyPI |
 | 883ca50f | Vérification d'intention (avec Gael) | à faire |
 
@@ -38,3 +38,19 @@ tous ses tickets livrés).
   réécrit pas le XML à l'ouverture.
 - À l'import, l'`id` du document devient la clé (seule retouche) : ticket 1 (« la clé est
   aussi l'id du bpmn:definitions ») et ticket 2 (« gardé tel quel ») concilient ainsi.
+
+## Notes techniques (onglet Processus, 7e061c3e)
+
+- Détail des routes et de l'écran : `docs/conventions-cartographie.md`, « L'onglet
+  Processus ».
+- Écarts au ticket :
+  - « Lecture seule à la racine » remplacé par la règle des droits : sans
+    `cartographie:write`, ni création ni import ni rattachement (la racine se modifie par
+    le brouillon, comme les modèles).
+  - La mention « Importé · non rattaché » de la maquette s'affiche « Non rattaché à un
+    processus métier » : le fichier ne garde pas trace de son origine.
+- L'aperçu est calculé côté serveur à partir de la section `bpmndi` (pas de rendu
+  bpmn-js dans la liste) ; les libellés des tâches passent à la ligne, coupés par « … »
+  en dernier recours.
+- La page d'un processus montre son aperçu : l'éditeur urban-bpmn y viendra avec
+  48335b93.

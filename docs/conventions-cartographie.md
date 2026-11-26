@@ -321,3 +321,32 @@ Epic « Cartographie — processus BPMN » (docflow f97e7afe), enabler 1d35290d.
 - Vérifié avec bpmn-moddle (l'analyseur de bpmn.io) : les fichiers créés ou retouchés
   par Ossie se lisent sans avertissement, l'extension ignorée ; avec l'extension
   d'urban-bpmn chargée, le rattachement est retrouvé.
+
+### L'onglet Processus (feature 7e061c3e)
+
+Code : `api/cartographie_processes.py` (routes sous
+`/api/spaces/{space}/branches/{branch}/cartographie/processus`), front
+`cartographie/ProcessesTab.tsx`, `ProcessDialogs.tsx`, `CartoProcessPage.tsx`,
+`ProcessPreview.tsx`.
+
+- **Liste** (`GET …/processus`) : par processus, la clé, le nom, le processus métier
+  détaillé (`detail_of`, avec son nom à jour), les nombres (participants, couloirs, objets
+  rattachés hors processus et collaboration), les noms des participants (pour le filtre)
+  et un **aperçu** calculé depuis le dessin (`preview` : boîtes `pool`, `lane`, `event`,
+  `gateway`, `task`, `data`, et les flux). Dates de publication et état du brouillon
+  comme les autres fichiers de la cartographie.
+- **Créer** (`POST …/processus`) : clé, nom, processus métier facultatif ; refus
+  `process_name_missing`, `process_key_invalid`, `process_exists`.
+- **Importer** : `POST …/processus/verifier` vérifie sans rien écrire (XML BPMN 2.0
+  valide, dessin présent, nombres, éléments rattachés, aperçu, nom et clé proposés
+  `PRC-<NOM>`) ; `POST …/processus/importer` range le fichier **tel quel** — seules
+  retouches : `id` du document = clé, nom du processus s'il a été changé, rattachement
+  s'il a été choisi. Un fichier sans dessin est refusé ; taille limitée à 5 Mo
+  (`process_too_large`).
+- **Rattacher / détacher** (`POST …/processus/{clé}/rattacher`, `detail_of` à `null` pour
+  détacher) ; **supprimer** (`DELETE …/processus/{clé}`) : les objets rattachés restent.
+- **Fiche d'un processus métier** (`BusinessProcess`) : section « Détail BPMN »
+  — « Ouvrir le détail BPMN » s'il existe (champ `processes` de la fiche), sinon « Créer
+  le détail BPMN » (fenêtre de création, processus métier déjà choisi).
+- **Droits** : lecture avec `cartographie:read`, toute écriture avec
+  `cartographie:write`.

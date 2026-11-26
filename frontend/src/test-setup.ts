@@ -12,3 +12,16 @@ void i18n.changeLanguage('fr')
 vi.mock('./components/CodeViewerMonaco', () => ({
   default: ({ value }: { value: string }) => createElement('pre', { className: 'raw-json' }, value),
 }))
+
+// jsdom ne fournit pas Blob.text(), que les navigateurs ont : l'import d'un fichier
+// BPMN le lit ainsi (ticket 7e061c3e).
+if (typeof Blob.prototype.text !== 'function') {
+  Blob.prototype.text = function text(this: Blob) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsText(this)
+    })
+  }
+}
