@@ -230,7 +230,7 @@ function ExampleTab({
       {detail.format === 'xlsx' ? (
         // Classeur Excel (ticket 6f6066e9) : la feuille à lire, et l'en-tête.
         <fieldset className="ref-fieldset row">
-          <legend>{t('refImportReading')}</legend>
+          <legend>{t('refImportReadingXlsx')}</legend>
           {(preview?.sheets ?? []).length > 1 ? (
             <label className="field">
               <span className="field-label">{t('refImportSheet')}</span>

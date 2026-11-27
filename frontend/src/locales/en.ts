@@ -1253,6 +1253,7 @@ export const en = {
     refImportAddProperty: 'Add to the model ({{name}})',
     refImportAddPropertyFor: 'Add the column {{column}} to the model',
     refImportFormatXlsx: 'Excel (xlsx)',
+    refImportReadingXlsx: 'Workbook reading',
     refImportPreview: 'Preview ({{count}} line(s))',
     refImportPreviewTable: 'Sample file preview',
     refImportPaths: 'Detected paths',
