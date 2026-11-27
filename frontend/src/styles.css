@@ -4419,3 +4419,12 @@ urban-bpmn {
     grid-template-columns: 1fr;
   }
 }
+
+/* Choix de la propriété d'une colonne (ticket 47716786) : la liste et la mention
+   « choisie » sur une ligne. */
+.import-mapping {
+  flex-wrap: nowrap;
+}
+.import-mapping select {
+  max-width: 320px;
+}

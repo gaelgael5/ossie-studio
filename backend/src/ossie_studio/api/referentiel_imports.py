@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from ossie_studio.api.common import require_capability
-from ossie_studio.api.import_routes import ImportAdapter, import_router
+from ossie_studio.api.import_routes import ImportAdapter, Skeleton, import_router
 from ossie_studio.api.referentiels import read_in, referentiel_target, write_in
 from ossie_studio.imports.target import ImportTarget
 from ossie_studio.referentiels.errors import ReferentielError
@@ -74,6 +74,18 @@ def _add_property(root: Path, name: str, prop: str, kind: str) -> None:
     write_referentiel(root, name, model, ref.values, create=False)
 
 
+def _skeleton(root: Path, name: str) -> Skeleton:
+    """Les propriétés de premier niveau du modèle et leur type (ticket 0598c41b)."""
+    props = read_referentiel(root, name).model.get("properties")
+    props = props if isinstance(props, dict) else {}
+    return [(p, _kind(s)) for p, s in props.items()], None
+
+
+def _kind(schema: Any) -> str | None:
+    kind = schema.get("type") if isinstance(schema, dict) else None
+    return kind if isinstance(kind, str) else None
+
+
 ADAPTER = ImportAdapter(
     journal_type=JOURNAL_TYPE,
     modes=("merge", "replace"),
@@ -88,6 +100,7 @@ ADAPTER = ImportAdapter(
     into=lambda name: f"dans {name}",
     properties=_properties,
     add_property=_add_property,
+    skeleton=_skeleton,
 )
 
 router = import_router(

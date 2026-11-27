@@ -320,3 +320,60 @@ async def test_ajouter_une_colonne_au_modele_du_referentiel(space: ApiSpace) -> 
     added = await space.client.post(f"{base}/colonnes/proprietes", json={"column": "Délai (jours)"})
     assert added.status_code == 200, added.text
     assert (added.json()["property"], added.json()["type"]) == ("delai_jours", "integer")
+
+
+async def test_resoudre_le_template_du_referentiel(space: ApiSpace) -> None:
+    """Ticket 0598c41b, critère 1 : le modèle `delais` et le CSV `Pays;Mode;Delai`."""
+    base = f"{space.base}/referentiels/delais/imports"
+    body = {"label": "R", "slug": "resolu", "format": "csv"}
+    assert (await space.client.post(base, json=body)).status_code == 201
+    await space.client.put(
+        f"{base}/resolu/exemple", files={"file": ("c.csv", CSV.encode(), "text/csv")}
+    )
+    resolved = await space.client.post(f"{base}/resolu/resoudre")
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["template"] == (
+        '{\n  "pays": $.Pays,\n  "mode": $.Mode,\n  "delai": $.Delai#integer\n}\n'
+    )
+
+
+async def test_choisir_la_propriete_d_une_colonne(space: ApiSpace) -> None:
+    """Ticket 47716786 : le choix est gardé dans l'import et repris par « Résoudre le
+    template » ; refus nommés pour une propriété inconnue ou déjà prise."""
+    base = f"{space.base}/referentiels/delais/imports"
+    body = {"label": "M", "slug": "mapping", "format": "csv"}
+    assert (await space.client.post(base, json=body)).status_code == 201
+    csv = "Pays;Transport;Durée\nFR;site;2\n"
+    await space.client.put(
+        f"{base}/mapping/exemple", files={"file": ("c.csv", csv.encode(), "text/csv")}
+    )
+    url = f"{base}/mapping/correspondances"
+    for column, prop in (("Transport", "mode"), ("Durée", "delai"), ("Pays", "")):
+        r = await space.client.put(url, json={"column": column, "property": prop})
+        assert r.status_code == 200, r.text
+    preview = (await space.client.post(f"{base}/mapping/apercu")).json()
+    assert {r["column"]: r["property"] for r in preview["comparison"]} == {
+        "Pays": None,
+        "Transport": "mode",
+        "Durée": "delai",
+    }
+    assert preview["properties"] == ["pays", "mode", "delai"]
+    resolved = (await space.client.post(f"{base}/mapping/resoudre")).json()["template"]
+    assert resolved == (
+        '{\n  "pays": null,\n  "mode": $.Transport,\n  "delai": $["Durée"]#integer\n}\n'
+    )
+    unknown = await space.client.put(url, json={"column": "Pays", "property": "absente"})
+    assert (unknown.status_code, unknown.json()["error"]) == (400, "import_mapping_unknown")
+    taken = await space.client.put(url, json={"column": "Pays", "property": "mode"})
+    assert (taken.status_code, taken.json()["error"]) == (409, "import_mapping_duplicate")
+    # Revenir à la correspondance par nom : le choix n'est plus gardé.
+    back = await space.client.put(url, json={"column": "Pays", "property": "pays"})
+    assert back.status_code == 200
+    again = (await space.client.post(f"{base}/mapping/apercu")).json()["comparison"]
+    assert [r["chosen"] for r in again] == [False, True, True]
+    # Une colonne ignorée puis ajoutée au modèle va à sa nouvelle propriété.
+    await space.client.put(url, json={"column": "Transport", "property": ""})
+    added = await space.client.post(f"{base}/mapping/proprietes", json={"column": "Transport"})
+    assert added.status_code == 200, added.text
+    last = (await space.client.post(f"{base}/mapping/apercu")).json()["comparison"]
+    assert {r["column"]: r["property"] for r in last}["Transport"] == "transport"

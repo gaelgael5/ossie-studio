@@ -17,7 +17,7 @@ from typing import Any
 
 from ossie_studio.api.cartographie import api_error, cartographie_target
 from ossie_studio.api.common import require_capability
-from ossie_studio.api.import_routes import ImportAdapter, import_router
+from ossie_studio.api.import_routes import ImportAdapter, Skeleton, import_router
 from ossie_studio.cartographie.catalog import catalog
 from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.import_target import JOURNAL_TYPE, imports_dir, target_of
@@ -112,6 +112,27 @@ def _add_property(root: Path, slug: str, prop: str, kind: str) -> None:
     save_type(root, changed, create=False)
 
 
+def _kind(schema: Any) -> str | None:
+    kind = schema.get("type") if isinstance(schema, dict) else None
+    return kind if isinstance(kind, str) else None
+
+
+def _skeleton(root: Path, slug: str) -> Skeleton:
+    """Un objet du type tel que son fichier l'écrit (ticket 0598c41b) : la base, la
+    source et la cible d'une relation, puis `proprietes` (attributs ArchiMate et
+    propriétés ajoutées)."""
+    _require(root, slug)
+    ctype = read_cartographie(root).types[slug]
+    base = catalog().get(ctype.archimate)
+    fields: list[tuple[str, str | None]] = [("cle", "string"), ("nom", "string")]
+    if base is not None and base.is_relation:
+        fields += [("source", "string"), ("cible", "string")]
+    fields.append(("documentation", "string"))
+    inner = [(a.name, _kind(a.schema())) for a in (base.attributes if base else ())]
+    inner += [(name, _kind(schema)) for name, schema in ctype.properties.items()]
+    return fields, ("proprietes", inner)
+
+
 ADAPTER = ImportAdapter(
     journal_type=JOURNAL_TYPE,
     modes=("merge",),
@@ -126,6 +147,7 @@ ADAPTER = ImportAdapter(
     into=lambda slug: f"dans le type {slug}",
     properties=_properties,
     add_property=_add_property,
+    skeleton=_skeleton,
 )
 
 router = import_router(

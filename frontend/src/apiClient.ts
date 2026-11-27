@@ -1917,7 +1917,9 @@ export interface ImportPreview {
   sheets?: string[]
   sheet_required?: boolean
   /** Colonnes face aux propriétés du modèle (ticket 221d832b) ; vide sans en-tête. */
-  comparison?: { column: string; property: string | null; proposed: string }[]
+  comparison?: { column: string; property: string | null; chosen?: boolean; proposed: string }[]
+  /** Les propriétés du modèle, à choisir pour chaque colonne (ticket 47716786). */
+  properties?: string[]
 }
 
 export interface TemplateProblem {
@@ -3156,8 +3158,12 @@ export interface ImportsApi {
   list: () => Promise<{ imports: ReferentielImportSummary[] }>
   get: (slug: string) => Promise<ReferentielImportDetail>
   create: (body: { label: string; slug: string; format: 'csv' | 'json' | 'xlsx' }) => Promise<ReferentielImportDetail>
+  /** « Résoudre le template » d'après le modèle et les colonnes (ticket 0598c41b). */
+  resolve: (slug: string, reading?: ImportReading) => Promise<{ template: string }>
   /** « Ajouter au modèle » une colonne sans propriété (ticket 221d832b). */
   addProperty: (slug: string, column: string) => Promise<{ property: string; type: string; revision: string | null }>
+  /** La propriété choisie pour une colonne, "" pour l'ignorer (ticket 47716786). */
+  setMapping: (slug: string, column: string, property: string) => Promise<ReferentielImportDetail>
   rename: (slug: string, label: string) => Promise<ReferentielImportDetail>
   remove: (slug: string) => Promise<void>
   uploadExample: (slug: string, file: File) => Promise<ReferentielImportDetail>
@@ -3200,7 +3206,11 @@ export function importsApi(
       return apiUpload(one(slug, '/import'), form, 'POST')
     },
     saveTemplate: (slug, template) => apiFetch(one(slug, '/template'), { method: 'PUT', body: JSON.stringify({ template }) }),
+    resolve: (slug, reading) =>
+      apiFetch(one(slug, '/resoudre'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
     addProperty: (slug, column) => apiFetch(one(slug, '/proprietes'), { method: 'POST', body: JSON.stringify({ column }) }),
+    setMapping: (slug, column, property) =>
+      apiFetch(one(slug, '/correspondances'), { method: 'PUT', body: JSON.stringify({ column, property }) }),
   }
 }
 

@@ -167,3 +167,63 @@ def test_colonnes_comparees_aux_proprietes() -> None:
     assert infer_type([1, 2.5]) == "number"
     assert infer_type(["true", "false"]) == "boolean"
     assert infer_type(["FR", "3"]) == "string"
+
+
+def test_resoudre_le_template() -> None:
+    """Ticket 0598c41b : toutes les propriétés, la colonne qui correspond, sinon null ;
+    la conversion quand le type diffère ; le template s'analyse."""
+    from ossie_studio.imports.columns import resolve_template
+    from ossie_studio.imports.engine import check_template
+
+    flat = resolve_template(
+        [("pays", "string"), ("mode", "string"), ("delai", "integer")],
+        None,
+        {"Pays": ["FR"], "Mode": ["site"], "Delai": ["2"]},
+    )
+    assert flat == '{\n  "pays": $.Pays,\n  "mode": $.Mode,\n  "delai": $.Delai#integer\n}\n'
+    assert check_template(flat) == []
+    # xlsx : les nombres arrivent comme nombres, aucune conversion ; un texte
+    # attendu pour un nombre lu est converti.
+    nested = resolve_template(
+        [("cle", "string"), ("nom", "string"), ("documentation", "string")],
+        ("proprietes", [("criticite", "string"), ("poids", "number"), ("code", "string")]),
+        {"cle": ["A"], "Nom": ["x"], "Poids": [3], "Code": [12]},
+    )
+    assert '"documentation": null' in nested and '"criticite": null' in nested
+    assert '"poids": $.Poids,' in nested and '"code": $.Code#string' in nested
+    assert check_template(nested) == []
+    empty = resolve_template([("a", "string")], None, {"Autre": ["x"]})
+    assert '"a": null' in empty
+
+
+def test_correspondances_choisies_a_la_main() -> None:
+    """Ticket 47716786 : un choix l'emporte sur le nom, "" ignore la colonne, un choix
+    vers une propriété disparue est ignoré ; la résolution suit les choix."""
+    from ossie_studio.imports.columns import compare, effective_mapping, resolve_template
+
+    props = ["pays", "mode", "delai"]
+    cols = ["Pays", "Mode", "Durée"]
+    assert effective_mapping(cols, props, {"Durée": "delai", "Mode": ""}) == {
+        "Pays": "pays",
+        "Mode": None,
+        "Durée": "delai",
+    }
+    # La propriété prise par un choix n'est plus attribuée par le nom.
+    assert effective_mapping(["Pays", "Code"], props, {"Code": "pays"}) == {
+        "Pays": None,
+        "Code": "pays",
+    }
+    assert effective_mapping(cols, props, {"Durée": "disparue"})["Durée"] is None
+    rows = compare(cols, props, {"Durée": "delai"})
+    assert [(r["property"], r["chosen"]) for r in rows] == [
+        ("pays", False),
+        ("mode", False),
+        ("delai", True),
+    ]
+    resolved = resolve_template(
+        [("pays", "string"), ("mode", "string"), ("delai", "integer")],
+        None,
+        {"Pays": ["FR"], "Mode": ["site"], "Durée": ["2"]},
+        {"Durée": "delai", "Mode": ""},
+    )
+    assert resolved == '{\n  "pays": $.Pays,\n  "mode": null,\n  "delai": $["Durée"]#integer\n}\n'
