@@ -608,6 +608,48 @@ CATALOG: tuple[Primitive, ...] = (
         ),
         idempotent=True,
     ),
+    # --- Cartographie : écriture (ticket d4723be3)
+    Primitive(
+        id="write_carto_documents",
+        domain="cartographie",
+        access="write",
+        capability="cartographie:write",
+        description=(
+            "Write a list of cartography documents (objects and relationships) to the user's "
+            "draft, all together or not at all (one draft change, never published). Each "
+            "entry names its document by path ('cartographie/objets/<type>/<key in "
+            "lowercase>.yaml') or type and key: absent document = creation (no version); "
+            "present = complete replacement, version required (from get_carto_object); "
+            "delete: true = deletion, version required. Content is the document as its file "
+            "writes it (cle, type, nom, documentation, proprietes; source and cible for a "
+            "relationship): read its schema with read_schema on the type. A relationship may "
+            "target an object created in the same list; an object may be deleted with the "
+            "relationships that use it. Same checks as the screen (type schema, unique and "
+            "frozen key, relationship allowed by ArchiMate, object in use). On any refusal "
+            "nothing is written and every error is returned (carto_write_refused): JSONPath "
+            "in your request (e.g. $.documents[2].content.proprietes.volume_jour), code, "
+            "French message with what was received and expected. Returns each document's "
+            "path and new version."
+        ),
+        person_only=True,
+        destructive=True,
+    ),
+    Primitive(
+        id="modify_carto_document",
+        domain="cartographie",
+        access="write",
+        capability="cartographie:write",
+        description=(
+            "Modify one cartography document of the user's draft by JSONPath operations "
+            "({path: '$.proprietes.volume_jour', value: 180} or {path: ..., delete: true}), "
+            "given its path and version (from get_carto_object). $.cle, $.type, $.source and "
+            "$.cible are frozen. The resulting document is checked like the screen before "
+            "writing; on refusal nothing is written and every error is returned with its "
+            "JSONPath ($.operations[i].path for a malformed operation, otherwise the path in "
+            "the document). Returns the new version."
+        ),
+        person_only=True,
+    ),
     # --- Gouvernance
     Primitive(
         id="list_tags",

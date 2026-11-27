@@ -6,10 +6,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ossie_studio.mcp_surface import application as app_map
+from ossie_studio.mcp_surface import carto_writes, reads, references, schemas, source_writes, writes
 from ossie_studio.mcp_surface import cartographie as carto
 from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
-from ossie_studio.mcp_surface import reads, references, schemas, source_writes, writes
 from ossie_studio.mcp_surface import referentiels as refs
 from ossie_studio.mcp_surface.branch import BranchArgs, BranchParam, ObjectArgs, SourceArgs
 from ossie_studio.mcp_surface.core import (
@@ -54,6 +54,13 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "get_carto_object": Implementation(carto.CartoObjectArgs, carto.get_carto_object),
     "list_carto_models": Implementation(carto.CartoModelsArgs, carto.list_carto_models),
     "get_carto_model": Implementation(carto.CartoModelArgs, carto.get_carto_model),
+    # Cartographie : écriture (ticket d4723be3)
+    "write_carto_documents": Implementation(
+        carto_writes.WriteCartoArgs, carto_writes.write_carto_documents
+    ),
+    "modify_carto_document": Implementation(
+        carto_writes.ModifyCartoArgs, carto_writes.modify_carto_document
+    ),
     "list_tags": Implementation(BranchArgs, reads.list_tags),
     "list_classifications": Implementation(BranchArgs, reads.list_classifications),
     # Écriture (brouillon de la personne)
