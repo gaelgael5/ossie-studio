@@ -34,6 +34,7 @@ from ossie_studio.imports.columns import (
     compare,
     effective_mapping,
     infer_type,
+    minimal_mapping,
     property_name,
     resolve_template,
 )
@@ -592,11 +593,7 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
                 raise ApiError("import_mapping_duplicate", status_code=409, property=duplicate)
             # La déclaration ne garde que les écarts : un choix retiré qui ne change
             # rien au résultat (c'est la correspondance par nom) n'est pas écrit.
-            for column in list(chosen):
-                trial = {c: p for c, p in chosen.items() if c != column}
-                if effective_mapping(columns, properties, trial) == target:
-                    chosen = trial
-            decl = replace(imp.declaration, mapping=chosen)
+            decl = replace(imp.declaration, mapping=minimal_mapping(columns, properties, chosen))
             return files.write_import(
                 root, folder(owner), decl, imp.template, imp.example, create=False
             )

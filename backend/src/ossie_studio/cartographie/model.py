@@ -58,6 +58,25 @@ def is_valid_key(key: str) -> bool:
     return bool(_KEY.fullmatch(key))
 
 
+def property_renames(before: CartoType, after: CartoType) -> dict[str, str]:
+    """Les propriétés renommées entre deux versions d'un type (ticket 859579bb) :
+    même nombre de propriétés et, à la même position, un nom retiré et un nom
+    ajouté de définition identique. L'éditeur visuel garde la position et la
+    définition d'une propriété renommée ; une suppression suivie d'un ajout
+    ailleurs, ou un renommage avec changement de définition, n'en est pas un."""
+    old, new = list(before.properties), list(after.properties)
+    if len(old) != len(new):
+        return {}
+    return {
+        o: n
+        for o, n in zip(old, new, strict=True)
+        if o != n
+        and o not in after.properties
+        and n not in before.properties
+        and before.properties[o] == after.properties[n]
+    }
+
+
 def type_path(slug: str) -> str:
     return f"{TYPES_DIR}/{slug}{TYPE_SUFFIX}"
 

@@ -265,3 +265,63 @@ async def test_resoudre_le_template_d_un_type(space: ApiSpace) -> None:
         "  }\n"
         "}\n"
     )
+
+
+async def test_renommer_une_propriete_suit_imports_et_objets(space: ApiSpace) -> None:
+    """Ticket 859579bb : deux propriétés renommées en un enregistrement ; les
+    correspondances (par nom et par choix), le template et les objets suivent,
+    une colonne ignorée le reste."""
+    await _declare(space, "application", APP_TEMPLATE)
+    assert (await _import(space, "application", _apps(2))).status_code == 200
+    await space.client.put(
+        _url(space, "application", "/fichier/exemple"),
+        files={
+            "file": ("e.csv", b"cle;Nom;criticite;Equipe;Chef\nAPP-1;Un;haute;V;X\n", "text/csv")
+        },
+    )
+    added = await space.client.post(
+        _url(space, "application", "/fichier/proprietes"), json={"column": "Equipe"}
+    )
+    assert added.status_code == 200, added.text
+    chosen = await space.client.put(
+        _url(space, "application", "/fichier/correspondances"),
+        json={"mapping": {"criticite": "", "Chef": "criticite"}},
+    )
+    assert chosen.status_code == 200, chosen.text
+    url = f"{space.base}/cartographie/types/application"
+    schema = (await space.client.get(url)).json()["document"]
+    props = schema["properties"]
+    schema["properties"] = {"niveau": props["criticite"], "groupe": props["equipe"]}
+    saved = await space.client.put(url, json={"schema": schema})
+    assert saved.status_code == 200, saved.text
+    preview = (await space.client.post(_url(space, "application", "/fichier/apercu"))).json()
+    rows = {r["column"]: r["property"] for r in preview["comparison"]}
+    assert rows == {
+        "cle": "cle",
+        "Nom": "nom",
+        "criticite": None,
+        "Equipe": "groupe",
+        "Chef": "niveau",
+    }
+    detail = (await space.client.get(_url(space, "application", "/fichier"))).json()
+    assert '"niveau": $.criticite' in detail["template"]
+    assert '"criticite":' not in detail["template"]
+    app_01 = await _object(space, "APP-01") or {}
+    assert app_01["properties"] == {"niveau": "haute"}
+
+
+def test_reconnaitre_un_renommage() -> None:
+    """Ticket 859579bb : même position et même définition ; ni une suppression
+    suivie d'un ajout ailleurs, ni un changement de définition."""
+    from ossie_studio.cartographie.model import CartoType, property_renames
+
+    def t(props: dict[str, Any]) -> CartoType:
+        return CartoType(slug="a", title="A", archimate="ApplicationComponent", properties=props)
+
+    s, n = {"type": "string"}, {"type": "number"}
+    before = t({"a": s, "b": n, "c": s})
+    assert property_renames(before, t({"a": s, "bb": n, "c": s})) == {"b": "bb"}
+    assert property_renames(before, t({"x": s, "b": n, "y": s})) == {"a": "x", "c": "y"}
+    assert property_renames(before, t({"a": s, "bb": s, "c": s})) == {}  # définition changée
+    assert property_renames(before, t({"a": s, "c": s, "d": n})) == {}  # retrait + ajout ailleurs
+    assert property_renames(before, t({"a": s, "b": n})) == {}  # retrait seul

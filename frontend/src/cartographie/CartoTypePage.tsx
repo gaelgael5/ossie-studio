@@ -147,7 +147,11 @@ function TypeEditor({
   const title = parsed.ok && typeof parsed.model.title === 'string' ? parsed.model.title : detail.title
   const invalidate = () =>
     Promise.all(
-      ['carto-types', 'carto-type', 'draft', 'draftChanges'].map((k) => queryClient.invalidateQueries({ queryKey: [k] })),
+      // Les imports aussi : une propriété renommée l'est dans leurs correspondances
+      // et leur template (ticket 859579bb).
+      ['carto-types', 'carto-type', 'draft', 'draftChanges', 'referentielImport', 'referentielImportPreview'].map((k) =>
+        queryClient.invalidateQueries({ queryKey: [k] }),
+      ),
     )
   const save = useMutation({
     mutationFn: (model: RefModel) => api.saveCartoType(spaceId, branchId, detail.slug, model),
