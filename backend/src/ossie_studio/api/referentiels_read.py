@@ -39,7 +39,8 @@ BearerDep = Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
 
 # Chaque lecture et la primitive MCP qui donne le même droit à une clé.
 LIST_PRIMITIVE = "list_referentiels"
-MODEL_PRIMITIVE = "read_referentiel_model"
+# La lecture du modèle par MCP passe par la primitive commune (ticket 06ef8679).
+MODEL_PRIMITIVE = "read_schema"
 SEARCH_PRIMITIVE = "search_referentiel_values"
 VALUE_PRIMITIVE = "get_referentiel_value"
 MAX_LIMIT = 500

@@ -152,6 +152,34 @@ def properties_schema(ctype: CartoType, base: ArchimateType | None) -> dict[str,
     return schema
 
 
+def object_document_schema(ctype: CartoType, base: ArchimateType | None) -> dict[str, Any]:
+    """Le schéma effectif d'un objet de ce type, tel que son fichier l'écrit : la
+    base (clé, nom, documentation ; source et cible pour une relation) puis
+    `proprietes` (attributs ArchiMate et propriétés ajoutées). Lu par l'agent
+    (`read_schema`, ticket 06ef8679) ; les règles qui dépendent des autres objets
+    (clé unique, relation permise) restent dans le service."""
+    properties: dict[str, Any] = {
+        "cle": {"type": "string", "pattern": _KEY.pattern},
+        "type": {"const": ctype.slug},
+    }
+    required = ["cle", "type", "nom"]
+    if base is not None and base.is_relation:
+        properties["source"] = {"type": "string", "pattern": _KEY.pattern}
+        properties["cible"] = {"type": "string", "pattern": _KEY.pattern}
+        required += ["source", "cible"]
+    properties["nom"] = {"type": "string", "minLength": 1}
+    properties["documentation"] = {"type": "string"}
+    properties["proprietes"] = properties_schema(ctype, base)
+    return {
+        "title": ctype.title,
+        ARCHIMATE_KEY: ctype.archimate,
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
+
+
 # --- Objets -------------------------------------------------------------------------------
 
 

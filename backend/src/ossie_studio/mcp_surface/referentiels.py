@@ -25,7 +25,7 @@ from ossie_studio.mcp_surface.branch import BranchParam, check_branch, open_view
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
 from ossie_studio.referentiels import published
 from ossie_studio.referentiels.errors import ReferentielError
-from ossie_studio.referentiels.repo import referentiel_dir
+from ossie_studio.referentiels.repo import model_path, referentiel_dir
 from ossie_studio.spaces.branch_service import db_get_base
 from ossie_studio.spaces.workdir import WorkdirError
 
@@ -120,15 +120,11 @@ def _named(read: _Read[Any], name: str) -> dict[str, Any]:
 async def list_referentiels(ctx: PrimitiveContext, args: SpaceArgs) -> dict[str, Any]:
     empty: list[dict[str, Any]] = []
     read = await _read(ctx, args, published.summaries, empty)
-    items = read.data
+    # Le chemin du modèle, à donner à read_schema (ticket 06ef8679).
+    items = [{**r, "path": model_path(r["name"])} for r in read.data]
     if read.view == "draft":
         items = [{**r, "unpublished": read.unpublished(r["name"])} for r in items]
     return {**read.head(), "referentiels": items}
-
-
-async def read_referentiel_model(ctx: PrimitiveContext, args: ReferentielArgs) -> dict[str, Any]:
-    read = await _read(ctx, args, lambda root: published.model_of(root, args.name), None)
-    return {**_named(read, args.name), "model": _found(read, args.name)}
 
 
 async def search_referentiel_values(

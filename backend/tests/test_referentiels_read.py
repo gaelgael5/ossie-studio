@@ -27,7 +27,7 @@ from tests.space_fixture import ApiSpace, admin_workdir, forge_edit, make_api_sp
 
 READS = {
     "list_referentiels",
-    "read_referentiel_model",
+    "read_schema",
     "search_referentiel_values",
     "get_referentiel_value",
 }
@@ -272,10 +272,28 @@ async def test_mcp_meme_lecture_que_l_api(
 
     listing = await call_tool(app, reader, "list_referentiels", {"space_id": space.space_id})
     api_listing = (await space.client.get(_base(space))).json()
+    # Même lecture que l'API ; le MCP ajoute le chemin du modèle (ticket 06ef8679).
+    mcp_items = listing.structured_content["referentiels"]
+    assert [r.pop("path") for r in mcp_items] == ["referentiels/delais/modele.schema.yaml"]
     assert listing.structured_content == api_listing
 
-    model = (await call_tool(app, reader, "read_referentiel_model", ids)).structured_content
-    assert model == (await space.client.get(f"{_base(space)}/delais/modele")).json()
+    # Le modèle se lit par la primitive commune read_schema, avec sa clé.
+    model = (
+        await call_tool(
+            app,
+            reader,
+            "read_schema",
+            {
+                "space_id": space.space_id,
+                "branch_id": space.branch_id,
+                "path": "referentiels/delais/modele.schema.yaml",
+            },
+        )
+    ).structured_content
+    api_model = (await space.client.get(f"{_base(space)}/delais/modele")).json()
+    assert model["kind"] == "referentiel" and model["schema"] == api_model["model"]
+    assert model["schema"]["x-key"] == ["pays", "mode"]
+    assert model["extras"] == {"name": "delais", "key": ["pays", "mode"]}
 
     value = (
         await call_tool(

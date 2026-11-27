@@ -246,7 +246,7 @@ async def test_une_cle_d_api_ne_peut_pas_importer(
         space.client,
         [
             "list_referentiels",
-            "read_referentiel_model",
+            "read_schema",
             "search_referentiel_values",
             "get_referentiel_value",
         ],

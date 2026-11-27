@@ -196,13 +196,17 @@ async def test_schemas_bruts_listes_et_lus_avec_la_marque_du_brouillon(
     assert by_path["customer.schema.yaml"]["retained"] == "partial"
     assert by_path["order.schema.yaml"]["unpublished"] is False
 
-    customer = _ids(space, source="ventes", path="customer.schema.yaml")
-    draft = await _ok(app, AGENT, "read_raw_schema", {**customer, "branch": "draft"})
+    schema_path = by_path["customer.schema.yaml"]["schema_path"]
+    assert schema_path == "sources/ventes/raw/customer.schema.yaml"
+    customer = _ids(space, path=schema_path)
+    draft = await _ok(app, AGENT, "read_schema", {**customer, "branch": "draft"})
     assert "email" in draft["schema"]["properties"] and draft["unpublished"] is True
-    published = await _ok(app, KEY, "read_raw_schema", customer)
+    published = await _ok(app, KEY, "read_schema", customer)
     assert published["schema"] == CUSTOMER and published["unpublished"] is False
+    assert published["kind"] == "raw" and len(published["version"]) == 40
+    assert draft["version"] != published["version"]
     # Sans `branch`, l'agent lit lui aussi le publié.
-    assert (await _ok(app, AGENT, "read_raw_schema", customer))["schema"] == CUSTOMER
+    assert (await _ok(app, AGENT, "read_schema", customer))["schema"] == CUSTOMER
 
 
 async def test_schema_et_source_introuvables_nommes(app: FastAPI, space: ApiSpace) -> None:
@@ -212,9 +216,15 @@ async def test_schema_et_source_introuvables_nommes(app: FastAPI, space: ApiSpac
     assert await _refusal(app, KEY, "list_raw_schemas", _ids(space, source="../etc")) == (
         "source_not_found"
     )
-    for path in ("absent.schema.yaml", "../manifest.yaml", "a/b.schema.yaml"):
-        error = await _refusal(app, KEY, "read_raw_schema", _ids(space, source="ventes", path=path))
-        assert error == "schema_not_found", path
+    for name in ("absent.schema.yaml", "a/b.schema.yaml"):
+        path = f"sources/ventes/raw/{name}"
+        assert await _refusal(app, KEY, "read_schema", _ids(space, path=path)) == (
+            "schema_not_found"
+        ), path
+    for path in ("sources/ventes/raw/../manifest.yaml", "sources/ventes/manifest.yaml", "x.yaml"):
+        assert await _refusal(app, KEY, "read_schema", _ids(space, path=path)) == (
+            "schema_path_unknown"
+        ), path
 
 
 # --- Assets ------------------------------------------------------------------------------
@@ -226,16 +236,27 @@ async def test_assets_listes_et_lus_avec_leur_enrichissement(app: FastAPI, space
         ("customer.schema.yaml", "partial", False)
     ]
 
-    asset = await _ok(
-        app, KEY, "read_asset", _ids(space, source="ventes", path="customer.schema.yaml")
+    assert listed["assets"][0]["schema_path"] == "sources/ventes/assets/customer.schema.yaml"
+
+    # Ticket 06ef8679, critère 2 : le schéma de l'asset et, dans `extras`, tout ce
+    # que rendait read_asset.
+    read = await _ok(
+        app, KEY, "read_schema", _ids(space, path="sources/ventes/assets/customer.schema.yaml")
     )
+    assert read["kind"] == "asset" and read["schema"]["x-businessName"] == "Client"
+    asset = read["extras"]
     assert asset["object"]["business_name"] == "Client"
+    assert (asset["source"], asset["path"], asset["orphan"]) == (
+        "ventes",
+        "customer.schema.yaml",
+        False,
+    )
     fields = {f["name"]: f for f in asset["fields"]}
     assert fields["id"]["retained"] is True and fields["id"]["business_name"] == "Identifiant"
     assert fields["name"]["retained"] is False and "business_name" not in fields["name"]
 
-    order = _ids(space, source="ventes", path="order.schema.yaml")
-    assert await _refusal(app, KEY, "read_asset", order) == "asset_not_retained"
+    order = _ids(space, path="sources/ventes/assets/order.schema.yaml")
+    assert await _refusal(app, KEY, "read_schema", order) == "schema_not_found"
 
 
 async def test_regles_de_tri_et_revue(app: FastAPI, space: ApiSpace) -> None:

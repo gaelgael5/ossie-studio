@@ -178,6 +178,32 @@ CATALOG: tuple[Primitive, ...] = (
         person_only=True,
         idempotent=True,
     ),
+    # --- Lire un schéma, quel que soit son domaine (ticket 06ef8679)
+    Primitive(
+        id="read_schema",
+        domain="spaces",
+        access="read",
+        # Visible de qui lit un espace ; la capacité du domaine désigné par le
+        # chemin (sources, curation, référentiels, cartographie) est vérifiée à
+        # l'appel, sur l'espace visé.
+        capability="spaces:read",
+        description=(
+            "Read any schema of the space by its path, as the lists give it ('schema_path' "
+            "of list_raw_schemas and list_assets, 'path' of list_referentiels and "
+            "list_carto_types). Returns kind ('raw', 'asset', 'referentiel', 'carto_type'), "
+            "version (content id in the branch read), unpublished, schema and extras. By "
+            "default (resolved=true) the effective schema: a raw schema as collected "
+            "(references resolved); an asset merged with its human work, extras carrying "
+            "its business enrichment (business name, description, concept, tags per field) "
+            "and status (orphan); a reference data set model with its key under 'x-key'; "
+            "a cartography type as the schema of one object file (key, name, documentation, "
+            "source and target for a relationship, then 'proprietes': ArchiMate attributes "
+            "and added properties), extras carrying the ArchiMate type, layer and nature. "
+            "resolved=false: the file as written. Needs the same right as the screen of "
+            "that domain." + _DRAFT_NOTE
+        ),
+        idempotent=True,
+    ),
     # --- Sources et schémas bruts
     Primitive(
         id="list_sources",
@@ -196,16 +222,9 @@ CATALOG: tuple[Primitive, ...] = (
         capability="sources:read",
         description=(
             "List the raw schemas collected from a source (one per object: table, entity, "
-            "API schema), with their field count and whether they are retained as assets."
-            + _DRAFT_NOTE
+            "API schema), with their field count, whether they are retained as assets, and "
+            "schema_path to read one with read_schema." + _DRAFT_NOTE
         ),
-    ),
-    Primitive(
-        id="read_raw_schema",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description="Read one raw schema of a source, as collected (JSON Schema)." + _DRAFT_NOTE,
     ),
     Primitive(
         id="get_reference_graph",
@@ -289,17 +308,8 @@ CATALOG: tuple[Primitive, ...] = (
         capability="curation:read",
         description=(
             "List the assets of a source: the raw objects retained (fully or partly) for the "
-            "semantic layer; orphan = its raw object disappeared." + _DRAFT_NOTE
-        ),
-    ),
-    Primitive(
-        id="read_asset",
-        domain="curation",
-        access="read",
-        capability="curation:read",
-        description=(
-            "Read one asset: its fields (retained or not, type, reference) and its business "
-            "enrichment (business name, description, concept, tags)." + _DRAFT_NOTE
+            "semantic layer; orphan = its raw object disappeared. schema_path: to read one "
+            "with read_schema." + _DRAFT_NOTE
         ),
     ),
     Primitive(
@@ -494,17 +504,8 @@ CATALOG: tuple[Primitive, ...] = (
             "List the reference data sets (référentiels) of a space: lists of business keys and "
             "values maintained in Ossie-studio (countries, delivery modes, codes...), as "
             "published. Each has a key of one or more properties (a composite key needs all of "
-            "them). Returns name, title, key properties, value count and the published commit."
-        ),
-    ),
-    Primitive(
-        id="read_referentiel_model",
-        domain="referentiels",
-        access="read",
-        capability="referentiels:read",
-        description=(
-            "Read the model of a published reference data set: a JSON Schema whose properties "
-            "may be nested objects or arrays of objects, with its key under 'x-key'."
+            "them). Returns name, title, key properties, value count, path of the model (to read "
+            "it with read_schema) and the published commit."
         ),
     ),
     Primitive(
