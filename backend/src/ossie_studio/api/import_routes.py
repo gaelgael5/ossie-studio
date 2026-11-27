@@ -31,7 +31,6 @@ from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.imports import files
 from ossie_studio.imports.columns import (
-    auto_property,
     compare,
     effective_mapping,
     infer_type,
@@ -95,9 +94,11 @@ class ColumnBody(BaseModel):
     column: str = Field(min_length=1, max_length=200)
 
 
-class MappingBody(ColumnBody):
-    # La propriété choisie pour la colonne (ticket 47716786) ; "" : colonne ignorée.
-    property: str = Field(default="", max_length=200)
+class MappingBody(BaseModel):
+    # La propriété voulue pour chaque colonne (ticket 47716786) ; "" : colonne
+    # ignorée. Envoyées ensemble, depuis le bouton « Enregistrer les correspondances ».
+    model_config = ConfigDict(extra="forbid")
+    mapping: dict[str, str] = Field(max_length=500)
 
 
 Mode = Literal["merge", "replace"]
@@ -563,7 +564,7 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
         slug: str,
         body: MappingBody,
     ) -> dict[str, object]:
-        """La propriété d'une colonne, choisie à la main (ticket 47716786) ; reprise
+        """Les propriétés des colonnes, choisies à la main (ticket 47716786) ; reprises
         par « Résoudre le template ». Un choix égal à la correspondance par nom n'est
         pas gardé (la déclaration ne porte que les écarts)."""
         owner = owner_of(request)
@@ -572,32 +573,36 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
         def write(root: Path) -> Import:
             imp = read_one(owner, slug)(root)
             properties = adapter.properties(root, owner)
-            if body.property and body.property not in properties:
-                raise ApiError("import_mapping_unknown", status_code=400, property=body.property)
-            chosen = dict(imp.declaration.mapping)
-            if body.property == auto_property(body.column, properties) and not any(
-                p == body.property for c, p in chosen.items() if c != body.column
-            ):
-                chosen.pop(body.column, None)
-            else:
-                chosen[body.column] = body.property
+            wanted = {c: p for c, p in body.mapping.items()}
+            unknown = next((p for p in wanted.values() if p and p not in properties), None)
+            if unknown is not None:
+                raise ApiError("import_mapping_unknown", status_code=400, property=unknown)
             try:
                 columns = read_example(imp.declaration, imp.example).columns
             except ExampleError:
                 columns = []
-            if body.column not in columns:
-                columns = [*columns, body.column]
-            taken = [p for p in effective_mapping(columns, properties, chosen).values() if p]
+            columns = [*columns, *(c for c in wanted if c not in columns)]
+            # Les choix gardés sur les autres colonnes, puis ceux envoyés.
+            chosen = {c: p for c, p in imp.declaration.mapping.items() if c not in wanted}
+            chosen.update(wanted)
+            target = effective_mapping(columns, properties, chosen)
+            taken = [p for p in target.values() if p]
             duplicate = next((p for p in taken if taken.count(p) > 1), None)
             if duplicate is not None:
                 raise ApiError("import_mapping_duplicate", status_code=409, property=duplicate)
+            # La déclaration ne garde que les écarts : un choix retiré qui ne change
+            # rien au résultat (c'est la correspondance par nom) n'est pas écrit.
+            for column in list(chosen):
+                trial = {c: p for c, p in chosen.items() if c != column}
+                if effective_mapping(columns, properties, trial) == target:
+                    chosen = trial
             decl = replace(imp.declaration, mapping=chosen)
             return files.write_import(
                 root, folder(owner), decl, imp.template, imp.example, create=False
             )
 
         imp, _rev = await handle.write(
-            f"correspondance {body.column} de l'import {slug} {adapter.of(owner)}", write
+            f"correspondances de l'import {slug} {adapter.of(owner)}", write
         )
         return detail(owner, imp)
 

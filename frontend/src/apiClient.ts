@@ -3163,7 +3163,7 @@ export interface ImportsApi {
   /** « Ajouter au modèle » une colonne sans propriété (ticket 221d832b). */
   addProperty: (slug: string, column: string) => Promise<{ property: string; type: string; revision: string | null }>
   /** La propriété choisie pour une colonne, "" pour l'ignorer (ticket 47716786). */
-  setMapping: (slug: string, column: string, property: string) => Promise<ReferentielImportDetail>
+  setMapping: (slug: string, mapping: Record<string, string>) => Promise<ReferentielImportDetail>
   rename: (slug: string, label: string) => Promise<ReferentielImportDetail>
   remove: (slug: string) => Promise<void>
   uploadExample: (slug: string, file: File) => Promise<ReferentielImportDetail>
@@ -3209,8 +3209,8 @@ export function importsApi(
     resolve: (slug, reading) =>
       apiFetch(one(slug, '/resoudre'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
     addProperty: (slug, column) => apiFetch(one(slug, '/proprietes'), { method: 'POST', body: JSON.stringify({ column }) }),
-    setMapping: (slug, column, property) =>
-      apiFetch(one(slug, '/correspondances'), { method: 'PUT', body: JSON.stringify({ column, property }) }),
+    setMapping: (slug, mapping) =>
+      apiFetch(one(slug, '/correspondances'), { method: 'PUT', body: JSON.stringify({ mapping }) }),
   }
 }
 

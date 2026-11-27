@@ -1252,6 +1252,7 @@ export const fr = {
     refImportColumn: 'Colonne',
     refImportModelProperty: 'Propriété du modèle',
     refImportNoProperty: 'aucune propriété',
+    refImportMappingSave: 'Enregistrer les correspondances',
     refImportMappingNone: '— Aucune —',
     refImportMappingFor: 'Propriété de la colonne {{column}}',
     refImportMappingChosen: 'choisie',

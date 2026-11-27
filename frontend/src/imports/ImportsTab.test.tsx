@@ -396,10 +396,13 @@ describe('Imports — colonnes et modèle (ticket 221d832b)', () => {
   it('choisir la propriété d’une colonne (ticket 47716786)', async () => {
     const calls = setup()
     const table = await screen.findByRole('table', { name: 'Colonnes du fichier et propriétés du modèle' })
-    await userEvent.setup().selectOptions(within(table).getByLabelText('Propriété de la colonne Delai'), 'duree')
+    const user = userEvent.setup()
+    await user.selectOptions(within(table).getByLabelText('Propriété de la colonne Delai'), 'duree')
+    expect(calls.some((c) => c.path.endsWith('/correspondances'))).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'Enregistrer les correspondances' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.path === `${BASE}/transporteur/correspondances`)).toBe(true))
     const put = calls.find((c) => c.path === `${BASE}/transporteur/correspondances`)!
-    expect(JSON.parse(String(put.body))).toEqual({ column: 'Delai', property: 'duree' })
+    expect(JSON.parse(String(put.body))).toEqual({ mapping: { Delai: 'duree' } })
   })
 })
 

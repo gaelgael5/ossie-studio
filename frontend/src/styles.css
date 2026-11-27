@@ -3027,7 +3027,9 @@ td.cell-error {
 /* Onglet Imports. */
 .ref-imports-layout {
   display: grid;
-  grid-template-columns: minmax(200px, 260px) 1fr;
+  /* minmax(0, 1fr) : un aperçu de nombreuses colonnes défile dans son cadre au lieu
+     d'élargir la page (le bouton « Ajouter au modèle » sortait de l'écran). */
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }

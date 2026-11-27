@@ -1250,6 +1250,7 @@ export const en = {
     refImportColumn: 'Column',
     refImportModelProperty: 'Model property',
     refImportNoProperty: 'no property',
+    refImportMappingSave: 'Save the mappings',
     refImportMappingNone: '— None —',
     refImportMappingFor: 'Property of the column {{column}}',
     refImportMappingChosen: 'chosen',
