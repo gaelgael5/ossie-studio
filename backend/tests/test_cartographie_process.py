@@ -235,3 +235,19 @@ def test_un_processus_neuf(root: Path) -> None:
     with pytest.raises(CartographieError) as gone:
         read_process(root, "PRC-NEUF")
     assert gone.value.code == "process_not_found"
+
+
+def test_conformite_au_schema_bpmn_20(tmp_path: Path) -> None:
+    """Décision de Gael (27 novembre) : un fichier non conforme au schéma BPMN 2.0 est
+    refusé par le service, pour tout écrivain ; le motif nomme la ligne."""
+    from ossie_studio.cartographie.process import check_bpmn_schema
+
+    good = new_process_xml("PRC-A", "A")
+    check_bpmn_schema(good)  # conforme
+    bad = good.replace("</bpmn:process>", "<bpmn:inconnu/></bpmn:process>")
+    with pytest.raises(CartographieError) as refused:
+        save_process(tmp_path, "PRC-A", bad, create=True)
+    assert refused.value.code == "process_schema_invalid"
+    assert "inconnu" in str(refused.value.detail["detail"])
+    assert isinstance(refused.value.detail["line"], int)
+    assert not (tmp_path / "cartographie/processus/prc-a.bpmn").exists()

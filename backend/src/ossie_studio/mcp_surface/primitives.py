@@ -6,8 +6,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ossie_studio.mcp_surface import application as app_map
-from ossie_studio.mcp_surface import carto_writes, reads, references, schemas, source_writes, writes
 from ossie_studio.mcp_surface import cartographie as carto
+from ossie_studio.mcp_surface import (
+    document_writes,
+    reads,
+    references,
+    schemas,
+    source_writes,
+    writes,
+)
 from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
 from ossie_studio.mcp_surface import referentiels as refs
@@ -55,11 +62,11 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "list_carto_models": Implementation(carto.CartoModelsArgs, carto.list_carto_models),
     "get_carto_model": Implementation(carto.CartoModelArgs, carto.get_carto_model),
     # Cartographie : écriture (ticket d4723be3)
-    "write_carto_documents": Implementation(
-        carto_writes.WriteCartoArgs, carto_writes.write_carto_documents
+    "write_documents": Implementation(
+        document_writes.WriteDocumentsArgs, document_writes.write_documents
     ),
-    "modify_carto_document": Implementation(
-        carto_writes.ModifyCartoArgs, carto_writes.modify_carto_document
+    "patch_document": Implementation(
+        document_writes.PatchDocumentArgs, document_writes.patch_document
     ),
     "list_tags": Implementation(BranchArgs, reads.list_tags),
     "list_classifications": Implementation(BranchArgs, reads.list_classifications),

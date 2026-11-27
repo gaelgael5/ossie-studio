@@ -31,12 +31,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import cache
 from pathlib import Path
 from typing import Any
 from xml.etree.ElementTree import Element, ParseError
 
 from defusedxml import DefusedXmlException  # type: ignore[import-untyped]
 from defusedxml import ElementTree as SafeET
+from lxml import etree
 
 from ossie_studio.cartographie.catalog import Catalog, catalog
 from ossie_studio.cartographie.errors import CartographieError, Problem
@@ -480,13 +482,50 @@ def new_process_xml(key: str, name: str, detail_of: str | None = None) -> str:
 """
 
 
+# --- Conformité au schéma BPMN 2.0 -----------------------------------------------------------
+
+BPMN_XSD = Path(__file__).parent / "bpmn_xsd" / "BPMN20.xsd"
+# Aucune entité, aucun DTD, aucun accès réseau : le fichier est une donnée d'utilisateur.
+_SAFE_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
+_SCHEMA_ERRORS_SHOWN = 5
+
+
+@cache
+def _bpmn_schema() -> etree.XMLSchema:
+    return etree.XMLSchema(etree.parse(str(BPMN_XSD), _SAFE_PARSER))
+
+
+def check_bpmn_schema(text: str) -> None:
+    """Le fichier est-il conforme au schéma officiel BPMN 2.0 (OMG) ? Refus nommé
+    « process_schema_invalid » avec les premiers écarts (ligne, message). Les
+    extensions des autres outils sont permises par le schéma. Décision de Gael
+    (27 novembre) : contrôle du service, donc pour tout écrivain (écran, import,
+    agent)."""
+    try:
+        document = etree.fromstring(text.encode("utf-8"), _SAFE_PARSER)
+    except (etree.XMLSyntaxError, ValueError) as exc:
+        raise CartographieError("process_unreadable", detail=str(exc)) from None
+    schema = _bpmn_schema()
+    if schema.validate(document):
+        return
+    errors = [{"line": e.line, "message": e.message} for e in schema.error_log]
+    first = errors[0]
+    raise CartographieError(
+        "process_schema_invalid",
+        detail=f"ligne {first['line']} : {first['message']}",
+        line=first["line"],
+        errors=errors[:_SCHEMA_ERRORS_SHOWN],
+    )
+
+
 def save_process(
     root: Path, key: str, text: str, *, create: bool, cat: Catalog | None = None
 ) -> list[Problem]:
     """Écrit un processus (création, import ou enregistrement du composant) : le texte
     tel quel, l'`id` du document aligné sur la clé. Refus nommés (rien n'est écrit) :
-    clé invalide, processus déjà présent ou absent, XML illisible ou pas du BPMN, dessin
-    absent, référence vers une clé inexistante ou d'un mauvais type. Rend les autres
+    clé invalide, processus déjà présent ou absent, XML illisible ou pas du BPMN, non
+    conforme au schéma BPMN 2.0, dessin absent, référence vers une clé inexistante ou
+    d'un mauvais type. Rend les autres
     signalements (aucun aujourd'hui)."""
     cat = cat or catalog()
     if not is_valid_key(key):
@@ -500,6 +539,7 @@ def save_process(
     parse_process(text)  # illisible ou pas du BPMN : refusé avec le message de l'analyseur
     text = with_definitions_id(text, key)
     process = parse_process(text)
+    check_bpmn_schema(text)
     problems = check_process(process, path, key, read_cartographie(root, cat), cat)
     if problems:
         raise CartographieError("process_invalid", problems=problems, key=key)
