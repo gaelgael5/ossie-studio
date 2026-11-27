@@ -295,7 +295,8 @@ async def test_patch_jsonpath(app: FastAPI, space: ApiSpace) -> None:
         [{"op": "set", "path": "$.type", "value": "role"}],
     )
     assert error and body["errors"][0]["path"] == "$.operations[0].path"
-    assert body["errors"][0]["code"] == "write_field_frozen"
+    assert body["errors"][0]["code"] == "write_identity_frozen"
+    assert "supprimer l'ancien dans le même lot" in body["errors"][0]["message"]
     error, body = await _patch(
         app,
         space,
@@ -399,7 +400,7 @@ async def test_droits_par_genre(app: FastAPI, space: ApiSpace) -> None:
     error, body = await _write(app, space, [ROLE, tag], token=LIMITED)
     assert error
     [problem] = body["errors"]
-    assert (problem["path"], problem["code"]) == ("$.documents[1].kind", "primitive_forbidden")
+    assert (problem["path"], problem["code"]) == ("$.documents[1].kind", "write_kind_forbidden")
     error, body = await _write(app, space, [ROLE], token=LIMITED)
     assert not error, body
 
@@ -611,3 +612,94 @@ async def test_gouvernance_par_l_ecriture_commune(app: FastAPI, space: ApiSpace)
     )
     assert not error, deleted
     assert await _draft(app, space, "governance/tags/pii/email.yaml") is None
+
+
+async def test_changer_d_identite_recreer_puis_supprimer(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 6 : $.cle et $.type sont figés (recréer puis supprimer) ; créer
+    OBJ-COMMANDE-V2, recréer sa relation et supprimer l'ancien dans un même lot passe."""
+    obj = await _read(app, space, OBJ) or {}
+    rel = await _read(app, space, REL) or {}
+    error, body = await _patch(
+        app,
+        space,
+        "carto_objet",
+        OBJ_ID,
+        obj["version"],
+        [{"op": "set", "path": "$.cle", "value": "X"}],
+    )
+    assert error and body["errors"][0]["code"] == "write_identity_frozen"
+    v2 = _obj(
+        "document-metier",
+        "OBJ-COMMANDE-V2",
+        {"cle": "OBJ-COMMANDE-V2", "type": "document-metier", "nom": "Commande"},
+    )
+    new_rel = _obj(
+        "acces",
+        "REL-PRISE-COMMANDE-ECRIT-COMMANDE-V2",
+        {
+            "cle": "REL-PRISE-COMMANDE-ECRIT-COMMANDE-V2",
+            "type": "acces",
+            "source": "PRC-PRISE-COMMANDE",
+            "cible": "OBJ-COMMANDE-V2",
+            "nom": "Écrit",
+        },
+    )
+    error, body = await _write(
+        app,
+        space,
+        [
+            {"kind": "carto_objet", "identity": OBJ_ID, "version": obj["version"], "delete": True},
+            new_rel,
+            {"kind": "carto_objet", "identity": REL_ID, "version": rel["version"], "delete": True},
+            v2,
+        ],
+    )
+    assert not error, body
+    assert await _read(app, space, OBJ) is None
+    assert await _read(app, space, "cartographie/objets/document-metier/obj-commande-v2.yaml")
+
+
+async def test_type_et_objets_dans_le_meme_lot(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 7 : le lot est validé sur son état final (l'objet avant son type)."""
+    app_obj = _obj(
+        "application", "APP-CAISSE", {"cle": "APP-CAISSE", "type": "application", "nom": "Caisse"}
+    )
+    app_type = {
+        "kind": "carto_type",
+        "identity": {"slug": "application"},
+        "content": {
+            "title": "Application",
+            "x-archimate": "ApplicationComponent",
+            "type": "object",
+        },
+    }
+    error, body = await _write(app, space, [app_obj, app_type])
+    assert not error, body
+    assert {d["action"] for d in body["documents"]} == {"created"}
+
+
+async def test_taille_maximale_d_un_document(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 8 : une entrée trop grande est refusée avec sa taille, la limite, son chemin
+    et « aide » ; rien n'est écrit. Idem pour le résultat d'un patch_document."""
+    big = _obj(
+        "role",
+        "ROL-BAVARD",
+        {"cle": "ROL-BAVARD", "type": "role", "nom": "Bavard", "documentation": "x" * 6000},
+    )
+    error, body = await _write(app, space, [ROLE, big])
+    assert error
+    [problem] = body["errors"]
+    assert (problem["path"], problem["code"]) == ("$.documents[1]", "write_document_too_large")
+    assert problem["limit"] == 5 * 1024 and problem["size"] > 6000
+    assert problem["aide"] == {"primitive": "describe_standard", "standard": "carto-objet"}
+    assert await _draft(app, space, "cartographie/objets/role/rol-preparateur.yaml") is None
+    version = (await _read(app, space, PRC) or {})["version"]
+    error, body = await _patch(
+        app,
+        space,
+        "carto_objet",
+        PRC_ID,
+        version,
+        [{"op": "add", "path": "$.documentation", "value": "y" * 6000}],
+    )
+    assert error and body["errors"][0]["code"] == "write_document_too_large"

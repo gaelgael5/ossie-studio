@@ -157,9 +157,9 @@ async def _capability_refusals(
         if kind.capability not in caps:
             out[base] = Refusal(
                 jsonpath(base, "kind"),
-                "primitive_forbidden",
+                "write_kind_forbidden",
                 f"Écrire un document « {kind.label} » demande la capacité {kind.capability}, "
-                "que la personne n'a pas sur cet espace.",
+                "que la personne n'a pas sur cet espace : tout le lot est refusé.",
                 extra={"capability": kind.capability},
             )
     return out
@@ -235,6 +235,30 @@ def _same_content(current: Any, wanted: Any) -> bool:
     return bool(current == wanted)
 
 
+def _size(root: Path, kind: WriteKind, identity: dict[str, Any]) -> int:
+    """La taille d'un document tel qu'il est écrit : son fichier, ou pour une valeur de
+    référentiel la valeur seule (jamais le fichier des valeurs entier)."""
+    location = kind.locate(root, identity)
+    found = kind.store.read(root, location)
+    if found is None:
+        return 0
+    if location.entry is not None:
+        text = json.dumps(found.content, ensure_ascii=False, sort_keys=True, indent=2)
+        return len(text.encode("utf-8"))
+    return len((root / found.path).read_bytes())
+
+
+def _too_large(where: str, kind: WriteKind, size: int, limit: int) -> Refusal:
+    return Refusal(
+        where,
+        "write_document_too_large",
+        f"Ce document « {kind.label} » fait {size} octets une fois écrit ; la limite est de "
+        f"{limit} octets par document.",
+        aide=aide_standard(kind.standard),
+        extra={"size": size, "limit": limit},
+    )
+
+
 # --- write_documents --------------------------------------------------------------------
 
 
@@ -253,9 +277,10 @@ class _Step:
 
 
 class _StepRefused(Exception):
-    def __init__(self, refusals: list[Refusal]) -> None:
+    def __init__(self, refusals: list[Refusal], *, final: bool = False) -> None:
         super().__init__("refused")
         self.refusals = refusals
+        self.final = final  # rien à attendre d'un nouveau passage (document trop grand)
 
 
 def _identity_key(doc: DocumentArg) -> str:
@@ -283,7 +308,7 @@ def _duplicates(args: WriteDocumentsArgs, skipped: set[int]) -> list[Refusal]:
     return out
 
 
-def _play(root: Path, index: int, doc: DocumentArg) -> _Step:
+def _play(root: Path, index: int, doc: DocumentArg, limit: int) -> _Step:
     """Prépare et joue un document : emplacement, état actuel, version, puis le
     validateur. Lève _StepRefused (refus de forme ou de version) ou un refus de
     service (DOMAIN_ERRORS)."""
@@ -302,6 +327,9 @@ def _play(root: Path, index: int, doc: DocumentArg) -> _Step:
         step.warnings = kind.store.write(
             root, location, step.content, create=step.action == "created"
         )
+        size = _size(root, kind, location.identity)
+        if size > limit:
+            raise _StepRefused([_too_large(base, kind, size, limit)], final=True)
     return step
 
 
@@ -360,7 +388,7 @@ def _decide(
     return _Step(0, kind, location, doc.content, "replaced", [])
 
 
-def _apply(root: Path, args: WriteDocumentsArgs, skipped: set[int]) -> list[_Step]:
+def _apply(root: Path, args: WriteDocumentsArgs, skipped: set[int], limit: int) -> list[_Step]:
     """Joue les documents ; rejoue les refusés tant qu'un passage en fait aboutir un
     (ordre libre dans la liste : une relation avant l'objet qu'elle vise, une valeur
     avant le modèle de son référentiel). Ce qui reste refusé est traduit, et rien
@@ -368,13 +396,20 @@ def _apply(root: Path, args: WriteDocumentsArgs, skipped: set[int]) -> list[_Ste
     pending = [i for i in range(len(args.documents)) if i not in skipped]
     done: dict[int, _Step] = {}
     failures: dict[int, Exception] = {}
+    final: list[int] = []
     while pending:
         progressed = False
         still: list[int] = []
         for i in pending:
             try:
-                done[i] = _play(root, i, args.documents[i])
-            except (_StepRefused, *DOMAIN_ERRORS) as exc:
+                done[i] = _play(root, i, args.documents[i], limit)
+            except _StepRefused as exc:
+                failures[i] = exc
+                if exc.final:
+                    final.append(i)
+                else:
+                    still.append(i)
+            except DOMAIN_ERRORS as exc:
                 failures[i] = exc
                 still.append(i)
             else:
@@ -383,10 +418,10 @@ def _apply(root: Path, args: WriteDocumentsArgs, skipped: set[int]) -> list[_Ste
         pending = still
         if not progressed:
             break
-    if pending:
+    if pending or final:
         space = read_cartographie(root)
         refusals: list[Refusal] = []
-        for i in pending:
+        for i in sorted([*pending, *final]):
             failure = failures[i]
             if isinstance(failure, _StepRefused):
                 refusals.extend(failure.refusals)
@@ -417,6 +452,7 @@ def _standard(kind_name: str) -> str:
 async def write_documents(ctx: PrimitiveContext, args: WriteDocumentsArgs) -> dict[str, Any]:
     entries = [(f"$.documents[{i}]", d.kind) for i, d in enumerate(args.documents)]
     forbidden = await _capability_refusals(ctx, args.space_id, entries)
+    limit = int(ctx.state.settings.document_max_bytes)
     bv = await _open(ctx, args)
     skipped = {i for i, (base, _k) in enumerate(entries) if base in forbidden}
 
@@ -424,7 +460,7 @@ async def write_documents(ctx: PrimitiveContext, args: WriteDocumentsArgs) -> di
         refusals = list(forbidden.values()) + _duplicates(args, skipped)
         if refusals:
             raise Refused(sorted(refusals, key=lambda r: _order(r.path)))
-        steps = _apply(root, args, skipped)
+        steps = _apply(root, args, skipped, limit)
         documents = []
         warnings = []
         for step in steps:
@@ -486,7 +522,19 @@ def _operation_refusals(kind: WriteKind, args: PatchDocumentArgs) -> list[Refusa
                 )
             )
             continue
-        if f"$.{segments[0]}" in kind.frozen:
+        top = f"$.{segments[0]}"
+        if top in kind.identity_paths:
+            refusals.append(
+                Refusal(
+                    where,
+                    "write_identity_frozen",
+                    f"{segments[0]} porte l'identité d'un document « {kind.label} » : une "
+                    "identité ne change jamais. Pour en changer, créer le nouveau document et "
+                    "supprimer l'ancien dans le même lot (write_documents).",
+                    received=op.path,
+                )
+            )
+        elif top in kind.frozen:
             refusals.append(
                 Refusal(
                     where,
@@ -509,6 +557,7 @@ async def patch_document(ctx: PrimitiveContext, args: PatchDocumentArgs) -> dict
             warnings=[],
         )
     kind = write_kind(args.kind)
+    limit = int(ctx.state.settings.document_max_bytes)
     bv = await _open(ctx, args)
     operations = [Operation(o.op, o.path, o.value) for o in args.operations]
 
@@ -567,6 +616,9 @@ async def patch_document(ctx: PrimitiveContext, args: PatchDocumentArgs) -> dict
                     space=space,
                 )
             ) from None
+        size = _size(root, kind, args.identity)
+        if size > limit:
+            raise Refused([_too_large("$", kind, size, limit)])
         found = kind.store.read(root, kind.locate(root, args.identity))
         return {
             "path": location.path,

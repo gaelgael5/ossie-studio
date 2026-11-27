@@ -69,7 +69,10 @@ class WriteKind:
     read_capability: str  # pour lire
     locator: Locator
     store: Store  # le validateur : le service de l'écran
-    # Ce qu'une modification ne change pas (JSONPath dans le contenu).
+    # Les champs du contenu qui portent l'identité : ils ne changent jamais (Gael :
+    # « il faut recréer un objet et supprimer le précédent »).
+    identity_paths: tuple[str, ...] = ()
+    # Les autres champs figés (JSONPath dans le contenu).
     frozen: tuple[str, ...] = ()
     path_rule: PathRule = "forbidden"
     path_root: str = ""  # sous laquelle doit rester un chemin autorisé
@@ -316,7 +319,8 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="cartographie:read",
         locator=_carto_objet,
         store=stores.CartoObjectStore(),
-        frozen=("$.cle", "$.type", "$.source", "$.cible"),
+        identity_paths=("$.cle", "$.type"),
+        frozen=("$.source", "$.cible"),
         typed_by="type",
     ),
     WriteKind(
@@ -330,7 +334,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="cartographie:read",
         locator=_diagram_file("carto_modele", diagram_path),
         store=stores.CartoModelStore(),
-        frozen=("$.id",),
+        identity_paths=("$.id",),
     ),
     WriteKind(
         name="carto_graphique",
@@ -419,7 +423,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="governance:read",
         locator=_governance("tag", tag_path, "pii/email"),
         store=stores.TagStore(),
-        frozen=("$.id",),
+        identity_paths=("$.id",),
     ),
     WriteKind(
         name="classification",
@@ -432,7 +436,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="governance:read",
         locator=_governance("classification", scheme_path, "confidentialite"),
         store=stores.ClassificationStore(),
-        frozen=("$.id",),
+        identity_paths=("$.id",),
     ),
     WriteKind(
         name="certification",
@@ -445,7 +449,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="governance:read",
         locator=_certification,
         store=stores.CertificationStore(),
-        frozen=("$.id", "$.slug"),
+        identity_paths=("$.slug", "$.id"),
     ),
 )
 

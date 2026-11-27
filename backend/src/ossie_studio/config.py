@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     # Taille maximale d'un contrat OpenAPI déposé (octets). Au-delà : refus.
     openapi_max_contract_bytes: int = 5 * 1024 * 1024
 
+    # Taille maximale d'un document écrit par un agent (octets), tel qu'il est écrit :
+    # chaque entrée de write_documents, le document obtenu par patch_document, une
+    # valeur de référentiel seule (epic « Primitives MCP — écriture commune par genre » ;
+    # le réglage sur une page viendra avec son propre ticket). Variable DOCUMENT_MAX_BYTES.
+    document_max_bytes: int = 5 * 1024
+
     @field_validator("session_secret")
     @classmethod
     def _session_secret_long_enough(cls, value: SecretStr) -> SecretStr:

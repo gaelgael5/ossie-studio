@@ -97,7 +97,8 @@ def _same(field: str, given: Any, expected: Any, label: str) -> None:
             "write_identity_mismatch",
             f"$.{field}",
             f"Le contenu dit « {field}: {given} » mais l'identité désigne « {expected} » : un "
-            f"document « {label} » ne change pas d'identité.",
+            f"document « {label} » ne change jamais d'identité. Pour en changer : créer le "
+            "nouveau document et supprimer l'ancien dans le même lot (write_documents).",
             expected=expected,
             received=given,
         )
