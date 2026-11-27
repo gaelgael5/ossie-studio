@@ -40,6 +40,9 @@ export const fr = {
     homeLoggedInAs: 'Connecté en tant que {{email}} ({{role}}).',
     manageSecrets: 'Gérer les secrets',
     manageConnectors: 'Connecteurs OIDC',
+    homeFeedbackTitle: 'Bugs et demandes d’évolution',
+    homeFeedbackText:
+      'Un bug, une demande d’évolution ? Signalez-les dans les issues GitHub du projet, en décrivant l’écran concerné et ce que vous attendiez :',
     semanticSoon:
       'La construction de la couche sémantique arrive dans les prochains tickets.',
 
@@ -1293,6 +1296,15 @@ export const fr = {
     refImportDiffDeleted: 'supprimée',
     refImportLast: 'importé le {{date}}',
     refImportLastBy: 'dernier import le {{date}} par {{by}}',
+    refImportJsltDoc: 'Documentation du langage JSLT :',
+    refImportTemplateExcerpt: 'Ligne en cause',
+    refImportTemplateReason_unreadable: 'Le moteur ne sait pas lire la suite à partir de « {{token}} ».',
+    refImportTemplateReason_unexpected: '« {{token}} » n’est pas attendu à cet endroit.',
+    refImportTemplateReason_extra: '« {{token}} » est en trop à cet endroit.',
+    refImportTemplateReason_outside_profile: 'Construction non prise en charge par le profil d’import : {{token}}.',
+    refImportTemplateHint_quotes: 'Piste : en JSLT, les chaînes s’écrivent entre guillemets doubles ("false"), pas entre apostrophes.',
+    refImportTemplateHint_coalesce_parens: 'Piste : le moteur refuse ?? entre parenthèses ; écrivez-le sans parenthèses, par exemple $["Colonne"] ?? "valeur".',
+    refImportTemplateHint_outside_profile: 'Piste : le profil d’import n’accepte qu’une partie du langage ; voir la documentation https://github.com/gaelgael5/Jslt.',
     refImportRunTitle: 'Importer',
     refImportMode: 'Mode',
     refImportMode_merge: 'Fusionner par clé',

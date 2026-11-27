@@ -4,6 +4,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api, type SessionUser } from '../apiClient'
 import { PageHeader } from '../components/PageHeader'
 
+const ISSUES_URL = 'https://github.com/gaelgael5/ossie-studio/issues'
+
 export function HomePage({
   user,
   capabilities,
@@ -61,6 +63,15 @@ export function HomePage({
           <div className="empty-note">{t('noAccessYet')}</div>
         )}
         <p className="muted">{t('semanticSoon')}</p>
+        {/* Bugs et évolutions se suivent dans les issues GitHub du projet (ticket
+            6fcefecf) ; l'adresse est affichée en clair pour pouvoir la recopier. */}
+        <section className="panel stack home-feedback" aria-label={t('homeFeedbackTitle')}>
+          <h2>{t('homeFeedbackTitle')}</h2>
+          <p>{t('homeFeedbackText')}</p>
+          <a href={ISSUES_URL} target="_blank" rel="noopener noreferrer" className="link-strong mono">
+            {ISSUES_URL}
+          </a>
+        </section>
       </div>
     </main>
   )

@@ -232,14 +232,20 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     setup({
       trial: {
         ok: false,
-        template_problems: [{ code: 'template_syntax', message: 'extraneous input', line: 3, column: 9 }],
+        template_problems: [
+          { code: 'template_syntax', message: "mismatched input ''x'' expecting STRING (ligne 2, colonne 0)", line: 2, column: 0 },
+        ],
       },
     })
     const user = userEvent.setup()
     await user.click(await screen.findByRole('tab', { name: '2. Template JSLT' }))
     await user.click(screen.getByRole('button', { name: 'Ctrl+F5' }))
-    expect(await screen.findByText(/Ligne 3 :/)).toHaveTextContent('extraneous input')
-    expect(screen.getByTestId('error-line')).toHaveTextContent('3')
+    expect(await screen.findByText(/Ligne 2 :/)).toHaveTextContent('mismatched input')
+    expect(screen.getByTestId('error-line')).toHaveTextContent('2')
+    // Ticket 79e85292 : la ligne essayée avec son repère, le message en clair, une piste.
+    expect(screen.getByLabelText('Ligne en cause').textContent).toBe('}\n^')
+    expect(screen.getByText('« \'x\' » n’est pas attendu à cet endroit.')).toBeInTheDocument()
+    expect(screen.getByText(/les chaînes s’écrivent entre guillemets doubles/)).toBeInTheDocument()
   })
 
   it('renommer, puis supprimer après confirmation', async () => {
@@ -267,6 +273,11 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     await user.click(screen.getByRole('tab', { name: '2. Template JSLT' }))
     expect(screen.queryByRole('button', { name: 'Enregistrer le template' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Importer' })).not.toBeInTheDocument()
+    // La documentation du langage reste accessible en lecture seule (ticket 35342e93).
+    const doc = screen.getByRole('link', { name: 'https://github.com/gaelgael5/Jslt' })
+    expect(doc).toHaveAttribute('target', '_blank')
+    expect(doc).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(doc.closest('p')).toHaveTextContent('Documentation du langage JSLT :')
   })
 })
 

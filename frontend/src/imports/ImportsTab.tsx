@@ -22,7 +22,8 @@ type Sub = 'example' | 'template'
 const SEPARATORS = [';', ',', '\t', '|']
 // utf-16 : ce qu'Excel écrit en « Texte Unicode » ; détecté au dépôt par son BOM (ticket 123631e5).
 const ENCODINGS = ['utf-8', 'cp1252', 'latin-1', 'utf-16']
-
+// Documentation du langage JSLT, liée depuis l'onglet du template (ticket 35342e93).
+const JSLT_DOC_URL = 'https://github.com/gaelgael5/Jslt'
 function AddImportDialog({
   imports,
   onClose,
@@ -484,9 +485,15 @@ function ImportView({
         queryClient.invalidateQueries({ queryKey: [k] }),
       ),
     )
+  // Le texte essayé est gardé avec le compte rendu : l'extrait d'une ligne fautive
+  // doit montrer ce que le moteur a lu, même si l'éditeur a changé depuis.
+  const [trialSource, setTrialSource] = useState('')
   const run = useMutation({
-    mutationFn: () => imports.trial(slug, template ?? '', mode),
-    onSuccess: setTrial,
+    mutationFn: (source: string) => imports.trial(slug, source, mode),
+    onSuccess: (result, source) => {
+      setTrial(result)
+      setTrialSource(source)
+    },
   })
   // « Résoudre le template » (ticket 0598c41b) : écrit d'après le modèle et les
   // colonnes du fichier d'exemple ; le texte va dans l'éditeur, non enregistré.
@@ -629,7 +636,7 @@ function ImportView({
             <TemplateEditor
               value={template ?? ''}
               onChange={setTemplate}
-              onRun={() => run.mutate()}
+              onRun={() => run.mutate(template ?? '')}
               onOpenSource={() => setSub('example')}
               readOnly={readOnly}
               ariaLabel={t('refImportTemplate')}
@@ -640,7 +647,7 @@ function ImportView({
           </div>
           <div className="stack ref-template-side">
             <div className="stack ref-template-actions">
-              <BusyButton type="button" className="btn" busy={run.isPending} busyText={t('refImportRunBusy')} onClick={() => run.mutate()}>
+              <BusyButton type="button" className="btn" busy={run.isPending} busyText={t('refImportRunBusy')} onClick={() => run.mutate(template ?? '')}>
                 {t('refImportRun', { keys: t(isMac() ? 'refImportRunKeysMac' : 'refImportRunKeys') })}
               </BusyButton>
               {!readOnly ? (
@@ -667,6 +674,14 @@ function ImportView({
                 </BusyButton>
               ) : null}
             </div>
+            {/* La documentation du langage, là où l'on écrit le template (ticket
+                35342e93) ; adresse en clair pour pouvoir la recopier. */}
+            <p className="small ref-template-doc">
+              {t('refImportJsltDoc')}{' '}
+              <a href={JSLT_DOC_URL} target="_blank" rel="noopener noreferrer" className="link-strong mono">
+                {JSLT_DOC_URL}
+              </a>
+            </p>
             {!readOnly ? (
               <ImportRunPanel
                 name={name}
@@ -680,7 +695,7 @@ function ImportView({
             <div className="stack">
               <h4>{t('refImportResult')}</h4>
               {data.example_size === 0 ? <p className="empty-note">{t('refImportExampleNone')}</p> : null}
-              {trial ? <ImportReport report={trial} /> : <p className="muted">{t('refImportResultHint')}</p>}
+              {trial ? <ImportReport report={trial} source={trialSource} /> : <p className="muted">{t('refImportResultHint')}</p>}
             </div>
           </div>
         </div>
