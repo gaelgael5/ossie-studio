@@ -4356,10 +4356,14 @@ urban-bpmn {
   margin-left: 28px;
 }
 
-/* Libellé d'un type, modifiable dans sa fiche (ticket 96f508e9). */
-.carto-type-label {
-  max-width: 480px;
-  margin-block: 4px 8px;
+/* Libellé d'un type, édité derrière un crayon à droite du titre (ticket 1ad51345). */
+.carto-type-label-input {
+  max-width: 560px;
+  padding: 2px 8px;
+}
+.carto-type-label-edit {
+  font-size: 1.1rem;
+  line-height: 1;
 }
 
 /* Onglet « Relations » : source | relation | cibles acceptées (ticket 3fdb1e6e). */

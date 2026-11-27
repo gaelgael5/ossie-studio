@@ -157,20 +157,46 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
     expect(lastPut(calls)).toEqual({ ...documentOf(), properties: { canal: CANAL } })
   })
 
-  it('changer le libellé dans son champ, pas le slug ni le type ArchiMate (critère 3, ticket 96f508e9)', async () => {
+  it('changer le libellé par le crayon, pas le slug ni le type ArchiMate (critère 3, ticket 96f508e9 ; ticket 1ad51345)', async () => {
     const calls = setup()
     await screen.findByRole('heading', { name: 'Processus de vente' })
     const user = userEvent.setup()
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Modifier le libellé' }))
     const input = screen.getByLabelText('Libellé')
     expect(input).toHaveValue('Processus de vente')
+    expect(input).toHaveFocus()
     await user.clear(input)
-    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled() // libellé vide : refusé
-    await user.type(input, 'Vente')
+    await user.type(input, 'Vente{enter}')
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Vente' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
     await waitFor(() => expect(lastPut(calls)).not.toBeNull())
     expect(lastPut(calls)).toEqual(documentOf({}, 'Vente'))
     expect(calls.find((c) => c.method === 'PUT')!.path).toBe(`${BASE}/types/processus-de-vente`)
+  })
+
+  it('libellé : la perte du focus valide, Échap annule, un libellé vide est refusé (ticket 1ad51345)', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Modifier le libellé' }))
+    await user.clear(screen.getByLabelText('Libellé'))
+    await user.type(screen.getByLabelText('Libellé'), 'Abandon{escape}')
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Processus de vente' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: 'Modifier le libellé' }))
+    await user.clear(screen.getByLabelText('Libellé'))
+    await user.type(screen.getByLabelText('Libellé'), 'Ventes')
+    await user.click(screen.getByRole('heading', { name: /Propriétés/ }).parentElement ?? document.body)
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Ventes' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Modifier le libellé' }))
+    await user.clear(screen.getByLabelText('Libellé'))
+    await user.keyboard('{enter}')
+    expect(screen.getByRole('heading', { name: 'processus-de-vente' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
   })
 
   it('retirer canal utilisé par 23 objets : refusé avant l’envoi (critère 4)', async () => {
@@ -229,6 +255,7 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
     expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Modifier le libellé' })).not.toBeInTheDocument()
   })
 })
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -184,10 +184,20 @@ function TypeEditor({
     else next[RELATIONS] = value
     setText(modelText(next))
   }
-  // Le libellé se modifie dans un champ toujours visible, enregistré avec le reste
-  // (ticket 96f508e9) ; le slug et le type ArchiMate restent figés.
+  // Le libellé s'enregistre avec le reste (ticket 96f508e9) ; le slug et le type
+  // ArchiMate restent figés. Il s'édite derrière un crayon à droite du titre : le
+  // champ n'apparaît que le temps de la saisie (ticket 1ad51345).
   const setLabel = (value: string) => {
     if (parsed.ok) setText(modelText({ ...parsed.model, title: value }))
+  }
+  const [labelDraft, setLabelDraft] = useState<string | null>(null)
+  // Échap referme le champ : le blur que le navigateur peut émettre au retrait du
+  // champ ne doit pas valider la saisie abandonnée.
+  const labelCancelled = useRef(false)
+  const commitLabel = () => {
+    if (labelDraft !== null && !labelCancelled.current && labelDraft !== title) setLabel(labelDraft)
+    labelCancelled.current = false
+    setLabelDraft(null)
   }
   const saveProblems =
     save.error instanceof ApiRequestError && Array.isArray(save.error.body.error_args?.problems)
@@ -201,7 +211,41 @@ function TypeEditor({
         </div>
         <div className="page-head">
           <div className="carto-type-head">
-            <h1 className="page-title">{title || detail.slug}</h1>
+            {labelDraft !== null ? (
+              <input
+                className="input page-title carto-type-label-input"
+                aria-label={t('cartoTypeLabel')}
+                autoFocus
+                value={labelDraft}
+                onChange={(e) => setLabelDraft(e.target.value)}
+                onBlur={commitLabel}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitLabel()
+                  if (e.key === 'Escape') {
+                    labelCancelled.current = true
+                    setLabelDraft(null)
+                  }
+                }}
+              />
+            ) : (
+              <>
+                <h1 className="page-title">{title || detail.slug}</h1>
+                {!readOnly && parsed.ok ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm carto-type-label-edit"
+                    aria-label={t('cartoTypeLabelEdit')}
+                    title={t('cartoTypeLabelEdit')}
+                    onClick={() => {
+                      labelCancelled.current = false
+                      setLabelDraft(title)
+                    }}
+                  >
+                    {'✎'}
+                  </button>
+                ) : null}
+              </>
+            )}
             {layer ? <span className="carto-layer-chip">{layer}</span> : null}
           </div>
           {!readOnly ? (
@@ -230,12 +274,6 @@ function TypeEditor({
             </div>
           ) : null}
         </div>
-        {!readOnly && parsed.ok ? (
-          <label className="field carto-type-label">
-            <span className="field-label">{t('cartoTypeLabel')}</span>
-            <input className="input" value={title} onChange={(e) => setLabel(e.target.value)} />
-          </label>
-        ) : null}
         <p className="muted mono small">
           {t('cartoTypeBasedOn', { type: info?.label ?? detail.archimate })} · {detail.path} ·{' '}
           {t('cartoObjectsCount', { count: detail.objects })}

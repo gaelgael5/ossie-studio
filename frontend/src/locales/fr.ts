@@ -1134,6 +1134,7 @@ export const fr = {
     cartoBandNote: 'notation et relations permises : celles de {{type}}',
     cartoTypeTab_properties: 'Propriétés',
     cartoTypeLabel: 'Libellé',
+    cartoTypeLabelEdit: 'Modifier le libellé',
     cartoRelTargets: 'Cibles acceptées',
     cartoTypeTab_imports: 'Imports',
     cartoTypeTab_relations: 'Relations',

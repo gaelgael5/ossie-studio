@@ -1132,6 +1132,7 @@ export const en = {
     cartoBandNote: 'notation and allowed relationships: those of {{type}}',
     cartoTypeTab_properties: 'Properties',
     cartoTypeLabel: 'Label',
+    cartoTypeLabelEdit: 'Edit label',
     cartoRelTargets: 'Accepted targets',
     cartoTypeTab_imports: 'Imports',
     cartoTypeTab_relations: 'Relationships',
