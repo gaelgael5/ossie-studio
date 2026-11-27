@@ -24,6 +24,10 @@ Branche : **`feature/mcp-ecriture-commune`**.
   `search_referentiel_values` (`filters.equals`) **et** ajouter une recherche texte.
 - Import (ticket 1612cce4) : **option 1** — un seul chemin de validation, les mêmes
   codes et messages que MCP partout ; l'écran du compte rendu d'import change.
+- Relation entre un dataset consultable et un non consultable (ticket b4aeae83) :
+  **option 1**, on garde l'interdiction du service des domaines. Un dataset non
+  consultable (classe de code, contrat, dataset manuel sans source) n'est pas
+  interrogeable en SQL ; le lien passe par une `reference_dataset`.
 
 ## Tickets
 
