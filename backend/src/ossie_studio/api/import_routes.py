@@ -390,6 +390,26 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             lambda imp: (_detected(imp.declaration, raw), imp.template, raw),
         )  # fmt: skip
 
+    @router.delete("/{slug}/exemple")
+    async def clear_example(
+        request: Request,
+        conn: ConnDep,
+        crypto: CryptoDep,
+        user: Writer,
+        workdir: DraftWorkdirDep,
+        space_id: uuid.UUID,
+        branch_id: uuid.UUID,
+        slug: str,
+    ) -> dict[str, object]:
+        """Retirer le fichier d'exemple (ticket 34fa9248, bouton « Nettoyer » de
+        l'aperçu) : il redevient vide, comme à la création de l'import ; la
+        déclaration, le template et les correspondances restent."""
+        return await update(
+            request, conn, crypto, workdir, space_id, branch_id, user, slug,
+            "retire l'exemple de l'import",
+            lambda imp: (imp.declaration, imp.template, b""),
+        )  # fmt: skip
+
     @router.put("/{slug}/lecture")
     async def set_reading(
         request: Request,

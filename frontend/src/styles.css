@@ -4561,3 +4561,33 @@ urban-bpmn {
 .home-feedback p {
   margin: 0;
 }
+
+/* Onglet « Résumé » d'un type : ses objets et le YAML de l'objet choisi (ticket 7dc220a4). */
+.carto-type-objects {
+  margin-top: 16px;
+}
+.carto-type-objects-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.carto-type-objects-list {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.carto-type-objects-yaml {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+}
+.carto-type-object-yaml {
+  margin: 0;
+  max-height: 70vh;
+  overflow: auto;
+  word-break: normal;
+}
+@media (max-width: 900px) {
+  .carto-type-objects-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

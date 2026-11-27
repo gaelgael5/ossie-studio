@@ -109,6 +109,16 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
       } else if (path === `${BASE}/types/processus-de-vente` && method === 'DELETE') body = { deleted: 'processus-de-vente', revision: 'draft:3' }
       else if (path === `${BASE}/types`) body = { readonly: false, types: [] }
       else if (path === `${BASE}/types/processus-de-vente/imports`) body = { imports: [] }
+      else if (path === `${BASE}/objets`)
+        body = {
+          readonly: false,
+          objects: [
+            { key: 'PRC-B', type: 'processus-de-vente', name: 'Vente B' },
+            { key: 'APP-X', type: 'application', name: 'Autre type' },
+            { key: 'PRC-A', type: 'processus-de-vente', name: 'Vente A' },
+          ],
+        }
+      else if (path === `${BASE}/objets/PRC-A`) body = { key: 'PRC-A', yaml: 'cle: PRC-A\nnom: Vente A\n' }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
   )
@@ -369,4 +379,16 @@ describe('Cartographie — imports d’un type (ticket 49952be0)', () => {
     await waitFor(() => expect(calls.some((c) => c.path === `${BASE}/types/processus-de-vente/imports`)).toBe(true))
     expect(await screen.findByText('Aucun import déclaré.')).toBeInTheDocument()
   })
+
+  it('« Résumé » liste les objets du type (clé, nom) ; la ligne cliquée montre son YAML (ticket 7dc220a4)', async () => {
+    setup()
+    const table = await screen.findByRole('table', { name: 'Objets de ce type' })
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows.map((r) => r.textContent)).toEqual(['PRC-AVente A', 'PRC-BVente B'])
+    expect(screen.getByText('Cliquez sur une ligne pour afficher l’objet.')).toBeInTheDocument()
+    await userEvent.setup().click(rows[0])
+    expect(await screen.findByLabelText('Fichier YAML de PRC-A')).toHaveTextContent('cle: PRC-A nom: Vente A')
+    expect(rows[0]).toHaveClass('selected')
+  })
+
 })

@@ -16,6 +16,7 @@ import type { RefModel } from '../referentiels/modelRules'
 import { UnsavedProvider, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
 import { ImportsTab } from '../imports/ImportsTab'
 import { ArchimateIcon } from './ArchimateIcon'
+import { TypeObjects } from './TypeObjects'
 import { RELATIONS, TypeRelations, readDeviations, writeDeviations } from './TypeRelations'
 import type { Deviations } from './TypeRelations'
 
@@ -333,7 +334,12 @@ function TypeEditor({
       </div>
       {/* Le bandeau ArchiMate vit dans l'onglet « Résumé », ouvert en premier
           (ticket e2b9d7de). */}
-      {tab === 'summary' ? <ArchimateBand info={info} archimate={detail.archimate} title={title} /> : null}
+      {tab === 'summary' ? (
+        <>
+          <ArchimateBand info={info} archimate={detail.archimate} title={title} />
+          <TypeObjects spaceId={spaceId} branchId={branchId} slug={detail.slug} />
+        </>
+      ) : null}
       {tab === 'relations' ? (
         parsed.ok ? (
           <TypeRelations

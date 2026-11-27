@@ -456,5 +456,28 @@ describe('Imports — « Résoudre le template » (ticket 0598c41b)', () => {
     await userEvent.setup().click(await screen.findByRole('tab', { name: '3. Template JSLT' }))
     expect(screen.queryByRole('button', { name: 'Résoudre le template' })).not.toBeInTheDocument()
   })
+
+  it('« Nettoyer » l’aperçu retire le fichier d’exemple après confirmation (ticket 34fa9248)', async () => {
+    const calls = setup()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: '2. Aperçu' }))
+    await user.click(await screen.findByRole('button', { name: 'Nettoyer' }))
+    const dialog = screen.getByRole('alertdialog')
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+    await user.click(within(dialog).getByRole('button', { name: 'Nettoyer' }))
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === 'DELETE' && c.path === `${BASE}/transporteur/exemple`)).toBe(true),
+    )
+  })
+
+  it('sans fichier d’exemple : pas de « Nettoyer » ; le bouton d’essai s’appelle « Tester l’exécution » (ticket 55b21544)', async () => {
+    setup({ detail: { example_size: 0 } })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: '2. Aperçu' }))
+    expect(screen.queryByRole('button', { name: 'Nettoyer' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: '3. Template JSLT' }))
+    expect(await screen.findByRole('button', { name: /^Tester l’exécution/ })).toBeInTheDocument()
+  })
+
 })
 

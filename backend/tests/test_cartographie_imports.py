@@ -336,3 +336,20 @@ def test_reconnaitre_un_renommage() -> None:
     assert property_renames(before, t({"a": s, "bb": s, "c": s})) == {}  # définition changée
     assert property_renames(before, t({"a": s, "c": s, "d": n})) == {}  # retrait + ajout ailleurs
     assert property_renames(before, t({"a": s, "b": n})) == {}  # retrait seul
+
+
+async def test_nettoyer_retire_le_fichier_d_exemple(space: ApiSpace) -> None:
+    """Ticket 34fa9248 : « Nettoyer » vide le fichier d'exemple ; le template reste."""
+    await _declare(space, "application", APP_TEMPLATE)
+    await space.client.put(
+        _url(space, "application", "/fichier/exemple"),
+        files={"file": ("e.csv", b"cle;Nom\nAPP-1;Un\n", "text/csv")},
+    )
+    cleared = await space.client.delete(_url(space, "application", "/fichier/exemple"))
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["example_size"] == 0
+    assert cleared.json()["template"] == APP_TEMPLATE
+    preview = (await space.client.post(_url(space, "application", "/fichier/apercu"))).json()
+    assert preview["rows"] == [] and preview["count"] == 0
+    missing = await space.client.delete(_url(space, "application", "/inconnu/exemple"))
+    assert missing.status_code == 404
