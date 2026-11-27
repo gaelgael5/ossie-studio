@@ -303,7 +303,7 @@ function ExampleTab({
                 <tr key={c.column}>
                   <td className="mono">{c.column}</td>
                   <td>
-                    <span className="row">
+                    <span className="row import-mapping">
                       <select
                         className="input"
                         aria-label={t('refImportMappingFor', { column: c.column })}
@@ -318,7 +318,7 @@ function ExampleTab({
                           </option>
                         ))}
                       </select>
-                      {c.chosen ? <span className="badge">{t('refImportMappingChosen')}</span> : null}
+                      {c.chosen ? <span className="muted small">{t('refImportMappingChosen')}</span> : null}
                     </span>
                   </td>
                   <td>

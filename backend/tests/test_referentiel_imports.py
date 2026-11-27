@@ -371,3 +371,9 @@ async def test_choisir_la_propriete_d_une_colonne(space: ApiSpace) -> None:
     assert back.status_code == 200
     again = (await space.client.post(f"{base}/mapping/apercu")).json()["comparison"]
     assert [r["chosen"] for r in again] == [False, True, True]
+    # Une colonne ignorée puis ajoutée au modèle va à sa nouvelle propriété.
+    await space.client.put(url, json={"column": "Transport", "property": ""})
+    added = await space.client.post(f"{base}/mapping/proprietes", json={"column": "Transport"})
+    assert added.status_code == 200, added.text
+    last = (await space.client.post(f"{base}/mapping/apercu")).json()["comparison"]
+    assert {r["column"]: r["property"] for r in last}["Transport"] == "transport"

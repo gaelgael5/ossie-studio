@@ -536,6 +536,14 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             values = [r.data.get(body.column) for r in example.records if isinstance(r.data, dict)]
             kind = infer_type(values)
             adapter.add_property(root, owner, name, kind)
+            if body.column in imp.declaration.mapping:
+                # La colonne ajoutée va à sa nouvelle propriété, pas à son ancien choix
+                # (« Aucune » ou une autre propriété) : ticket 47716786.
+                mapping = {c: p for c, p in imp.declaration.mapping.items() if c != body.column}
+                decl = replace(imp.declaration, mapping=mapping)
+                files.write_import(
+                    root, folder(owner), decl, imp.template, imp.example, create=False
+                )
             return {"property": name, "type": kind}
 
         added, revision = await handle.write(
