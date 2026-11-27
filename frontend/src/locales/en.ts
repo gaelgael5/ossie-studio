@@ -1130,6 +1130,8 @@ export const en = {
     cartoBackToTypes: '← Back to types',
     cartoTypeBasedOn: 'based on {{type}} (ArchiMate)',
     cartoBandNote: 'notation and allowed relationships: those of {{type}}',
+    cartoImportsUnsaved: 'The type definition has unsaved changes: the mappings use the saved version.',
+    cartoImportsUnsavedSave: 'Save the definition',
     cartoTypeTab_summary: 'Summary',
     cartoTypeTab_properties: 'Properties',
     cartoTypeLabel: 'Label',

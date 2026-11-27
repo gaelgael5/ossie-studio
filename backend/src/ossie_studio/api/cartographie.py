@@ -37,9 +37,10 @@ from ossie_studio.cartographie.model import (
     properties_schema,
     type_path,
 )
+from ossie_studio.cartographie.renames import follow_type_renames
 from ossie_studio.cartographie.rules import involved_relations
 from ossie_studio.cartographie.service import CartographieTarget
-from ossie_studio.cartographie.space import Cartographie, delete_type, save_type
+from ossie_studio.cartographie.space import Cartographie, delete_type, read_cartographie, save_type
 from ossie_studio.deps import ConnDep
 from ossie_studio.drafts.store import db_get_draft, db_list_object_states
 from ossie_studio.drafts.workdir import DraftWorkdir
@@ -368,6 +369,16 @@ async def get_type(
     return _detail(space, slug, await draft_states(conn, workdir, branch_id))
 
 
+def _save_type_following(root: Path, ctype: CartoType) -> CartoType:
+    """Enregistre le type ; une propriété renommée l'est aussi dans ses objets
+    (save_type) et ses imports, dans le même commit du brouillon (ticket 859579bb)."""
+    before = read_cartographie(root).types.get(ctype.slug)
+    saved = save_type(root, ctype, create=False)
+    if before is not None:
+        follow_type_renames(root, before, saved)
+    return saved
+
+
 @router.put("/types/{slug}")
 async def save_type_route(
     conn: ConnDep,
@@ -386,7 +397,7 @@ async def save_type_route(
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     try:
         _saved, revision = await target.write(
-            f"modifie le type {slug}", lambda root: save_type(root, ctype, create=False)
+            f"modifie le type {slug}", lambda root: _save_type_following(root, ctype)
         )
         space = await target.cartographie()
     except CartographieError as exc:

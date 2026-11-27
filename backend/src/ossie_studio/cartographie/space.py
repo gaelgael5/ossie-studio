@@ -52,6 +52,7 @@ from ossie_studio.cartographie.model import (
     object_path,
     parse_object,
     parse_type,
+    property_renames,
     type_path,
 )
 from ossie_studio.cartographie.rules import allowed_relations
@@ -296,6 +297,23 @@ def save_type(
         raise CartographieError("type_not_found", status=404, slug=ctype.slug)
     if current is not None and current.archimate != ctype.archimate:
         raise CartographieError("type_archimate_frozen", status=409, slug=ctype.slug)
+    # Une propriété renommée l'est aussi dans les objets du type (ticket
+    # 859579bb) : sa valeur passe sous le nouveau nom, au lieu du refus
+    # « property_in_use » d'une propriété retirée.
+    renames = property_renames(current, ctype) if current is not None else {}
+    moved: dict[str, CartoObject] = {}
+    if renames:
+        for path, obj in space.objects_of(ctype.slug):
+            if any(k in renames for k in obj.properties):
+                props = {renames.get(k, k): v for k, v in obj.properties.items()}
+                moved[path] = replace(obj, properties=props)
+        space = Cartographie(
+            types=space.types,
+            objects={
+                **space.objects,
+                **{k: (p, moved[p]) for k, (p, _o) in space.objects.items() if p in moved},
+            },
+        )
     changed = Cartographie(types={**space.types, ctype.slug: ctype}, objects=space.objects)
     problems = check_type(ctype, cat) + check_relations(changed, ctype, cat)
     if problems:
@@ -306,6 +324,8 @@ def save_type(
     target = root / type_path(ctype.slug)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(dump_type(ctype), encoding="utf-8")
+    for path, obj in moved.items():
+        (root / path).write_text(dump_object(obj), encoding="utf-8")
     return ctype
 
 

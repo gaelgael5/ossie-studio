@@ -290,6 +290,23 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
   })
 })
 
+describe('Cartographie — imports d’un type dont la définition n’est pas enregistrée (bug f1a6758d)', () => {
+  it('avertit sur l’onglet Imports et permet d’enregistrer la définition', async () => {
+    const calls = setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: 'Imports' }))
+    expect(screen.queryByText(/modifications non enregistrées/)).not.toBeInTheDocument()
+    await openProperties()
+    visualChange.current = (m) => ({ ...m, properties: { canal: CANAL } })
+    await user.click(screen.getByRole('button', { name: 'visuel' }))
+    await user.click(screen.getByRole('tab', { name: 'Imports' }))
+    expect(screen.getByText(/modifications non enregistrées/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Enregistrer la définition' }))
+    await waitFor(() => expect(lastPut(calls)).toEqual({ ...documentOf(), properties: { canal: CANAL } }))
+  })
+})
+
 describe('Cartographie — relations permises d’un type (ticket 2643fd8f)', () => {
   it('décocher une cible d’ArchiMate écrit l’écart ; elle reste visible, désactivée', async () => {
     const calls = setup()

@@ -1132,6 +1132,8 @@ export const fr = {
     cartoBackToTypes: '← Retour aux types',
     cartoTypeBasedOn: 'repose sur {{type}} (ArchiMate)',
     cartoBandNote: 'notation et relations permises : celles de {{type}}',
+    cartoImportsUnsaved: 'La définition du type a des modifications non enregistrées : les correspondances s’appuient sur la version enregistrée.',
+    cartoImportsUnsavedSave: 'Enregistrer la définition',
     cartoTypeTab_summary: 'Résumé',
     cartoTypeTab_properties: 'Propriétés',
     cartoTypeLabel: 'Libellé',

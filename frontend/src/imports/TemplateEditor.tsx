@@ -157,7 +157,7 @@ export function TemplateEditor({
       <div
         className="template-frame"
         ref={frame}
-        style={fill === null ? undefined : ({ "--jslt-ed-min-height": `${fill}px` } as CSSProperties)}
+        style={fill === null ? undefined : ({ "--template-fill": `${fill}px` } as CSSProperties)}
       >
         {marked && (
           // Le surlignement est posé PAR-DESSUS, sans toucher au texte : teinter le

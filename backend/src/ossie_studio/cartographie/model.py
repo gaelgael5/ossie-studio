@@ -58,6 +58,41 @@ def is_valid_key(key: str) -> bool:
     return bool(_KEY.fullmatch(key))
 
 
+def property_renames(before: CartoType, after: CartoType) -> dict[str, str]:
+    """Les propriétés renommées entre deux versions d'un type (ticket 859579bb) :
+    même nombre de propriétés et, à la même position, un nom retiré et un nom
+    ajouté de définition identique. L'éditeur visuel garde la position et la
+    définition d'une propriété renommée ; une suppression suivie d'un ajout
+    ailleurs, ou un renommage avec changement de définition, n'en est pas un."""
+    old, new = list(before.properties), list(after.properties)
+    if len(old) != len(new):
+        return {}
+    return {
+        o: n
+        for o, n in zip(old, new, strict=True)
+        if o != n
+        and o not in after.properties
+        and n not in before.properties
+        and _shape(before.properties[o]) == _shape(after.properties[n])
+    }
+
+
+# Ce qui ne fait pas la définition d'une propriété : l'éditeur visuel ajoute
+# `description: ""` à une propriété qu'on renomme, et changer la description en
+# même temps que le nom reste un renommage.
+_ANNOTATIONS = frozenset({"description", "title", "examples", "$comment"})
+
+
+def _shape(schema: Any) -> Any:
+    if not isinstance(schema, dict):
+        return schema
+    return {
+        k: _shape(v)
+        for k, v in schema.items()
+        if k not in _ANNOTATIONS and v not in ("", None) and v != [] and v != {}
+    }
+
+
 def type_path(slug: str) -> str:
     return f"{TYPES_DIR}/{slug}{TYPE_SUFFIX}"
 

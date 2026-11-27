@@ -73,6 +73,47 @@ def effective_mapping(
     return out
 
 
+def minimal_mapping(
+    columns: list[str], properties: list[str], chosen: dict[str, str]
+) -> dict[str, str]:
+    """Les seuls choix utiles : la déclaration ne garde que les écarts à la
+    correspondance par nom ; un choix dont l'absence ne change pas le résultat
+    n'est pas gardé."""
+    target = effective_mapping(columns, properties, chosen)
+    for column in list(chosen):
+        trial = {c: p for c, p in chosen.items() if c != column}
+        if effective_mapping(columns, properties, trial) == target:
+            chosen = trial
+    return chosen
+
+
+def follow_renames(
+    columns: list[str],
+    before: list[str],
+    after: list[str],
+    chosen: dict[str, str],
+    renames: dict[str, str],
+) -> dict[str, str]:
+    """Les choix d'un import après le renommage de propriétés (ticket 859579bb) :
+    chaque colonne qui allait à un ancien nom va au nouveau, les autres gardent
+    leur propriété, qu'elle vienne d'un choix ou de la correspondance par nom."""
+    target = effective_mapping(columns, before, chosen)
+    wanted = {c: renames.get(p, p) if p else "" for c, p in target.items()}
+    # Les choix sur des colonnes absentes de l'exemple sont gardés, renommés.
+    extra = {c: renames.get(p, p) for c, p in chosen.items() if c not in target}
+    return minimal_mapping(columns, after, {**extra, **wanted})
+
+
+def rename_template_keys(template: str, renames: dict[str, str]) -> str:
+    """Les clés `"ancien":` d'un template JSLT deviennent `"nouveau":` (ticket
+    859579bb). Seules les clés d'objet sont visées : une chaîne `"ancien"` qui
+    n'est pas suivie de `:` (valeur, argument) reste telle quelle."""
+    for old, new in renames.items():
+        pattern = re.compile(r'"' + re.escape(old) + r'"(\s*):')
+        template = pattern.sub(r'"' + new.replace("\\", "\\\\") + r'"\1:', template)
+    return template
+
+
 def auto_property(column: str, properties: list[str]) -> str | None:
     """La correspondance par nom normalisé seule (sans les choix)."""
     return {property_name(p): p for p in properties}.get(property_name(column))

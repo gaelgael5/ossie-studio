@@ -47,7 +47,7 @@ export default function SchemaEditor({
   const { t, i18n } = useTranslation()
   return (
     <div className="model-editor">
-      <section aria-label={visualTitle ?? t('refModelVisual')}>
+      <section aria-label={visualTitle ?? t('refModelVisual')} className={after ? 'model-editor-with-after' : undefined}>
         <h2>{visualTitle ?? t('refModelVisual')}</h2>
         {before}
         {parsed.ok ? (
