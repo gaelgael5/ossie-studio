@@ -4359,9 +4359,8 @@ urban-bpmn {
 /* Libellé d'un type, édité derrière un crayon à droite du titre (ticket 1ad51345). */
 /* Le champ prend la taille du titre qu'il remplace : l'en-tête ne saute pas. */
 .carto-type-label-input.input {
-  flex: 0 1 560px;
-  width: auto;
-  min-width: 0;
+  flex: none;
+  width: min(560px, 60vw);
   font-size: 2.1rem;
   font-weight: 600;
   letter-spacing: -0.015em;
