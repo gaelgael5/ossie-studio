@@ -369,20 +369,14 @@ input[type='radio'] {
 /* ---------- Page ---------- */
 .page {
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 24px;
+  /* Pleine largeur, 2,5 cm de marge de chaque côté (Gael : « garde une marge de
+     deux à trois centimètres sur la page », ticket c501cdcd) ; avant : centrée sur
+     1200 px, ce qui laissait le travail loin du bord gauche sur un grand écran. */
+  padding: 24px 2.5cm;
   flex: 1;
 }
-
-/* Écran qui prend toute la largeur, environ 2 cm de marge (fiche d'un objet de
-   cartographie, ticket 62a8c315) : la page l'active en posant `page-wide`. */
-.page:has(.page-wide) {
-  max-width: none;
-  padding-inline: 2cm;
-}
 @media (max-width: 700px) {
-  .page:has(.page-wide) {
+  .page {
     padding-inline: 16px;
   }
 }
