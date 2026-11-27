@@ -3682,6 +3682,11 @@ td.cell-error {
 .carto-base {
   margin-top: 16px;
 }
+/* L'éditeur visuel (h-full) s'étire à la hauteur du YAML voisin : suivi d'un bloc
+   (propriétés de base d'un type), il laissait un grand vide avant lui. */
+.model-editor-with-after > .jsonjoy {
+  height: auto;
+}
 
 /* Onglet Objets et fiche d'un objet de cartographie (ticket 6f71bcba). */
 .carto-object-filters {
