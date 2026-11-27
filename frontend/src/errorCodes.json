@@ -258,5 +258,7 @@
   "key_field_missing",
   "dataset_derived_readonly",
   "dataset_not_found",
-  "dataset_change_impacts"
+  "dataset_change_impacts",
+  "setting_not_found",
+  "setting_value_invalid"
 ]

@@ -16,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from ossie_studio.api.agent_connections import router as api_agent_connections_router
 from ossie_studio.api.agent_profiles import router as api_agent_profiles_router
 from ossie_studio.api.api_keys import router as api_api_keys_router
+from ossie_studio.api.app_settings import router as api_settings_router
 from ossie_studio.api.audit import router as api_audit_router
 from ossie_studio.api.branches import router as api_branches_router
 from ossie_studio.api.cartographie import ARCHIMATE_EDITOR_PATH, BPMN_EDITOR_PATH
@@ -218,6 +219,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_certifications_router)
     app.include_router(api_classifications_router)
     app.include_router(api_audit_router)
+    app.include_router(api_settings_router)
     app.include_router(api_domains_router)
     app.include_router(api_profiles_router)
     app.include_router(api_users_router)

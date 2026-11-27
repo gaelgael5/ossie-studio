@@ -667,6 +667,7 @@ export const fr = {
       parsing_manage: 'Gérer les paramètres',
     },
     capDomain: {
+      settings: 'Paramètres',
       referentiels: 'Référentiels',
       cartographie: 'Cartographie',
       audit: 'Journal d’audit',
@@ -1808,6 +1809,22 @@ export const fr = {
     invalidReason_not_single: 'plusieurs valeurs pour un schéma à valeur unique',
     // Page Historique (ticket cf4434da).
     navHistory: 'Historique',
+    navParameters: 'Paramètres',
+    // Page « Paramètres » (ticket ae8fc4b6).
+    parametersTitle: 'Paramètres',
+    parametersSubtitle:
+      'Paramètres généraux de l’application. Une valeur posée ici prime sur la configuration du serveur, sans redémarrage.',
+    parametersSaved: 'Paramètre enregistré.',
+    parametersReset: 'Valeur par défaut rétablie.',
+    parametersResetButton: 'Valeur par défaut',
+    parametersDefault: 'Par défaut : {{value}} Ko',
+    parametersFromPage: 'réglé sur cette page ({{who}})',
+    parametersFromConfig: 'valeur de la configuration',
+    parametersUnitKb: 'Ko',
+    parametersRange: 'Un nombre entier entre {{minimum}} et {{maximum}} Ko.',
+    parameter_document_max_bytes: 'Taille maximale d’un document écrit par un agent',
+    parameterDoc_document_max_bytes:
+      'Chaque document envoyé par write_documents, le document obtenu par patch_document, une valeur de référentiel seule. Au-delà, l’écriture est refusée.',
     historyTitle: 'Historique',
     historySubtitle:
       'Qui a fait quoi, quand : réglages tenus en base (secrets, connexions, OIDC, profils, clés d’API, équipes, utilisateurs) et gouvernance publiée de la branche regardée.',
@@ -1829,6 +1846,7 @@ export const fr = {
     historyMore: 'Plus ancien',
     auditAction: { created: 'Créé', updated: 'Modifié', deleted: 'Supprimé' },
     auditType: {
+      app_setting: 'Paramètre',
       secret: 'Secret',
       connection: 'Connexion de forge',
       db_connection: 'Connexion de base',
@@ -2948,6 +2966,8 @@ export const fr = {
       write_document_too_large: 'Document trop grand : {{size}} octets pour une limite de {{limit}}.',
       write_kind_forbidden: 'Droit manquant pour un genre du lot : tout le lot est refusé.',
       standard_unknown: 'Standard inconnu.',
+      setting_not_found: 'Paramètre inconnu.',
+      setting_value_invalid: 'Valeur refusée : un nombre entier entre {{minimum}} et {{maximum}} octets.',
       example_encoding: 'Le fichier ne se lit pas avec cet encodage.',
       example_json: 'Le fichier n’est pas du JSON valide.',
       example_xlsx: 'Le fichier n’est pas un classeur Excel (xlsx) lisible.',

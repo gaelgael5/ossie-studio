@@ -666,6 +666,7 @@ export const en = {
       parsing_manage: 'Manage parameters',
     },
     capDomain: {
+      settings: 'Settings',
       referentiels: 'Reference data',
       cartographie: 'Cartography',
       audit: 'Audit log',
@@ -1806,6 +1807,22 @@ export const en = {
     invalidReason_not_single: 'several values for a single-value scheme',
     // History page (ticket cf4434da).
     navHistory: 'History',
+    navParameters: 'Settings',
+    // Settings page (ticket ae8fc4b6).
+    parametersTitle: 'Settings',
+    parametersSubtitle:
+      'General settings of the application. A value set here overrides the server configuration, without a restart.',
+    parametersSaved: 'Setting saved.',
+    parametersReset: 'Default value restored.',
+    parametersResetButton: 'Default value',
+    parametersDefault: 'Default: {{value}} KB',
+    parametersFromPage: 'set on this page ({{who}})',
+    parametersFromConfig: 'configuration value',
+    parametersUnitKb: 'KB',
+    parametersRange: 'A whole number between {{minimum}} and {{maximum}} KB.',
+    parameter_document_max_bytes: 'Maximum size of a document written by an agent',
+    parameterDoc_document_max_bytes:
+      'Each document sent by write_documents, the document obtained by patch_document, a reference-list value alone. Beyond it, the write is refused.',
     historyTitle: 'History',
     historySubtitle:
       'Who did what, when: settings kept in the database (secrets, connections, OIDC, profiles, API keys, teams, users) and the published governance of the branch in view.',
@@ -1827,6 +1844,7 @@ export const en = {
     historyMore: 'Older',
     auditAction: { created: 'Created', updated: 'Updated', deleted: 'Deleted' },
     auditType: {
+      app_setting: 'Setting',
       secret: 'Secret',
       connection: 'Forge connection',
       db_connection: 'Database connection',
@@ -2943,6 +2961,8 @@ export const en = {
       write_document_too_large: 'Document too large: {{size}} bytes for a limit of {{limit}}.',
       write_kind_forbidden: 'A right is missing for one kind of the batch: the whole batch is refused.',
       standard_unknown: 'Unknown standard.',
+      setting_not_found: 'Unknown setting.',
+      setting_value_invalid: 'Value refused: a whole number between {{minimum}} and {{maximum}} bytes.',
       example_encoding: 'The file cannot be read with this encoding.',
       example_json: 'The file is not valid JSON.',
       example_xlsx: 'The file is not a readable Excel workbook (xlsx).',

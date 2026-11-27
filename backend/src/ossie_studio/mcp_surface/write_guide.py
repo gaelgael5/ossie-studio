@@ -26,6 +26,7 @@ from typing import Any
 
 from pydantic import Field
 
+from ossie_studio.app_settings.service import document_max_bytes
 from ossie_studio.cartographie.catalog import catalog
 from ossie_studio.mcp_surface.branch import BranchParam
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
@@ -89,8 +90,10 @@ def _filter(found: ListFilter) -> dict[str, Any]:
     return out
 
 
-def _limit(ctx: PrimitiveContext) -> int:
-    return int(ctx.state.settings.document_max_bytes)
+async def _limit(ctx: PrimitiveContext) -> int:
+    """La taille maximale en vigueur : réglée sur la page « Paramètres », sinon celle
+    de la configuration (ticket ae8fc4b6)."""
+    return await document_max_bytes(ctx.conn, ctx.state.settings)
 
 
 async def list_write_kinds(ctx: PrimitiveContext, args: ListWriteKindsArgs) -> dict[str, Any]:
@@ -122,7 +125,7 @@ async def list_write_kinds(ctx: PrimitiveContext, args: ListWriteKindsArgs) -> d
             )
         kinds.append(item)
     return {
-        "document_max_bytes": _limit(ctx),
+        "document_max_bytes": await _limit(ctx),
         "rules": "describe_standard('writing-rules')",
         "kinds": kinds,
     }
@@ -153,7 +156,7 @@ async def describe_standard(ctx: PrimitiveContext, args: DescribeStandardArgs) -
     wanted = (args.standard or "").strip()
     if not wanted:
         return {
-            "document_max_bytes": _limit(ctx),
+            "document_max_bytes": await _limit(ctx),
             "standards": [
                 {"standard": k, "title": v["title"], "summary": v["summary"]}
                 for k, v in known.items()
@@ -165,7 +168,7 @@ async def describe_standard(ctx: PrimitiveContext, args: DescribeStandardArgs) -
     return {
         "standard": wanted,
         "title": found["title"],
-        "document_max_bytes": _limit(ctx),
+        "document_max_bytes": await _limit(ctx),
         "markdown": found["markdown"],
         **(_EXTRAS[wanted]() if wanted in _EXTRAS else {}),
     }

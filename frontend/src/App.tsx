@@ -25,6 +25,7 @@ import { GovernanceInvalidValuesPage } from './pages/GovernanceInvalidValuesPage
 import { SourcesPage } from './pages/SourcesPage'
 import { CurationPage } from './pages/CurationPage'
 import { HistoryPage } from './pages/HistoryPage'
+import { ParametersPage } from './pages/ParametersPage'
 import { DomainPage, DomainsPage } from './pages/DomainsPage'
 import { CartographiePage } from './pages/CartographiePage'
 import { CartoTypePage } from './cartographie/CartoTypePage'
@@ -135,6 +136,7 @@ function AppRoutes() {
         <Route path="/sources/:slug" element={gate('sources:read', <SourceDetailPage />)} />
         <Route path="/curation" element={gate('curation:read', <CurationPage />)} />
         <Route path="/historique" element={gate('audit:read', <HistoryPage />)} />
+        <Route path="/parametres" element={gate('settings:read', <ParametersPage />)} />
         <Route path="/referentiels" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/referentiels/:name" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/referentiels/:name/parametrage" element={gate('referentiels:read', <ReferentielsPage />)} />

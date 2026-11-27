@@ -132,9 +132,16 @@ def test_les_regles_communes_expliquent_le_renommage() -> None:
 # --- Les primitives ---------------------------------------------------------------------
 
 
+async def _no_row(*_args: Any) -> None:
+    return None
+
+
 def _ctx(limit: int = 5120) -> Any:
+    """Un contexte sans réglage posé sur la page « Paramètres » : la limite est celle
+    de la configuration."""
     return SimpleNamespace(
-        state=SimpleNamespace(settings=SimpleNamespace(document_max_bytes=limit))
+        conn=SimpleNamespace(fetchrow=_no_row),
+        state=SimpleNamespace(settings=SimpleNamespace(document_max_bytes=limit)),
     )
 
 

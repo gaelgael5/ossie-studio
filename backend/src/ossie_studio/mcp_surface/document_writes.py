@@ -36,6 +36,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ossie_studio.app_settings.service import document_max_bytes
 from ossie_studio.authz.catalog import SPACE_SCOPED
 from ossie_studio.cartographie.space import read_cartographie
 from ossie_studio.mcp_surface.branch import BranchArgs, BranchView, open_branch
@@ -452,7 +453,7 @@ def _standard(kind_name: str) -> str:
 async def write_documents(ctx: PrimitiveContext, args: WriteDocumentsArgs) -> dict[str, Any]:
     entries = [(f"$.documents[{i}]", d.kind) for i, d in enumerate(args.documents)]
     forbidden = await _capability_refusals(ctx, args.space_id, entries)
-    limit = int(ctx.state.settings.document_max_bytes)
+    limit = await document_max_bytes(ctx.conn, ctx.state.settings)
     bv = await _open(ctx, args)
     skipped = {i for i, (base, _k) in enumerate(entries) if base in forbidden}
 
@@ -557,7 +558,7 @@ async def patch_document(ctx: PrimitiveContext, args: PatchDocumentArgs) -> dict
             warnings=[],
         )
     kind = write_kind(args.kind)
-    limit = int(ctx.state.settings.document_max_bytes)
+    limit = await document_max_bytes(ctx.conn, ctx.state.settings)
     bv = await _open(ctx, args)
     operations = [Operation(o.op, o.path, o.value) for o in args.operations]
 

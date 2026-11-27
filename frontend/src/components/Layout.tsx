@@ -59,6 +59,7 @@ const MAIN_NAV: NavEntry[] = [
 
 // Regroupées sous « Réglages » (menu déroulant).
 const SETTINGS_NAV: NavItem[] = [
+  { key: 'navParameters', to: '/parametres', capability: 'settings:read', prefix: '/parametres' },
   { key: 'navSecrets', to: '/secrets', capability: 'secrets:read', prefix: '/secrets' },
   { key: 'navConnectors', to: '/oidc/connectors', capability: 'oidc:read', prefix: '/oidc' },
   { key: 'navForges', to: '/forges', capability: 'connections:read', prefix: '/forges' },

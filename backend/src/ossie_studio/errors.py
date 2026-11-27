@@ -251,6 +251,8 @@ ERROR_CODES: tuple[str, ...] = (
     "write_document_too_large",
     "write_kind_forbidden",
     "standard_unknown",
+    "setting_not_found",
+    "setting_value_invalid",
     "example_encoding",
     "example_json",
     "example_xlsx",
