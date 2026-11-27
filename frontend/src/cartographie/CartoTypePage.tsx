@@ -318,6 +318,24 @@ function TypeEditor({
           <p className="empty-note text-danger">{t('cartoRelationsUnreadable')}</p>
         )
       ) : null}
+      {tab === 'imports' && !readOnly && dirty ? (
+        // Les imports lisent le type enregistré sur le serveur : une propriété
+        // renommée dans l'éditeur n'y apparaît qu'une fois la définition enregistrée.
+        // On le dit au lieu de laisser croire que le renommage est perdu (bug f1a6758d).
+        <div className="notice row carto-imports-unsaved" role="note">
+          <span>{t('cartoImportsUnsaved')}</span>
+          <BusyButton
+            type="button"
+            className="btn btn-primary btn-sm"
+            busy={save.isPending}
+            busyText={t('refSaveBusy')}
+            disabled={!saveable}
+            onClick={() => parsed.ok && save.mutate(parsed.model)}
+          >
+            {t('cartoImportsUnsavedSave')}
+          </BusyButton>
+        </div>
+      ) : null}
       {tab === 'imports' ? (
         // Une ligne = un objet du type ; fusion seulement (ticket 49952be0). Sans le
         // droit de modifier, l'onglet se consulte, aucun import n'est possible.

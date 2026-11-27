@@ -3682,6 +3682,12 @@ td.cell-error {
 .carto-base {
   margin-top: 16px;
 }
+/* Onglet Imports d'un type dont la définition n'est pas enregistrée (bug f1a6758d). */
+.carto-imports-unsaved {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
 /* L'éditeur visuel (h-full) s'étire à la hauteur du YAML voisin : suivi d'un bloc
    (propriétés de base d'un type), il laissait un grand vide avant lui. */
 .model-editor-with-after > .jsonjoy {
