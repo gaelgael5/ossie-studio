@@ -28,9 +28,9 @@ from ossie_studio.deps import ConnDep
 from ossie_studio.drafts.store import db_get_draft, db_list_object_states
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
+from ossie_studio.imports.errors import ImportsError
 from ossie_studio.models import User
 from ossie_studio.referentiels import published
-from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import dump_model
 from ossie_studio.referentiels.model_change import adapt_values, preview
 from ossie_studio.referentiels.repo import (
@@ -71,7 +71,7 @@ class ValuesBody(BaseModel):
     values: list[Any]
 
 
-def api_error(exc: ReferentielError) -> ApiError:
+def api_error(exc: ImportsError) -> ApiError:
     code = "referentiel_unreadable" if exc.code in _UNREADABLE else exc.code
     extra: dict[str, object] = dict(exc.detail)
     if exc.problems:
@@ -118,7 +118,7 @@ _LIST_INDEX: ListIndex[list[dict[str, Any]]] = ListIndex()
 async def read_in[T](target: ReferentielTarget, fn: Any) -> T:
     try:
         result: T = await target.read(fn)
-    except ReferentielError as exc:
+    except ImportsError as exc:  # ReferentielError comprise (module commun d'import)
         raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
@@ -128,7 +128,7 @@ async def read_in[T](target: ReferentielTarget, fn: Any) -> T:
 async def write_in[T](target: ReferentielTarget, intent: str, fn: Any) -> tuple[T, str | None]:
     try:
         result: tuple[T, str | None] = await target.write(intent, fn)
-    except ReferentielError as exc:
+    except ImportsError as exc:  # ReferentielError comprise (module commun d'import)
         raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
@@ -347,7 +347,7 @@ async def referentiel_history(
     d'histoire)."""
     try:
         rel = referentiel_dir(name)
-    except ReferentielError as exc:
+    except ImportsError as exc:  # ReferentielError comprise (module commun d'import)
         raise api_error(exc) from None
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:

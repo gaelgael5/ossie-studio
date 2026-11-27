@@ -1,5 +1,6 @@
-"""Les imports d'un référentiel : chacun est trois fichiers sous
-`referentiels/<nom>/imports/` :
+"""La déclaration d'un import (module commun, enabler 4f32c8c6). Un import est
+trois fichiers, dans le dossier d'imports que fixe sa cible (pour un référentiel,
+`referentiels/<nom>/imports/`) :
 
     <slug>.yaml                   la déclaration : libellé, format (csv | json),
                                   réglages de lecture (séparateur, encodage,
@@ -16,7 +17,8 @@ from typing import Any, Literal
 
 import yaml
 
-from ossie_studio.referentiels.errors import Problem, ReferentielError
+from ossie_studio.imports.errors import ImportsError
+from ossie_studio.problems import Problem
 
 ImportFormat = Literal["csv", "json"]
 FORMATS: tuple[ImportFormat, ...] = ("csv", "json")
@@ -34,7 +36,7 @@ class ImportDeclaration:
 
 
 @dataclass(frozen=True)
-class ReferentielImport:
+class Import:
     declaration: ImportDeclaration
     template: str
     example: bytes
@@ -78,14 +80,14 @@ def dump_declaration(decl: ImportDeclaration) -> str:
 
 
 def parse_declaration(slug: str, text: str) -> ImportDeclaration:
-    """Lit une déclaration ; ReferentielError « import_unreadable » si elle est
+    """Lit une déclaration ; ImportsError « import_unreadable » si elle est
     illisible ou incomplète."""
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError as exc:
-        raise ReferentielError("import_unreadable", slug=slug, detail=str(exc)) from None
+        raise ImportsError("import_unreadable", slug=slug, detail=str(exc)) from None
     if not isinstance(data, dict) or data.get("format") not in FORMATS:
-        raise ReferentielError("import_unreadable", slug=slug)
+        raise ImportsError("import_unreadable", slug=slug)
     header = data.get("header", True)
     return ImportDeclaration(
         slug=slug,

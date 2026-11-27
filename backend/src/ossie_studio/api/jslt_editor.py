@@ -14,7 +14,7 @@ import urban_json_editor
 from fastapi import APIRouter
 
 from ossie_studio.api.common import CurrentUser
-from ossie_studio.referentiels.jslt_engine import function_registry
+from ossie_studio.imports.jslt_engine import function_registry
 
 # Assets du composant. Sous /api : seul préfixe relayé par le nginx du front.
 JSLT_EDITOR_PATH = "/api/jslt-editor"

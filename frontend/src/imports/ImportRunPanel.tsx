@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { api } from '../apiClient'
-import type { ImportMode, ImportRunResult, ImportTrial, ReferentielImportDetail } from '../apiClient'
+import type { ImportsApi, ImportMode, ImportRunResult, ImportTrial, ReferentielImportDetail } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
@@ -16,21 +15,20 @@ import { ImportReport } from './ImportReport'
 // le bouton attend.
 
 type Source = 'example' | 'file'
-const MODES: ImportMode[] = ['merge', 'replace']
-const QUERIES = ['referentielImport', 'referentielImports', 'referentielValues', 'referentiel', 'referentiels', 'draft', 'draftChanges']
+// Ce qu'un import abouti rend périmé : ses propres écrans, le brouillon, et ce que
+// la cible déclare (valeurs d'un référentiel, objets de la cartographie).
+const QUERIES = ['referentielImport', 'referentielImports', 'draft', 'draftChanges']
 
 export function ImportRunPanel({
-  spaceId,
-  branchId,
   name,
+  imports,
   detail,
   mode,
   onMode,
   templateSaved,
 }: {
-  spaceId: string
-  branchId: string
   name: string
+  imports: ImportsApi
   detail: ReferentielImportDetail
   mode: ImportMode
   onMode: (mode: ImportMode) => void
@@ -45,14 +43,14 @@ export function ImportRunPanel({
   const [refused, setRefused] = useState<ImportTrial | null>(null)
   const run = useMutation({
     mutationFn: () =>
-      api.runReferentielImport(spaceId, branchId, name, detail.slug, mode, source === 'file' ? (file ?? undefined) : undefined),
+      imports.run(detail.slug, mode, source === 'file' ? (file ?? undefined) : undefined),
     onMutate: () => {
       setDone(null)
       setRefused(null)
     },
     onSuccess: async (result) => {
       setDone(result)
-      await Promise.all(QUERIES.map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
+      await Promise.all([...QUERIES, ...imports.invalidates].map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
     },
     onError: (error) => {
       if (error instanceof ApiRequestError && error.body.error === 'import_refused') {
@@ -70,7 +68,7 @@ export function ImportRunPanel({
         <label className="field">
           <span className="field-label">{t('refImportMode')}</span>
           <select className="input" value={mode} onChange={(e) => onMode(e.target.value as ImportMode)}>
-            {MODES.map((m) => (
+            {imports.modes.map((m) => (
               <option key={m} value={m}>
                 {t(`refImportMode_${m}`)}
               </option>

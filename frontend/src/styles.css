@@ -4328,3 +4328,34 @@ urban-bpmn {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Onglet « Relations » de la fiche d'un type (ticket 2643fd8f). */
+.carto-relation-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.carto-relation-head {
+  align-items: center;
+  gap: 8px;
+}
+.carto-relation-targets {
+  list-style: none;
+  margin: 0;
+  padding-left: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.carto-relation-targets .row {
+  align-items: center;
+  gap: 8px;
+}
+.carto-target-off {
+  color: var(--muted);
+  opacity: 0.7;
+}
+.carto-relation-rule select {
+  max-width: 280px;
+  margin-left: 28px;
+}

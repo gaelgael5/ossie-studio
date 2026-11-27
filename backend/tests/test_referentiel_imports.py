@@ -14,7 +14,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from ossie_studio.referentiels.jslt_engine import function_registry
+from ossie_studio.imports.jslt_engine import function_registry
 from ossie_studio.referentiels.model import dump_model
 from ossie_studio.referentiels.repo import model_path, values_path
 from ossie_studio.referentiels.values import dump_values

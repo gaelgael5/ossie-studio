@@ -20,9 +20,8 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from ossie_studio.referentiels.errors import Problem
-from ossie_studio.referentiels.imports import ImportDeclaration
-from ossie_studio.referentiels.jslt_engine import (
+from ossie_studio.imports.declaration import ImportDeclaration
+from ossie_studio.imports.jslt_engine import (
     EvaluationError,
     OutsideProfileError,
     TemplateSyntaxError,
@@ -30,8 +29,7 @@ from ossie_studio.referentiels.jslt_engine import (
     compile_template,
     evaluate,
 )
-from ossie_studio.referentiels.model import SEPARATOR, model_key
-from ossie_studio.referentiels.values import check_values, key_label, key_of
+from ossie_studio.imports.target import ImportTarget, ItemProblem
 
 PREVIEW_ROWS = 20
 MAX_PATHS = 200
@@ -285,8 +283,9 @@ class Transformed:
         return [(i, v) for i, v in enumerate(self.produced) if i not in self.invalid]
 
 
-def transform(model: dict[str, Any], source: str, example: Example) -> Transformed:
-    """Applique le template à chaque ligne du fichier et valide ce qu'il rend."""
+def transform(target: ImportTarget, source: str, example: Example) -> Transformed:
+    """Applique le template à chaque ligne du fichier et fait valider ce qu'il
+    rend par la cible (module commun, enabler 4f32c8c6)."""
     problems = check_template(source)
     if problems:
         return Transformed(problems)
@@ -294,9 +293,15 @@ def transform(model: dict[str, Any], source: str, example: Example) -> Transform
     produced: list[Any] = []
     origins: list[str] = []
     errors: list[dict[str, Any]] = []
+    # Forme canonique d'un élément, si la cible en a une (ex. un objet de
+    # cartographie sans documentation ni propriétés vides) : comparer ce qui est
+    # écrit à ce qui existe sans voir de faux changements.
+    normalize = getattr(target, "normalize", None)
     for record in example.records:
         try:
             value = evaluate(template, record.data, BUDGET)
+            if normalize is not None:
+                value = normalize(value)
         except EvaluationError as exc:
             errors.append(
                 {
@@ -311,7 +316,7 @@ def transform(model: dict[str, Any], source: str, example: Example) -> Transform
             continue
         produced.append(value)
         origins.append(record.where)
-    value_problems: list[Problem] = check_values(model, produced)
+    value_problems: list[ItemProblem] = target.check(produced)
     for p in value_problems:
         errors.append(
             {
@@ -321,7 +326,7 @@ def transform(model: dict[str, Any], source: str, example: Example) -> Transform
                 "path": None,
                 "expected": None,
                 "field": p.field,
-                "key": p.path.split(SEPARATOR)[0],
+                "key": p.key,
             }
         )
     return Transformed(
@@ -335,8 +340,8 @@ def transform(model: dict[str, Any], source: str, example: Example) -> Transform
 
 
 def report(
-    model: dict[str, Any],
-    current: list[dict[str, Any]],
+    target: ImportTarget,
+    current: list[Any],
     done: Transformed,
     mode: str = MERGE,
 ) -> dict[str, Any]:
@@ -345,13 +350,12 @@ def report(
     erreur, et les différences."""
     if done.template_problems:
         return {"ok": False, "template_problems": [p.payload() for p in done.template_problems]}
-    key = model_key(model)
-    by_key = {key_of(v, key): v for v in current if key_of(v, key) is not None}
+    by_key = {target.key(v): v for v in current if target.key(v) is not None}
     new = modified = unchanged = 0
     differences: list[dict[str, Any]] = []
     for index, value in done.valid():
-        label = key_label(value, key, index)
-        before = by_key.get(key_of(value, key))
+        label = target.label(value, index)
+        before = by_key.get(target.key(value))
         if before is None:
             new += 1
             if len(differences) < DIFF_MAX:
@@ -373,15 +377,15 @@ def report(
                 )
     deleted = 0
     if mode == REPLACE:
-        kept = {key_of(v, key) for _i, v in done.valid()}
+        kept = {target.key(v) for _i, v in done.valid()}
         for index, before in enumerate(current):
-            if key_of(before, key) in kept:
+            if target.key(before) in kept:
                 continue
             deleted += 1
             if len(differences) < DIFF_MAX:
                 differences.append(
                     {
-                        "key": key_label(before, key, index),
+                        "key": target.label(before, index),
                         "kind": "deleted",
                         "where": "",
                         "value": before,
@@ -402,20 +406,20 @@ def report(
 
 
 def run_template(
-    model: dict[str, Any],
-    current: list[dict[str, Any]],
+    target: ImportTarget,
+    current: list[Any],
     source: str,
     example: Example,
     mode: str = MERGE,
 ) -> dict[str, Any]:
     """L'essai : applique le template au fichier et compare aux valeurs
     actuelles. Rien n'est écrit."""
-    return report(model, current, transform(model, source, example), mode)
+    return report(target, current, transform(target, source, example), mode)
 
 
-def imported_values(
-    model: dict[str, Any], current: list[dict[str, Any]], done: Transformed, mode: str
-) -> list[dict[str, Any]] | None:
+def imported_items(
+    target: ImportTarget, current: list[Any], done: Transformed, mode: str
+) -> list[Any] | None:
     """Les valeurs du référentiel après l'import, ou None s'il est refusé
     (**tout ou rien** : la moindre erreur bloque).
 
@@ -427,11 +431,10 @@ def imported_values(
     produced = [v for _i, v in done.valid()]
     if mode == REPLACE:
         return produced
-    key = model_key(model)
     merged = list(current)
-    position = {key_of(v, key): i for i, v in enumerate(current) if key_of(v, key) is not None}
+    position = {target.key(v): i for i, v in enumerate(current) if target.key(v) is not None}
     for value in produced:
-        index = position.get(key_of(value, key))
+        index = position.get(target.key(value))
         if index is None:
             merged.append(value)
         else:

@@ -1,0 +1,185 @@
+"""Imports d'un type de cartographie (ticket 49952be0) : une ligne = un objet du
+type, comparaison par la clé, fusion seulement, validation par le service de la
+cartographie, tout ou rien, journal ; même module que les référentiels."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from tests.conftest import create_plain_user, login
+from tests.space_fixture import ApiSpace, forge_edit, make_api_space
+
+TYPES = {
+    "application": (
+        "Application",
+        "ApplicationComponent",
+        "properties:\n  criticite:\n    type: string\n    enum: [haute, basse]\n",
+    ),
+    "processus": ("Processus", "BusinessProcess", ""),
+    "document": ("Document", "BusinessObject", ""),
+    "acces": ("Accès", "Access", ""),
+    "composition": ("Composition", "Composition", ""),
+}
+PASSWORD = "motdepasse-solide"
+APP_TEMPLATE = '{"cle": $.cle, "nom": $.nom, "proprietes": {"criticite": $.criticite}}'
+REL_TEMPLATE = '{"cle": $.cle, "nom": $.nom, "source": $.source, "cible": $.cible}'
+
+
+def _apps(count: int = 10, rename: dict[int, str] | None = None) -> bytes:
+    lines = ["cle;nom;criticite"]
+    for i in range(1, count + 1):
+        name = (rename or {}).get(i, f"Application {i}")
+        lines.append(f"APP-{i:02d};{name};haute")
+    return ("\n".join(lines) + "\n").encode()
+
+
+@pytest.fixture
+async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
+    space = await make_api_space(client, app, tmp_path)
+    files: dict[str, str | None] = {
+        f"cartographie/types/{slug}.schema.yaml": (
+            f"title: {title}\nx-archimate: {arch}\ntype: object\n{extra}"
+        )
+        for slug, (title, arch, extra) in TYPES.items()
+    }
+    for key, ctype in (("APP-OLD", "application"), ("PRC-X", "processus"), ("DOC-Y", "document")):
+        files[f"cartographie/objets/{ctype}/{key.lower()}.yaml"] = (
+            f"cle: {key}\ntype: {ctype}\nnom: {key}\n"
+        )
+    forge_edit(space, files)
+    return space
+
+
+def _url(space: ApiSpace, type_slug: str, rest: str = "") -> str:
+    return f"{space.base}/cartographie/types/{type_slug}/imports{rest}"
+
+
+async def _declare(space: ApiSpace, type_slug: str, template: str) -> None:
+    created = await space.client.post(
+        _url(space, type_slug), json={"label": "Fichier", "slug": "fichier", "format": "csv"}
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["paths"][0] == f"cartographie/imports/{type_slug}/fichier.yaml"
+    await space.client.put(
+        _url(space, type_slug, "/fichier/lecture"),
+        json={"separator": ";", "encoding": "utf-8", "header": True},
+    )
+    saved = await space.client.put(
+        _url(space, type_slug, "/fichier/template"), json={"template": template}
+    )
+    assert saved.json()["template_problems"] == []
+
+
+async def _import(space: ApiSpace, type_slug: str, content: bytes, mode: str = "merge") -> Any:
+    return await space.client.post(
+        _url(space, type_slug, "/fichier/import"),
+        data={"mode": mode},
+        files={"file": ("f.csv", content, "text/csv")},
+    )
+
+
+async def _object(space: ApiSpace, key: str) -> dict[str, Any] | None:
+    answer = await space.client.get(f"{space.base}/cartographie/objets/{key}")
+    return answer.json() if answer.status_code == 200 else None
+
+
+async def test_importer_dix_applications_puis_reimporter(space: ApiSpace) -> None:
+    """Critères 1, 2, 3 et 6."""
+    await _declare(space, "application", APP_TEMPLATE)
+    first = await _import(space, "application", _apps())
+    assert first.status_code == 200, first.text
+    body = first.json()
+    assert (body["new"], body["modified"], body["unchanged"]) == (10, 0, 0)
+    assert body["revision"].startswith("draft:") and body["last_import"]
+    app_03 = await _object(space, "APP-03")
+    assert app_03 is not None and app_03["type"] == "application"
+    again = (await _import(space, "application", _apps())).json()
+    assert (again["new"], again["unchanged"], again["revision"]) == (0, 10, None)
+    renamed = (await _import(space, "application", _apps(rename={4: "Quatre"}))).json()
+    assert (renamed["modified"], renamed["new"]) == (1, 0)
+    app_04 = await _object(space, "APP-04") or {}
+    assert (app_04["name"], app_04["key"], app_04["type"]) == ("Quatre", "APP-04", "application")
+    assert await _object(space, "APP-OLD") is not None  # absent du fichier : inchangé
+
+
+async def test_une_propriete_invalide_refuse_tout(space: ApiSpace) -> None:
+    """Critère 4 : refus entier, la ligne et la propriété nommées."""
+    await _declare(space, "application", APP_TEMPLATE)
+    content = _apps(3).replace(b"APP-02;Application 2;haute", b"APP-02;Application 2;moyenne")
+    refused = await _import(space, "application", content)
+    assert refused.status_code == 422, refused.text
+    report = refused.json()["error_args"]["report"]
+    [error] = report["error_details"]
+    assert (error["where"], error["key"]) == ("ligne 3", "APP-02")
+    assert error["field"] == "criticite"
+    assert await _object(space, "APP-01") is None
+
+
+async def test_importer_des_relations(space: ApiSpace) -> None:
+    """Critère 5 : une relation par ligne ; source inexistante ou relation non
+    permise : refus qui nomme la ligne."""
+    await _declare(space, "acces", REL_TEMPLATE)
+    ok = await _import(space, "acces", b"cle;nom;source;cible\nREL-1;Lit;PRC-X;DOC-Y\n")
+    assert ok.status_code == 200, ok.text
+    relation = await _object(space, "REL-1") or {}
+    assert relation["source"] == "PRC-X" and relation["target"] == "DOC-Y"
+    missing = await _import(space, "acces", b"cle;nom;source;cible\nREL-2;Lit;PRC-ABSENT;DOC-Y\n")
+    assert missing.status_code == 422
+    [error] = missing.json()["error_args"]["report"]["error_details"]
+    assert (error["where"], error["code"]) == ("ligne 2", "relation_endpoint_unknown")
+    await space.client.delete(_url(space, "acces", "/fichier"))
+    await _declare(space, "composition", REL_TEMPLATE)
+    refused = await _import(space, "composition", b"cle;nom;source;cible\nREL-3;C;PRC-X;DOC-Y\n")
+    assert refused.status_code == 422
+    [error] = refused.json()["error_args"]["report"]["error_details"]
+    assert (error["where"], error["code"]) == ("ligne 2", "relation_not_allowed")
+
+
+async def test_pas_de_remplacement_et_type_absent(space: ApiSpace) -> None:
+    """Aucune suppression par import : le mode « remplacement » est refusé."""
+    await _declare(space, "application", APP_TEMPLATE)
+    replace = await _import(space, "application", _apps(1), mode="replace")
+    assert replace.status_code == 400
+    trial = await space.client.post(
+        _url(space, "application", "/fichier/essai"),
+        json={"template": APP_TEMPLATE, "mode": "replace"},
+    )
+    assert trial.status_code == 400
+    absent = await space.client.get(_url(space, "inconnu"))
+    assert absent.status_code == 404 and absent.json()["error"] == "carto_type_not_found"
+
+
+async def test_sans_le_droit_de_modifier(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 7 : la liste se lit, aucun import n'est possible."""
+    await _declare(space, "application", APP_TEMPLATE)
+    await create_plain_user(app, "lea@example.org", PASSWORD)
+    async with app.state.pool.acquire() as conn:
+        user_id = await conn.fetchval("SELECT id FROM users WHERE email = 'lea@example.org'")
+        reader = await conn.fetchval(
+            "INSERT INTO profiles (name, capabilities) "
+            "VALUES ('lecteur-imports', '{spaces:read,cartographie:read}') RETURNING id"
+        )
+        await conn.execute("UPDATE users SET profile_id = $2 WHERE id = $1", user_id, reader)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as lea:
+        await login(lea, "lea@example.org", PASSWORD)
+        assert (await lea.get(_url(space, "application"))).status_code == 200
+        denied = await lea.post(
+            _url(space, "application", "/fichier/import"),
+            data={"mode": "merge"},
+            files={"file": ("f.csv", _apps(1), "text/csv")},
+        )
+        assert denied.status_code == 403
+
+
+async def test_journal(space: ApiSpace) -> None:
+    await _declare(space, "application", APP_TEMPLATE)
+    await _import(space, "application", _apps(2))
+    answer = await space.client.get("/api/audit", params={"type": "carto_import"})
+    assert answer.status_code == 200, answer.text
+    [event] = answer.json()["events"]
+    assert event["object_id"].endswith("/application/fichier")

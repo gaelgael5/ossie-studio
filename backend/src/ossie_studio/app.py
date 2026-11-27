@@ -20,6 +20,7 @@ from ossie_studio.api.audit import router as api_audit_router
 from ossie_studio.api.branches import router as api_branches_router
 from ossie_studio.api.cartographie import ARCHIMATE_EDITOR_PATH, BPMN_EDITOR_PATH
 from ossie_studio.api.cartographie import router as api_cartographie_router
+from ossie_studio.api.cartographie_imports import router as api_cartographie_imports_router
 from ossie_studio.api.cartographie_models import router as api_cartographie_models_router
 from ossie_studio.api.cartographie_objects import router as api_cartographie_objects_router
 from ossie_studio.api.cartographie_processes import router as api_cartographie_processes_router
@@ -192,6 +193,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_cartographie_models_router)
     app.include_router(api_cartographie_processes_router)
     app.include_router(api_referentiel_imports_router)
+    app.include_router(api_cartographie_imports_router)
     # Éditeur de template JSLT (urban-json-editor, comme Miles) : ses assets sous /api,
     # seul préfixe relayé par le nginx du front ; jamais par un CDN.
     app.include_router(api_jslt_editor_router)

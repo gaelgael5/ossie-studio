@@ -29,9 +29,11 @@ from ossie_studio.cartographie.model import (
     ARCHIMATE_KEY,
     BASE_PROPERTIES,
     CARTO_DIR,
+    RELATIONS_KEY,
     CartoType,
     check_type,
     dump_type,
+    parse_relations,
     properties_schema,
     type_path,
 )
@@ -274,7 +276,7 @@ async def create_type(
 
 # Clés de premier niveau d'un type que l'on accepte : le reste serait perdu à
 # l'écriture, il est refusé plutôt que d'être effacé en silence.
-_TYPE_KEYS = {"$schema", "title", ARCHIMATE_KEY, "type", "properties", "required"}
+_TYPE_KEYS = {"$schema", "title", ARCHIMATE_KEY, "type", "properties", "required", RELATIONS_KEY}
 
 
 def _from_schema(slug: str, schema: dict[str, Any]) -> CartoType:
@@ -287,12 +289,21 @@ def _from_schema(slug: str, schema: dict[str, Any]) -> CartoType:
     required = schema.get("required") or []
     if not isinstance(properties, dict) or not isinstance(required, list):
         raise ApiError("invalid_request", status_code=400, fields=["schema_properties"])
+    # Écarts aux relations d'ArchiMate (ticket 2643fd8f) : une forme illisible
+    # est refusée en nommant l'endroit, jamais devinée.
+    disabled, added, unreadable = parse_relations(schema.get(RELATIONS_KEY))
+    if unreadable:
+        raise ApiError(
+            "invalid_request", status_code=400, fields=["schema_relations"], keys=unreadable
+        )
     return CartoType(
         slug=slug,
         title=str(schema.get("title") or "").strip(),
         archimate=str(schema.get(ARCHIMATE_KEY) or ""),
         properties=properties,
         required=[str(r) for r in required],
+        disabled=disabled,
+        added=added,
     )
 
 
@@ -302,6 +313,7 @@ def _detail(space: Cartographie, slug: str, states: dict[str, str]) -> dict[str,
         raise ApiError("carto_type_not_found", status_code=404, slug=slug)
     path = type_path(slug)
     state = states.get(path)
+    cat = catalog()
     return {
         "slug": slug,
         "title": ctype.title,
@@ -312,9 +324,26 @@ def _detail(space: Cartographie, slug: str, states: dict[str, str]) -> dict[str,
         "objects": len(space.objects_of(slug)),
         "usage": space.property_usage(slug),
         # Le schéma des `proprietes` d'un objet de ce type (fiche d'un objet).
-        "object_schema": properties_schema(ctype, catalog().get(ctype.archimate)),
+        "object_schema": properties_schema(ctype, cat.get(ctype.archimate)),
         "state": state if state in ("created", "modified") else None,
         "problems": [problem_payload(p) for p in space.problems if p.path == path],
+        # Onglet « Relations » (ticket 2643fd8f) : pour chaque type de relation de
+        # l'espace, les cibles qu'ArchiMate permet depuis ce type ; les écarts sont
+        # dans `document` (`x-relations`). La règle effective reste calculée par le
+        # service, l'écran ne fait qu'afficher et cocher.
+        "relations": [
+            {
+                "relation": r,
+                "title": space.types[r].title,
+                "archimate": space.types[r].archimate,
+                "archimate_targets": space.archimate_targets(slug, r, cat),
+            }
+            for r in space.relation_type_slugs(cat)
+        ],
+        "space_types": [
+            {"slug": t.slug, "title": t.title, "archimate": t.archimate}
+            for t in sorted(space.types.values(), key=lambda t: (t.title.casefold(), t.slug))
+        ],
     }
 
 

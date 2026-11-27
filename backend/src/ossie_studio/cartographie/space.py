@@ -17,17 +17,28 @@ d'écrire une relation que les règles d'ArchiMate ne permettent pas.
 `allowed_between` et `relation_types_between` répondent à « entre ces deux objets,
 quelles relations sont permises ? » (enabler 0e088eaa) : un type de l'espace suit
 le type ArchiMate sur lequel il repose (`x-archimate`).
+
+**Règle effective** (ticket 2643fd8f) : pour un type source de l'espace, les
+couples (type de relation, type cible) permis sont ceux d'ArchiMate, moins ceux
+qu'il désactive, plus ceux qu'il ajoute (`x-relations` de son fichier). Elle est
+calculée ici seulement (`Cartographie.effective`) et sert partout : « + Relier… »,
+le délégué du diagramme, la validation à l'écriture (écran et MCP) et le
+signalement à la lecture. Un couple d'ArchiMate n'est jamais effacé : il se
+désactive et se réactive.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ossie_studio.cartographie.catalog import Catalog, catalog
 from ossie_studio.cartographie.errors import CartographieError, Problem
 from ossie_studio.cartographie.model import (
+    ADDED,
+    DISABLED,
     OBJECTS_DIR,
+    RELATIONS_KEY,
     TYPE_SUFFIX,
     TYPES_DIR,
     CartoObject,
@@ -76,24 +87,78 @@ class Cartographie:
             for name in (ctype.properties if ctype else {})
         }
 
-    def allowed(self, source_key: str, target_key: str, cat: Catalog | None = None) -> list[str]:
-        """Les types de relation ArchiMate permis de l'objet `source_key` vers
-        l'objet (ou la relation) `target_key`. Refus nommé si l'un manque."""
+    def relation_type_slugs(self, cat: Catalog) -> list[str]:
+        """Les types de l'espace qui sont des relations, par libellé."""
+        found = [
+            t
+            for t in self.types.values()
+            if (base := cat.get(t.archimate)) is not None and base.is_relation
+        ]
+        return [t.slug for t in sorted(found, key=lambda t: (t.title.casefold(), t.slug))]
+
+    def archimate_targets(self, source_slug: str, relation_slug: str, cat: Catalog) -> list[str]:
+        """Les types de l'espace vers lesquels ArchiMate permet la relation
+        `relation_slug` depuis `source_slug`, sans les écarts du type source."""
+        source, relation = self.types.get(source_slug), self.types.get(relation_slug)
+        if source is None or relation is None:
+            return []
+        return sorted(
+            t.slug
+            for t in self.types.values()
+            if relation.archimate in allowed_relations(source.archimate, t.archimate, cat)
+        )
+
+    def effective(
+        self, source_slug: str, target_slug: str, cat: Catalog | None = None
+    ) -> list[str]:
+        """**La** règle effective : les types de relation de l'espace (slugs, par
+        libellé) permis du type `source_slug` vers le type `target_slug` —
+        ArchiMate, moins les couples désactivés, plus les couples ajoutés."""
+        cat = cat or catalog()
+        source, target = self.types.get(source_slug), self.types.get(target_slug)
+        if source is None or target is None:
+            return []
+        names = set(allowed_relations(source.archimate, target.archimate, cat))
+        out = []
+        for slug in self.relation_type_slugs(cat):
+            permitted = self.types[slug].archimate in names
+            if permitted and target_slug in source.disabled.get(slug, ()):
+                permitted = False
+            if not permitted and target_slug in source.added.get(slug, ()):
+                permitted = True
+            if permitted:
+                out.append(slug)
+        return out
+
+    def _ends(self, source_key: str, target_key: str) -> tuple[str, str]:
         for key in (source_key, target_key):
             if key not in self.objects:
                 raise CartographieError("object_not_found", status=404, key=key)
+        return self.objects[source_key][1].type, self.objects[target_key][1].type
+
+    def allowed(self, source_key: str, target_key: str, cat: Catalog | None = None) -> list[str]:
+        """Les types de relation ArchiMate permis de l'objet `source_key` vers
+        l'objet (ou la relation) `target_key`, dans l'ordre du catalogue : ceux des
+        types de relation que la règle effective permet, et ceux qu'ArchiMate
+        permet sans qu'aucun type de l'espace n'y repose encore (à créer). Refus
+        nommé si l'un manque."""
+        cat = cat or catalog()
+        source_type, target_type = self._ends(source_key, target_key)
         source, target = self.archimate(source_key), self.archimate(target_key)
         if source is None or target is None:
             return []
-        return allowed_relations(source, target, cat or catalog())
+        effective = {self.types[s].archimate for s in self.effective(source_type, target_type, cat)}
+        typed = {self.types[s].archimate for s in self.relation_type_slugs(cat)}
+        untyped = {n for n in allowed_relations(source, target, cat) if n not in typed}
+        return [r.name for r in cat.relations() if r.name in effective | untyped]
 
     def relation_types(
         self, source_key: str, target_key: str, cat: Catalog | None = None
     ) -> list[CartoType]:
-        """Les types de relation de l'espace permis entre ces deux objets, par libellé."""
-        permitted = set(self.allowed(source_key, target_key, cat))
-        found = [t for t in self.types.values() if t.archimate in permitted]
-        return sorted(found, key=lambda t: (t.title.casefold(), t.slug))
+        """Les types de relation de l'espace permis entre ces deux objets, par
+        libellé, selon la règle effective."""
+        source_type, target_type = self._ends(source_key, target_key)
+        return [self.types[s] for s in self.effective(source_type, target_type, cat)]
 
     def archimate(self, key: str) -> str | None:
         """Le type ArchiMate d'un objet (celui de son type) ; None s'il est inconnu."""
@@ -114,9 +179,38 @@ def _relation_not_allowed(
     source, target = space.archimate(obj.source), space.archimate(obj.target)
     if source is None or target is None or not cat.get(source) or not cat.get(target):
         return None
-    if base.name in allowed_relations(source, target, cat):
+    source_type = space.objects[obj.source][1].type
+    target_type = space.objects[obj.target][1].type
+    if obj.type in space.effective(source_type, target_type, cat):
         return None
     return Problem(path, "relation_not_allowed", f"{source} -> {target} : {base.name}")
+
+
+def check_relations(space: Cartographie, ctype: CartoType, cat: Catalog) -> list[Problem]:
+    """Les écarts `x-relations` d'un type : ils désignent des types de l'espace
+    (une relation, des cibles) et ont un effet (on ne désactive que ce
+    qu'ArchiMate permet, on n'ajoute que ce qu'il ne permet pas)."""
+    where = type_path(ctype.slug)
+    relation_slugs = set(space.relation_type_slugs(cat))
+    problems: list[Problem] = []
+    for kind, couples in ((DISABLED, ctype.disabled), (ADDED, ctype.added)):
+        for relation, targets in couples.items():
+            field_base = f"{RELATIONS_KEY}/{kind}/{relation}"
+            if relation not in relation_slugs:
+                problems.append(
+                    Problem(where, "relations_relation_unknown", relation, field=field_base)
+                )
+                continue
+            permitted = set(space.archimate_targets(ctype.slug, relation, cat))
+            for target in targets:
+                field_name = f"{field_base}/{target}"
+                if target not in space.types:
+                    problems.append(
+                        Problem(where, "relations_target_unknown", target, field=field_name)
+                    )
+                elif (kind == DISABLED) != (target in permitted):
+                    problems.append(Problem(where, "relations_no_effect", target, field=field_name))
+    return problems
 
 
 def read_cartographie(root: Path, cat: Catalog | None = None) -> Cartographie:
@@ -133,6 +227,8 @@ def read_cartographie(root: Path, cat: Catalog | None = None) -> Cartographie:
             continue
         space.types[slug] = ctype
         space.problems.extend(check_type(ctype, cat))
+    for ctype in space.types.values():
+        space.problems.extend(check_relations(space, ctype, cat))
 
     seen: dict[str, list[str]] = {}
     objects_dir = root / OBJECTS_DIR
@@ -200,11 +296,13 @@ def save_type(
         raise CartographieError("type_not_found", status=404, slug=ctype.slug)
     if current is not None and current.archimate != ctype.archimate:
         raise CartographieError("type_archimate_frozen", status=409, slug=ctype.slug)
-    problems = check_type(ctype, cat)
+    changed = Cartographie(types={**space.types, ctype.slug: ctype}, objects=space.objects)
+    problems = check_type(ctype, cat) + check_relations(changed, ctype, cat)
     if problems:
         raise CartographieError("type_invalid", problems=problems)
     if current is not None:
         _refuse_breaking_objects(space, current, ctype, cat)
+        _refuse_breaking_relations(space, changed, ctype.slug, cat)
     target = root / type_path(ctype.slug)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(dump_type(ctype), encoding="utf-8")
@@ -232,6 +330,32 @@ def _refuse_breaking_objects(
             problems=broken,
             slug=current.slug,
             objects=len({p.path for p in broken}),
+        )
+
+
+def _refuse_breaking_relations(
+    before: Cartographie, after: Cartographie, slug: str, cat: Catalog
+) -> None:
+    """Désactiver un couple (ou retirer un couple ajouté) que des relations
+    existantes utilisent est refusé, avec ces relations : rien n'est écrit."""
+    broken = []
+    for key, (_path, obj) in sorted(before.objects.items()):
+        if not obj.source or not obj.target:
+            continue
+        ends = before.objects.get(obj.source), before.objects.get(obj.target)
+        if ends[0] is None or ends[1] is None or ends[0][1].type != slug:
+            continue
+        target_type = ends[1][1].type
+        was = obj.type in before.effective(slug, target_type, cat)
+        if was and obj.type not in after.effective(slug, target_type, cat):
+            broken.append({"key": key, "source": obj.source, "target": obj.target})
+    if broken:
+        raise CartographieError(
+            "type_relations_in_use",
+            status=409,
+            slug=slug,
+            relations=broken,
+            count=len(broken),
         )
 
 
@@ -275,6 +399,51 @@ def save_object(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(dump_object(obj), encoding="utf-8")
     return obj
+
+
+def check_batch(
+    space: Cartographie, objects: list[CartoObject], cat: Catalog | None = None
+) -> list[Problem]:
+    """Les problèmes d'un lot d'objets à créer ou modifier ensemble (un import,
+    ticket 49952be0), par les règles de `save_object` : schéma du type, clé
+    (forme, unicité dans le lot), type figé d'un objet existant, extrémités
+    existantes (dans l'espace ou dans le lot) et figées, relation permise par la
+    règle effective. Chaque problème porte le rang de l'objet dans le lot
+    (`index`). Rien n'est écrit."""
+    cat = cat or catalog()
+    merged = Cartographie(types=space.types, objects=dict(space.objects))
+    problems: list[Problem] = []
+    first: dict[str, int] = {}
+    for index, obj in enumerate(objects):
+        path = object_path(obj.type, obj.key)
+        if obj.key in first:
+            problems.append(Problem(path, "object_key_duplicate", obj.key, index=index))
+            continue
+        first[obj.key] = index
+        existing = space.objects.get(obj.key)
+        if existing is not None and existing[1].type != obj.type:
+            problems.append(Problem(path, "object_type_frozen", obj.key, index=index))
+            continue
+        if existing is not None and (existing[1].source, existing[1].target) != (
+            obj.source,
+            obj.target,
+        ):
+            problems.append(Problem(path, "relation_ends_frozen", obj.key, index=index))
+            continue
+        merged.objects[obj.key] = (path, obj)
+    for index, obj in enumerate(objects):
+        if first.get(obj.key) != index:
+            continue
+        path = object_path(obj.type, obj.key)
+        found = check_object(obj, path, space.types.get(obj.type), cat)
+        for end, value in (("source", obj.source), ("cible", obj.target)):
+            if value and (value == obj.key or value not in merged.objects):
+                found.append(Problem(path, "relation_endpoint_unknown", value, field=end))
+        refused = _relation_not_allowed(merged, obj, path, cat)
+        if refused:
+            found.append(refused)
+        problems.extend(replace(p, index=index) for p in found)
+    return problems
 
 
 def delete_object(root: Path, key: str, cat: Catalog | None = None) -> None:

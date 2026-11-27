@@ -10,14 +10,14 @@ Curation : lire demande `curation:read`, modifier `curation:write`. Toutes les
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import CurationRead, CurationWrite
@@ -30,6 +30,8 @@ from ossie_studio.domains.documents import (
     Domain,
     DomainError,
     DomainField,
+    Reference,
+    Relationship,
     delete_domain,
     is_valid_domain_name,
     list_domain_names,
@@ -66,6 +68,32 @@ class DomainCreate(BaseModel):
     name: str = ""
     label: str = ""
     description: str = ""
+
+
+class RelationshipBody(BaseModel):
+    """Relation Ossie 0.1.1 : `from_dataset` porte la clé étrangère (côté
+    plusieurs), `to_dataset` est le côté un ; deux listes de champs de même
+    longueur, dans le même ordre (clé composée possible)."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    from_dataset: str
+    to_dataset: str
+    from_columns: list[str] = Field(min_length=1)
+    to_columns: list[str] = Field(min_length=1)
+
+
+class ReferenceBody(BaseModel):
+    """Référence d'objet (`.extend.yaml`) : un champ de `from_dataset` qui pointe
+    vers un objet de `to_dataset`."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=120)
+    from_dataset: str
+    field: str
+    to_dataset: str
+    kind: Literal["field", "list", "map"] = "field"
+    cardinality: str = ""
 
 
 class DomainEdit(BaseModel):
@@ -194,6 +222,14 @@ def _domain_error(exc: DomainError) -> ApiError:
         "dataset_name_taken": 409,
         "relationship_cross_document": 400,
         "relationship_columns_mismatch": 400,
+        # Relations et références à la main (ticket 4e856094).
+        "relationship_dataset_missing": 400,
+        "relationship_column_unknown": 400,
+        "relationship_name_taken": 409,
+        "relationship_not_found": 404,
+        "reference_dataset_missing": 400,
+        "reference_name_taken": 409,
+        "reference_not_found": 404,
         # Dataset manuel (ticket 1c68a20a).
         "dataset_name_invalid": 400,
         "dataset_source_required": 400,
@@ -687,3 +723,174 @@ async def unlink_manual_dataset_field(
     )  # fmt: skip
     log.info("domain_field_unlink", name=name, dataset=dataset, fields=fields, author=user.email)
     return {"ok": True, "fields": fields}
+
+
+# --- Relations et références à la main (ticket 4e856094) -----------------------------------
+# Gael (19/11) : les relations restent modifiables au niveau du modèle, y compris
+# pour les datasets dérivés. La déduction automatique se fait au regroupement
+# (ticket 36d35a88) ; ici, seulement ce que la personne demande. Supprimer une
+# relation déduite la retire : elle n'est reproposée qu'au prochain regroupement.
+
+
+async def _change_domain(
+    conn: Any,
+    crypto: Any,
+    workdir: Any,
+    user: Any,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    intent: str,
+    change: Callable[[Domain], None],
+) -> dict[str, object]:
+    ctx, _ref = await _ctx(conn, crypto, workdir, space_id, branch_id)
+    changed: list[Domain] = []
+
+    def write(root: Path) -> None:
+        domain = _read_or_raise(root, name)
+        change(domain)
+        write_domain(root, domain)  # contrôle complet (check_domain, schéma 0.1.1)
+        changed.append(domain)
+
+    try:
+        await ctx.write(user.email, f"domaine {name} : {intent}", write)
+    except _NotFound:
+        raise ApiError("domain_not_found", status_code=404, name=name) from None
+    except DomainError as exc:
+        raise _domain_error(exc) from None
+    log.info("domain_links_edited", name=name, intent=intent, author=user.email)
+    return _detail(changed[0])
+
+
+def _relationship(body: RelationshipBody) -> Relationship:
+    return Relationship(
+        name=body.name.strip(),
+        from_dataset=body.from_dataset,
+        to_dataset=body.to_dataset,
+        from_columns=list(body.from_columns),
+        to_columns=list(body.to_columns),
+    )
+
+
+def _index(links: list[Any], name: str, missing: str) -> int:
+    found = next((i for i, link in enumerate(links) if link.name == name), None)
+    if found is None:
+        raise DomainError(missing, name)
+    return found
+
+
+@router.post("/{name}/relationships", status_code=201)
+async def create_relationship(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    body: RelationshipBody,
+) -> dict[str, object]:
+    def change(domain: Domain) -> None:
+        domain.relationships.append(_relationship(body))
+
+    return await _change_domain(
+        conn, crypto, workdir, user, space_id, branch_id, name,
+        f"relation {body.name.strip()}", change,
+    )  # fmt: skip
+
+
+@router.put("/{name}/relationships/{relationship}")
+async def save_relationship(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    relationship: str,
+    body: RelationshipBody,
+) -> dict[str, object]:
+    """Modifier une relation (son nom compris)."""
+
+    def change(domain: Domain) -> None:
+        index = _index(domain.relationships, relationship, "relationship_not_found")
+        domain.relationships[index] = _relationship(body)
+
+    return await _change_domain(
+        conn, crypto, workdir, user, space_id, branch_id, name,
+        f"modifie la relation {relationship}", change,
+    )  # fmt: skip
+
+
+@router.delete("/{name}/relationships/{relationship}")
+async def delete_relationship(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    relationship: str,
+) -> dict[str, object]:
+    def change(domain: Domain) -> None:
+        domain.relationships.pop(
+            _index(domain.relationships, relationship, "relationship_not_found")
+        )
+
+    return await _change_domain(
+        conn, crypto, workdir, user, space_id, branch_id, name,
+        f"supprime la relation {relationship}", change,
+    )  # fmt: skip
+
+
+@router.post("/{name}/references", status_code=201)
+async def create_reference(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    body: ReferenceBody,
+) -> dict[str, object]:
+    """Recréer une référence d'objet (après l'avoir supprimée)."""
+
+    def change(domain: Domain) -> None:
+        domain.references.append(
+            Reference(
+                name=body.name.strip(),
+                from_dataset=body.from_dataset,
+                field=body.field,
+                to_dataset=body.to_dataset,
+                kind=body.kind,
+                cardinality=body.cardinality,
+            )
+        )
+
+    return await _change_domain(
+        conn, crypto, workdir, user, space_id, branch_id, name,
+        f"référence {body.name.strip()}", change,
+    )  # fmt: skip
+
+
+@router.delete("/{name}/references/{reference}")
+async def delete_reference(
+    conn: ConnDep,
+    crypto: CryptoDep,
+    workdir: WorkdirDep,
+    user: CurationWrite,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    name: str,
+    reference: str,
+) -> dict[str, object]:
+    def change(domain: Domain) -> None:
+        domain.references.pop(_index(domain.references, reference, "reference_not_found"))
+
+    return await _change_domain(
+        conn, crypto, workdir, user, space_id, branch_id, name,
+        f"supprime la référence {reference}", change,
+    )  # fmt: skip

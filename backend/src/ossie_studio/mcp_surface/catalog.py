@@ -178,6 +178,32 @@ CATALOG: tuple[Primitive, ...] = (
         person_only=True,
         idempotent=True,
     ),
+    # --- Lire un schéma, quel que soit son domaine (ticket 06ef8679)
+    Primitive(
+        id="read_schema",
+        domain="spaces",
+        access="read",
+        # Visible de qui lit un espace ; la capacité du domaine désigné par le
+        # chemin (sources, curation, référentiels, cartographie) est vérifiée à
+        # l'appel, sur l'espace visé.
+        capability="spaces:read",
+        description=(
+            "Read any schema of the space by its path, as the lists give it ('schema_path' "
+            "of list_raw_schemas and list_assets, 'path' of list_referentiels and "
+            "list_carto_types). Returns kind ('raw', 'asset', 'referentiel', 'carto_type'), "
+            "version (content id in the branch read), unpublished, schema and extras. By "
+            "default (resolved=true) the effective schema: a raw schema as collected "
+            "(references resolved); an asset merged with its human work, extras carrying "
+            "its business enrichment (business name, description, concept, tags per field) "
+            "and status (orphan); a reference data set model with its key under 'x-key'; "
+            "a cartography type as the schema of one object file (key, name, documentation, "
+            "source and target for a relationship, then 'proprietes': ArchiMate attributes "
+            "and added properties), extras carrying the ArchiMate type, layer and nature. "
+            "resolved=false: the file as written. Needs the same right as the screen of "
+            "that domain." + _DRAFT_NOTE
+        ),
+        idempotent=True,
+    ),
     # --- Sources et schémas bruts
     Primitive(
         id="list_sources",
@@ -196,16 +222,9 @@ CATALOG: tuple[Primitive, ...] = (
         capability="sources:read",
         description=(
             "List the raw schemas collected from a source (one per object: table, entity, "
-            "API schema), with their field count and whether they are retained as assets."
-            + _DRAFT_NOTE
+            "API schema), with their field count, whether they are retained as assets, and "
+            "schema_path to read one with read_schema." + _DRAFT_NOTE
         ),
-    ),
-    Primitive(
-        id="read_raw_schema",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description="Read one raw schema of a source, as collected (JSON Schema)." + _DRAFT_NOTE,
     ),
     Primitive(
         id="get_reference_graph",
@@ -289,17 +308,8 @@ CATALOG: tuple[Primitive, ...] = (
         capability="curation:read",
         description=(
             "List the assets of a source: the raw objects retained (fully or partly) for the "
-            "semantic layer; orphan = its raw object disappeared." + _DRAFT_NOTE
-        ),
-    ),
-    Primitive(
-        id="read_asset",
-        domain="curation",
-        access="read",
-        capability="curation:read",
-        description=(
-            "Read one asset: its fields (retained or not, type, reference) and its business "
-            "enrichment (business name, description, concept, tags)." + _DRAFT_NOTE
+            "semantic layer; orphan = its raw object disappeared. schema_path: to read one "
+            "with read_schema." + _DRAFT_NOTE
         ),
     ),
     Primitive(
@@ -494,17 +504,8 @@ CATALOG: tuple[Primitive, ...] = (
             "List the reference data sets (référentiels) of a space: lists of business keys and "
             "values maintained in Ossie-studio (countries, delivery modes, codes...), as "
             "published. Each has a key of one or more properties (a composite key needs all of "
-            "them). Returns name, title, key properties, value count and the published commit."
-        ),
-    ),
-    Primitive(
-        id="read_referentiel_model",
-        domain="referentiels",
-        access="read",
-        capability="referentiels:read",
-        description=(
-            "Read the model of a published reference data set: a JSON Schema whose properties "
-            "may be nested objects or arrays of objects, with its key under 'x-key'."
+            "them). Returns name, title, key properties, value count, path of the model (to read "
+            "it with read_schema) and the published commit."
         ),
     ),
     Primitive(
@@ -537,8 +538,8 @@ CATALOG: tuple[Primitive, ...] = (
         description=(
             "List the object types of the space's business cartography: each is an ArchiMate 3.2 "
             "type plus a name given by the people (slug, name, ArchiMate type, layer, nature "
-            "'object' or 'relation', object count). With catalogue=true, also every ArchiMate "
-            "3.2 type of the catalogue, used or not." + _DRAFT_NOTE
+            "'object' or 'relation', object count, path of its schema). With catalogue=true, "
+            "also every ArchiMate 3.2 type of the catalogue, used or not." + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
@@ -552,7 +553,8 @@ CATALOG: tuple[Primitive, ...] = (
             "with a source and a target), optionally filtered by type (a space type slug, or an "
             "ArchiMate type such as 'ApplicationComponent'), nature ('object' or 'relation') "
             "and name (part of the name or key, case and accents ignored). Summaries: key, "
-            "name, type, ArchiMate type, nature, and source and target for a relationship. "
+            "name, type, ArchiMate type, nature, path, and source and target (with their path) "
+            "for a relationship. "
             "Paged: 'total' and 'has_more' (use offset for the next page). Use it before "
             "creating anything, to find what already exists." + _DRAFT_NOTE
         ),
@@ -564,12 +566,14 @@ CATALOG: tuple[Primitive, ...] = (
         access="read",
         capability="cartographie:read",
         description=(
-            "Read one object or relationship of the cartography by its key: name, type, "
+            "Read one object or relationship of the cartography by its path, its key, or its "
+            "type and key (same result): name, type, "
             "ArchiMate type, nature, documentation (markdown), properties (ArchiMate attributes "
             "as ArchiMate values, with their French label in property_labels), source and target "
             "for a relationship, and its incoming and outgoing relationships (key, type, "
             "direction, the other end) to explore step by step, and the models that keep it "
-            "(slug, name)." + _DRAFT_NOTE
+            "(slug, name, path). Returns its path and its version (content id in the branch "
+            "read), to give the write primitives to replace, modify or delete it." + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
@@ -582,8 +586,9 @@ CATALOG: tuple[Primitive, ...] = (
         description=(
             "List the models (ArchiMate diagrams) of the cartography: slug, name, description, "
             "number of objects and relationships kept, views (name and ArchiMate viewpoint), "
-            "rules file, number of problems. With contains (an object or relationship key), "
-            "only the models that keep it: where does an object appear." + _DRAFT_NOTE
+            "rules file, number of problems, path of the model file. With contains (an object "
+            "or relationship key), only the models that keep it: where does an object appear."
+            + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
@@ -593,13 +598,57 @@ CATALOG: tuple[Primitive, ...] = (
         access="read",
         capability="cartographie:read",
         description=(
-            "Read one model by its slug: the objects and relationships it keeps (key, name, "
+            "Read one model by its slug or the path of its file (same result), with its version "
+            "(content id in the branch read) and the paths of its rules and graphic files: the "
+            "objects and relationships it keeps (key, name, "
             "type, ArchiMate type; source and target for a relationship), its views with their "
             "nodes (an object by its key and name, a note, a frame; nested nodes) and "
             "connections (a relationship between two nodes). Never the drawing: no coordinate. "
             "Use get_carto_object on a key for its details." + _DRAFT_NOTE
         ),
         idempotent=True,
+    ),
+    # --- Cartographie : écriture (ticket d4723be3)
+    Primitive(
+        id="write_carto_documents",
+        domain="cartographie",
+        access="write",
+        capability="cartographie:write",
+        description=(
+            "Write a list of cartography documents (objects and relationships) to the user's "
+            "draft, all together or not at all (one draft change, never published). Each "
+            "entry names its document by path ('cartographie/objets/<type>/<key in "
+            "lowercase>.yaml') or type and key: absent document = creation (no version); "
+            "present = complete replacement, version required (from get_carto_object); "
+            "delete: true = deletion, version required. Content is the document as its file "
+            "writes it (cle, type, nom, documentation, proprietes; source and cible for a "
+            "relationship): read its schema with read_schema on the type. A relationship may "
+            "target an object created in the same list; an object may be deleted with the "
+            "relationships that use it. Same checks as the screen (type schema, unique and "
+            "frozen key, relationship allowed by ArchiMate, object in use). On any refusal "
+            "nothing is written and every error is returned (carto_write_refused): JSONPath "
+            "in your request (e.g. $.documents[2].content.proprietes.volume_jour), code, "
+            "French message with what was received and expected. Returns each document's "
+            "path and new version."
+        ),
+        person_only=True,
+        destructive=True,
+    ),
+    Primitive(
+        id="modify_carto_document",
+        domain="cartographie",
+        access="write",
+        capability="cartographie:write",
+        description=(
+            "Modify one cartography document of the user's draft by JSONPath operations "
+            "({path: '$.proprietes.volume_jour', value: 180} or {path: ..., delete: true}), "
+            "given its path and version (from get_carto_object). $.cle, $.type, $.source and "
+            "$.cible are frozen. The resulting document is checked like the screen before "
+            "writing; on refusal nothing is written and every error is returned with its "
+            "JSONPath ($.operations[i].path for a malformed operation, otherwise the path in "
+            "the document). Returns the new version."
+        ),
+        person_only=True,
     ),
     # --- Gouvernance
     Primitive(

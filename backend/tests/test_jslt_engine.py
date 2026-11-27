@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 from urban_json import default_registry
 
-from ossie_studio.referentiels.jslt_engine import (
+from ossie_studio.imports.jslt_engine import (
     _CORE_MODULE,
     OutsideProfileError,
     compile_template,

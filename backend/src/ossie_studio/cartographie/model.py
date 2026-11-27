@@ -38,6 +38,11 @@ OBJECTS_DIR = f"{CARTO_DIR}/objets"
 TYPE_SUFFIX = ".schema.yaml"
 OBJECT_SUFFIX = ".yaml"
 ARCHIMATE_KEY = "x-archimate"
+# Écarts aux relations permises par ArchiMate, côté type source (ticket 2643fd8f) :
+# `desactivees` et `ajoutees`, chacune une liste de { relation, cibles }.
+RELATIONS_KEY = "x-relations"
+DISABLED = "desactivees"
+ADDED = "ajoutees"
 # La base de tout objet, hors `proprietes` : (nom, type, requis).
 BASE_PROPERTIES: tuple[tuple[str, str, bool], ...] = (
     ("cle", "string", True),
@@ -77,6 +82,12 @@ class CartoType:
     archimate: str
     properties: dict[str, Any] = field(default_factory=dict)  # propriétés ajoutées
     required: list[str] = field(default_factory=list)
+    # Écarts aux relations d'ArchiMate (ticket 2643fd8f) : slug d'un type de
+    # relation de l'espace → slugs des types cibles. On ne stocke que les écarts,
+    # pour qu'une mise à jour de la table d'ArchiMate s'applique aux couples non
+    # touchés.
+    disabled: dict[str, list[str]] = field(default_factory=dict)
+    added: dict[str, list[str]] = field(default_factory=dict)
 
     def document(self) -> dict[str, Any]:
         doc: dict[str, Any] = {"title": self.title, ARCHIMATE_KEY: self.archimate, "type": "object"}
@@ -84,7 +95,60 @@ class CartoType:
             doc["properties"] = self.properties
         if self.required:
             doc["required"] = list(self.required)
+        relations = _relations_document(self.disabled, self.added)
+        if relations:
+            doc[RELATIONS_KEY] = relations
         return doc
+
+
+def _relations_document(
+    disabled: dict[str, list[str]], added: dict[str, list[str]]
+) -> dict[str, Any]:
+    """Forme écrite des écarts, triée (même contenu, mêmes octets) ; vide si aucun."""
+    out: dict[str, Any] = {}
+    for key, couples in ((DISABLED, disabled), (ADDED, added)):
+        entries = [
+            {"relation": rel, "cibles": sorted(set(targets))}
+            for rel, targets in sorted(couples.items())
+            if targets
+        ]
+        if entries:
+            out[key] = entries
+    return out
+
+
+def parse_relations(data: Any) -> tuple[dict[str, list[str]], dict[str, list[str]], list[str]]:
+    """Lit `x-relations` : (désactivés, ajoutés, problèmes de forme). Une forme
+    illisible est signalée (chemin dans `x-relations`), jamais devinée."""
+    disabled: dict[str, list[str]] = {}
+    added: dict[str, list[str]] = {}
+    problems: list[str] = []
+    if data is None:
+        return disabled, added, problems
+    if not isinstance(data, dict):
+        return disabled, added, [RELATIONS_KEY]
+    for key in sorted(set(data) - {DISABLED, ADDED}):
+        problems.append(f"{RELATIONS_KEY}/{key}")
+    for key, into in ((DISABLED, disabled), (ADDED, added)):
+        entries = data.get(key) or []
+        if not isinstance(entries, list):
+            problems.append(f"{RELATIONS_KEY}/{key}")
+            continue
+        for i, entry in enumerate(entries):
+            where = f"{RELATIONS_KEY}/{key}/{i}"
+            relation = entry.get("relation") if isinstance(entry, dict) else None
+            targets = entry.get("cibles") if isinstance(entry, dict) else None
+            if (
+                not isinstance(relation, str)
+                or not isinstance(targets, list)
+                or not all(isinstance(t, str) for t in targets)
+                or set(entry) - {"relation", "cibles"}
+            ):
+                problems.append(where)
+                continue
+            into.setdefault(relation, [])
+            into[relation] = sorted(set(into[relation]) | set(targets))
+    return disabled, added, problems
 
 
 def parse_type(slug: str, text: str) -> CartoType:
@@ -97,12 +161,17 @@ def parse_type(slug: str, text: str) -> CartoType:
         raise CartographieError("type_unreadable", detail="not a mapping")
     properties = data.get("properties")
     required = data.get("required")
+    disabled, added, problems = parse_relations(data.get(RELATIONS_KEY))
+    if problems:
+        raise CartographieError("type_unreadable", detail=f"forme illisible : {problems[0]}")
     return CartoType(
         slug=slug,
         title=str(data.get("title") or ""),
         archimate=str(data.get(ARCHIMATE_KEY) or ""),
         properties=properties if isinstance(properties, dict) else {},
         required=[str(r) for r in required] if isinstance(required, list) else [],
+        disabled=disabled,
+        added=added,
     )
 
 
@@ -150,6 +219,34 @@ def properties_schema(ctype: CartoType, base: ArchimateType | None) -> dict[str,
     if ctype.required:
         schema["required"] = list(ctype.required)
     return schema
+
+
+def object_document_schema(ctype: CartoType, base: ArchimateType | None) -> dict[str, Any]:
+    """Le schéma effectif d'un objet de ce type, tel que son fichier l'écrit : la
+    base (clé, nom, documentation ; source et cible pour une relation) puis
+    `proprietes` (attributs ArchiMate et propriétés ajoutées). Lu par l'agent
+    (`read_schema`, ticket 06ef8679) ; les règles qui dépendent des autres objets
+    (clé unique, relation permise) restent dans le service."""
+    properties: dict[str, Any] = {
+        "cle": {"type": "string", "pattern": _KEY.pattern},
+        "type": {"const": ctype.slug},
+    }
+    required = ["cle", "type", "nom"]
+    if base is not None and base.is_relation:
+        properties["source"] = {"type": "string", "pattern": _KEY.pattern}
+        properties["cible"] = {"type": "string", "pattern": _KEY.pattern}
+        required += ["source", "cible"]
+    properties["nom"] = {"type": "string", "minLength": 1}
+    properties["documentation"] = {"type": "string"}
+    properties["proprietes"] = properties_schema(ctype, base)
+    return {
+        "title": ctype.title,
+        ARCHIMATE_KEY: ctype.archimate,
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
 
 
 # --- Objets -------------------------------------------------------------------------------

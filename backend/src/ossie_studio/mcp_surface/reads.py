@@ -40,7 +40,6 @@ from ossie_studio.mcp_surface.branch import (
 )
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
 from ossie_studio.models import SpaceBranch, User
-from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
@@ -61,9 +60,6 @@ from ossie_studio.sources.service import SourceEntry, read_sources_tree
 from ossie_studio.spaces.branch_service import db_list_branches
 from ossie_studio.spaces.service import db_list_spaces, list_visible_spaces
 from ossie_studio.spaces.workdir import WorkdirError
-
-# Au-delà, un schéma brut n'est pas rendu d'un bloc (réponse trop lourde pour un agent).
-_RAW_SCHEMA_MAX_BYTES = 1_000_000
 
 
 def person_of(ctx: PrimitiveContext) -> User:
@@ -224,6 +220,8 @@ async def list_raw_schemas(ctx: PrimitiveContext, args: SourceArgs) -> dict[str,
         "schemas": [
             {
                 "path": o.path,
+                # Chemin dans l'espace, à donner à read_schema (ticket 06ef8679).
+                "schema_path": f"{directory}/{RAW_DIR}/{o.path}",
                 "title": o.title,
                 "kind": o.kind,
                 "fields": o.fields,
@@ -233,37 +231,6 @@ async def list_raw_schemas(ctx: PrimitiveContext, args: SourceArgs) -> dict[str,
             for o in objects
             if not o.orphan
         ],
-    }
-
-
-async def read_raw_schema(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    if not is_schema_file(args.path):
-        raise PrimitiveError("schema_not_found", path=args.path)
-    bv = await open_branch(ctx, args)
-
-    def read(root: Path) -> tuple[str, Any]:
-        if not _source_exists(root, directory):
-            return "source_not_found", None
-        file = root / directory / RAW_DIR / args.path
-        if not file.is_file():
-            return "schema_not_found", None
-        if file.stat().st_size > _RAW_SCHEMA_MAX_BYTES:
-            return "schema_too_large", None
-        try:
-            return "ok", load_schema(file.read_text(encoding="utf-8"))
-        except (SchemaReadError, UnicodeDecodeError):
-            return "schema_invalid", None
-
-    outcome, schema = await bv.read(read)
-    if outcome != "ok":
-        raise PrimitiveError(outcome, source=args.source, path=args.path)
-    return {
-        "view": bv.view,
-        "source": args.source,
-        "path": args.path,
-        "unpublished": bv.unpublished(f"{directory}/{RAW_DIR}/{args.path}"),
-        "schema": schema,
     }
 
 
@@ -287,6 +254,7 @@ async def list_assets(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]
         "assets": [
             {
                 "path": o.path,
+                "schema_path": f"{directory}/{ASSETS_DIR}/{o.path}",
                 "title": o.title,
                 "kind": o.kind,
                 "fields": o.fields,
@@ -315,26 +283,36 @@ def _enrichment(scope: Any) -> dict[str, Any]:
 
 
 async def read_asset(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
+    """Plus au catalogue (remplacée par `read_schema`, ticket 06ef8679) : gardée
+    pour rendre l'état d'un asset après une écriture (`writes._asset_after`)."""
     if not is_schema_file(args.path):
         raise PrimitiveError("asset_not_retained", path=args.path)
     bv = await open_branch(ctx, args)
+    return await asset_payload(bv, args.source, args.path)
+
+
+async def asset_payload(bv: BranchView, source: str, path: str) -> dict[str, Any]:
+    """Ce qu'on sait d'un asset : enrichissement métier de l'objet et de ses
+    champs, statut (orphelin, non publié). `path` : nom du schéma sous `assets/`."""
+    directory = source_dir(source)
+    if not is_schema_file(path):
+        raise PrimitiveError("asset_not_retained", path=path)
 
     def read(root: Path) -> Any:
         if not _source_exists(root, directory):
             return None
-        rules = read_tri_rules(root, args.source)
+        rules = read_tri_rules(root, source)
         return (
-            get_object_detail(root, args.source, args.path, rules),
-            read_enrichment(root, args.source, args.path),
+            get_object_detail(root, source, path, rules),
+            read_enrichment(root, source, path),
         )
 
     found = await bv.read(read)
     if found is None:
-        raise PrimitiveError("source_not_found", source=args.source)
+        raise PrimitiveError("source_not_found", source=source)
     detail, enrichment = found
     if enrichment is None:
-        raise PrimitiveError("asset_not_retained", path=args.path)
+        raise PrimitiveError("asset_not_retained", path=path)
     by_name = {f.name: f for f in enrichment.fields}
     if detail is not None:
         fields = [
@@ -352,11 +330,11 @@ async def read_asset(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
         fields = [{"name": f.name, "retained": True, **_enrichment(f)} for f in enrichment.fields]
     return {
         "view": bv.view,
-        "source": args.source,
-        "path": args.path,
+        "source": source,
+        "path": path,
         "title": enrichment.title,
         "orphan": detail is None,
-        "unpublished": _asset_unpublished(bv, directory, args.path),
+        "unpublished": _asset_unpublished(bv, directory, path),
         "object": _enrichment(enrichment.object),
         "fields": fields,
     }

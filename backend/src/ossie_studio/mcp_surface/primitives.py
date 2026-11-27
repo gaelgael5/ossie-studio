@@ -6,10 +6,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ossie_studio.mcp_surface import application as app_map
+from ossie_studio.mcp_surface import carto_writes, reads, references, schemas, source_writes, writes
 from ossie_studio.mcp_surface import cartographie as carto
 from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
-from ossie_studio.mcp_surface import reads, references, source_writes, writes
 from ossie_studio.mcp_surface import referentiels as refs
 from ossie_studio.mcp_surface.branch import BranchArgs, BranchParam, ObjectArgs, SourceArgs
 from ossie_studio.mcp_surface.core import (
@@ -33,9 +33,10 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "verify_impact": Implementation(prep.ImpactArgs, prep.verify_impact),
     "get_validation_log": Implementation(BranchArgs, prep.get_validation_log),
     "accept_validation_warning": Implementation(prep.WarningArgs, prep.accept_validation_warning),
+    # Lire un schéma, quel que soit son domaine (ticket 06ef8679)
+    "read_schema": Implementation(schemas.ReadSchemaArgs, schemas.read_schema),
     "list_sources": Implementation(BranchArgs, reads.list_sources),
     "list_raw_schemas": Implementation(SourceArgs, reads.list_raw_schemas),
-    "read_raw_schema": Implementation(ObjectArgs, reads.read_raw_schema),
     "get_reference_graph": Implementation(
         references.ReferenceGraphArgs, references.get_reference_graph
     ),
@@ -45,7 +46,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "get_functions": Implementation(ObjectArgs, app_map.get_functions),
     "list_entry_points": Implementation(app_map.EntryPointsArgs, app_map.list_entry_points),
     "list_assets": Implementation(SourceArgs, reads.list_assets),
-    "read_asset": Implementation(ObjectArgs, reads.read_asset),
     "get_tri_rules": Implementation(SourceArgs, reads.get_tri_rules),
     "get_review": Implementation(SourceArgs, reads.get_review),
     # Cartographie : types et objets ArchiMate (ticket 41bf680e)
@@ -54,6 +54,13 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "get_carto_object": Implementation(carto.CartoObjectArgs, carto.get_carto_object),
     "list_carto_models": Implementation(carto.CartoModelsArgs, carto.list_carto_models),
     "get_carto_model": Implementation(carto.CartoModelArgs, carto.get_carto_model),
+    # Cartographie : écriture (ticket d4723be3)
+    "write_carto_documents": Implementation(
+        carto_writes.WriteCartoArgs, carto_writes.write_carto_documents
+    ),
+    "modify_carto_document": Implementation(
+        carto_writes.ModifyCartoArgs, carto_writes.modify_carto_document
+    ),
     "list_tags": Implementation(BranchArgs, reads.list_tags),
     "list_classifications": Implementation(BranchArgs, reads.list_classifications),
     # Écriture (brouillon de la personne)
@@ -82,7 +89,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     ),
     # Référentiels (version publiée, même lecture que l'API)
     "list_referentiels": Implementation(refs.SpaceArgs, refs.list_referentiels),
-    "read_referentiel_model": Implementation(refs.ReferentielArgs, refs.read_referentiel_model),
     "search_referentiel_values": Implementation(
         refs.SearchValuesArgs, refs.search_referentiel_values
     ),

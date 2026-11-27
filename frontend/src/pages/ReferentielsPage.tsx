@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { api, sessionCapabilities } from '../apiClient'
+import { api, referentielImports, sessionCapabilities } from '../apiClient'
 import type { ReferentielDetail, ReferentielModelPreview } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
@@ -15,7 +15,7 @@ import { asciiLower } from '../slug'
 import { UnsavedProvider, useDirty, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
 import SchemaEditor from '../referentiels/SchemaEditor'
 import { ValuesTab } from '../referentiels/ValuesTab'
-import { ImportsTab } from '../referentiels/ImportsTab'
+import { ImportsTab } from '../imports/ImportsTab'
 import {
   type KeyViolation,
   type RefModel,
@@ -332,7 +332,7 @@ function ReferentielView({
       ) : null}
       {data && settings && opened.has('imports') ? (
         <div hidden={tab !== 'imports'}>
-          <ImportsTab spaceId={spaceId} branchId={branchId} name={name} readOnly={readOnly} />
+          <ImportsTab spaceId={spaceId} branchId={branchId} name={name} imports={referentielImports(spaceId, branchId, name)} readOnly={readOnly} />
         </div>
       ) : null}
       {settings && tab === 'history' ? <HistoryTab spaceId={spaceId} branchId={branchId} name={name} /> : null}

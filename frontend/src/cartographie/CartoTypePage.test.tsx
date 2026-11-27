@@ -76,6 +76,14 @@ function detailOf(options: { properties?: Record<string, unknown>; usage?: Recor
     usage: options.usage ?? {},
     state: null,
     problems: [],
+    relations: [
+      { relation: 'flux', title: 'Flux', archimate: 'Flow', archimate_targets: ['processus-de-vente', 'application'] },
+      { relation: 'composition', title: 'Composition', archimate: 'Composition', archimate_targets: [] },
+    ],
+    space_types: [
+      { slug: 'application', title: 'Application', archimate: 'ApplicationComponent' },
+      { slug: 'processus-de-vente', title: 'Processus de vente', archimate: 'BusinessProcess' },
+    ],
   }
 }
 
@@ -97,6 +105,7 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
         body = { ...detail, document: schema, yaml: stringify(schema), revision: 'draft:2' }
       } else if (path === `${BASE}/types/processus-de-vente` && method === 'DELETE') body = { deleted: 'processus-de-vente', revision: 'draft:3' }
       else if (path === `${BASE}/types`) body = { readonly: false, types: [] }
+      else if (path === `${BASE}/types/processus-de-vente/imports`) body = { imports: [] }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
   )
@@ -219,5 +228,69 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
     for (const name of ['Enregistrer', 'Renommer', 'Supprimer le type']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
+  })
+})
+
+describe('Cartographie — relations permises d’un type (ticket 2643fd8f)', () => {
+  it('décocher une cible d’ArchiMate écrit l’écart ; elle reste visible, désactivée', async () => {
+    const calls = setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: 'Relations' }))
+    const target = screen.getByRole('checkbox', { name: 'Flux vers Application' })
+    expect(target).toBeChecked()
+    // Composition : aucune cible d'ArchiMate, donc proposée dans « + Ajouter une relation ».
+    expect(screen.queryByRole('checkbox', { name: /Composition/ })).not.toBeInTheDocument()
+    await user.click(target)
+    expect(screen.getByRole('checkbox', { name: 'Flux vers Application' })).not.toBeChecked()
+    expect(screen.getByText('désactivée')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() => expect(lastPut(calls)).not.toBeNull())
+    expect(lastPut(calls)!['x-relations']).toEqual({ desactivees: [{ relation: 'flux', cibles: ['application'] }] })
+  })
+
+  it('ajouter une relation et une cible hors ArchiMate', async () => {
+    const calls = setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: 'Relations' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Ajouter une relation' }), 'composition')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Ajouter une cible à Composition' }), 'application')
+    expect(screen.getByText('hors ArchiMate')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() => expect(lastPut(calls)).not.toBeNull())
+    expect(lastPut(calls)!['x-relations']).toEqual({ ajoutees: [{ relation: 'composition', cibles: ['application'] }] })
+  })
+
+  it('décocher toute la relation désactive toutes ses cibles ; recocher efface l’écart', async () => {
+    const calls = setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: 'Relations' }))
+    const whole = screen.getByRole('checkbox', { name: 'Activer ou désactiver toute la relation Flux' })
+    await user.click(whole)
+    expect(screen.getByRole('checkbox', { name: 'Flux vers Application' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Flux vers Processus de vente' })).not.toBeChecked()
+    await user.click(whole)
+    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false)
+  })
+
+  it('sans le droit de modifier : l’onglet est en lecture seule', async () => {
+    setup({ capabilities: ['cartographie:read'] })
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Relations' }))
+    expect(screen.getByRole('checkbox', { name: 'Flux vers Application' })).toBeDisabled()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+})
+
+describe('Cartographie — imports d’un type (ticket 49952be0)', () => {
+  it('l’onglet Imports liste les imports du type, à son adresse', async () => {
+    const calls = setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Imports' }))
+    await waitFor(() => expect(calls.some((c) => c.path === `${BASE}/types/processus-de-vente/imports`)).toBe(true))
+    expect(await screen.findByText('Aucun import déclaré.')).toBeInTheDocument()
   })
 })

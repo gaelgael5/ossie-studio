@@ -1597,6 +1597,10 @@ export interface CartoTypeDetail {
   object_schema: Record<string, unknown>
   state: 'created' | 'modified' | null
   problems: { path: string; code: string; detail: string; field: string }[]
+  /** Onglet « Relations » : chaque type de relation de l'espace et les types
+   * cibles qu'ArchiMate permet depuis ce type (les écarts sont dans `document`). */
+  relations: { relation: string; title: string; archimate: string; archimate_targets: string[] }[]
+  space_types: { slug: string; title: string; archimate: string }[]
 }
 
 export interface CartoDates {
@@ -2631,80 +2635,6 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/valeurs`,
       { method: 'PUT', body: JSON.stringify({ values }) },
     ),
-  listReferentielImports: (spaceId: string, branchId: string, name: string) =>
-    apiFetch<{ imports: ReferentielImportSummary[] }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`,
-    ),
-  getReferentielImport: (spaceId: string, branchId: string, name: string, slug: string) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
-    ),
-  createReferentielImport: (
-    spaceId: string,
-    branchId: string,
-    name: string,
-    body: { label: string; slug: string; format: 'csv' | 'json' },
-  ) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`,
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-  renameReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, label: string) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
-      { method: 'PATCH', body: JSON.stringify({ label }) },
-    ),
-  deleteReferentielImport: (spaceId: string, branchId: string, name: string, slug: string) =>
-    apiFetch<void>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
-      { method: 'DELETE' },
-    ),
-  uploadReferentielImportExample: (spaceId: string, branchId: string, name: string, slug: string, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return apiUpload<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/exemple`,
-      form,
-    )
-  },
-  setReferentielImportReading: (spaceId: string, branchId: string, name: string, slug: string, reading: ImportReading) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/lecture`,
-      { method: 'PUT', body: JSON.stringify(reading) },
-    ),
-  previewReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, reading?: ImportReading) =>
-    apiFetch<ImportPreview>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/apercu`,
-      { method: 'POST', body: reading ? JSON.stringify(reading) : undefined },
-    ),
-  tryReferentielImport: (
-    spaceId: string,
-    branchId: string,
-    name: string,
-    slug: string,
-    template: string,
-    mode: ImportMode = 'merge',
-  ) =>
-    apiFetch<ImportTrial>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/essai`,
-      { method: 'POST', body: JSON.stringify({ template, mode }) },
-    ),
-  /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */
-  runReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, mode: ImportMode, file?: File) => {
-    const form = new FormData()
-    form.append('mode', mode)
-    if (file) form.append('file', file)
-    return apiUpload<ImportRunResult>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/import`,
-      form,
-      'POST',
-    )
-  },
-  saveReferentielImportTemplate: (spaceId: string, branchId: string, name: string, slug: string, template: string) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/template`,
-      { method: 'PUT', body: JSON.stringify({ template }) },
-    ),
   referentielHistory: (spaceId: string, branchId: string, name: string) =>
     apiFetch<{ commits: ReferentielCommit[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/historique`,
@@ -2734,6 +2664,27 @@ export const api = {
     apiFetch<void>(`/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     }),
+  // Relations et références d'un domaine à la main (ticket 4e856094).
+  createDomainRelationship: (spaceId: string, branchId: string, name: string, body: DomainRelationship) =>
+    apiFetch<DomainDetail>(`/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/relationships`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  saveDomainRelationship: (spaceId: string, branchId: string, name: string, current: string, body: DomainRelationship) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/relationships/${encodeURIComponent(current)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  deleteDomainRelationship: (spaceId: string, branchId: string, name: string, relationship: string) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/relationships/${encodeURIComponent(relationship)}`,
+      { method: 'DELETE' },
+    ),
+  deleteDomainReference: (spaceId: string, branchId: string, name: string, reference: string) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/references/${encodeURIComponent(reference)}`,
+      { method: 'DELETE' },
+    ),
   removeDomainDataset: (spaceId: string, branchId: string, name: string, dataset: string) =>
     apiFetch<void>(
       `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/datasets/${encodeURIComponent(dataset)}`,
@@ -3176,4 +3127,81 @@ export const api = {
   duplicateAgentProfile: (id: string) =>
     apiFetch<AgentProfileItem>(`/api/agent-profiles/${id}/duplicate`, { method: 'POST' }),
   deleteAgentProfile: (id: string) => apiFetch(`/api/agent-profiles/${id}`, { method: 'DELETE' }),
+}
+
+
+// --- Module commun d'import (enabler 4f32c8c6) ---------------------------------------------
+// Les écrans d'import (déclaration, fichier d'exemple, template, essai, import)
+// ne connaissent pas leur cible : ils reçoivent ces appels, liés à l'adresse des
+// imports d'un référentiel ou d'un type de cartographie. Mêmes routes partout
+// sous cette adresse.
+
+export interface ImportsApi {
+  /** Adresse des imports de la cible (sert aussi de clé de cache). */
+  base: string
+  /** Modes que la cible accepte (la cartographie : fusion seulement). */
+  modes: ImportMode[]
+  /** Clés de cache que rend périmées un import abouti (ce que la cible affiche). */
+  invalidates: string[]
+  list: () => Promise<{ imports: ReferentielImportSummary[] }>
+  get: (slug: string) => Promise<ReferentielImportDetail>
+  create: (body: { label: string; slug: string; format: 'csv' | 'json' }) => Promise<ReferentielImportDetail>
+  rename: (slug: string, label: string) => Promise<ReferentielImportDetail>
+  remove: (slug: string) => Promise<void>
+  uploadExample: (slug: string, file: File) => Promise<ReferentielImportDetail>
+  setReading: (slug: string, reading: ImportReading) => Promise<ReferentielImportDetail>
+  preview: (slug: string, reading?: ImportReading) => Promise<ImportPreview>
+  trial: (slug: string, template: string, mode?: ImportMode) => Promise<ImportTrial>
+  run: (slug: string, mode: ImportMode, file?: File) => Promise<ImportRunResult>
+  saveTemplate: (slug: string, template: string) => Promise<ReferentielImportDetail>
+}
+
+export function importsApi(
+  base: string,
+  options: { modes?: ImportMode[]; invalidates?: string[] } = {},
+): ImportsApi {
+  const one = (slug: string, rest = '') => `${base}/${encodeURIComponent(slug)}${rest}`
+  return {
+    base,
+    modes: options.modes ?? ['merge', 'replace'],
+    invalidates: options.invalidates ?? [],
+    list: () => apiFetch(base),
+    get: (slug) => apiFetch(one(slug)),
+    create: (body) => apiFetch(base, { method: 'POST', body: JSON.stringify(body) }),
+    rename: (slug, label) => apiFetch(one(slug), { method: 'PATCH', body: JSON.stringify({ label }) }),
+    remove: (slug) => apiFetch(one(slug), { method: 'DELETE' }),
+    uploadExample: (slug, file) => {
+      const form = new FormData()
+      form.append('file', file)
+      return apiUpload(one(slug, '/exemple'), form)
+    },
+    setReading: (slug, reading) => apiFetch(one(slug, '/lecture'), { method: 'PUT', body: JSON.stringify(reading) }),
+    preview: (slug, reading) =>
+      apiFetch(one(slug, '/apercu'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
+    trial: (slug, template, mode = 'merge') =>
+      apiFetch(one(slug, '/essai'), { method: 'POST', body: JSON.stringify({ template, mode }) }),
+    /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */
+    run: (slug, mode, file) => {
+      const form = new FormData()
+      form.append('mode', mode)
+      if (file) form.append('file', file)
+      return apiUpload(one(slug, '/import'), form, 'POST')
+    },
+    saveTemplate: (slug, template) => apiFetch(one(slug, '/template'), { method: 'PUT', body: JSON.stringify({ template }) }),
+  }
+}
+
+/** Les imports d'un référentiel (première cible). */
+export function referentielImports(spaceId: string, branchId: string, name: string): ImportsApi {
+  return importsApi(`/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`, {
+    invalidates: ['referentielValues', 'referentiel', 'referentiels'],
+  })
+}
+
+/** Les imports d'un type de cartographie (ticket 49952be0) : fusion seulement. */
+export function cartoImports(spaceId: string, branchId: string, typeSlug: string): ImportsApi {
+  return importsApi(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(typeSlug)}/imports`, {
+    modes: ['merge'],
+    invalidates: ['carto-objects', 'carto-types', 'carto-type', 'carto-object'],
+  })
 }

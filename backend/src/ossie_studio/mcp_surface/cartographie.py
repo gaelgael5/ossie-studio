@@ -18,27 +18,40 @@ Une relation est un objet : les mêmes primitives servent aux deux, la `nature`
 (`object` ou `relation`) les distingue. Même vérité que l'écran (lecture de
 `cartographie/` par `cartographie.space`), vues brouillon (connexion OAuth) et
 publiée (clé d'API ; toujours). Lecture seule.
+
+Ticket 5d0b3e7d : chaque type, objet, relation et modèle rendu porte son **chemin**
+dans l'espace ; un objet et un modèle s'adressent aussi par ce chemin ; et
+`get_carto_object` / `get_carto_model` rendent la **version** du document —
+l'empreinte Git du fichier dans la branche lue (même calcul que la publication),
+que les primitives d'écriture exigent pour remplacer, modifier ou supprimer.
+L'empreinte plutôt qu'un numéro : elle change dès que le contenu change, quelle
+que soit la vue (publiée ou brouillon), sans rien stocker de plus.
 """
 
 from __future__ import annotations
 
 import unicodedata
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import Field
 
 from ossie_studio.cartographie.catalog import ArchimateType, Catalog, catalog
 from ossie_studio.cartographie.diagram import (
+    MODEL_SUFFIX,
+    MODELS_DIR,
     DiagramRead,
     Node,
+    diagram_path,
     graphic_path,
     list_diagrams,
     models_retaining,
     read_diagram,
 )
 from ossie_studio.cartographie.errors import CartographieError
-from ossie_studio.cartographie.model import CartoObject
+from ossie_studio.cartographie.model import CartoObject, type_path
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
+from ossie_studio.drafts.store import git_blob_sha
 from ossie_studio.mcp_surface.branch import BranchArgs, BranchView, open_branch
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
 
@@ -76,7 +89,21 @@ class CartoObjectsArgs(BranchArgs):
 
 
 class CartoObjectArgs(BranchArgs):
-    key: str = Field(description="Functional key of the object or relationship, e.g. 'APP-SHOP'.")
+    key: str | None = Field(
+        default=None,
+        description="Functional key of the object or relationship, e.g. 'APP-SHOP'.",
+    )
+    type: str | None = Field(
+        default=None,
+        description="With key: the type of the space the object must belong to (slug).",
+    )
+    path: str | None = Field(
+        default=None,
+        description=(
+            "Path of the object in the space, e.g. 'cartographie/objets/application/"
+            "app-shop.yaml' (as the lists give it). Give path or key."
+        ),
+    )
 
 
 class CartoModelsArgs(BranchArgs):
@@ -89,13 +116,32 @@ class CartoModelsArgs(BranchArgs):
 
 
 class CartoModelArgs(BranchArgs):
-    slug: str = Field(description="Slug of the model, as list_carto_models gives it.")
+    slug: str | None = Field(
+        default=None, description="Slug of the model, as list_carto_models gives it."
+    )
+    path: str | None = Field(
+        default=None,
+        description=(
+            "Path of the model file, e.g. 'cartographie/modeles/sales.modele.yaml'. "
+            "Give path or slug."
+        ),
+    )
 
 
 def _fold(text: str) -> str:
     """Sans casse ni accents : « Écrit » et « ecrit » se rejoignent."""
     decomposed = unicodedata.normalize("NFKD", text)
     return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+
+
+def _clean(path: str) -> str:
+    return path.strip().lstrip("/")
+
+
+def _version(root: Path, path: str) -> str | None:
+    """L'empreinte Git du fichier dans la copie lue ; absent → None."""
+    file = root / path
+    return git_blob_sha(file.read_bytes()) if file.is_file() else None
 
 
 def _nature(base: ArchimateType | None) -> Nature:
@@ -114,7 +160,13 @@ def _end(space: Cartographie, key: str | None) -> dict[str, Any] | None:
     found = space.objects.get(key)
     if found is None:
         return {"key": key, "name": None, "type": None, "exists": False}
-    return {"key": key, "name": found[1].name, "type": found[1].type, "exists": True}
+    return {
+        "key": key,
+        "name": found[1].name,
+        "type": found[1].type,
+        "exists": True,
+        "path": found[0],
+    }
 
 
 def _summary(
@@ -128,6 +180,7 @@ def _summary(
         "type": obj.type,
         "archimate": ctype.archimate if ctype else None,
         "nature": _nature(base),
+        "path": path,
     }
     if obj.is_relation:
         out["source"] = _end(space, obj.source)
@@ -154,6 +207,7 @@ async def list_carto_types(ctx: PrimitiveContext, args: CartoTypesArgs) -> dict[
                 "layer": base.layer if base and not base.is_relation else None,
                 "nature": _nature(base),
                 "objects": counts.get(ctype.slug, 0),
+                "path": type_path(ctype.slug),
             }
         )
     out: dict[str, Any] = {"view": bv.view, "types": types}
@@ -209,7 +263,7 @@ def _labels(base: ArchimateType | None, properties: dict[str, Any]) -> dict[str,
 
 
 def _side(space: Cartographie, relation_key: str, direction: str) -> dict[str, Any]:
-    _path, relation = space.objects[relation_key]
+    path, relation = space.objects[relation_key]
     rtype = space.types.get(relation.type)
     other = relation.target if direction == "outgoing" else relation.source
     return {
@@ -219,20 +273,43 @@ def _side(space: Cartographie, relation_key: str, direction: str) -> dict[str, A
         "archimate": rtype.archimate if rtype else None,
         "direction": direction,
         "other": _end(space, other),
+        "path": path,
     }
+
+
+def _find_object(space: Cartographie, args: CartoObjectArgs) -> tuple[str, CartoObject]:
+    """Par chemin, par clé, ou par type + clé : le même objet. Une forme qui ne
+    désigne rien, ou deux formes qui se contredisent → introuvable."""
+    if not args.key and not args.path:
+        raise PrimitiveError("invalid_arguments", fields=["key", "path"])
+    found: tuple[str, CartoObject] | None = None
+    if args.path:
+        wanted = _clean(args.path)
+        found = next((po for po in space.objects.values() if po[0] == wanted), None)
+        if found is not None and args.key and found[1].key != args.key:
+            found = None
+    else:
+        found = space.objects.get(args.key or "")
+    if found is not None and args.type and found[1].type != args.type:
+        found = None
+    if found is None:
+        raise PrimitiveError(
+            "carto_object_not_found",
+            **{k: v for k, v in (("key", args.key), ("type", args.type), ("path", args.path)) if v},
+        )
+    return found
 
 
 async def get_carto_object(ctx: PrimitiveContext, args: CartoObjectArgs) -> dict[str, Any]:
     bv, space = await _read(ctx, args)
-    found = space.objects.get(args.key)
-    if found is None:
-        raise PrimitiveError("carto_object_not_found", key=args.key)
-    path, obj = found
+    path, obj = _find_object(space, args)
     cat = catalog()
     ctype = space.types.get(obj.type)
     base = cat.get(ctype.archimate) if ctype else None
     users = space.users(obj.key)
-    models = await bv.read(lambda root: models_retaining(root, obj.key))
+    models, version = await bv.read(
+        lambda root: (models_retaining(root, obj.key), _version(root, path))
+    )
     out: dict[str, Any] = {
         "view": bv.view,
         **_summary(space, cat, bv, path, obj),
@@ -243,8 +320,11 @@ async def get_carto_object(ctx: PrimitiveContext, args: CartoObjectArgs) -> dict
             *(_side(space, k, "outgoing") for k in users if space.objects[k][1].source == obj.key),
             *(_side(space, k, "incoming") for k in users if space.objects[k][1].target == obj.key),
         ],
-        "models": [{"slug": slug, "name": name} for slug, name in models],
+        "models": [
+            {"slug": slug, "name": name, "path": diagram_path(slug)} for slug, name in models
+        ],
         "path": path,
+        "version": version,
     }
     return out
 
@@ -272,7 +352,14 @@ async def list_carto_models(ctx: PrimitiveContext, args: CartoModelsArgs) -> dic
         diagram = read.diagram
         if diagram is None:  # illisible : nommé, sans contenu
             if not wanted:
-                models.append({"slug": read.slug, "readable": False, "problems": len(read.errors)})
+                models.append(
+                    {
+                        "slug": read.slug,
+                        "readable": False,
+                        "problems": len(read.errors),
+                        "path": read.path,
+                    }
+                )
             continue
         if wanted and wanted not in diagram.elements and wanted not in diagram.relationships:
             continue
@@ -289,6 +376,7 @@ async def list_carto_models(ctx: PrimitiveContext, args: CartoModelsArgs) -> dic
             ],
             "rules": diagram.rules,
             "problems": len(read.errors),
+            "path": read.path,
         }
         if _model_unpublished(bv, read):
             item["unpublished"] = True
@@ -324,26 +412,49 @@ def _kept(space: Cartographie, cat: Catalog, key: str) -> dict[str, Any]:
         "archimate": ctype.archimate if ctype else None,
         "exists": True,
     }
+    out["path"] = found[0]
     if obj.is_relation:
         out["source"], out["target"] = obj.source, obj.target
     return out
 
 
+def _model_slug(args: CartoModelArgs) -> str:
+    """Le slug désigné par `slug` ou par `path` ; deux formes contradictoires ou
+    un chemin hors des modèles → introuvable."""
+    if not args.slug and not args.path:
+        raise PrimitiveError("invalid_arguments", fields=["slug", "path"])
+    slug = args.slug or ""
+    if args.path:
+        wanted = _clean(args.path)
+        prefix = f"{MODELS_DIR}/"
+        stem = wanted.removeprefix(prefix).removesuffix(MODEL_SUFFIX)
+        valid = wanted.startswith(prefix) and wanted.endswith(MODEL_SUFFIX) and "/" not in stem
+        if not valid or (args.slug and args.slug != stem):
+            raise PrimitiveError(
+                "carto_model_not_found",
+                **{k: v for k, v in (("slug", args.slug), ("path", args.path)) if v},
+            )
+        slug = stem
+    return slug
+
+
 async def get_carto_model(ctx: PrimitiveContext, args: CartoModelArgs) -> dict[str, Any]:
+    slug = _model_slug(args)
     bv = await open_branch(ctx, args)
 
-    def read(root: Any) -> tuple[Cartographie, DiagramRead]:
+    def read(root: Any) -> tuple[Cartographie, DiagramRead, str | None]:
         space = read_cartographie(root)
-        return space, read_diagram(root, args.slug, space)
+        found = read_diagram(root, slug, space)
+        return space, found, _version(root, found.path)
 
     try:
-        space, found = await bv.read(read)
+        space, found, version = await bv.read(read)
     except CartographieError:
-        raise PrimitiveError("carto_model_not_found", slug=args.slug) from None
+        raise PrimitiveError("carto_model_not_found", slug=slug) from None
     diagram = found.diagram
     if diagram is None:
         problems = [{"code": p.code, "detail": p.detail} for p in found.errors]
-        raise PrimitiveError("carto_model_invalid", slug=args.slug, problems=problems)
+        raise PrimitiveError("carto_model_invalid", slug=slug, problems=problems)
     cat = catalog()
     out: dict[str, Any] = {
         "view": bv.view,
@@ -369,6 +480,9 @@ async def get_carto_model(ctx: PrimitiveContext, args: CartoModelArgs) -> dict[s
         ],
         "problems": [{"code": p.code, "detail": p.detail, "field": p.field} for p in found.errors],
         "path": found.path,
+        "version": version,
+        "rules_path": diagram.rules or None,
+        "graphic_path": graphic_path(found.slug),
     }
     if _model_unpublished(bv, found):
         out["unpublished"] = True

@@ -205,9 +205,17 @@ async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) 
     assert "up_to_date" not in applied["review"]  # plus de point de reprise
 
     customer = await _ok(
-        app, AGENT, "read_asset", _ids(space, branch="draft", path="customer.schema.yaml")
+        app,
+        AGENT,
+        "read_schema",
+        {
+            "space_id": space.space_id,
+            "branch_id": space.branch_id,
+            "branch": "draft",
+            "path": "sources/ventes/assets/customer.schema.yaml",
+        },
     )
-    fields = {f["name"]: f for f in customer["fields"]}
+    fields = {f["name"]: f for f in customer["extras"]["fields"]}
     assert fields["email"]["retained"] is True and fields["name"]["type"] == "integer"
     assets = {
         a["path"]
