@@ -29,11 +29,11 @@ from pathlib import Path
 from typing import Any
 
 from ossie_studio.cartographie.catalog import Catalog, catalog
-from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.model import CartoObject, is_empty
 from ossie_studio.cartographie.space import Cartographie
 from ossie_studio.imports.target import ItemProblem
 from ossie_studio.mcp_surface.kind_imports import check_import, checking_store
+from ossie_studio.mcp_surface.kind_stores import CartoObjectStore
 from ossie_studio.mcp_surface.kinds import write_kind
 
 JOURNAL_TYPE = "carto_import"
@@ -108,27 +108,32 @@ class CartoImportTarget:
 
     def write(self, root: Path, items: list[Any]) -> None:
         """Crée ou modifie, par le validateur du genre (celui de write_documents), les
-        objets qui changent ; aucun n'est supprimé (fusion seulement)."""
+        objets qui changent ; aucun n'est supprimé (fusion seulement). Le lot est
+        écrit d'un bloc (ticket eed2dd0d) : la cartographie est lue une fois, et
+        une relation qui vise un objet (ou une relation) du lot passe quel que soit
+        l'ordre des lignes — l'écriture objet par objet relisait tout trois fois
+        par objet et rejouait les refus d'ordre. Tout ou rien."""
         kind = write_kind(KIND)
         store = checking_store(kind)
+        if not isinstance(store, CartoObjectStore):
+            raise TypeError(f"le genre {kind.name} n'écrit pas d'objets de cartographie")
         before = {d["cle"]: d for d in self.current()}
         pending = [item for item in items if before.get(item.get("cle")) != item]
-        # Le lot est validé comme un tout ; à l'écriture, une relation peut viser un
-        # objet (ou une relation) écrit plus loin : on rejoue tant qu'un passage
-        # avance, puis on laisse le dernier refus remonter (tout ou rien).
-        while pending:
-            failed: list[Any] = []
-            last: CartographieError | None = None
-            for item in pending:
-                location = kind.locate(root, self._identity(item))
-                try:
-                    store.write(root, location, item, create=item["cle"] not in self.space.objects)
-                except CartographieError as exc:
-                    failed.append(item)
-                    last = exc
-            if last is not None and len(failed) == len(pending):
-                raise last
-            pending = failed
+        if not pending:
+            return
+        # `locate(None, …)` : sans relire la cartographie pour vérifier le type,
+        # `save_objects` refuse de toute façon un type inconnu (check_object).
+        store.write_batch(
+            root,
+            [
+                (
+                    kind.locate(None, self._identity(item)),
+                    item,
+                    item["cle"] not in self.space.objects,
+                )
+                for item in pending
+            ],
+        )
 
 
 def target_of(space: Cartographie, slug: str) -> CartoImportTarget:

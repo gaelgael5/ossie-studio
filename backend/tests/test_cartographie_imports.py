@@ -353,3 +353,70 @@ async def test_nettoyer_retire_le_fichier_d_exemple(space: ApiSpace) -> None:
     assert preview["rows"] == [] and preview["count"] == 0
     missing = await space.client.delete(_url(space, "application", "/inconnu/exemple"))
     assert missing.status_code == 404
+
+
+def _carto_root(tmp_path: Path) -> Path:
+    """Les types de TYPES et les trois objets du banc, en fichiers."""
+    for slug, (title, arch, extra) in TYPES.items():
+        file = tmp_path / f"cartographie/types/{slug}.schema.yaml"
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(f"title: {title}\nx-archimate: {arch}\ntype: object\n{extra}")
+    for key, ctype in (("APP-OLD", "application"), ("PRC-X", "processus"), ("DOC-Y", "document")):
+        file = tmp_path / f"cartographie/objets/{ctype}/{key.lower()}.yaml"
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(f"cle: {key}\ntype: {ctype}\nnom: {key}\n")
+    return tmp_path
+
+
+def test_ecriture_d_un_import_sans_relire_par_objet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ticket eed2dd0d : l'écriture lit la cartographie une fois, quel que soit le
+    nombre d'objets (elle la relisait trois fois par objet : 44 s pour 204
+    applications), et écrit les mêmes fichiers que l'écriture objet par objet."""
+    from ossie_studio.cartographie import space as carto_space
+    from ossie_studio.cartographie.import_target import target_of
+    from ossie_studio.mcp_surface import kind_stores, kinds
+
+    root = _carto_root(tmp_path)
+    items = [
+        {"cle": f"APP-{i:02d}", "type": "application", "nom": f"App {i}",
+         "proprietes": {"criticite": "haute"}}
+        for i in range(1, 31)
+    ]  # fmt: skip
+    items.append({"cle": "APP-OLD", "type": "application", "nom": "Renommée"})
+    reads = {"n": 0}
+    real = carto_space.read_cartographie
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        reads["n"] += 1
+        return real(*args, **kwargs)
+
+    target = target_of(real(root), "application")
+    for module in (carto_space, kind_stores, kinds):
+        monkeypatch.setattr(module, "read_cartographie", counted)
+    target.write(root, items)
+    assert reads["n"] <= 1
+    assert (root / "cartographie/objets/application/app-07.yaml").read_text() == (
+        "cle: APP-07\ntype: application\nnom: App 7\nproprietes:\n  criticite: haute\n"
+    )
+    assert "nom: Renommée" in (root / "cartographie/objets/application/app-old.yaml").read_text()
+
+
+def test_ecriture_d_un_import_tout_ou_rien(tmp_path: Path) -> None:
+    """Un objet refusé à l'écriture (validé contre l'état du disque) : rien n'est
+    écrit, et le refus nomme l'objet."""
+    from ossie_studio.cartographie.errors import CartographieError
+    from ossie_studio.cartographie.import_target import target_of
+    from ossie_studio.cartographie.space import read_cartographie
+
+    root = _carto_root(tmp_path)
+    target = target_of(read_cartographie(root), "acces")
+    items = [
+        {"cle": "REL-1", "type": "acces", "nom": "Lit", "source": "PRC-X", "cible": "DOC-Y"},
+        {"cle": "REL-2", "type": "acces", "nom": "Lit", "source": "PRC-ABSENT", "cible": "DOC-Y"},
+    ]
+    with pytest.raises(CartographieError) as refused:
+        target.write(root, items)
+    assert [p.code for p in refused.value.problems] == ["relation_endpoint_unknown"]
+    assert not (root / "cartographie/objets/acces").exists()
