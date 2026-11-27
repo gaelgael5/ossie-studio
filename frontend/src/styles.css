@@ -26,6 +26,8 @@
  * dans une page (styles.test.ts le vérifie pour les tokens référencés).
  */
 :root {
+  /* Hauteur minimum de l'éditeur JSLT, relevée en ligne par TemplateEditor (ticket e2b9d7de). */
+  --template-fill: 180px;
   --font-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   /* Chasse fixe : identifiants (tags, slugs, références) et lettrage d'étiquettes. */
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -3015,9 +3017,6 @@ td.cell-error {
 /* Hauteur minimum portée jusqu'au bas de la fenêtre (TemplateEditor, ticket
    e2b9d7de) : la feuille du composant pose sa variable sur l'élément lui-même,
    on la redéfinit donc au même niveau à partir de celle du cadre. */
-.template-frame {
-  --template-fill: 180px;
-}
 .template-frame jslt-editor {
   --jslt-ed-min-height: var(--template-fill);
 }
@@ -3690,6 +3689,20 @@ td.cell-error {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
+}
+/* Éditeur visuel (jsonjoy-builder) aux couleurs d’Ossie (ticket 1a03b29d) :
+   la couleur principale (« Ajouter un champ ») et les pastilles du choix du type,
+   bleues, violettes, vertes… d'origine. `.model-editor` devant : la feuille de la
+   bibliothèque est chargée après la nôtre. */
+.model-editor .jsonjoy {
+  --jsonjoy-primary: var(--primary);
+  --jsonjoy-primary-foreground: var(--primary-fg);
+}
+.model-editor .jsonjoy :is(.text-blue-500, .text-purple-500, .text-green-500, .text-orange-500, .text-pink-500, .text-gray-500) {
+  color: var(--chip-fg);
+}
+.model-editor .jsonjoy :is(.bg-blue-50, .bg-purple-50, .bg-green-50, .bg-orange-50, .bg-pink-50, .bg-gray-50) {
+  background-color: var(--chip-bg);
 }
 /* L'éditeur visuel (h-full) s'étire à la hauteur du YAML voisin : suivi d'un bloc
    (propriétés de base d'un type), il laissait un grand vide avant lui. */
