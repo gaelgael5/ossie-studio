@@ -4359,3 +4359,9 @@ urban-bpmn {
   max-width: 280px;
   margin-left: 28px;
 }
+
+/* Libellé d'un type, modifiable dans sa fiche (ticket 96f508e9). */
+.carto-type-label {
+  max-width: 480px;
+  margin-block: 4px 8px;
+}
