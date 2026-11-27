@@ -63,3 +63,34 @@ def test_today_ecartee() -> None:
     assert (violation.construct, violation.detail) == ("fonction_inconnue", "today")
     names = set(function_registry().names())
     assert "today" not in names and {"now", "uuid"} <= names
+
+
+@pytest.mark.parametrize(
+    ("source", "document", "expected"),
+    [
+        ('{"s": (null ?? "false") == "true"}', {}, {"s": False}),
+        (
+            '{"s": ($["Statut archivé"] ?? "false") == "true"}',
+            {"Statut archivé": "true"},
+            {"s": True},
+        ),
+        (
+            '{"s": ($["Statut archivé"] ?? "false") == "true"}',
+            {"Statut archivé": "false"},
+            {"s": False},
+        ),
+        ('{"s": ($["Statut archivé"] ?? "false") == "true"}', {}, {"s": False}),
+        ('{"s": $.n != 2}', {"n": 3}, {"s": True}),
+        ('{"s": $.n >= 2}', {"n": 2}, {"s": True}),
+    ],
+)
+def test_comparaisons_admises(source: str, document: object, expected: object) -> None:
+    """Ticket 2d39db17 : la ligne de Gael passe le profil et donne un booléen."""
+    assert evaluate(compile_template(source), document, 10_000) == expected
+
+
+def test_operation_refusee_dans_une_comparaison() -> None:
+    """Admettre `==` n'ouvre pas l'arithmétique : ses opérandes sont vérifiés."""
+    with pytest.raises(OutsideProfileError) as caught:
+        compile_template('{"s": ($.a + 1) == 2}')
+    assert [(v.construct, v.detail) for v in caught.value.violations] == [("operateur", "add")]

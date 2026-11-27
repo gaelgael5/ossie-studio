@@ -38,7 +38,10 @@ from urban_json.jsonpath.selectors import PathFunctionSelector
 # Admis : objets, tableaux, constantes ; chemins (nom, indice, joker, tranche,
 # descente) ; un filtre `?(...)` ou un `$where` à un seul prédicat clos ; `$source`
 # pour itérer ; `??` ; conversions `#type` ; fonctions nommées (le catalogue dira
-# lesquelles existent). Refusé : arithmétique, logique, `when`, variables, négation.
+# lesquelles existent) ; comparaisons `==`, `!=`, `<`, `<=`, `>`, `>=` (ticket
+# 2d39db17, Gael 27/11 : `($["Statut archivé"] ?? "false") == "true"` doit passer,
+# un booléen tiré d'une colonne texte ne s'écrit pas sans). Refusé : arithmétique,
+# logique, `when`, variables, négation. Écart avec Miles, à y reporter.
 # Une transformation qui en a besoin passe par une fonction nommée du catalogue.
 COMPARISONS = frozenset(
     {
@@ -120,11 +123,12 @@ def _object(node: JsltObject, found: list[Violation]) -> None:
 
 
 def _operator(node: JsltBinaryOperator, found: list[Violation]) -> None:
-    if node.operator is OperationEnum.COALESCE:
+    # Les opérandes d'une comparaison sont vérifiés comme le reste : `($.a + 1) == 2`
+    # reste refusé pour son addition. Le `$where` garde sa règle propre (_predicate).
+    if node.operator is OperationEnum.COALESCE or node.operator in COMPARISONS:
         _walk(node.left, found)
         _walk(node.right, found)
         return
-    # Une comparaison n'est admise que comme prédicat d'un `$where` (voir _predicate).
     found.append(_at(node, "operateur", node.operator.name.lower()))
 
 
