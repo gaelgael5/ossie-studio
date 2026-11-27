@@ -485,9 +485,15 @@ function ImportView({
         queryClient.invalidateQueries({ queryKey: [k] }),
       ),
     )
+  // Le texte essayé est gardé avec le compte rendu : l'extrait d'une ligne fautive
+  // doit montrer ce que le moteur a lu, même si l'éditeur a changé depuis.
+  const [trialSource, setTrialSource] = useState('')
   const run = useMutation({
-    mutationFn: () => imports.trial(slug, template ?? '', mode),
-    onSuccess: setTrial,
+    mutationFn: (source: string) => imports.trial(slug, source, mode),
+    onSuccess: (result, source) => {
+      setTrial(result)
+      setTrialSource(source)
+    },
   })
   // « Résoudre le template » (ticket 0598c41b) : écrit d'après le modèle et les
   // colonnes du fichier d'exemple ; le texte va dans l'éditeur, non enregistré.
@@ -630,7 +636,7 @@ function ImportView({
             <TemplateEditor
               value={template ?? ''}
               onChange={setTemplate}
-              onRun={() => run.mutate()}
+              onRun={() => run.mutate(template ?? '')}
               onOpenSource={() => setSub('example')}
               readOnly={readOnly}
               ariaLabel={t('refImportTemplate')}
@@ -641,7 +647,7 @@ function ImportView({
           </div>
           <div className="stack ref-template-side">
             <div className="stack ref-template-actions">
-              <BusyButton type="button" className="btn" busy={run.isPending} busyText={t('refImportRunBusy')} onClick={() => run.mutate()}>
+              <BusyButton type="button" className="btn" busy={run.isPending} busyText={t('refImportRunBusy')} onClick={() => run.mutate(template ?? '')}>
                 {t('refImportRun', { keys: t(isMac() ? 'refImportRunKeysMac' : 'refImportRunKeys') })}
               </BusyButton>
               {!readOnly ? (
@@ -689,7 +695,7 @@ function ImportView({
             <div className="stack">
               <h4>{t('refImportResult')}</h4>
               {data.example_size === 0 ? <p className="empty-note">{t('refImportExampleNone')}</p> : null}
-              {trial ? <ImportReport report={trial} /> : <p className="muted">{t('refImportResultHint')}</p>}
+              {trial ? <ImportReport report={trial} source={trialSource} /> : <p className="muted">{t('refImportResultHint')}</p>}
             </div>
           </div>
         </div>

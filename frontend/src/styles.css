@@ -3054,6 +3054,20 @@ td.cell-error {
   gap: 16px;
   align-items: start;
 }
+/* Extrait de la ligne fautive d'un template, repère sous la colonne (ticket 79e85292). */
+.template-excerpt {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--surface-muted);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  overflow-x: auto;
+  white-space: pre;
+}
+.template-problem p {
+  margin: 0;
+}
 .ref-template-doc {
   margin: 0;
   overflow-wrap: anywhere;

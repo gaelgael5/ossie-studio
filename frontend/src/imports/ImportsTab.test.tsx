@@ -232,14 +232,20 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     setup({
       trial: {
         ok: false,
-        template_problems: [{ code: 'template_syntax', message: 'extraneous input', line: 3, column: 9 }],
+        template_problems: [
+          { code: 'template_syntax', message: "mismatched input ''x'' expecting STRING (ligne 2, colonne 0)", line: 2, column: 0 },
+        ],
       },
     })
     const user = userEvent.setup()
     await user.click(await screen.findByRole('tab', { name: '2. Template JSLT' }))
     await user.click(screen.getByRole('button', { name: 'Ctrl+F5' }))
-    expect(await screen.findByText(/Ligne 3 :/)).toHaveTextContent('extraneous input')
-    expect(screen.getByTestId('error-line')).toHaveTextContent('3')
+    expect(await screen.findByText(/Ligne 2 :/)).toHaveTextContent('mismatched input')
+    expect(screen.getByTestId('error-line')).toHaveTextContent('2')
+    // Ticket 79e85292 : la ligne essayée avec son repère, le message en clair, une piste.
+    expect(screen.getByLabelText('Ligne en cause').textContent).toBe('}\n^')
+    expect(screen.getByText('« \'x\' » n’est pas attendu à cet endroit.')).toBeInTheDocument()
+    expect(screen.getByText(/les chaînes s’écrivent entre guillemets doubles/)).toBeInTheDocument()
   })
 
   it('renommer, puis supprimer après confirmation', async () => {

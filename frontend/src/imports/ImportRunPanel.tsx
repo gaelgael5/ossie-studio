@@ -140,7 +140,7 @@ export function ImportRunPanel({
           <ImportReport report={done} />
         </div>
       ) : null}
-      {refused ? <ImportReport report={refused} /> : null}
+      {refused ? <ImportReport report={refused} source={detail.template} /> : null}
     </section>
   )
 }
