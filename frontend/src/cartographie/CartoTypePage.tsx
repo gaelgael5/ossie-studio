@@ -292,6 +292,31 @@ function TypeEditor({
         </Link>
       </div>
       <ErrorList messages={detail.problems.map((p) => t('cartoFileProblem', { code: p.code, field: p.field || p.detail }))} />
+      {/* Sous l'en-tête et non sous les éditeurs : un enregistrement refusé (nom de
+          propriété invalide…) passait inaperçu en bas de page (ticket 859579bb). */}
+      <ErrorList messages={save.error ? errorMessages(t, save.error) : []} />
+      {save.error instanceof ApiRequestError && Array.isArray(save.error.body.error_args?.relations) ? (
+        <ul className="carto-problems">
+          {(save.error.body.error_args.relations as { key: string; source: string; target: string }[]).map((r) => (
+            <li key={r.key} className="mono small">
+              {r.key} : {r.source} → {r.target}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {saveProblems.length > 0 ? (
+        <ul className="carto-problems">
+          {saveProblems.map((p, i) => (
+            <li key={i} className="mono small">
+              {p.field ? `${p.field} · ` : ''}
+              {t(`cartoProblem_${p.code}`, { defaultValue: p.code })}
+              {p.detail && p.code.startsWith('relations_') ? ` : ${p.detail}` : ''}
+              {p.path !== detail.path ? ` (${p.path})` : ''}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <ErrorList messages={remove.error ? errorMessages(t, remove.error) : []} />
       <div className="tabs" role="tablist">
         {(['summary', 'properties', 'relations', 'imports'] as Tab[]).map((key) => (
           <button
@@ -386,29 +411,6 @@ function TypeEditor({
         }
       />
       ) : null}
-      <ErrorList messages={save.error ? errorMessages(t, save.error) : []} />
-      {save.error instanceof ApiRequestError && Array.isArray(save.error.body.error_args?.relations) ? (
-        <ul className="carto-problems">
-          {(save.error.body.error_args.relations as { key: string; source: string; target: string }[]).map((r) => (
-            <li key={r.key} className="mono small">
-              {r.key} : {r.source} → {r.target}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {saveProblems.length > 0 ? (
-        <ul className="carto-problems">
-          {saveProblems.map((p, i) => (
-            <li key={i} className="mono small">
-              {p.field ? `${p.field} · ` : ''}
-              {t(`cartoProblem_${p.code}`, { defaultValue: p.code })}
-              {p.detail && p.code.startsWith('relations_') ? ` : ${p.detail}` : ''}
-              {p.path !== detail.path ? ` (${p.path})` : ''}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      <ErrorList messages={remove.error ? errorMessages(t, remove.error) : []} />
     </>
   )
 }
