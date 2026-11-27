@@ -3053,3 +3053,11 @@ export function referentielImports(spaceId: string, branchId: string, name: stri
     invalidates: ['referentielValues', 'referentiel', 'referentiels'],
   })
 }
+
+/** Les imports d'un type de cartographie (ticket 49952be0) : fusion seulement. */
+export function cartoImports(spaceId: string, branchId: string, typeSlug: string): ImportsApi {
+  return importsApi(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(typeSlug)}/imports`, {
+    modes: ['merge'],
+    invalidates: ['carto-objects', 'carto-types', 'carto-type', 'carto-object'],
+  })
+}

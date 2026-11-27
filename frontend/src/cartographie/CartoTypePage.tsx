@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { api, sessionCapabilities } from '../apiClient'
+import { api, cartoImports, sessionCapabilities } from '../apiClient'
 import type { ArchimateTypeInfo, CartoCatalog, CartoTypeDetail } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
@@ -14,6 +14,7 @@ import SchemaEditor from '../referentiels/SchemaEditor'
 import { fromVisual, modelText, parseModel } from '../referentiels/modelRules'
 import type { RefModel } from '../referentiels/modelRules'
 import { UnsavedProvider, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
+import { ImportsTab } from '../imports/ImportsTab'
 import { ArchimateIcon } from './ArchimateIcon'
 import { RELATIONS, TypeRelations, readDeviations, writeDeviations } from './TypeRelations'
 import type { Deviations } from './TypeRelations'
@@ -30,7 +31,7 @@ const ARCHIMATE = 'x-archimate'
 // Ce que le fichier d'un type garde (format f8167ae1) : le reste serait perdu,
 // le serveur le refuse ; on le dit avant l'envoi.
 const TYPE_KEYS = new Set(['$schema', 'title', ARCHIMATE, 'type', 'properties', 'required', RELATIONS])
-type Tab = 'properties' | 'relations'
+type Tab = 'properties' | 'relations' | 'imports'
 
 
 export function CartoTypePage() {
@@ -264,7 +265,7 @@ function TypeEditor({
       <ArchimateBand info={info} archimate={detail.archimate} title={title} />
       <ErrorList messages={detail.problems.map((p) => t('cartoFileProblem', { code: p.code, field: p.field || p.detail }))} />
       <div className="tabs" role="tablist">
-        {(['properties', 'relations'] as Tab[]).map((key) => (
+        {(['properties', 'relations', 'imports'] as Tab[]).map((key) => (
           <button
             key={key}
             type="button"
@@ -288,6 +289,17 @@ function TypeEditor({
         ) : (
           <p className="empty-note text-danger">{t('cartoRelationsUnreadable')}</p>
         )
+      ) : null}
+      {tab === 'imports' ? (
+        // Une ligne = un objet du type ; fusion seulement (ticket 49952be0). Sans le
+        // droit de modifier, l'onglet se consulte, aucun import n'est possible.
+        <ImportsTab
+          spaceId={spaceId}
+          branchId={branchId}
+          name={detail.slug}
+          imports={cartoImports(spaceId, branchId, detail.slug)}
+          readOnly={readOnly}
+        />
       ) : null}
       {tab === 'properties' && guard ? (
         <p className="empty-note text-danger" role="alert">

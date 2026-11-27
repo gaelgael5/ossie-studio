@@ -1052,6 +1052,7 @@ export const fr = {
     cartoTypeBasedOn: 'repose sur {{type}} (ArchiMate)',
     cartoBandNote: 'notation et relations permises : celles de {{type}}',
     cartoTypeTab_properties: 'Propriétés',
+    cartoTypeTab_imports: 'Imports',
     cartoTypeTab_relations: 'Relations',
     cartoRelationsIntro: 'Relations que les objets de type « {{type}} » peuvent avoir vers d’autres types. Les cibles d’ArchiMate sont cochées par défaut ; décochées, elles restent visibles et désactivées.',
     cartoTypeRelationsNone: 'Aucun type de relation dans l’espace.',

@@ -105,6 +105,7 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
         body = { ...detail, document: schema, yaml: stringify(schema), revision: 'draft:2' }
       } else if (path === `${BASE}/types/processus-de-vente` && method === 'DELETE') body = { deleted: 'processus-de-vente', revision: 'draft:3' }
       else if (path === `${BASE}/types`) body = { readonly: false, types: [] }
+      else if (path === `${BASE}/types/processus-de-vente/imports`) body = { imports: [] }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
   )
@@ -281,5 +282,15 @@ describe('Cartographie — relations permises d’un type (ticket 2643fd8f)', ()
     await userEvent.setup().click(screen.getByRole('tab', { name: 'Relations' }))
     expect(screen.getByRole('checkbox', { name: 'Flux vers Application' })).toBeDisabled()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+})
+
+describe('Cartographie — imports d’un type (ticket 49952be0)', () => {
+  it('l’onglet Imports liste les imports du type, à son adresse', async () => {
+    const calls = setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Imports' }))
+    await waitFor(() => expect(calls.some((c) => c.path === `${BASE}/types/processus-de-vente/imports`)).toBe(true))
+    expect(await screen.findByText('Aucun import déclaré.')).toBeInTheDocument()
   })
 })

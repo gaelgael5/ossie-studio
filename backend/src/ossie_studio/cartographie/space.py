@@ -29,7 +29,7 @@ désactive et se réactive.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ossie_studio.cartographie.catalog import Catalog, catalog
@@ -399,6 +399,51 @@ def save_object(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(dump_object(obj), encoding="utf-8")
     return obj
+
+
+def check_batch(
+    space: Cartographie, objects: list[CartoObject], cat: Catalog | None = None
+) -> list[Problem]:
+    """Les problèmes d'un lot d'objets à créer ou modifier ensemble (un import,
+    ticket 49952be0), par les règles de `save_object` : schéma du type, clé
+    (forme, unicité dans le lot), type figé d'un objet existant, extrémités
+    existantes (dans l'espace ou dans le lot) et figées, relation permise par la
+    règle effective. Chaque problème porte le rang de l'objet dans le lot
+    (`index`). Rien n'est écrit."""
+    cat = cat or catalog()
+    merged = Cartographie(types=space.types, objects=dict(space.objects))
+    problems: list[Problem] = []
+    first: dict[str, int] = {}
+    for index, obj in enumerate(objects):
+        path = object_path(obj.type, obj.key)
+        if obj.key in first:
+            problems.append(Problem(path, "object_key_duplicate", obj.key, index=index))
+            continue
+        first[obj.key] = index
+        existing = space.objects.get(obj.key)
+        if existing is not None and existing[1].type != obj.type:
+            problems.append(Problem(path, "object_type_frozen", obj.key, index=index))
+            continue
+        if existing is not None and (existing[1].source, existing[1].target) != (
+            obj.source,
+            obj.target,
+        ):
+            problems.append(Problem(path, "relation_ends_frozen", obj.key, index=index))
+            continue
+        merged.objects[obj.key] = (path, obj)
+    for index, obj in enumerate(objects):
+        if first.get(obj.key) != index:
+            continue
+        path = object_path(obj.type, obj.key)
+        found = check_object(obj, path, space.types.get(obj.type), cat)
+        for end, value in (("source", obj.source), ("cible", obj.target)):
+            if value and (value == obj.key or value not in merged.objects):
+                found.append(Problem(path, "relation_endpoint_unknown", value, field=end))
+        refused = _relation_not_allowed(merged, obj, path, cat)
+        if refused:
+            found.append(refused)
+        problems.extend(replace(p, index=index) for p in found)
+    return problems
 
 
 def delete_object(root: Path, key: str, cat: Catalog | None = None) -> None:
