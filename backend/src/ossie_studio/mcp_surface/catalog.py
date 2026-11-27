@@ -464,9 +464,10 @@ CATALOG: tuple[Primitive, ...] = (
         access="write",
         capability="spaces:read",
         description=(
-            "Write a list of documents of any kind (map types, objects and relationships, "
-            "models, BPMN processes, reference-list models and values, tags, "
-            "classifications, certifications) to the user's draft, all together or not at "
+            "Write a list of documents of any writable kind (map types, objects and "
+            "relationships, models, BPMN processes, reference-list models and values, "
+            "governance, tag / classification / sorting rules, domains and their datasets, "
+            "relationships and references) to the user's draft, all together or not at "
             "all (one draft change, never published). Each entry gives its kind and identity "
             "(list_write_kinds): the system computes where the document goes, never give a "
             "path. Absent document = creation (no version); present = complete replacement, "
@@ -493,8 +494,9 @@ CATALOG: tuple[Primitive, ...] = (
         capability="spaces:read",
         description=(
             "List the documents of one kind (list_write_kinds): map types, objects and "
-            "relationships, models, BPMN processes, reference-list models and values, tags, "
-            "classifications, certifications. Filters: identity fields as partial filters "
+            "relationships, models, BPMN processes, reference lists, governance, rules, "
+            "domains and datasets, raw and asset schemas. Filters: identity fields as "
+            "partial filters "
             "(e.g. identity={type: 'application'} for carto_objet, {referentiel: 'pays'} for "
             "referentiel_valeur), 'search' (part of the name or identity, case and accents "
             "ignored; any simple property of a reference-list value), and the kind's own "
@@ -534,9 +536,10 @@ CATALOG: tuple[Primitive, ...] = (
         access="read",
         capability="spaces:read",
         description=(
-            "List every kind of document you can write (map types, objects and "
-            "relationships, models, BPMN processes, reference-list models and values, tags, "
-            "classifications, certifications): for each, its identity fields and their "
+            "List every kind of document (map types, objects and relationships, models, "
+            "BPMN processes, reference lists, governance, rules, domains and datasets; raw "
+            "and asset schemas, read-only): for each, whether it is writable (or the action "
+            "that produces it), its identity fields and their "
             "format, the path rule (the system computes the path), the standard of its "
             "content (describe_standard), the syntax of patch_document paths (jsonpath or "
             "xpath), the frozen fields, the filters of list_documents, and the size limit per "

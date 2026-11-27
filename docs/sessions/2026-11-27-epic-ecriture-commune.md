@@ -37,11 +37,14 @@ Branche : **`feature/mcp-ecriture-commune`**.
 | ae8fc4b6 | Réglage de la taille maximale, page « Paramètres » | en revue |
 | 1612cce4 | Le moteur d'import écrit par le registre | en revue |
 | 62fbfe11 | Retrait des 13 écritures de la gouvernance | en revue |
+| 56f3784a | Genres en lecture seule `schema_raw` / `schema_asset` | en revue |
+| 71347227 | Genres des règles (tags, classification, tri) | en revue |
+| b4aeae83 | Genres du modèle sémantique (domaine, dataset, relation, référence) | en revue |
 | 92841aaa | Vérification d'intention (avec Gael) | à faire |
 
 ## Ce qu'un agent a maintenant
 
-Catalogue : **42 primitives** (65 avant l'epic). Pour les documents de l'espace, six
+Catalogue : **38 primitives** (65 avant l'epic). Pour les documents de l'espace, six
 primitives communes (domaine `documents`) :
 
 - `list_write_kinds` : les genres, leur identité, leur standard, leur syntaxe de
@@ -57,7 +60,9 @@ primitives communes (domaine `documents`) :
 
 Genres : `carto_type`, `carto_objet`, `carto_modele`, `carto_graphique`,
 `carto_regles`, `processus`, `referentiel_modele`, `referentiel_valeur`, `tag`,
-`classification`, `certification`.
+`classification`, `certification`, `regle_tag`, `regle_classification`, `regles_tri`,
+`domaine`, `dataset`, `relation_dataset`, `reference_dataset` ; en lecture seule,
+`schema_raw` et `schema_asset` (le refus d'écrire nomme l'action qui les produit).
 
 ## Notes techniques
 
@@ -69,10 +74,13 @@ Genres : `carto_type`, `carto_objet`, `carto_modele`, `carto_graphique`,
 - **Un seul chemin de validation** : les validateurs des genres alimentés par l'import
   (`carto_objet`, `referentiel_valeur`) ont une méthode `check` (lot, sans écrire) ;
   `write_documents` et le moteur d'import l'appellent tous les deux.
-- Profils agents : migrations `0042` (une lecture retirée → `list_documents` et
-  `read_document`) et `0043` (écritures de la gouvernance nettoyées, sans recevoir
-  l'écriture commune à la place). Page « Paramètres » : table `app_settings`
-  (`0044`), capacités `settings:read` / `settings:write`.
+- Profils agents : migrations `0042`, `0045`, `0046` (une lecture retirée →
+  `list_documents` et `read_document`) et `0043`, `0046` (une écriture retirée est
+  nettoyée, sans recevoir l'écriture commune à la place). Page « Paramètres » : table
+  `app_settings` (`0044`), capacités `settings:read` / `settings:write`.
+- Modèle sémantique : `kind_domains.py` ; le contenu d'un dataset sépare la part
+  Ossie 0.1.1 (`ossie`, validée contre le schéma officiel) et la part extension ;
+  le service des domaines (`write_domain`) répartit entre les trois fichiers.
 - L'API HTTP des référentiels accorde son droit aux clés d'API d'après
   `list_documents` / `read_document` / `read_schema` (comme `read_schema` au ticket
   06ef8679).

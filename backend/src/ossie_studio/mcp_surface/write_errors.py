@@ -24,14 +24,23 @@ from ossie_studio.cartographie.catalog import catalog
 from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.model import properties_schema
 from ossie_studio.cartographie.space import Cartographie
+from ossie_studio.domains.documents import DomainError as SemanticModelError
 from ossie_studio.governance.actions import GovernanceRefused
 from ossie_studio.mcp_surface.kind_base import KindError
 from ossie_studio.problems import Problem
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import SEPARATOR
 
-DomainError = CartographieError | ReferentielError | GovernanceRefused | KindError
-DOMAIN_ERRORS = (CartographieError, ReferentielError, GovernanceRefused, KindError)
+DomainError = (
+    CartographieError | ReferentielError | GovernanceRefused | KindError | SemanticModelError
+)
+DOMAIN_ERRORS = (
+    CartographieError,
+    ReferentielError,
+    GovernanceRefused,
+    KindError,
+    SemanticModelError,
+)
 
 # Les refus de forme : ils renvoient vers le standard du genre.
 _FORMAT_CODES = frozenset(
@@ -150,6 +159,17 @@ def translate(
         refusals = _carto(exc, base, content_path, content, space)
     elif isinstance(exc, ReferentielError):
         refusals = _referentiel(exc, base, content_path, content)
+    elif isinstance(exc, SemanticModelError):
+        refusals = [
+            Refusal(
+                content_path,
+                exc.code,
+                "Refusé par le service des domaines : "
+                + exc.code
+                + (f" ({exc.detail})" if exc.detail else "")
+                + ".",
+            )
+        ]
     else:
         refusals = [_governance(exc, base, content_path)]
     for refusal in refusals:

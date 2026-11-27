@@ -384,7 +384,7 @@ async def test_identite_incoherente_genre_inconnu_champ_inconnu(
     error, body = await _write(app, space, [wrong])
     assert error and body["errors"][0]["code"] == "write_identity_mismatch"
     assert body["errors"][0]["path"] == "$.documents[0].content.cle"
-    unknown = {**ROLE, "kind": "dataset"}
+    unknown = {**ROLE, "kind": "inconnu"}
     error, body = await _write(app, space, [unknown])
     assert body["errors"][0]["code"] == "write_kind_unknown"
     assert body["errors"][0]["aide"] == {"primitive": "list_write_kinds"}

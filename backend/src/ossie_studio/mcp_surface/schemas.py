@@ -55,6 +55,7 @@ publication et que la cartographie).
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -352,7 +353,32 @@ async def _open(ctx: PrimitiveContext, args: ReadSchemaArgs, target: Target) -> 
     return await open_view(ctx, args.space_id, base.id, with_draft=check_branch(args.branch))
 
 
+def _code_schema(args: ReadSchemaArgs) -> dict[str, Any] | None:
+    """Le schéma du contenu d'un genre qui le définit dans le code (ticket b4aeae83 :
+    un dataset, sa part Ossie 0.1.1 officielle et sa part extension), sinon None."""
+    if not args.kind:
+        return None
+    kind = resolve_kind(args.kind)
+    if kind.content_schema is None:
+        return None
+    schema = kind.content_schema()
+    text = json.dumps(schema, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return {
+        "view": None,
+        "path": None,
+        "kind": "document",
+        "version": git_blob_sha(text),
+        "unpublished": False,
+        "resolved": True,
+        "schema": schema,
+        "extras": {"kind": kind.name, "standard": kind.standard},
+    }
+
+
 async def read_schema(ctx: PrimitiveContext, args: ReadSchemaArgs) -> dict[str, Any]:
+    static = _code_schema(args)
+    if static is not None:
+        return static
     target = designate(args)
     await _require(ctx, args, target)
     bv = await _open(ctx, args, target)

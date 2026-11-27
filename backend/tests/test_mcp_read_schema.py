@@ -155,7 +155,7 @@ async def test_par_genre_les_refus(app: FastAPI, space: ApiSpace) -> None:
         app, KEY, _ids(space, kind="carto_objet", type="processus-de-vente", path=TYPE_PATH)
     )
     assert with_path["error"] == "write_path_forbidden" and with_path["expected"] == TYPE_PATH
-    unknown = await _refusal(app, KEY, _ids(space, kind="dataset"))
+    unknown = await _refusal(app, KEY, _ids(space, kind="inconnu"))
     assert unknown["error"] == "write_kind_unknown"
     absent = await _refusal(app, KEY, _ids(space, kind="carto_objet", type="absent"))
     assert absent["error"] == "schema_not_found"

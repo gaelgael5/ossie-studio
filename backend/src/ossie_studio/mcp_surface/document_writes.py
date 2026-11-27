@@ -489,7 +489,9 @@ async def write_documents(ctx: PrimitiveContext, args: WriteDocumentsArgs) -> di
             else:
                 location = step.kind.locate(root, step.location.identity)
                 found = step.kind.store.read(root, location)
-                item["path"] = location.path
+                # Le fichier où le document se trouve après l'écriture (un dataset passé
+                # en non consultable change de fichier).
+                item["path"] = found.path if found else location.path
                 item["version"] = found.version if found else None
             documents.append(item)
             warnings += [{"document": step.base, "message": w} for w in step.warnings]
@@ -636,7 +638,7 @@ async def patch_document(ctx: PrimitiveContext, args: PatchDocumentArgs) -> dict
             raise Refused([_too_large("$", kind, size, limit)])
         found = kind.store.read(root, kind.locate(root, args.identity))
         return {
-            "path": location.path,
+            "path": found.path if found else location.path,
             "version": found.version if found else None,
             "warnings": [{"document": "$", "message": w} for w in warnings],
             "changed": True,

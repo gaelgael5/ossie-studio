@@ -228,7 +228,7 @@ async def test_aide_dans_les_erreurs_de_format(app: FastAPI, space: ApiSpace) ->
     unknown = await _call(
         app,
         "write_documents",
-        {**ids, "message": "x", "documents": [{"kind": "dataset", "identity": {}, "content": {}}]},
+        {**ids, "message": "x", "documents": [{"kind": "inconnu", "identity": {}, "content": {}}]},
     )
     assert unknown["errors"][0]["aide"] == {"primitive": "list_write_kinds"}
     schema = await _call(app, "read_schema", {**ids, "path": "pas/un/schema"})

@@ -47,6 +47,7 @@ from ossie_studio.governance.repo import (
     scheme_path,
     tag_path,
 )
+from ossie_studio.mcp_surface import kind_domains as domains
 from ossie_studio.mcp_surface import kind_lists as lists
 from ossie_studio.mcp_surface import kind_stores as stores
 from ossie_studio.mcp_surface.kind_base import (
@@ -107,6 +108,9 @@ class WriteKind:
     produced_by: tuple[str, ...] = ()
     # Le document est lui-même un schéma : read_schema le lit par son identité.
     is_schema: bool = False
+    # Le schéma du contenu, défini par le code (ticket b4aeae83) : read_schema(kind) le
+    # rend tel quel (un dataset : la part Ossie 0.1.1 officielle et la part extension).
+    content_schema: Callable[[], dict[str, Any]] | None = None
     # Le champ d'identité qui donne le schéma exact du contenu (read_schema), et le
     # genre du document qui porte ce schéma : son identité (un seul champ) prend la
     # valeur de ce champ (le type d'un objet → le document carto_type de ce slug).
@@ -622,6 +626,85 @@ KINDS = (
         locator=_tri_rules,
         store=stores.TriRulesStore(),
         lister=lists.tri_rules,
+    ),
+)
+
+# --- Le modèle sémantique Ossie (ticket b4aeae83) -------------------------------------------
+
+_DOMAIN_FIELD = IdentityField("domain", "Name of the domain (list_documents, kind domaine).", _SLUG)
+_MEMBER_NAME = IdentityField("name", "Name, unique in its domain.", "e.g. 'client'")
+KINDS = (
+    *KINDS,
+    WriteKind(
+        name="domaine",
+        description=(
+            "A domain: an Ossie semantic model (its datasets, relationships and references "
+            "are kinds of their own). Its label and description."
+        ),
+        label="domaine",
+        identity=(IdentityField("name", "Name of the domain.", f"{_SLUG}, e.g. 'ventes'"),),
+        standard="domaine",
+        syntax="jsonpath",
+        capability="curation:write",
+        read_capability="curation:read",
+        locator=domains.locate_domain,
+        store=domains.DomainStore(),
+        lister=domains.domain_items,
+        identity_paths=("$.name",),
+        content_schema=domains.domain_schema,
+    ),
+    WriteKind(
+        name="dataset",
+        description=(
+            "A dataset of a domain: its Ossie 0.1.1 part (as the Ossie document writes it) "
+            "and its extension part. Ossie stores it in the right file."
+        ),
+        label="dataset",
+        identity=(_DOMAIN_FIELD, _MEMBER_NAME),
+        standard="dataset",
+        syntax="jsonpath",
+        capability="curation:write",
+        read_capability="curation:read",
+        locator=domains.locate_dataset,
+        store=domains.DatasetStore(),
+        lister=domains.dataset_items,
+        content_schema=domains.dataset_schema,
+    ),
+    WriteKind(
+        name="relation_dataset",
+        description=(
+            "An Ossie relationship (foreign key) between two datasets of a domain, "
+            "consultable both or virtual both."
+        ),
+        label="relation de datasets",
+        identity=(_DOMAIN_FIELD, _MEMBER_NAME),
+        standard="relation-dataset",
+        syntax="jsonpath",
+        capability="curation:write",
+        read_capability="curation:read",
+        locator=domains.locate_relation,
+        store=domains.RelationStore(),
+        lister=domains.relation_items,
+        identity_paths=("$.name",),
+        content_schema=domains.relation_schema,
+    ),
+    WriteKind(
+        name="reference_dataset",
+        description=(
+            "An object link between two datasets without key columns (a property pointing "
+            "to another object): an extension, Ossie 0.1.1 cannot express it."
+        ),
+        label="référence de datasets",
+        identity=(_DOMAIN_FIELD, _MEMBER_NAME),
+        standard="reference-dataset",
+        syntax="jsonpath",
+        capability="curation:write",
+        read_capability="curation:read",
+        locator=domains.locate_reference,
+        store=domains.ReferenceStore(),
+        lister=domains.reference_items,
+        identity_paths=("$.name",),
+        content_schema=domains.reference_schema,
     ),
 )
 

@@ -255,7 +255,7 @@ async def test_vue_brouillon_et_vue_publiee(app: FastAPI, space: ApiSpace) -> No
 
 async def test_genre_ou_filtre_inconnu(app: FastAPI, space: ApiSpace) -> None:
     """Critère 7 : erreur explicite, avec ce qui est possible et `aide`."""
-    unknown = await _refused(app, KEY, "list_documents", space, kind="dataset")
+    unknown = await _refused(app, KEY, "list_documents", space, kind="inconnu")
     assert unknown["error"] == "write_kind_unknown"
     assert unknown["aide"] == {"primitive": "list_write_kinds"}
     stray = await _refused(

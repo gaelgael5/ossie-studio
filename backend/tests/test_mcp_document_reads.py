@@ -205,7 +205,7 @@ async def test_identite_inconnue_ou_invalide_et_chemin(app: FastAPI, space: ApiS
     )
     assert error and body["error"] == "write_path_forbidden" and body["expected"] == PRC
     assert body["aide"] == {"primitive": "describe_standard", "standard": "writing-rules"}
-    error, body = await _call(app, "read_document", space, kind="dataset", identity={})
+    error, body = await _call(app, "read_document", space, kind="inconnu", identity={})
     assert error and body["error"] == "write_kind_unknown"
     assert body["aide"] == {"primitive": "list_write_kinds"}
     error, body = await _call(

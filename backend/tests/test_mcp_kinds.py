@@ -60,6 +60,10 @@ def test_le_registre_declare_les_genres_du_tableau() -> None:
         "regle_tag",
         "regle_classification",
         "regles_tri",
+        "domaine",
+        "dataset",
+        "relation_dataset",
+        "reference_dataset",
         "schema_raw",
         "schema_asset",
     ]
@@ -200,7 +204,7 @@ def test_identite_invalide(
 
 def test_genre_inconnu() -> None:
     with pytest.raises(KindError) as refused:
-        write_kind("dataset")
+        write_kind("inconnu")
     assert refused.value.code == "write_kind_unknown"
     assert "carto_objet" in refused.value.extra["expected"]
 
