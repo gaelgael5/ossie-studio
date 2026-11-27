@@ -383,7 +383,7 @@ function ImportView({
   const [mode, setMode] = useState<ImportMode>('merge')
   useEffect(() => {
     if (data) {
-      setReading({ separator: data.separator, encoding: data.encoding, header: data.header })
+      setReading({ separator: data.separator, encoding: data.encoding, header: data.header, sheet: data.sheet ?? '' })
       setTemplate((prev) => prev ?? data.template)
     }
   }, [data])

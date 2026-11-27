@@ -188,7 +188,8 @@ def _example_of(imp: Import, reading: ReadingBody | None, raw: bytes | None = No
             decl, separator=reading.separator, encoding=reading.encoding, header=reading.header
         )
     elif reading is not None and decl.format == "xlsx":
-        decl = replace(decl, header=reading.header, sheet=reading.sheet)
+        # Feuille non donnée : celle de la déclaration (jamais « à choisir » par oubli).
+        decl = replace(decl, header=reading.header, sheet=reading.sheet or decl.sheet)
     try:
         return read_example(decl, imp.example if raw is None else raw)
     except ExampleError as exc:
@@ -447,7 +448,7 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             # Classeur : ses feuilles, pour choisir (ticket 6f6066e9).
             sheets = sheet_names(imp.example)
             out["sheets"] = sheets
-            chosen = body.sheet if body is not None else decl.sheet
+            chosen = (body.sheet if body is not None else "") or decl.sheet
             if chosen not in sheets and len(sheets) != 1:
                 return {**out, "sheet_required": True, "columns": [], "rows": [], "count": 0,
                         "paths": [], "comparison": []}  # fmt: skip
