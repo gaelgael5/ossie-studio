@@ -104,7 +104,11 @@ async def test_type_de_cartographie_effectif_et_tel_qu_ecrit(app: FastAPI, space
 
 async def test_chemins_inconnus_ou_absents(app: FastAPI, space: ApiSpace) -> None:
     unknown = await _refusal(app, KEY, _ids(space, path="cartographie/objets/a/b.yaml"))
-    assert unknown == {"error": "schema_path_unknown", "path": "cartographie/objets/a/b.yaml"}
+    assert unknown == {
+        "error": "schema_path_unknown",
+        "path": "cartographie/objets/a/b.yaml",
+        "aide": {"primitive": "list_write_kinds"},
+    }
     missing = await _refusal(app, KEY, _ids(space, path="cartographie/types/absent.schema.yaml"))
     assert missing["error"] == "schema_not_found"
 

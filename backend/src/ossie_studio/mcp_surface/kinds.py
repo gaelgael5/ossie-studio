@@ -74,6 +74,8 @@ class WriteKind:
     identity_paths: tuple[str, ...] = ()
     # Les autres champs figés (JSONPath dans le contenu).
     frozen: tuple[str, ...] = ()
+    # Les filtres que list_documents accepte pour ce genre.
+    list_filters: tuple[str, ...] = ()
     path_rule: PathRule = "forbidden"
     path_root: str = ""  # sous laquelle doit rester un chemin autorisé
     # Le champ d'identité qui donne le schéma exact du contenu (read_schema).

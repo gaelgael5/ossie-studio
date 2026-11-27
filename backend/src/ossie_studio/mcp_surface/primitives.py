@@ -13,6 +13,7 @@ from ossie_studio.mcp_surface import (
     references,
     schemas,
     source_writes,
+    write_guide,
     writes,
 )
 from ossie_studio.mcp_surface import governance_writes as gov
@@ -67,6 +68,12 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     ),
     "patch_document": Implementation(
         document_writes.PatchDocumentArgs, document_writes.patch_document
+    ),
+    "list_write_kinds": Implementation(
+        write_guide.ListWriteKindsArgs, write_guide.list_write_kinds
+    ),
+    "describe_standard": Implementation(
+        write_guide.DescribeStandardArgs, write_guide.describe_standard
     ),
     "list_tags": Implementation(BranchArgs, reads.list_tags),
     "list_classifications": Implementation(BranchArgs, reads.list_classifications),

@@ -636,6 +636,36 @@ CATALOG: tuple[Primitive, ...] = (
         destructive=True,
     ),
     Primitive(
+        id="list_write_kinds",
+        domain="documents",
+        access="read",
+        capability="spaces:read",
+        description=(
+            "List every kind of document you can write (map types, objects and "
+            "relationships, models, BPMN processes, reference-list models and values, tags, "
+            "classifications, certifications): for each, its identity fields and their "
+            "format, the path rule (the system computes the path), the standard of its "
+            "content (describe_standard), the syntax of patch_document paths (jsonpath or "
+            "xpath), the frozen fields, the filters of list_documents, and the size limit per "
+            "document. Start here before writing."
+        ),
+        idempotent=True,
+    ),
+    Primitive(
+        id="describe_standard",
+        domain="documents",
+        access="read",
+        capability="spaces:read",
+        description=(
+            "Explain a standard in full, in markdown, with valid examples: the format of each "
+            "kind of document, the JSONPath and XPath syntaxes of patch_document, the common "
+            "writing rules (an identity never changes, a batch is checked on its final state, "
+            "size limit) and the shape of errors. Without argument, list the standards. Format "
+            "errors of every tool point here through their 'aide' field."
+        ),
+        idempotent=True,
+    ),
+    Primitive(
         id="patch_document",
         domain="documents",
         access="write",

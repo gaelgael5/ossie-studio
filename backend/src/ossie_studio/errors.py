@@ -248,6 +248,7 @@ ERROR_CODES: tuple[str, ...] = (
     "write_identity_frozen",
     "write_document_too_large",
     "write_kind_forbidden",
+    "standard_unknown",
     "example_encoding",
     "example_json",
     "example_xlsx",

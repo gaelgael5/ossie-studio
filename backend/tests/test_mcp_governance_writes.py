@@ -288,7 +288,12 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
             # Ticket aa19569b : en écriture, seul le brouillon est accepté.
             "create_tag",
             _ids(space, tag_id="gouvernance/autre", branch="main"),
-            {"error": "branch_unsupported", "branch": "main", "accepted": ["draft"]},
+            {
+                "error": "branch_unsupported",
+                "branch": "main",
+                "accepted": ["draft"],
+                "aide": {"primitive": "describe_standard", "standard": "writing-rules"},
+            },
         ),
         (
             "create_tag",
