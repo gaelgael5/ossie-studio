@@ -1,8 +1,10 @@
-"""Primitives d'écriture de la gouvernance (epic « Primitives MCP d'écriture »,
-ticket « Gouvernance par l'agent ») : tags, schémas de classification et leurs
-niveaux, certifications. Même service que l'écran, dans le brouillon de la
-personne ; modifications partielles ; jamais pour une clé d'API ; borné par les
-droits de la personne sur l'espace."""
+"""Écriture de la gouvernance par l'agent : tags, classifications et leurs niveaux,
+certifications, par l'écriture commune `write_documents` / `patch_document` (epic
+« Primitives MCP — écriture commune par genre », ticket 62fbfe11). Les treize
+primitives propres à la gouvernance sont retirées ; chaque geste qu'elles
+permettaient est couvert ici. Même service que l'écran, dans le brouillon de la
+personne ; jamais pour une clé d'API ; borné par les droits de la personne sur
+l'espace."""
 
 from __future__ import annotations
 
@@ -23,7 +25,8 @@ from tests.space_fixture import ApiSpace, make_api_space
 
 AGENT = "agent-gouvernance"
 KEY = "cle-gouvernance"
-WRITES = {
+COMMON = ["patch_document", "write_documents"]
+REMOVED = {
     "create_tag",
     "update_tag",
     "delete_tag",
@@ -38,6 +41,9 @@ WRITES = {
     "update_certification",
     "delete_certification",
 }
+TAG = {"id": "gouvernance/pii"}
+SCHEME = {"id": "sensibilite"}
+CERT = {"slug": "or"}
 
 
 async def _profile(app: FastAPI, name: str, primitives: list[str]) -> uuid.UUID:
@@ -61,22 +67,18 @@ def _wire(app: FastAPI, callers: dict[str, McpCaller]) -> None:
 
 @pytest.fixture
 async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
-    """Un espace sans gouvernance publiée. Un agent connecté pour
-    l'administrateur, et une clé, avec un profil « Gouvernance » (toutes les
-    lectures + les écritures de gouvernance)."""
+    """Un espace sans gouvernance publiée. Un agent connecté pour l'administrateur,
+    et une clé, avec un profil « Gouvernance » (toutes les lectures + l'écriture
+    commune)."""
     api_space = await make_api_space(client, app, tmp_path)
-    profile = await _profile(app, "Gouvernance", sorted(WRITES))
+    profile = await _profile(app, "Gouvernance", COMMON)
     async with app.state.pool.acquire() as conn:
         admin_id = await conn.fetchval("SELECT id FROM users WHERE is_bootstrap")
     _wire(
         app,
         {
             AGENT: McpCaller(
-                kind="oauth",
-                ref="c",
-                agent_profile_id=profile,
-                user_id=admin_id,
-                client_id="claude",
+                kind="oauth", ref="c", agent_profile_id=profile, user_id=admin_id, client_id="c"
             ),
             KEY: McpCaller(kind="key", ref="k", agent_profile_id=profile),
         },
@@ -88,334 +90,340 @@ def _ids(space: ApiSpace, **extra: Any) -> dict[str, Any]:
     return {"space_id": space.space_id, "branch_id": space.branch_id, **extra}
 
 
-async def _ok(app: FastAPI, token: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
-    result = await call_tool(app, token, name, args)
-    assert not result.is_error, result.content[0].text
+async def _call(
+    app: FastAPI, space: ApiSpace, tool: str, token: str = AGENT, **args: Any
+) -> tuple[bool, dict[str, Any]]:
+    result = await call_tool(app, token, tool, _ids(space, **args))
+    if result.is_error:
+        return True, json.loads(result.content[0].text)
     data: dict[str, Any] = result.structured_content
-    return data
+    return False, data
 
 
-async def _refusal(app: FastAPI, token: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
-    result = await call_tool(app, token, name, args)
-    assert result.is_error
-    data: dict[str, Any] = json.loads(result.content[0].text)
-    return data
+async def _write(
+    app: FastAPI, space: ApiSpace, documents: list[dict[str, Any]], token: str = AGENT
+) -> dict[str, Any]:
+    error, body = await _call(
+        app, space, "write_documents", token, message="Gouvernance", documents=documents
+    )
+    assert not error, body
+    return body
+
+
+async def _refused(
+    app: FastAPI, space: ApiSpace, documents: list[dict[str, Any]], token: str = AGENT
+) -> dict[str, Any]:
+    error, body = await _call(
+        app, space, "write_documents", token, message="Gouvernance", documents=documents
+    )
+    assert error, body
+    return body
+
+
+async def _patch(
+    app: FastAPI, space: ApiSpace, kind: str, identity: dict[str, Any], ops: list[dict[str, Any]]
+) -> tuple[bool, dict[str, Any]]:
+    current = await _read(app, space, kind, identity)
+    return await _call(
+        app,
+        space,
+        "patch_document",
+        kind=kind,
+        identity=identity,
+        version=current["version"],
+        operations=ops,
+    )
+
+
+async def _read(
+    app: FastAPI, space: ApiSpace, kind: str, identity: dict[str, Any]
+) -> dict[str, Any]:
+    error, body = await _call(
+        app, space, "read_document", kind=kind, identity=identity, branch="draft"
+    )
+    assert not error, body
+    return body
+
+
+async def _listed(app: FastAPI, space: ApiSpace, kind: str, **args: Any) -> list[dict[str, Any]]:
+    error, body = await _call(app, space, "list_documents", kind=kind, **args)
+    assert not error, body
+    documents: list[dict[str, Any]] = body["documents"]
+    return documents
 
 
 async def _draft_paths(app: FastAPI, space: ApiSpace) -> list[str]:
-    draft = await _ok(app, AGENT, "get_my_draft", _ids(space))
+    error, draft = await _call(app, space, "get_my_draft")
+    assert not error, draft
     return sorted(o["path"] for o in draft["objects"])
 
 
-# --- Critère 1 : chaque effet est dans le brouillon, pas côté publié -------------------
+def _delete(kind: str, identity: dict[str, Any], version: str) -> dict[str, Any]:
+    return {"kind": kind, "identity": identity, "version": version, "delete": True}
 
 
-async def test_tags_dans_le_brouillon_modifications_partielles(
-    app: FastAPI, space: ApiSpace
-) -> None:
-    created = await _ok(
+# --- Critère 2 : chaque geste des primitives retirées, par l'écriture commune ------------
+
+
+async def test_tag_creer_modifier_supprimer(app: FastAPI, space: ApiSpace) -> None:
+    created = await _write(
         app,
-        AGENT,
-        "create_tag",
-        _ids(
-            space,
-            tag_id="Gouvernance/PII",
-            owner="dpo@example.org",
-            description="Données personnelles",
-            links={"wiki": "https://wiki.example.org/pii"},
-        ),
+        space,
+        [
+            {
+                "kind": "tag",
+                "identity": TAG,
+                "content": {
+                    "info": {"owner": "dpo@example.org", "description": "Données personnelles"},
+                    "links": {"wiki": "https://wiki.example.org/pii"},
+                },
+            }
+        ],
     )
-    assert created["changed"] is True
-    assert created["changed_paths"] == ["governance/tags/gouvernance/pii.yaml"]
-    assert created["tag"]["id"] == "gouvernance/pii"
-
+    assert created["documents"][0]["path"] == "governance/tags/gouvernance/pii.yaml"
     # Seule la description change : le responsable et les liens restent.
-    updated = await _ok(
-        app, AGENT, "update_tag", _ids(space, tag_id="gouvernance/pii", description="PII")
+    error, patched = await _patch(
+        app, space, "tag", TAG, [{"op": "set", "path": "$.info.description", "value": "PII"}]
     )
-    assert updated["tag"] == {
-        "id": "gouvernance/pii",
-        "owner": "dpo@example.org",
-        "description": "PII",
-        "links": {"wiki": "https://wiki.example.org/pii"},
-        "properties": {},
-    }
+    assert not error, patched
+    tag = await _read(app, space, "tag", TAG)
+    assert tag["content"]["info"] == {"owner": "dpo@example.org", "description": "PII"}
+    assert tag["content"]["links"] == {"wiki": "https://wiki.example.org/pii"}
     # Les liens donnés remplacent la table entière.
-    relinked = await _ok(app, AGENT, "update_tag", _ids(space, tag_id="gouvernance/pii", links={}))
-    assert relinked["tag"]["links"] == {}
-    assert relinked["tag"]["description"] == "PII"
+    error, relinked = await _patch(
+        app, space, "tag", TAG, [{"op": "set", "path": "$.links", "value": {}}]
+    )
+    assert not error, relinked
+    assert not (await _read(app, space, "tag", TAG))["content"].get("links")
 
-    draft = await _ok(app, AGENT, "list_documents", _ids(space, kind="tag", branch="draft"))
-    assert [t["identity"]["id"] for t in draft["documents"]] == ["gouvernance/pii"]
-    assert draft["documents"][0]["unpublished"] is True
-    published = await _ok(app, AGENT, "list_documents", _ids(space, kind="tag"))
-    assert published["documents"] == []
+    draft = await _listed(app, space, "tag", branch="draft")
+    assert [t["identity"] for t in draft] == [TAG] and draft[0]["unpublished"] is True
+    assert await _listed(app, space, "tag") == []
 
-    deleted = await _ok(app, AGENT, "delete_tag", _ids(space, tag_id="gouvernance/pii"))
-    assert deleted["deleted"] == "gouvernance/pii"
-    tags = await _ok(app, AGENT, "list_documents", _ids(space, kind="tag", branch="draft"))
-    assert tags["documents"] == []
+    version = (await _read(app, space, "tag", TAG))["version"]
+    deleted = await _write(app, space, [_delete("tag", TAG, version)])
+    assert deleted["documents"][0]["action"] == "deleted"
+    assert await _listed(app, space, "tag", branch="draft") == []
 
 
-async def test_classifications_et_niveaux_dans_le_brouillon(app: FastAPI, space: ApiSpace) -> None:
-    created = await _ok(
+async def test_classification_et_niveaux(app: FastAPI, space: ApiSpace) -> None:
+    """Créer, modifier, supprimer une classification ; créer, modifier, supprimer un
+    niveau ; réordonner les niveaux."""
+    await _write(
         app,
-        AGENT,
-        "create_classification",
-        _ids(
-            space,
-            name="Sensibilité",
-            multi_value=True,
-            levels=[
-                {"name": "Public", "short_name": "PUB"},
-                {"name": "Interne", "short_name": "INT"},
-            ],
-        ),
+        space,
+        [
+            {
+                "kind": "classification",
+                "identity": SCHEME,
+                "content": {
+                    "name": "Sensibilité",
+                    "multi_value": True,
+                    "levels": [
+                        {"name": "Public", "short_name": "PUB"},
+                        {"name": "Interne", "short_name": "INT"},
+                    ],
+                },
+            }
+        ],
     )
-    scheme = created["classification"]
-    assert scheme["id"] == "sensibilite"
-    assert created["changed_paths"] == ["governance/classifications/sensibilite.yaml"]
-    assert [lv["name"] for lv in scheme["levels"]] == ["Public", "Interne"]
-    ids = _ids(space, scheme_id="sensibilite")
-
-    secret = (
-        await _ok(app, AGENT, "create_level", {**ids, "name": "Secret", "short_name": "SEC"})
-    )["level"]
-    # Niveau : seul le libellé change, le nom et le nom court restent.
-    relabeled = await _ok(
-        app, AGENT, "update_level", {**ids, "level_id": secret["id"], "label": "Très sensible"}
+    # Créer un niveau.
+    error, body = await _patch(
+        app,
+        space,
+        "classification",
+        SCHEME,
+        [{"op": "add", "path": "$.levels[2]", "value": {"name": "Secret", "short_name": "SEC"}}],
     )
-    assert relabeled["level"]["name"] == "Secret"
-    assert relabeled["level"]["short_name"] == "SEC"
-    assert relabeled["level"]["label"] == "Très sensible"
-
-    level_ids = [lv["id"] for lv in scheme["levels"]] + [secret["id"]]
-    reordered = await _ok(app, AGENT, "reorder_levels", {**ids, "order": level_ids[::-1]})
-    assert [lv["name"] for lv in reordered["classification"]["levels"]] == [
+    assert not error, body
+    # Modifier un niveau : seul le libellé change.
+    error, body = await _patch(
+        app,
+        space,
+        "classification",
+        SCHEME,
+        [{"op": "set", "path": "$.levels[2].label", "value": "Très sensible"}],
+    )
+    assert not error, body
+    scheme = (await _read(app, space, "classification", SCHEME))["content"]
+    secret = scheme["levels"][2]
+    assert (secret["name"], secret["short_name"], secret["label"]) == (
         "Secret",
-        "Interne",
-        "Public",
-    ]
-
-    # Schéma : seule la description change, multi-valeurs reste vrai.
-    described = await _ok(app, AGENT, "update_classification", {**ids, "description": "Niveau"})
-    assert described["classification"]["multi_value"] is True
-    assert described["classification"]["name"] == "Sensibilité"
-    # La validation porte sur l'objet complet : principal + multi-valeurs refusé.
-    refused = await _refusal(app, AGENT, "update_classification", {**ids, "is_primary": True})
-    assert refused == {"error": "invalid_request", "fields": ["scheme_primary_multivalue"]}
-
-    await _ok(app, AGENT, "delete_level", {**ids, "level_id": secret["id"]})
-    draft = await _ok(
-        app, AGENT, "list_documents", _ids(space, kind="classification", branch="draft")
+        "SEC",
+        "Très sensible",
     )
-    assert [lv["name"] for lv in draft["documents"][0]["levels"]] == ["Interne", "Public"]
-    assert draft["documents"][0]["unpublished"] is True
-    published = await _ok(app, AGENT, "list_documents", _ids(space, kind="classification"))
-    assert published["documents"] == []
-
-    deleted = await _ok(app, AGENT, "delete_classification", ids)
-    assert deleted["deleted"] == "sensibilite"
-    schemes = await _ok(app, AGENT, "list_documents", _ids(space, kind="classification"))
-    assert schemes["documents"] == []
-
-
-async def test_certifications_dans_le_brouillon(app: FastAPI, space: ApiSpace) -> None:
-    certs = await _ok(app, AGENT, "list_documents", _ids(space, kind="certification"))
-    assert certs["documents"] == []
-    created = await _ok(
+    # Réordonner : le document remplacé donne l'ordre des niveaux.
+    current = await _read(app, space, "classification", SCHEME)
+    reordered = {**current["content"], "levels": current["content"]["levels"][::-1]}
+    await _write(
         app,
-        AGENT,
-        "create_certification",
-        _ids(space, name="Or", tag="Certification/Or", description="Qualité la plus élevée"),
+        space,
+        [
+            {
+                "kind": "classification",
+                "identity": SCHEME,
+                "version": current["version"],
+                "content": reordered,
+            }
+        ],
     )
-    cert = created["certification"]
-    assert cert["slug"] == "or"
-    assert cert["tag"] == "certification/or"
-    assert created["changed_paths"] == [f"governance/certifications/{cert['id']}.yaml"]
+    scheme = (await _read(app, space, "classification", SCHEME))["content"]
+    assert [lv["name"] for lv in scheme["levels"]] == ["Secret", "Interne", "Public"]
+    assert scheme["levels"][0]["id"] == secret["id"]
+    # Modifier la classification : seule la description change.
+    error, body = await _patch(
+        app,
+        space,
+        "classification",
+        SCHEME,
+        [{"op": "set", "path": "$.description", "value": "Niveau"}],
+    )
+    assert not error, body
+    # La validation porte sur l'objet complet : principal + multi-valeurs refusé.
+    error, refused = await _patch(
+        app, space, "classification", SCHEME, [{"op": "set", "path": "$.is_primary", "value": True}]
+    )
+    assert error and refused["errors"][0]["code"] == "invalid_request"
+    assert refused["errors"][0]["fields"] == ["scheme_primary_multivalue"]
+    # Supprimer un niveau.
+    error, body = await _patch(
+        app, space, "classification", SCHEME, [{"op": "remove", "path": "$.levels[0]"}]
+    )
+    assert not error, body
+    [listed] = await _listed(app, space, "classification", branch="draft")
+    assert [lv["name"] for lv in listed["levels"]] == ["Interne", "Public"]
+    assert listed["description"] == "Niveau" and listed["multi_value"] is True
+    assert listed["unpublished"] is True
+    assert await _listed(app, space, "classification") == []
+    # Supprimer la classification.
+    version = (await _read(app, space, "classification", SCHEME))["version"]
+    await _write(app, space, [_delete("classification", SCHEME, version)])
+    assert await _listed(app, space, "classification", branch="draft") == []
 
+
+async def test_certification_creer_modifier_supprimer(app: FastAPI, space: ApiSpace) -> None:
+    assert await _listed(app, space, "certification") == []
+    created = await _write(
+        app,
+        space,
+        [
+            {
+                "kind": "certification",
+                "identity": CERT,
+                "content": {
+                    "name": "Or",
+                    "tag": "certification/or",
+                    "description": "Qualité la plus élevée",
+                },
+            }
+        ],
+    )
+    path = created["documents"][0]["path"]
+    assert path.startswith("governance/certifications/") and path.endswith(".yaml")
     # Seul le rang change ; le nom, la description et le slug restent.
-    updated = await _ok(
-        app, AGENT, "update_certification", _ids(space, certification_id=cert["id"], rank=2)
+    error, body = await _patch(
+        app, space, "certification", CERT, [{"op": "set", "path": "$.rank", "value": 2}]
     )
-    assert updated["certification"] == {**cert, "rank": 2}
-
-    draft = await _ok(
-        app, AGENT, "list_documents", _ids(space, kind="certification", branch="draft")
-    )
-    assert [c["name"] for c in draft["documents"]] == ["Or"]
-    assert draft["documents"][0]["unpublished"] is True
-    published = await _ok(app, AGENT, "list_documents", _ids(space, kind="certification"))
-    assert published["documents"] == []
-
-    deleted = await _ok(
-        app, AGENT, "delete_certification", _ids(space, certification_id=cert["id"])
-    )
-    assert deleted["deleted"] == cert["id"]
-    certs = await _ok(app, AGENT, "list_documents", _ids(space, kind="certification"))
-    assert certs["documents"] == []
+    assert not error, body
+    cert = (await _read(app, space, "certification", CERT))["content"]
+    assert (cert["rank"], cert["name"], cert["slug"]) == (2, "Or", "or")
+    assert cert["description"] == "Qualité la plus élevée"
+    draft = await _listed(app, space, "certification", branch="draft")
+    assert [c["name"] for c in draft] == ["Or"] and draft[0]["unpublished"] is True
+    assert await _listed(app, space, "certification") == []
+    version = (await _read(app, space, "certification", CERT))["version"]
+    await _write(app, space, [_delete("certification", CERT, version)])
+    assert await _listed(app, space, "certification", branch="draft") == []
 
 
-# --- Critères 2 et 3 : refus nommés de l'écran, sans écriture --------------------------
+# --- Refus nommés, rien d'écrit -----------------------------------------------------------
 
 
 async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None:
-    await _ok(app, AGENT, "create_tag", _ids(space, tag_id="gouvernance/pii"))
-    scheme = (
-        await _ok(
-            app,
-            AGENT,
-            "create_classification",
-            _ids(space, name="Sensibilité", levels=[{"name": "Public", "short_name": "PUB"}]),
-        )
-    )["classification"]
-    public = scheme["levels"][0]["id"]
-    internal = (
-        await _ok(
-            app,
-            AGENT,
-            "create_level",
-            _ids(space, scheme_id="sensibilite", name="Interne", short_name="INT"),
-        )
-    )["level"]["id"]
-    cert = (
-        await _ok(
-            app, AGENT, "create_certification", _ids(space, name="Or", tag="certification/or")
-        )
-    )["certification"]
-    before = await _draft_paths(app, space)
-    sid = _ids(space, scheme_id="sensibilite")
-
-    cases: list[tuple[str, dict[str, Any], dict[str, Any]]] = [
-        (
-            "create_tag",
-            _ids(space, tag_id="GOUVERNANCE/pii"),
-            {"error": "tag_id_taken", "tag_id": "gouvernance/pii"},
-        ),
-        (
-            # Ticket aa19569b : en écriture, seul le brouillon est accepté.
-            "create_tag",
-            _ids(space, tag_id="gouvernance/autre", branch="main"),
+    await _write(
+        app,
+        space,
+        [
+            {"kind": "tag", "identity": TAG, "content": {}},
             {
-                "error": "branch_unsupported",
-                "branch": "main",
-                "accepted": ["draft"],
-                "aide": {"primitive": "describe_standard", "standard": "writing-rules"},
+                "kind": "classification",
+                "identity": SCHEME,
+                "content": {
+                    "name": "Sensibilité",
+                    "levels": [
+                        {"name": "Public", "short_name": "PUB"},
+                        {"name": "Interne", "short_name": "INT"},
+                    ],
+                },
             },
-        ),
-        (
-            "create_tag",
-            _ids(space, tag_id="pas valide!"),
-            {"error": "invalid_request", "fields": ["tag_id_invalid"]},
-        ),
-        (
-            "update_tag",
-            _ids(space, tag_id="gouvernance/absent", owner="x"),
-            {"error": "tag_not_found", "tag_id": "gouvernance/absent"},
-        ),
-        (
-            "delete_tag",
-            _ids(space, tag_id="../evasion"),
-            {"error": "tag_not_found", "tag_id": "../evasion"},
-        ),
-        (
-            "create_classification",
-            _ids(space, name="Sensibilite"),
-            {"error": "scheme_id_taken", "scheme_id": "sensibilite"},
-        ),
-        (
-            "create_classification",
-            _ids(space, name="!!!"),
-            {"error": "invalid_request", "fields": ["scheme_id_invalid"]},
-        ),
-        (
-            "update_classification",
-            _ids(space, scheme_id="absent", name="x"),
-            {"error": "scheme_not_found", "scheme_id": "absent"},
-        ),
-        (
-            "delete_classification",
-            _ids(space, scheme_id="../x"),
-            {"error": "scheme_not_found", "scheme_id": "../x"},
-        ),
-        (
-            "create_level",
-            {**sid, "name": "Public", "short_name": "PUB2"},
-            {"error": "level_name_taken", "name": "Public"},
-        ),
-        (
-            "create_level",
-            {**sid, "name": "Autre", "short_name": "PUB"},
-            {"error": "level_short_name_taken", "short_name": "PUB"},
-        ),
-        (
-            "update_level",
-            {**sid, "level_id": internal, "name": "Public"},
-            {"error": "level_name_taken", "name": "Public"},
-        ),
-        (
-            "delete_level",
-            {**sid, "level_id": "absent"},
-            {"error": "level_not_found", "scheme_id": "sensibilite", "level_id": "absent"},
-        ),
-        (
-            "create_level",
-            {**sid, "name": "a,b", "short_name": "AB"},
-            {"error": "invalid_request", "fields": ["level_name_comma"]},
-        ),
-        # Critère 3 : la liste doit contenir exactement les niveaux du schéma.
-        (
-            "reorder_levels",
-            {**sid, "order": [public]},
-            {"error": "invalid_request", "fields": ["level_order_invalid"]},
-        ),
-        (
-            "reorder_levels",
-            {**sid, "order": [public, public, internal]},
-            {"error": "invalid_request", "fields": ["level_order_invalid"]},
-        ),
-        (
-            "create_certification",
-            _ids(space, name="Gold", tag="certification/or"),
-            {"error": "certification_tag_taken", "tag": "certification/or"},
-        ),
-        (
-            "create_certification",
-            _ids(space, name="Or bis", tag="certification/or-bis", slug="or"),
-            {"error": "certification_slug_taken", "slug": "or"},
-        ),
-        (
-            "update_certification",
-            _ids(space, certification_id="absent", rank=3),
-            {"error": "certification_not_found", "certification_id": "absent"},
-        ),
-        (
-            "delete_certification",
-            _ids(space, certification_id="../x"),
-            {"error": "certification_not_found", "certification_id": "../x"},
-        ),
-        (
-            "update_certification",
-            _ids(space, certification_id=cert["id"], rank=0),
-            {"error": "invalid_request", "fields": ["certification_rank_invalid"]},
-        ),
-    ]
-    for name, args, expected in cases:
-        assert await _refusal(app, AGENT, name, args) == expected, name
+            {
+                "kind": "certification",
+                "identity": CERT,
+                "content": {"name": "Or", "tag": "certification/or"},
+            },
+        ],
+    )
+    before = await _draft_paths(app, space)
 
+    def level(value: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{"op": "add", "path": "$.levels[0]", "value": value}]
+
+    exists = await _refused(app, space, [{"kind": "tag", "identity": TAG, "content": {}}])
+    assert exists["errors"][0]["code"] == "write_exists"
+    bad_id = await _refused(app, space, [{"kind": "tag", "identity": {"id": "pas valide!"}}])
+    assert bad_id["errors"][0]["code"] == "write_identity_invalid"
+    other_branch = await call_tool(
+        app,
+        AGENT,
+        "write_documents",
+        _ids(
+            space,
+            message="x",
+            branch="main",
+            documents=[{"kind": "tag", "identity": {"id": "autre"}, "content": {}}],
+        ),
+    )
+    refusal = json.loads(other_branch.content[0].text)
+    assert refusal["error"] == "branch_unsupported" and refusal["accepted"] == ["draft"]
+    patches = [
+        (level({"name": "Public", "short_name": "PUB2"}), "level_name_taken"),
+        (level({"name": "Autre", "short_name": "PUB"}), "level_short_name_taken"),
+        (level({"name": "a,b", "short_name": "AB"}), "invalid_request"),
+    ]
+    for ops, code in patches:
+        error, body = await _patch(app, space, "classification", SCHEME, ops)
+        assert error and body["errors"][0]["code"] == code, (ops, body)
+    error, body = await _patch(
+        app, space, "certification", CERT, [{"op": "set", "path": "$.rank", "value": 0}]
+    )
+    assert error and body["errors"][0]["fields"] == ["certification_rank_invalid"]
+    taken = await _refused(
+        app,
+        space,
+        [
+            {
+                "kind": "certification",
+                "identity": {"slug": "gold"},
+                "content": {"name": "Gold", "tag": "certification/or"},
+            }
+        ],
+    )
+    assert taken["errors"][0]["code"] == "certification_tag_taken"
     # Aucune de ces tentatives n'a écrit : le brouillon n'a pas bougé.
     assert await _draft_paths(app, space) == before
 
 
-# --- Critère 4 : droits ----------------------------------------------------------------
+# --- Droits -------------------------------------------------------------------------------
 
 
 async def test_une_cle_ne_voit_ni_n_appelle_aucune_ecriture(app: FastAPI, space: ApiSpace) -> None:
     names = set(await tool_names(app, KEY))
-    assert not WRITES & names
+    assert not ({*COMMON} | REMOVED) & names
     assert "list_documents" in names
-    refused = await _refusal(app, KEY, "create_tag", _ids(space, tag_id="gouvernance/pii"))
-    assert refused["error"] == "primitive_forbidden"
+    error, refused = await _call(
+        app, space, "write_documents", KEY, message="x", documents=[{"kind": "tag"}]
+    )
+    assert error and refused["error"] == "primitive_forbidden"
 
 
 async def test_ecriture_bornee_par_les_droits_sur_l_espace(app: FastAPI, space: ApiSpace) -> None:
@@ -454,11 +462,13 @@ async def test_ecriture_bornee_par_les_droits_sur_l_espace(app: FastAPI, space: 
         )
         profile = await conn.fetchval("SELECT id FROM agent_profiles WHERE name = 'Gouvernance'")
     _wire(app, {"ana": McpCaller(kind="oauth", ref="a", agent_profile_id=profile, user_id=user_id)})
+    entry = [{"kind": "tag", "identity": TAG, "content": {}}]
 
-    # governance:write sur un AUTRE espace : outil visible, refusé sur celui-ci.
-    assert "create_tag" in await tool_names(app, "ana")
-    refused = await _refusal(app, "ana", "create_tag", _ids(space, tag_id="gouvernance/pii"))
-    assert refused["error"] == "primitive_forbidden"
+    # governance:write sur un AUTRE espace seulement : refusé sur celui-ci.
+    assert "write_documents" in await tool_names(app, "ana")
+    refused = await _refused(app, space, entry, token="ana")
+    assert refused["errors"][0]["code"] == "write_kind_forbidden"
+    assert refused["errors"][0]["capability"] == "governance:write"
 
     # Donné sur cet espace : permis.
     async with app.state.pool.acquire() as conn:
@@ -467,21 +477,42 @@ async def test_ecriture_bornee_par_les_droits_sur_l_espace(app: FastAPI, space: 
             "WHERE id = $1",
             base,
         )
-    assert (await _ok(app, "ana", "create_tag", _ids(space, tag_id="gouvernance/pii")))["changed"]
+    assert (await _write(app, space, entry, token="ana"))["written"] is True
 
 
-# --- Critère 5 : annotations -------------------------------------------------------------
+# --- Critères 1 et 3 : les primitives retirées et les profils qui les citaient -----------
 
 
-async def test_seules_les_suppressions_sont_destructives(app: FastAPI, space: ApiSpace) -> None:
+async def test_primitives_retirees(app: FastAPI, space: ApiSpace) -> None:
     async with mcp_client(app, AGENT) as client:
         tools = {t.name: t.annotations for t in (await client.list_tools()).tools}
-    for name in WRITES:
-        assert BY_ID[name].person_only, name
-        assert BY_ID[name].capability == "governance:write", name
-        assert tools[name].read_only_hint is False, name
-        assert tools[name].destructive_hint is name.startswith("delete_"), name
+    for name in REMOVED:
+        assert name not in BY_ID and name not in tools, name
+    assert tools["write_documents"].destructive_hint is True
     assert tools["list_documents"].read_only_hint is True
+
+
+async def test_un_profil_qui_citait_une_ecriture_retiree_se_charge(
+    app: FastAPI, space: ApiSpace
+) -> None:
+    """Critère 3 : la référence est ignorée tant qu'elle reste, puis nettoyée par la
+    migration 0043 (sans ajouter l'écriture commune à sa place)."""
+    old = await _profile(app, "Ancien", ["create_tag", "list_spaces", "reorder_levels"])
+    async with app.state.pool.acquire() as conn:
+        admin_id = await conn.fetchval("SELECT id FROM users WHERE is_bootstrap")
+    caller = McpCaller(kind="oauth", ref="o", agent_profile_id=old, user_id=admin_id)
+    _wire(app, {"ancien": caller})
+    names = set(await tool_names(app, "ancien"))
+    assert "list_spaces" in names and not REMOVED & names
+    migration = (
+        Path(__file__).parents[1]
+        / "src/ossie_studio/db/migrations/0043_governance_writes_removed.sql"
+    ).read_text(encoding="utf-8")
+    async with app.state.pool.acquire() as conn:
+        await conn.execute(migration)
+        kept = await conn.fetchval("SELECT primitives FROM agent_profiles WHERE id = $1", old)
+    assert kept == ["list_spaces"]
+    assert "list_spaces" in await tool_names(app, "ancien")
 
 
 # --- L'écran passe par le même service ----------------------------------------------------
@@ -490,18 +521,22 @@ async def test_seules_les_suppressions_sont_destructives(app: FastAPI, space: Ap
 async def test_ecran_refuse_un_ordre_de_niveaux_avec_doublon(
     app: FastAPI, client: AsyncClient, space: ApiSpace
 ) -> None:
-    await _ok(
+    await _write(
         app,
-        AGENT,
-        "create_classification",
-        _ids(
-            space,
-            name="Sensibilité",
-            levels=[
-                {"name": "Public", "short_name": "PUB"},
-                {"name": "Interne", "short_name": "INT"},
-            ],
-        ),
+        space,
+        [
+            {
+                "kind": "classification",
+                "identity": SCHEME,
+                "content": {
+                    "name": "Sensibilité",
+                    "levels": [
+                        {"name": "Public", "short_name": "PUB"},
+                        {"name": "Interne", "short_name": "INT"},
+                    ],
+                },
+            }
+        ],
     )
     base = f"/api/spaces/{space.space_id}/branches/{space.branch_id}/governance/classifications"
     levels = (await client.get(base)).json()["schemes"][0]["levels"]
@@ -517,7 +552,5 @@ async def test_ecran_refuse_un_ordre_de_niveaux_avec_doublon(
         json={"name": "Public", "short_name": "PUB", "label": "Ouvert"},
     )
     assert response.status_code == 200
-    draft = await _ok(
-        app, AGENT, "list_documents", _ids(space, kind="classification", branch="draft")
-    )
-    assert draft["documents"][0]["levels"][0]["label"] == "Ouvert"
+    [scheme] = await _listed(app, space, "classification", branch="draft")
+    assert scheme["levels"][0]["label"] == "Ouvert"

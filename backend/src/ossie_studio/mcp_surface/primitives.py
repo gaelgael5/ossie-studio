@@ -16,7 +16,6 @@ from ossie_studio.mcp_surface import (
     write_guide,
     writes,
 )
-from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
 from ossie_studio.mcp_surface.branch import BranchArgs, BranchParam, ObjectArgs, SourceArgs
 from ossie_studio.mcp_surface.core import (
@@ -96,22 +95,4 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "remove_contract": Implementation(
         source_writes.ContractVersionArgs, source_writes.remove_contract
     ),
-    # Gouvernance
-    "create_tag": Implementation(gov.CreateTagArgs, gov.create_tag),
-    "update_tag": Implementation(gov.UpdateTagArgs, gov.update_tag),
-    "delete_tag": Implementation(gov.TagArgs, gov.delete_tag),
-    "create_classification": Implementation(
-        gov.CreateClassificationArgs, gov.create_classification
-    ),
-    "update_classification": Implementation(
-        gov.UpdateClassificationArgs, gov.update_classification
-    ),
-    "delete_classification": Implementation(gov.SchemeArgs, gov.delete_classification),
-    "create_level": Implementation(gov.CreateLevelArgs, gov.create_level),
-    "update_level": Implementation(gov.UpdateLevelArgs, gov.update_level),
-    "delete_level": Implementation(gov.LevelArgs, gov.delete_level),
-    "reorder_levels": Implementation(gov.ReorderLevelsArgs, gov.reorder_levels),
-    "create_certification": Implementation(gov.CreateCertificationArgs, gov.create_certification),
-    "update_certification": Implementation(gov.UpdateCertificationArgs, gov.update_certification),
-    "delete_certification": Implementation(gov.CertificationArgs, gov.delete_certification),
 }
