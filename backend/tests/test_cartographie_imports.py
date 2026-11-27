@@ -183,3 +183,64 @@ async def test_journal(space: ApiSpace) -> None:
     assert answer.status_code == 200, answer.text
     [event] = answer.json()["events"]
     assert event["object_id"].endswith("/application/fichier")
+
+
+async def test_colonnes_et_ajout_au_modele(space: ApiSpace) -> None:
+    """Ticket 221d832b, critère 2 : la base et les propriétés du type correspondent,
+    une colonne sans propriété s'ajoute au type."""
+    await _declare(space, "application", APP_TEMPLATE)
+    await space.client.put(
+        _url(space, "application", "/fichier/exemple"),
+        files={"file": ("e.csv", b"cle;Nom;criticite;Equipe\nAPP-1;Un;haute;Ventes\n", "text/csv")},
+    )
+    preview = await space.client.post(_url(space, "application", "/fichier/apercu"))
+    assert preview.status_code == 200, preview.text
+    rows = {r["column"]: r["property"] for r in preview.json()["comparison"]}
+    assert rows == {"cle": "cle", "Nom": "nom", "criticite": "criticite", "Equipe": None}
+    added = await space.client.post(
+        _url(space, "application", "/fichier/proprietes"), json={"column": "Equipe"}
+    )
+    assert added.status_code == 200, added.text
+    assert (added.json()["property"], added.json()["type"]) == ("equipe", "string")
+    again = await space.client.post(_url(space, "application", "/fichier/apercu"))
+    assert {r["column"]: r["property"] for r in again.json()["comparison"]}["Equipe"] == "equipe"
+    twice = await space.client.post(
+        _url(space, "application", "/fichier/proprietes"), json={"column": "Equipe"}
+    )
+    assert twice.status_code == 409
+
+
+async def test_import_xlsx_d_un_type(space: ApiSpace) -> None:
+    """Ticket 6f6066e9 : déclarer un import xlsx, choisir la feuille, importer."""
+    from tests.test_imports_common import _xlsx
+
+    created = await space.client.post(
+        _url(space, "application"), json={"label": "Excel", "slug": "excel", "format": "xlsx"}
+    )
+    assert created.status_code == 201, created.text
+    await space.client.put(
+        _url(space, "application", "/excel/template"), json={"template": APP_TEMPLATE}
+    )
+    raw = _xlsx(
+        {
+            "Notes": [["rien"]],
+            "Apps": [["cle", "nom", "criticite"], ["APP-X1", "X1", "basse"]],
+        }
+    )
+    await space.client.put(
+        _url(space, "application", "/excel/exemple"),
+        files={"file": ("a.xlsx", raw, "application/octet-stream")},
+    )
+    preview = (await space.client.post(_url(space, "application", "/excel/apercu"))).json()
+    assert preview["sheet_required"] is True and preview["sheets"] == ["Notes", "Apps"]
+    chosen = await space.client.put(
+        _url(space, "application", "/excel/lecture"), json={"header": True, "sheet": "Apps"}
+    )
+    assert chosen.status_code == 200, chosen.text
+    preview = (await space.client.post(_url(space, "application", "/excel/apercu"))).json()
+    assert preview["columns"] == ["cle", "nom", "criticite"] and preview["count"] == 1
+    run = await space.client.post(
+        _url(space, "application", "/excel/import"), data={"mode": "merge"}
+    )
+    assert run.status_code == 200, run.text
+    assert run.json()["new"] == 1

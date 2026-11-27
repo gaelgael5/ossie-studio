@@ -20,8 +20,10 @@ import yaml
 from ossie_studio.imports.errors import ImportsError
 from ossie_studio.problems import Problem
 
-ImportFormat = Literal["csv", "json"]
-FORMATS: tuple[ImportFormat, ...] = ("csv", "json")
+ImportFormat = Literal["csv", "json", "xlsx"]
+FORMATS: tuple[ImportFormat, ...] = ("csv", "json", "xlsx")
+# Formats lus en lignes et colonnes : la coche « première ligne = en-tête » s'y applique.
+TABULAR: tuple[ImportFormat, ...] = ("csv", "xlsx")
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,8 @@ class ImportDeclaration:
     separator: str = ","
     encoding: str = "utf-8"
     header: bool = True
+    # Feuille d'un classeur Excel (ticket 6f6066e9) ; vide : la seule feuille, ou à choisir.
+    sheet: str = ""
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,10 @@ def dump_declaration(decl: ImportDeclaration) -> str:
     data: dict[str, Any] = {"label": decl.label.strip(), "format": decl.format}
     if decl.format == "csv":
         data.update({"separator": decl.separator, "encoding": decl.encoding, "header": decl.header})
+    elif decl.format == "xlsx":
+        data["header"] = decl.header
+        if decl.sheet:
+            data["sheet"] = decl.sheet
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
 
@@ -96,4 +104,5 @@ def parse_declaration(slug: str, text: str) -> ImportDeclaration:
         separator=str(data.get("separator", ",")),
         encoding=str(data.get("encoding", "utf-8")),
         header=header if isinstance(header, bool) else True,
+        sheet=str(data.get("sheet") or ""),
     )

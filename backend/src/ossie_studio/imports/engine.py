@@ -18,7 +18,10 @@ import csv
 import io
 import json
 from dataclasses import dataclass, field
+from datetime import date, datetime, time
 from typing import Any, Final
+
+import openpyxl
 
 from ossie_studio.imports.declaration import ImportDeclaration
 from ossie_studio.imports.jslt_engine import (
@@ -70,10 +73,79 @@ class Example:
     columns: list[str] = field(default_factory=list)
 
 
+def sheet_names(raw: bytes) -> list[str]:
+    """Les feuilles d'un classeur xlsx ; ExampleError si le fichier ne se lit pas."""
+    try:
+        book = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    except Exception as exc:  # zip, XML ou format invalides : tous refusés pareil
+        raise ExampleError("example_xlsx", str(exc)) from None
+    try:
+        return list(book.sheetnames)
+    finally:
+        book.close()
+
+
+def _cell(value: Any) -> Any:
+    """Une cellule Excel en valeur JSON : nombres et booléens tels quels, dates en
+    texte ISO, vide = chaîne vide (comme une cellule CSV vide)."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime | date | time):
+        return value.isoformat()
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
+
+
+def _rows_to_example(rows: list[list[Any]], header: bool) -> Example:
+    """Lignes (cellules) → lignes nommées, communes au CSV et au xlsx."""
+    if not rows:
+        return Example([])
+    if header:
+        columns = [str(c).strip() or f"col{i + 1}" for i, c in enumerate(rows[0])]
+        body, first_line = rows[1:], 2
+    else:
+        width = max(len(r) for r in rows)
+        columns = [f"col{i + 1}" for i in range(width)]
+        body, first_line = rows, 1
+    records = [
+        Record(
+            {c: (row[i] if i < len(row) else "") for i, c in enumerate(columns)},
+            f"ligne {first_line + n}",
+        )
+        for n, row in enumerate(body)
+        if any(str(cell).strip() for cell in row)
+    ]
+    return Example(records, columns)
+
+
+def _read_xlsx(decl: ImportDeclaration, raw: bytes) -> Example:
+    """Une feuille d'un classeur xlsx (ticket 6f6066e9) : la feuille déclarée, ou la
+    seule ; plusieurs feuilles sans choix → refus nommé qui les liste."""
+    sheets = sheet_names(raw)
+    if decl.sheet and decl.sheet in sheets:
+        name = decl.sheet
+    elif len(sheets) == 1:
+        name = sheets[0]
+    else:
+        raise ExampleError("example_sheet_required", ", ".join(sheets))
+    book = openpyxl.load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    try:
+        rows = [[_cell(v) for v in row] for row in book[name].iter_rows(values_only=True)]
+    finally:
+        book.close()
+    # Les cellules vides en fin de ligne n'ajoutent pas de colonne.
+    while rows and not any(str(c).strip() for c in rows[-1]):
+        rows.pop()
+    return _rows_to_example(rows, decl.header)
+
+
 def read_example(decl: ImportDeclaration, raw: bytes) -> Example:
     """Les lignes du fichier d'exemple, selon le format et les réglages de lecture."""
     if not raw:
         return Example([])
+    if decl.format == "xlsx":
+        return _read_xlsx(decl, raw)
     if decl.format == "csv":
         try:
             # « utf-8 » lu en « utf-8-sig » : un fichier enregistré par Excel commence
@@ -83,25 +155,8 @@ def read_example(decl: ImportDeclaration, raw: bytes) -> Example:
             text = raw.decode(encoding)
         except (UnicodeDecodeError, LookupError) as exc:
             raise ExampleError("example_encoding", str(exc)) from None
-        rows = list(csv.reader(io.StringIO(text), delimiter=decl.separator))
-        if not rows:
-            return Example([])
-        if decl.header:
-            columns = [c.strip() or f"col{i + 1}" for i, c in enumerate(rows[0])]
-            body, first_line = rows[1:], 2
-        else:
-            width = max(len(r) for r in rows)
-            columns = [f"col{i + 1}" for i in range(width)]
-            body, first_line = rows, 1
-        records = [
-            Record(
-                {c: (row[i] if i < len(row) else "") for i, c in enumerate(columns)},
-                f"ligne {first_line + n}",
-            )
-            for n, row in enumerate(body)
-            if any(cell.strip() for cell in row)
-        ]
-        return Example(records, columns)
+        rows: list[list[Any]] = list(csv.reader(io.StringIO(text), delimiter=decl.separator))
+        return _rows_to_example(rows, decl.header)
     try:
         data = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, ValueError) as exc:

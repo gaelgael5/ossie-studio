@@ -11,16 +11,19 @@ rangés sous `cartographie/imports/<slug du type>/`.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from ossie_studio.api.cartographie import api_error, cartographie_target
 from ossie_studio.api.common import require_capability
 from ossie_studio.api.import_routes import ImportAdapter, import_router
+from ossie_studio.cartographie.catalog import catalog
 from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.import_target import JOURNAL_TYPE, imports_dir, target_of
+from ossie_studio.cartographie.model import BASE_PROPERTIES
 from ossie_studio.cartographie.service import CartographieTarget
-from ossie_studio.cartographie.space import read_cartographie
+from ossie_studio.cartographie.space import read_cartographie, save_type
 from ossie_studio.errors import ApiError
 from ossie_studio.imports.errors import ImportsError
 from ossie_studio.imports.target import ImportTarget
@@ -85,6 +88,30 @@ def _write(root: Path, slug: str, target: Any, _now: list[Any], items: list[Any]
     target.write(root, items)
 
 
+def _properties(root: Path, slug: str) -> list[str]:
+    """La base d'un objet (cle, nom, documentation) et les propriétés du type :
+    attributs ArchiMate et propriétés ajoutées (ticket 221d832b)."""
+    _require(root, slug)
+    ctype = read_cartographie(root).types[slug]
+    base = catalog().get(ctype.archimate)
+    return [
+        *(name for name, _kind, _required in BASE_PROPERTIES),
+        *(a.name for a in (base.attributes if base else ())),
+        *ctype.properties,
+    ]
+
+
+def _add_property(root: Path, slug: str, prop: str, kind: str) -> None:
+    """« Ajouter au modèle » : une propriété ajoutée au type, par le service (nom
+    valide, non réservé, objets toujours valides)."""
+    _require(root, slug)
+    ctype = read_cartographie(root).types[slug]
+    if prop in ctype.properties:
+        raise CartographieError("property_exists", status=409, property=prop)
+    changed = replace(ctype, properties={**ctype.properties, prop: {"type": kind}})
+    save_type(root, changed, create=False)
+
+
 ADAPTER = ImportAdapter(
     journal_type=JOURNAL_TYPE,
     modes=("merge",),
@@ -97,6 +124,8 @@ ADAPTER = ImportAdapter(
     write_items=_write,
     of=lambda slug: f"du type {slug}",
     into=lambda slug: f"dans le type {slug}",
+    properties=_properties,
+    add_property=_add_property,
 )
 
 router = import_router(

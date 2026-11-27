@@ -33,6 +33,7 @@ dependencies = [
     "snowflake-connector-python>=3.12",
     "urban-archimate==0.1.3",
     "urban-bpmn==0.1.1",
+    "openpyxl==3.1.5",
 ]
 
 [dependency-groups]
@@ -88,5 +89,5 @@ mypy_path = "src"
 packages = ["ossie_studio"]
 
 [[tool.mypy.overrides]]
-module = ["authlib.*", "asyncpg.*", "urban_archimate", "urban_bpmn"]
+module = ["authlib.*", "asyncpg.*", "urban_archimate", "urban_bpmn", "openpyxl", "openpyxl.*"]
 ignore_missing_imports = true

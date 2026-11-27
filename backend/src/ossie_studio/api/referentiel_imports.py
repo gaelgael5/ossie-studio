@@ -18,6 +18,7 @@ from ossie_studio.api.common import require_capability
 from ossie_studio.api.import_routes import ImportAdapter, import_router
 from ossie_studio.api.referentiels import read_in, referentiel_target, write_in
 from ossie_studio.imports.target import ImportTarget
+from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.import_target import JOURNAL_TYPE, ReferentielImportTarget
 from ossie_studio.referentiels.repo import (
     imports_dir,
@@ -55,6 +56,24 @@ def _write(root: Path, name: str, target: ImportTarget, _now: list[Any], items: 
     write_referentiel(root, name, model, items, create=False)
 
 
+def _properties(root: Path, name: str) -> list[str]:
+    """Les propriétés de premier niveau du modèle (ticket 221d832b)."""
+    props = read_referentiel(root, name).model.get("properties")
+    return list(props) if isinstance(props, dict) else []
+
+
+def _add_property(root: Path, name: str, prop: str, kind: str) -> None:
+    """« Ajouter au modèle » : une propriété facultative, validée avec le modèle."""
+    ref = read_referentiel(root, name)
+    model = dict(ref.model)
+    props = dict(model.get("properties") or {})
+    if prop in props:
+        raise ReferentielError("model_property_exists", 409, property=prop)
+    props[prop] = {"type": kind}
+    model["properties"] = props
+    write_referentiel(root, name, model, ref.values, create=False)
+
+
 ADAPTER = ImportAdapter(
     journal_type=JOURNAL_TYPE,
     modes=("merge", "replace"),
@@ -67,6 +86,8 @@ ADAPTER = ImportAdapter(
     write_items=_write,
     of=lambda name: f"de {name}",
     into=lambda name: f"dans {name}",
+    properties=_properties,
+    add_property=_add_property,
 )
 
 router = import_router(

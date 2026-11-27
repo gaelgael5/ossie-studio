@@ -35,7 +35,7 @@ function AddImportDialog({
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const pair = useLabelSlug()
-  const [format, setFormat] = useState<'csv' | 'json'>('csv')
+  const [format, setFormat] = useState<'csv' | 'json' | 'xlsx'>('csv')
   const create = useMutation({
     mutationFn: () =>
       imports.create({ label: pair.label.trim(), slug: pair.finalSlug, format }),
@@ -67,9 +67,10 @@ function AddImportDialog({
           <label className="field-label" htmlFor="new-import-format">
             {t('refImportFormat')}
           </label>
-          <select id="new-import-format" className="input" value={format} onChange={(e) => setFormat(e.target.value as 'csv' | 'json')}>
+          <select id="new-import-format" className="input" value={format} onChange={(e) => setFormat(e.target.value as 'csv' | 'json' | 'xlsx')}>
             <option value="csv">CSV</option>
             <option value="json">JSON</option>
+            <option value="xlsx">{t('refImportFormatXlsx')}</option>
           </select>
         </div>
         <div className="row modal-foot">
@@ -126,7 +127,20 @@ function ExampleTab({
     onSuccess: refresh,
   })
   const readingChanged =
-    reading.separator !== detail.separator || reading.encoding !== detail.encoding || reading.header !== detail.header
+    reading.separator !== detail.separator ||
+    reading.encoding !== detail.encoding ||
+    reading.header !== detail.header ||
+    (reading.sheet ?? '') !== (detail.sheet ?? '')
+  // « Ajouter au modèle » une colonne sans propriété (ticket 221d832b) : le modèle
+  // change, la comparaison et ce que la cible affiche se relisent.
+  const addProperty = useMutation({
+    mutationFn: (column: string) => imports.addProperty(detail.slug, column),
+    onSuccess: () =>
+      Promise.all([...imports.invalidates, 'referentielImportPreview', 'draft', 'draftChanges'].map((k) =>
+        queryClient.invalidateQueries({ queryKey: [k] }),
+      )),
+  })
+  const comparison = preview?.comparison ?? []
   return (
     <div className="stack">
       <ErrorList messages={[upload.error, saveReading.error, previewError].flatMap((e) => (e ? errorMessages(t, e) : []))} />
@@ -144,7 +158,13 @@ function ExampleTab({
             id="import-example-file"
             className="input"
             type="file"
-            accept={detail.format === 'csv' ? '.csv,text/csv' : '.json,application/json'}
+            accept={
+              detail.format === 'csv'
+                ? '.csv,text/csv'
+                : detail.format === 'xlsx'
+                  ? '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                  : '.json,application/json'
+            }
             onChange={(e) => {
               const file = e.target.files?.[0]
               if (file) upload.mutate(file)
@@ -206,6 +226,91 @@ function ExampleTab({
             </BusyButton>
           ) : null}
         </fieldset>
+      ) : null}
+      {detail.format === 'xlsx' ? (
+        // Classeur Excel (ticket 6f6066e9) : la feuille à lire, et l'en-tête.
+        <fieldset className="ref-fieldset row">
+          <legend>{t('refImportReading')}</legend>
+          {(preview?.sheets ?? []).length > 1 ? (
+            <label className="field">
+              <span className="field-label">{t('refImportSheet')}</span>
+              <select
+                className="input"
+                value={reading.sheet ?? ''}
+                disabled={readOnly}
+                onChange={(e) => onReading({ ...reading, sheet: e.target.value })}
+              >
+                <option value="">{t('refImportSheetChoose')}</option>
+                {(preview?.sheets ?? []).map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : preview?.sheets?.length === 1 ? (
+            <span className="muted small">{t('refImportSheetOnly', { name: preview.sheets[0] })}</span>
+          ) : null}
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={reading.header}
+              disabled={readOnly}
+              onChange={(e) => onReading({ ...reading, header: e.target.checked })}
+            />
+            {t('refImportHeader')}
+          </label>
+          {!readOnly && readingChanged ? (
+            <BusyButton
+              type="button"
+              className="btn btn-sm"
+              busy={saveReading.isPending}
+              busyText={t('refSaveBusy')}
+              onClick={() => saveReading.mutate()}
+            >
+              {t('refImportReadingSave')}
+            </BusyButton>
+          ) : null}
+        </fieldset>
+      ) : null}
+      {preview?.sheet_required ? <p className="empty-note">{t('refImportSheetRequired')}</p> : null}
+      {comparison.length > 0 ? (
+        <div className="stack">
+          <h4>{t('refImportColumns')}</h4>
+          <ErrorList messages={addProperty.error ? errorMessages(t, addProperty.error) : []} />
+          <table className="table" aria-label={t('refImportColumns')}>
+            <thead>
+              <tr>
+                <th>{t('refImportColumn')}</th>
+                <th>{t('refImportModelProperty')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comparison.map((c) => (
+                <tr key={c.column}>
+                  <td className="mono">{c.column}</td>
+                  <td>
+                    {c.property ? (
+                      <span className="mono">{c.property}</span>
+                    ) : readOnly ? (
+                      <span className="muted">{t('refImportNoProperty')}</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        disabled={addProperty.isPending}
+                        aria-label={t('refImportAddPropertyFor', { column: c.column })}
+                        onClick={() => addProperty.mutate(c.column)}
+                      >
+                        {t('refImportAddProperty', { name: c.proposed })}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : null}
       {preview && preview.count > 0 ? (
         <div className="stack">
@@ -282,12 +387,13 @@ function ImportView({
       setTemplate((prev) => prev ?? data.template)
     }
   }, [data])
-  const effective = reading ?? (data ? { separator: data.separator, encoding: data.encoding, header: data.header } : null)
+  const effective =
+    reading ?? (data ? { separator: data.separator, encoding: data.encoding, header: data.header, sheet: data.sheet ?? '' } : null)
   // L'aperçu suit les réglages affichés, avant même de les enregistrer.
   const preview = useQuery({
     queryKey: ['referentielImportPreview', spaceId, branchId, name, slug, effective, data?.example_size],
     queryFn: () =>
-      imports.preview(slug, data?.format === 'csv' ? effective ?? undefined : undefined),
+      imports.preview(slug, data?.format === 'csv' || data?.format === 'xlsx' ? effective ?? undefined : undefined),
     enabled: data !== undefined && data.example_size > 0,
   })
   const refresh = () =>
@@ -321,7 +427,10 @@ function ImportView({
   const readingDirty =
     !!data &&
     !!reading &&
-    (reading.separator !== data.separator || reading.encoding !== data.encoding || reading.header !== data.header)
+    (reading.separator !== data.separator ||
+      reading.encoding !== data.encoding ||
+      reading.header !== data.header ||
+      (reading.sheet ?? '') !== (data.sheet ?? ''))
   const templateDirty = !!data && template !== null && template !== data.template
   useUnsaved(
     `import:${slug}`,

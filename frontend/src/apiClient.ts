@@ -1883,10 +1883,12 @@ export interface ReferentielModelPreview {
 export interface ReferentielImportSummary {
   slug: string
   label: string
-  format: 'csv' | 'json'
+  format: 'csv' | 'json' | 'xlsx'
   separator: string
   encoding: string
   header: boolean
+  /** Feuille d'un classeur xlsx (ticket 6f6066e9) ; vide : la seule, ou à choisir. */
+  sheet: string
   last_import: string | null
   last_import_by?: string | null
 }
@@ -1903,6 +1905,7 @@ export interface ImportReading {
   separator: string
   encoding: string
   header: boolean
+  sheet?: string
 }
 
 export interface ImportPreview {
@@ -1910,6 +1913,11 @@ export interface ImportPreview {
   rows: Record<string, unknown>[]
   count: number
   paths: { path: string; kind: string; description: string }[]
+  /** Classeur xlsx : ses feuilles ; `sheet_required` tant qu'aucune n'est choisie. */
+  sheets?: string[]
+  sheet_required?: boolean
+  /** Colonnes face aux propriétés du modèle (ticket 221d832b) ; vide sans en-tête. */
+  comparison?: { column: string; property: string | null; proposed: string }[]
 }
 
 export interface TemplateProblem {
@@ -3147,7 +3155,9 @@ export interface ImportsApi {
   invalidates: string[]
   list: () => Promise<{ imports: ReferentielImportSummary[] }>
   get: (slug: string) => Promise<ReferentielImportDetail>
-  create: (body: { label: string; slug: string; format: 'csv' | 'json' }) => Promise<ReferentielImportDetail>
+  create: (body: { label: string; slug: string; format: 'csv' | 'json' | 'xlsx' }) => Promise<ReferentielImportDetail>
+  /** « Ajouter au modèle » une colonne sans propriété (ticket 221d832b). */
+  addProperty: (slug: string, column: string) => Promise<{ property: string; type: string; revision: string | null }>
   rename: (slug: string, label: string) => Promise<ReferentielImportDetail>
   remove: (slug: string) => Promise<void>
   uploadExample: (slug: string, file: File) => Promise<ReferentielImportDetail>
@@ -3190,6 +3200,7 @@ export function importsApi(
       return apiUpload(one(slug, '/import'), form, 'POST')
     },
     saveTemplate: (slug, template) => apiFetch(one(slug, '/template'), { method: 'PUT', body: JSON.stringify({ template }) }),
+    addProperty: (slug, column) => apiFetch(one(slug, '/proprietes'), { method: 'POST', body: JSON.stringify({ column }) }),
   }
 }
 

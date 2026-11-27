@@ -111,9 +111,15 @@ function setup(
                 rows: [{ Pays: 'FR', Mode: 'site', Delai: '2' }],
                 count: 4,
                 paths: [{ path: '$.Pays', kind: 'string', description: '' }, { path: '$.Delai', kind: 'string', description: '' }],
+                comparison: [
+                  { column: 'Pays', property: 'pays', proposed: 'pays' },
+                  { column: 'Mode', property: 'mode', proposed: 'mode' },
+                  { column: 'Delai', property: null, proposed: 'delai' },
+                ],
               }
             : { columns: ['Pays;Mode;Delai'], rows: [{ 'Pays;Mode;Delai': 'FR;site;2' }], count: 4, paths: [] }
-      } else if (path === `${BASE}/transporteur/essai`) body = options.trial ?? TRIAL
+      } else if (path === `${BASE}/transporteur/proprietes`) body = { property: 'delai', type: 'integer', revision: 'draft:9' }
+      else if (path === `${BASE}/transporteur/essai`) body = options.trial ?? TRIAL
       else if (path === `${BASE}/transporteur/import`) {
         status = options.run?.status ?? 200
         body = options.run?.body ?? DONE
@@ -363,3 +369,25 @@ describe('Référentiels — importer des valeurs (ticket a909dc66)', () => {
     expect(screen.getByText(/importé le/)).toBeInTheDocument()
   })
 })
+
+describe('Imports — colonnes et modèle (ticket 221d832b)', () => {
+  it('liste les colonnes et propose « Ajouter au modèle » pour celle sans propriété', async () => {
+    const calls = setup()
+    const table = await screen.findByRole('table', { name: 'Colonnes du fichier et propriétés du modèle' })
+    expect(within(table).getByText('pays')).toBeInTheDocument()
+    const add = within(table).getByRole('button', { name: 'Ajouter la colonne Delai au modèle' })
+    expect(within(table).getAllByRole('button')).toHaveLength(1)
+    await userEvent.setup().click(add)
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === `${BASE}/transporteur/proprietes`)).toBe(true))
+    const post = calls.find((c) => c.path === `${BASE}/transporteur/proprietes`)!
+    expect(JSON.parse(String(post.body))).toEqual({ column: 'Delai' })
+  })
+
+  it('sans le droit de modifier : la liste sans bouton', async () => {
+    setup({ readOnly: true })
+    const table = await screen.findByRole('table', { name: 'Colonnes du fichier et propriétés du modèle' })
+    expect(within(table).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(table).getByText('aucune propriété')).toBeInTheDocument()
+  })
+})
+

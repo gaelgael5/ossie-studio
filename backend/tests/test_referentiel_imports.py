@@ -294,3 +294,29 @@ async def test_editeur_et_catalogue_servis_par_l_application(space: ApiSpace) ->
     # Exactement ce qu'accepte le moteur des imports : ni plugin ni fonction écartée.
     names = {f["name"] for f in catalog["functions"]}
     assert names == set(function_registry().names()) and "today" not in names
+
+
+async def test_ajouter_une_colonne_au_modele_du_referentiel(space: ApiSpace) -> None:
+    """Ticket 221d832b, critère 1 : `Délai (jours)` absent du modèle → ajouté,
+    typé entier d'après les valeurs."""
+    base = f"{space.base}/referentiels/delais/imports"
+    created = await space.client.post(
+        base, json={"label": "C", "slug": "colonnes", "format": "csv"}
+    )
+    assert created.status_code == 201, created.text
+    await space.client.put(
+        f"{base}/colonnes/exemple",
+        files={
+            "file": (
+                "c.csv",
+                "Pays;Mode;Délai (jours)\nFR;site;3\nBE;relais;5\n".encode(),
+                "text/csv",
+            )
+        },
+    )
+    preview = (await space.client.post(f"{base}/colonnes/apercu")).json()
+    rows = {r["column"]: r["property"] for r in preview["comparison"]}
+    assert rows["Pays"] == "pays" and rows["Délai (jours)"] is None
+    added = await space.client.post(f"{base}/colonnes/proprietes", json={"column": "Délai (jours)"})
+    assert added.status_code == 200, added.text
+    assert (added.json()["property"], added.json()["type"]) == ("delai_jours", "integer")

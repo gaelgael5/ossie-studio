@@ -30,7 +30,8 @@ from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.imports import files
-from ossie_studio.imports.declaration import Import, ImportDeclaration, example_name
+from ossie_studio.imports.columns import compare, infer_type, property_name
+from ossie_studio.imports.declaration import TABULAR, Import, ImportDeclaration, example_name
 from ossie_studio.imports.engine import (
     MERGE,
     Example,
@@ -42,6 +43,7 @@ from ossie_studio.imports.engine import (
     read_example,
     report,
     run_template,
+    sheet_names,
     transform,
 )
 from ossie_studio.imports.journal import (
@@ -64,7 +66,7 @@ class CreateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     label: str = ""
     slug: str = ""
-    format: Literal["csv", "json"] = "csv"
+    format: Literal["csv", "json", "xlsx"] = "csv"
 
 
 class RenameBody(BaseModel):
@@ -77,6 +79,13 @@ class ReadingBody(BaseModel):
     separator: str = ","
     encoding: str = "utf-8"
     header: bool = True
+    # Feuille d'un classeur xlsx (ticket 6f6066e9).
+    sheet: str = ""
+
+
+class ColumnBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    column: str = Field(min_length=1, max_length=200)
 
 
 Mode = Literal["merge", "replace"]
@@ -122,6 +131,10 @@ class ImportAdapter:
     of: Callable[[str], str]
     # … et pour un import : « dans delais », « dans le type application ».
     into: Callable[[str], str]
+    # Les propriétés du modèle auxquelles comparer les colonnes (ticket 221d832b).
+    properties: Callable[[Path, str], list[str]]
+    # Ajoute une propriété au modèle (nom normalisé, type JSON Schema).
+    add_property: Callable[[Path, str, str, str], None]
 
 
 def _summary(imp: Import, last: LastImport | None) -> dict[str, Any]:
@@ -133,6 +146,7 @@ def _summary(imp: Import, last: LastImport | None) -> dict[str, Any]:
         "separator": d.separator,
         "encoding": d.encoding,
         "header": d.header,
+        "sheet": d.sheet,
         # Le dernier import abouti, lu dans le journal (None : jamais importé).
         "last_import": last.at if last else None,
         "last_import_by": last.by if last else None,
@@ -141,7 +155,17 @@ def _summary(imp: Import, last: LastImport | None) -> dict[str, Any]:
 
 def _detected(decl: ImportDeclaration, raw: bytes) -> ImportDeclaration:
     """Les réglages de lecture devinés sur le fichier déposé (ticket 123631e5) ;
-    la personne les corrige ensuite dans « Fichier d'exemple » si besoin."""
+    la personne les corrige ensuite dans « Fichier d'exemple » si besoin. Un
+    classeur d'une seule feuille la prend d'office ; sinon la feuille déclarée
+    reste si le nouveau fichier l'a, à choisir sinon (ticket 6f6066e9)."""
+    if decl.format == "xlsx" and raw:
+        try:
+            sheets = sheet_names(raw)
+        except ExampleError:
+            return decl
+        if len(sheets) == 1:
+            return replace(decl, sheet=sheets[0])
+        return decl if decl.sheet in sheets else replace(decl, sheet="")
     if decl.format != "csv" or not raw:
         return decl
     encoding, separator = detect_reading(raw)
@@ -156,6 +180,8 @@ def _example_of(imp: Import, reading: ReadingBody | None, raw: bytes | None = No
         decl = replace(
             decl, separator=reading.separator, encoding=reading.encoding, header=reading.header
         )
+    elif reading is not None and decl.format == "xlsx":
+        decl = replace(decl, header=reading.header, sheet=reading.sheet)
     try:
         return read_example(decl, imp.example if raw is None else raw)
     except ExampleError as exc:
@@ -360,7 +386,7 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             "lecture de l'import",
             lambda imp: (
                 replace(imp.declaration, separator=body.separator, encoding=body.encoding,
-                        header=body.header),
+                        header=body.header, sheet=body.sheet),
                 imp.template,
                 imp.example,
             ),
@@ -403,8 +429,65 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
         (ceux de l'import s'il n'y en a pas)."""
         owner = owner_of(request)
         handle = await adapter.open(conn, crypto, workdir, space_id, branch_id, user)
-        imp: Import = await handle.read(read_one(owner, slug))
-        return preview(_example_of(imp, body))
+
+        def read(root: Path) -> tuple[Import, list[str]]:
+            return read_one(owner, slug)(root), adapter.properties(root, owner)
+
+        imp, properties = await handle.read(read)
+        decl = imp.declaration
+        out: dict[str, object] = {}
+        if decl.format == "xlsx" and imp.example:
+            # Classeur : ses feuilles, pour choisir (ticket 6f6066e9).
+            sheets = sheet_names(imp.example)
+            out["sheets"] = sheets
+            chosen = body.sheet if body is not None else decl.sheet
+            if chosen not in sheets and len(sheets) != 1:
+                return {**out, "sheet_required": True, "columns": [], "rows": [], "count": 0,
+                        "paths": [], "comparison": []}  # fmt: skip
+        result = preview(_example_of(imp, body))
+        header = body.header if body is not None else decl.header
+        # Colonnes face aux propriétés du modèle, si le fichier a un en-tête (221d832b).
+        comparison = (
+            compare(list(result["columns"]), properties)
+            if header and decl.format in TABULAR
+            else []
+        )
+        return {**result, **out, "comparison": comparison}
+
+    @router.post("/{slug}/proprietes")
+    async def add_model_property(
+        request: Request,
+        conn: ConnDep,
+        crypto: CryptoDep,
+        user: Writer,
+        workdir: DraftWorkdirDep,
+        space_id: uuid.UUID,
+        branch_id: uuid.UUID,
+        slug: str,
+        body: ColumnBody,
+    ) -> dict[str, object]:
+        """« Ajouter au modèle » (ticket 221d832b) : une propriété au nom normalisé de
+        la colonne, typée d'après les valeurs du fichier d'exemple ; dans le brouillon.
+        Les règles de la cible s'appliquent (nom réservé, modèle valide)."""
+        owner = owner_of(request)
+        handle = await adapter.open(conn, crypto, workdir, space_id, branch_id, user)
+        name = property_name(body.column)
+
+        def write(root: Path) -> dict[str, object]:
+            imp = read_one(owner, slug)(root)
+            try:
+                example = read_example(imp.declaration, imp.example)
+            except ExampleError:
+                example = Example([])
+            values = [r.data.get(body.column) for r in example.records if isinstance(r.data, dict)]
+            kind = infer_type(values)
+            adapter.add_property(root, owner, name, kind)
+            return {"property": name, "type": kind}
+
+        added, revision = await handle.write(
+            f"ajoute la propriété {name} {adapter.of(owner)}", write
+        )
+        return {**added, "revision": revision}
 
     def check_mode(mode: str) -> None:
         if mode not in adapter.modes:
