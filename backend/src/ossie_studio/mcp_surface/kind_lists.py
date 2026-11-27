@@ -51,6 +51,7 @@ from ossie_studio.mcp_surface.kind_stores import (
     TagRuleStore,
     value_version,
 )
+from ossie_studio.parsers.application import MODULE_KIND
 from ossie_studio.referentiels import published
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
@@ -60,6 +61,8 @@ from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.contracts import read_contracts_view
 from ossie_studio.sources.curation import list_curation, read_tri_rules, read_tri_rules_raw
+from ossie_studio.sources.explorer import collect_source_entries
+from ossie_studio.sources.explorer_application import application_view, members_by_module
 from ossie_studio.sources.paths import (
     ASSETS_DIR,
     CONTRATS_DIR,
@@ -85,6 +88,14 @@ DETAIL_OF = ListFilter(
     "detail_of", "Key of a business process of the map: the BPMN processes that detail it."
 )
 SOURCE_TYPE = ListFilter("type", "Type of the source, e.g. 'git', 'snowflake', 'openapi'.")
+RAW_KIND = ListFilter(
+    "kind", "Nature of the raw object (its x-kind), e.g. 'module', 'class', 'table', 'view'."
+)
+RAW_MODULE = ListFilter(
+    "module",
+    "A module of the source (its name or its title, from filters {kind: 'module'}): the raw "
+    "objects that belong to it (nearest project file up the tree, as the Explorer does).",
+)
 EQUALS = ListFilter(
     "equals",
     "Equality on simple top-level properties of the values, e.g. {pays: 'FR'}; all must "
@@ -390,22 +401,91 @@ def _sources(root: Path, query: ListQuery) -> list[str]:
     return [str(wanted)]
 
 
+class _Application:
+    """La cartographie applicative d'une source, calculée comme la vue « Application »
+    de l'Explorateur (même lecture de raw, mêmes règles) : ce que rendait
+    `list_modules` pour chaque module, et les objets qui appartiennent à chacun."""
+
+    def __init__(self, root: Path, source: str) -> None:
+        view = application_view(entries := collect_source_entries(root, source))
+        modules: list[dict[str, Any]] = view["modules"]
+        by_id = {m["id"]: m for m in modules}
+        members = members_by_module(entries)
+
+        def ref(module: dict[str, Any]) -> dict[str, str]:
+            return {"name": module["file"], "title": module["title"]}
+
+        self.summaries = {
+            m["file"]: {
+                "nature": m["nature"],
+                "targets": m["targets"],
+                "language": m["language"],
+                "project": m["project"],
+                "counts": {
+                    "classes": m["counts"]["classes"],
+                    "entry_points": m["counts"]["entry_points"],
+                    "public_methods": m["counts"]["methods"],
+                },
+                "depends_on": [
+                    ref(by_id[d["id"]])
+                    if d["id"] in by_id
+                    else {"project": d["project"], "external": True}
+                    for d in m["dependencies"]
+                ],
+                "used_by": [ref(by_id[d]) for d in m["dependents"] if d in by_id],
+            }
+            for m in modules
+        }
+        self.members = {m["file"]: {o.file for o in members[m["id"]]} for m in modules}
+        self.titles = {m["title"].casefold(): m["file"] for m in modules}
+
+    def members_of(self, source: str, wanted: str) -> set[str]:
+        """Les objets d'un module, désigné par son nom de schéma ou son titre."""
+        name = wanted if wanted in self.members else self.titles.get(wanted.casefold())
+        if name is None:
+            raise KindError(
+                "list_filter_invalid",
+                "$.filters.module",
+                f"« {wanted} » n'est pas un module de la source « {source} » "
+                "(list_documents, genre « schema_raw », filters {kind: 'module'}).",
+                received=wanted,
+                expected=sorted(self.members),
+            )
+        return self.members[name]
+
+
 def raw_schemas(root: Path, query: ListQuery) -> list[Item]:
     """Ce que rendait `list_raw_schemas` : chaque schéma collecté, son nombre de champs
-    et s'il est retenu en asset."""
+    et s'il est retenu en asset. Un module porte en plus ce que rendait `list_modules`
+    (ticket dcc52af7) ; filtres `kind` (nature de l'objet) et `module` (ses objets)."""
+    wanted_kind = _given(query, "kind")
+    wanted_module = _given(query, "module")
+    if wanted_module is not None and "source" not in query.identity:
+        raise KindError(
+            "list_filter_invalid",
+            "$.filters.module",
+            "« module » désigne un module d'une source : donner aussi identity.source.",
+        )
     out = []
     for source in _sources(root, query):
         directory = source_rel_dir(source)
-        for obj in list_curation(root, source, (), True):
-            if obj.orphan:
+        objects = [o for o in list_curation(root, source, (), True) if not o.orphan]
+        needed = wanted_module is not None or any(o.kind == MODULE_KIND for o in objects)
+        app = _Application(root, source) if needed else None
+        members = app.members_of(source, wanted_module) if app and wanted_module else None
+        for obj in objects:
+            if wanted_kind is not None and obj.kind != wanted_kind:
+                continue
+            if members is not None and obj.path not in members:
                 continue
             summary = {"title": obj.title, "kind": obj.kind, "fields": obj.fields}
+            module = app.summaries.get(obj.path, {}) if app else {}
             out.append(
                 Item(
                     {"source": source, "name": obj.path},
                     obj.title or obj.path,
                     f"{directory}/{RAW_DIR}/{obj.path}",
-                    {**summary, "retained": obj.retained},
+                    {**summary, "retained": obj.retained, **module},
                 )
             )
     return out

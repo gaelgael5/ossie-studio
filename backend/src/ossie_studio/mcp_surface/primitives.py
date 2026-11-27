@@ -45,7 +45,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
         references.ReferenceGraphArgs, references.get_reference_graph
     ),
     # Cartographie applicative (ticket 72ce32b3)
-    "list_modules": Implementation(SourceArgs, app_map.list_modules),
     "get_module": Implementation(app_map.ModuleArgs, app_map.get_module),
     "get_functions": Implementation(ObjectArgs, app_map.get_functions),
     "list_entry_points": Implementation(app_map.EntryPointsArgs, app_map.list_entry_points),

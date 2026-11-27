@@ -4,8 +4,8 @@ dans raw », ticket 72ce32b3). Gael : « il faut que la couche de primitives pui
 
 Un agent voit ce que montre la vue « Application » de l'Explorateur raw :
 
-- `list_modules` : les modules d'une source (nature, cibles, langage, fichier de
-  projet, compteurs, dépendances dans les deux sens) ;
+- (les modules d'une source se listent par `list_documents(kind: schema_raw)`, filtre
+  `kind: module`, ticket dcc52af7) ;
 - `get_module` : un module, ses objets, ses fonctions libres, ses points d'entrée ;
 - `get_functions` : les méthodes d'un objet raw (signature, visibilité, `static`,
   point d'entrée) ;
@@ -53,7 +53,10 @@ ContractStatus = Literal["linked", "absent"]
 
 class ModuleArgs(SourceArgs):
     module: str = Field(
-        description="Module: its path (from list_modules, 'module-….schema.yaml') or its title."
+        description=(
+            "Module: its name ('module-….schema.yaml', from list_documents(kind='schema_raw', "
+            "filters={kind: 'module'})) or its title."
+        )
     )
 
 
@@ -119,36 +122,6 @@ def _find_module(view: dict[str, Any], wanted: str) -> dict[str, Any]:
     if found is None:
         raise PrimitiveError("module_not_found", module=wanted)
     return found
-
-
-async def list_modules(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    bv, entries = await _entries(ctx, args)
-    view = application_view(entries)
-    by_id = {m["id"]: m for m in view["modules"]}
-    modules = [
-        {
-            **_module_ref(m),
-            "nature": m["nature"],
-            "targets": m["targets"],
-            "language": m["language"],
-            "project": m["project"],
-            "counts": {
-                "classes": m["counts"]["classes"],
-                "entry_points": m["counts"]["entry_points"],
-                "public_methods": m["counts"]["methods"],
-            },
-            "depends_on": [
-                _module_ref(by_id[d["id"]])
-                if d["id"] in by_id
-                else {"project": d["project"], "external": True}
-                for d in m["dependencies"]
-            ],
-            "used_by": [_module_ref(by_id[d]) for d in m["dependents"] if d in by_id],
-        }
-        for m in view["modules"]
-    ]
-    shown, truncated = _truncate(modules)
-    return {"view": bv.view, "source": args.source, "truncated": truncated, "modules": shown}
 
 
 def _load(text: str | None) -> dict[str, Any]:

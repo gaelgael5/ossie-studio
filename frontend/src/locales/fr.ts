@@ -1397,7 +1397,6 @@ export const fr = {
     },
     mcpPrim: {
       get_reference_graph: 'Voisinage d’un objet raw : ce qu’il référence et qui le référence',
-      list_modules: 'Lister les modules d’une source (fichiers de projet, dépendances)',
       get_module: 'Lire un module : ses objets, ses fonctions libres, ses points d’entrée',
       get_functions: 'Lire les méthodes d’un objet raw',
       list_entry_points: 'Lister les points d’entrée (et ceux absents du contrat)',

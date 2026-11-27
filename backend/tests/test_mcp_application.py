@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 
 from ossie_studio.mcp_surface.caller import McpCaller
+from ossie_studio.mcp_surface.catalog import CATALOG
 from ossie_studio.parsers.application import dump_functions, module_key, module_schema
 from ossie_studio.parsers.conventions import dump_schema, schema_file
 from ossie_studio.sources.collect_core import TechEntry, TechManifest, dump_tech_manifest
@@ -24,6 +25,7 @@ from tests.space_fixture import ApiSpace, draft_write, forge_edit, make_api_spac
 KEY = "app-key"
 AGENT = "app-agent"
 RAW = "sources/boutique/raw"
+MIGRATIONS = Path(__file__).resolve().parents[1] / "src/ossie_studio/db/migrations"
 NAMES = ["Api", "Application", "Domain", "Infra", "Worker", "Tests"]
 PROJECTS = {n: f"src/Boutique.{n}/Boutique.{n}.csproj" for n in NAMES}
 DEPS = {
@@ -173,16 +175,28 @@ async def _error(app: FastAPI, tool: str, args: dict[str, Any]) -> str:
     return code
 
 
-# --- Critère 1 : list_modules, dépendances dans les deux sens -------------------------------
+# --- Les modules par le genre schema_raw (ticket dcc52af7) ---------------------------------
 
 
-async def test_list_modules(app: FastAPI, space: ApiSpace) -> None:
-    data = await _ok(app, KEY, "list_modules", _args(space))
-    assert data["view"] == "published" and data["truncated"] is False
-    modules = {m["title"]: m for m in data["modules"]}
+def _raw(space: ApiSpace, source: str = "boutique", **filters: Any) -> dict[str, Any]:
+    ids = {"space_id": space.space_id, "branch_id": space.branch_id}
+    return {**ids, "kind": "schema_raw", "identity": {"source": source}, "filters": filters}
+
+
+async def test_modules_par_schema_raw(app: FastAPI, space: ApiSpace) -> None:
+    """Ce que rendait l'ancienne liste des modules : nature, cibles, langage,
+    dépendances dans les deux sens (un projet hors de la source est externe),
+    compteurs."""
+    data = await _ok(app, KEY, "list_documents", _raw(space, kind="module"))
+    assert data["view"] == "published"
+    modules = {m["title"]: m for m in data["documents"]}
     assert len(modules) == 6
     api = modules["Boutique.Api"]
+    name = schema_file(module_key(PROJECTS["Api"]))
+    assert api["identity"] == {"source": "boutique", "name": name}
+    assert api["path"] == f"{RAW}/{name}" and api["version"]
     assert (api["nature"], api["targets"], api["language"]) == ("web", ["net8.0"], "csharp")
+    assert api["project"] == PROJECTS["Api"]
     assert {d.get("title") or d["project"] for d in api["depends_on"]} == {
         "Boutique.Application",
         "Boutique.Domain",
@@ -197,6 +211,48 @@ async def test_list_modules(app: FastAPI, space: ApiSpace) -> None:
         "Boutique.Worker",
     }
     assert api["counts"] == {"classes": 1, "entry_points": 3, "public_methods": 2}
+    # Un objet qui n'est pas un module garde son résumé.
+    classes = await _ok(app, KEY, "list_documents", _raw(space, kind="class"))
+    commande = next(c for c in classes["documents"] if c["title"] == "Commande")
+    assert "counts" not in commande and commande["kind"] == "class"
+
+
+async def test_les_objets_d_un_module(app: FastAPI, space: ApiSpace) -> None:
+    """Le filtre « module », par titre ou par nom de schéma : les objets que
+    l'Explorateur range dans ce module."""
+    by_title = await _ok(app, KEY, "list_documents", _raw(space, module="Boutique.Api"))
+    assert [o["title"] for o in by_title["documents"]] == ["CommandesController"]
+    name = schema_file(module_key(PROJECTS["Domain"]))
+    by_name = await _ok(app, KEY, "list_documents", _raw(space, module=name))
+    assert [o["title"] for o in by_name["documents"]] == ["Commande"]
+    unknown = await call_tool(app, KEY, "list_documents", _raw(space, module="Inconnu"))
+    body = json.loads(unknown.content[0].text)
+    assert body["error"] == "list_filter_invalid" and body["path"] == "$.filters.module"
+    no_source = {**_raw(space, module="Boutique.Api"), "identity": {}}
+    refused = await call_tool(app, KEY, "list_documents", no_source)
+    assert json.loads(refused.content[0].text)["error"] == "list_filter_invalid"
+
+
+def _migration(name: str) -> str:
+    return (MIGRATIONS / name).read_text(encoding="utf-8")
+
+
+async def test_list_modules_retiree(app: FastAPI, space: ApiSpace) -> None:
+    """Plus au catalogue ; schema_raw déclare ses deux filtres ; profils migrés."""
+    assert "list_modules" not in {p.id for p in CATALOG}
+    kinds = (await call_tool(app, KEY, "list_write_kinds", {})).structured_content["kinds"]
+    raw = next(k for k in kinds if k["kind"] == "schema_raw")
+    assert [f["name"] for f in raw["list_filters"]] == ["kind", "module"]
+    async with app.state.pool.acquire() as conn:
+        profile = await conn.fetchval(
+            "INSERT INTO agent_profiles (name, primitives) VALUES ('ancien', $1) RETURNING id",
+            ["list_modules", "get_module"],
+        )
+        await conn.execute(_migration("0049_list_modules_removed.sql"))
+        primitives = await conn.fetchval(
+            "SELECT primitives FROM agent_profiles WHERE id = $1", profile
+        )
+    assert sorted(primitives) == ["get_module", "list_documents", "read_document"]
 
 
 # --- Critère 2 : get_module ---------------------------------------------------------------
@@ -263,9 +319,10 @@ async def test_erreurs_nommees_et_source_sans_module(app: FastAPI, space: ApiSpa
         await _error(app, "get_functions", _args(space, path="absent.schema.yaml"))
         == "schema_not_found"
     )
-    assert await _error(app, "list_modules", _args(space, source="absente")) == "source_not_found"
-    empty = await _ok(app, KEY, "list_modules", _args(space, source="vide"))
-    assert empty["modules"] == []
+    absent = await call_tool(app, KEY, "list_documents", _raw(space, "absente", kind="module"))
+    assert json.loads(absent.content[0].text)["error"] == "write_identity_invalid"
+    empty = await _ok(app, KEY, "list_documents", _raw(space, "vide", kind="module"))
+    assert empty["documents"] == []
 
 
 # --- Critère 6 : troncature annoncée ------------------------------------------------------
@@ -291,8 +348,10 @@ async def test_le_brouillon_de_la_personne_compte(app: FastAPI, space: ApiSpace)
         nature="console",
     )
     await draft_write(app, space, f"{RAW}/{extra['$id']}", extra)
-    draft = await _ok(app, AGENT, "list_modules", _args(space, branch="draft"))
-    published = await _ok(app, KEY, "list_modules", _args(space))
-    assert "Boutique.Batch" in {m["title"] for m in draft["modules"]}
-    assert "Boutique.Batch" not in {m["title"] for m in published["modules"]}
+    draft_args = {**_raw(space, kind="module"), "branch": "draft"}
+    draft = await _ok(app, AGENT, "list_documents", draft_args)
+    published = await _ok(app, KEY, "list_documents", _raw(space, kind="module"))
+    batch = next(m for m in draft["documents"] if m["title"] == "Boutique.Batch")
+    assert batch["unpublished"] is True and batch["nature"] == "console"
+    assert "Boutique.Batch" not in {m["title"] for m in published["documents"]}
     assert path  # le module Worker reste dans les deux vues

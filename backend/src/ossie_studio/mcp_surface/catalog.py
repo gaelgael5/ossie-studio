@@ -227,27 +227,13 @@ CATALOG: tuple[Primitive, ...] = (
     ),
     # --- Cartographie applicative (modules, fonctions, points d'entrée ; ticket 72ce32b3)
     Primitive(
-        id="list_modules",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "List the modules of a source (one per project file: .csproj, .sqlproj, Gradle or "
-            "Maven module, package.json, pyproject.toml) with their nature (library, web, "
-            "worker, console, test, sql), targets, language, project file, counts (classes, "
-            "entry points, public methods) and dependencies in both directions (depends_on, "
-            "used_by; a project outside the source is external). Empty list if the source has "
-            "no module. Truncated beyond 200." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
         id="get_module",
         domain="sources",
         access="read",
         capability="sources:read",
         description=(
-            "One module of a source (path or title from list_modules): the raw objects that "
+            "One module of a source (its name or title: list_documents(kind='schema_raw', "
+            "filters={kind: 'module'})): the raw objects that "
             "belong to it (nearest project file up the tree), its free functions (minimal API, "
             "module-level functions) and its entry points (HTTP verb and route, background "
             "task, message consumer; method and owner; contract status: linked, absent or "

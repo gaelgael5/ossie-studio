@@ -808,6 +808,7 @@ KINDS = (
         locator=_schema_file("schema_raw", RAW_DIR),
         store=stores.ReadOnlyStore("schéma raw", ("collect_source",)),
         lister=lists.raw_schemas,
+        list_filters=(lists.RAW_KIND, lists.RAW_MODULE),
         writable=False,
         produced_by=("collect_source",),
         is_schema=True,

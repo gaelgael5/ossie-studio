@@ -26,7 +26,7 @@ les référentiels, la gouvernance, les règles, les domaines et les schémas.
 |---|---|---|
 | 88fd2cc5 | Genre `source` en lecture seule, retrait de `list_sources` | en revue |
 | e806a6b4 | Genre `contrat` en lecture seule, retrait de `list_contracts` | en revue |
-| dcc52af7 | Modules par `schema_raw`, retrait de `list_modules` | prêt pour dev |
+| dcc52af7 | Modules par `schema_raw`, retrait de `list_modules` | en revue |
 | 2c069134 | Genre `extension_raw`, retrait de `get_functions` | prêt pour dev |
 | 15c43ed1 | Genre `point_entree`, retrait de `list_entry_points` et `get_module` | prêt pour dev |
 | 970c90ae | Genre `profil_relation` | prêt pour dev |
@@ -45,3 +45,7 @@ Catalogue : 38 primitives sur `dev`, **32 visées**.
 - Genre `contrat` : l'emplacement vient de l'index `contrats.yaml` de la source ;
   la version déposée est dans l'identité, `version` reste celle du document. Migration
   `0048` (`list_contracts`).
+- Modules par `schema_raw` : la cartographie applicative d'une source est calculée par la
+  lecture de raw de l'Explorateur (`collect_source_entries` → `application_view`), sans
+  l'index en base (un lister du registre n'a pas de connexion). Filtres `kind` et
+  `module` (avec `identity.source`). Migration `0049` (`list_modules`).
