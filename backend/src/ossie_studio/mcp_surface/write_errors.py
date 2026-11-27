@@ -209,16 +209,25 @@ def _referentiel(
                 name, indexes = (m.group(1), m.group(2)) if m else (part, "")
                 where = jsonpath(where, name) if name else where
                 where += indexes
-        message = f"{p.code}" + (f" ({p.detail})" if p.detail else "")
-        out.append(
-            Refusal(
-                where,
-                exc.code,
-                f"Refus du référentiel ({p.path}) : {message}.",
-                extra={"problem": p.code},
-            )
-        )
+        out.append(Refusal(where, exc.code, _value_message(p), extra={"problem": p.code}))
     return out
+
+
+def _value_message(p: Problem) -> str:
+    """Le refus d'une valeur de référentiel, en français ; même texte par MCP et par
+    l'import (ticket 1612cce4)."""
+    name = p.field.replace(SEPARATOR, ".") or "la valeur"
+    label = p.path.split(SEPARATOR)[0]
+    texts = {
+        "value_required": f"{name} est obligatoire",
+        "value_type": f"{name} doit être de type {p.detail}",
+        "value_enum": f"{name} : valeur non permise ({p.detail})",
+        "value_format": f"{name} : format {p.detail} attendu",
+        "value_unknown_property": f"{name} n'est pas une propriété du modèle",
+        "key_duplicate": f"la clé {p.detail or label} est déjà présente",
+    }
+    text = texts.get(p.code) or f"{name} : {p.code}" + (f" ({p.detail})" if p.detail else "")
+    return f"Valeur {label} : {text}."
 
 
 def _carto(
@@ -400,6 +409,13 @@ def _problem(p: Problem, prefix: str, content: dict[str, Any], space: Cartograph
         "object_type_unknown": ("type", "Ce type n'existe pas dans l'espace"),
         "relation_endpoint_missing": ("source", "Une relation a une source et une cible"),
         "object_not_relation": ("source", "Ce type n'est pas une relation : ni source ni cible"),
+        "object_key_duplicate": ("cle", "Cette clé apparaît plusieurs fois dans la liste"),
+        "object_type_frozen": ("type", "Le type d'un objet existant ne change pas"),
+        "relation_ends_frozen": (
+            "source",
+            "La source et la cible d'une relation existante ne changent pas : créer la "
+            "nouvelle relation et supprimer l'ancienne",
+        ),
     }
     if p.code == "relation_endpoint_unknown":
         end = "source" if p.field == "source" else "cible"

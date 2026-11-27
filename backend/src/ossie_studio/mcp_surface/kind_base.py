@@ -5,10 +5,10 @@ que rend la liste d'un genre (`list_documents`, ticket 2113e7bc)."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, runtime_checkable
 
 
 class KindError(Exception):
@@ -65,6 +65,23 @@ class Store(Protocol):
         ...
 
     def delete(self, root: Path, location: Location) -> None: ...
+
+
+@runtime_checkable
+class CheckingStore(Store, Protocol):
+    """Le validateur d'un genre qu'un import alimente (ticket 1612cce4) : il sait aussi
+    valider un lot sans rien écrire. Gael : « il faut que le validateur appelle la même
+    méthode » — `write` passe par `check` pour son document, et le moteur d'import
+    appelle `check` sur ses lignes : l'écran, l'agent et l'import valident par un seul
+    chemin. `scope` : ce que le genre lit de l'espace pour valider (la cartographie
+    pour un objet, le modèle pour une valeur de référentiel)."""
+
+    def check(
+        self, scope: Any, entries: Sequence[tuple[Location, Any]]
+    ) -> list[tuple[int, Exception]]:
+        """Les refus du lot, chacun avec le rang de son document ; vide : tout est
+        valide. Rien n'est écrit."""
+        ...
 
 
 # --- Lister les documents d'un genre (list_documents) -------------------------------------

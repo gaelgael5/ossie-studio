@@ -41,15 +41,27 @@ export function ImportReport({ report }: { report: ImportTrial }) {
       </div>
       {(report.error_details ?? []).length > 0 ? (
         <ul className="plain-list" aria-label={t('refImportErrorList')}>
-          {(report.error_details ?? []).map((e, i) => (
-            <li key={i} className="text-danger small">
-              <strong>{e.where}</strong> — {t(`refValueError_${e.code}`, { defaultValue: e.code })}
-              {e.field ? ` (${e.field})` : ''}
-              {e.path ? ` ${e.path}` : ''}
-              {e.expected ? ` → ${e.expected}` : ''}
-              {e.message && e.code !== 'key_duplicate' ? ` : ${e.message}` : ''}
-            </li>
-          ))}
+          {(report.error_details ?? []).map((e, i) => {
+            // Une erreur du template a son libellé ; un refus du document porte le
+            // message de l'écriture commune, le même que par MCP (ticket 1612cce4).
+            const label = t(`refValueError_${e.code}`, { defaultValue: '' })
+            return (
+              <li key={i} className="text-danger small">
+                <strong>{e.where}</strong> —{' '}
+                {label ? (
+                  <>
+                    {label}
+                    {e.field ? ` (${e.field})` : ''}
+                    {e.path ? ` ${e.path}` : ''}
+                    {e.expected ? ` → ${e.expected}` : ''}
+                    {e.message && e.code !== 'key_duplicate' ? ` : ${e.message}` : ''}
+                  </>
+                ) : (
+                  e.message || e.code
+                )}
+              </li>
+            )
+          })}
         </ul>
       ) : null}
       {(report.differences ?? []).length > 0 ? (

@@ -16,7 +16,8 @@ fichier de règles ou un référentiel est refusé (`write_delete_unsupported`).
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -27,14 +28,23 @@ from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.model import CartoObject, parse_type
 from ossie_studio.cartographie.process import delete_process, parse_process, save_process
 from ossie_studio.cartographie.process_tools import is_linked
-from ossie_studio.cartographie.space import delete_type, read_cartographie, save_object, save_type
+from ossie_studio.cartographie.space import (
+    Cartographie,
+    check_batch,
+    delete_type,
+    read_cartographie,
+    save_object,
+    save_type,
+)
 from ossie_studio.drafts.store import git_blob_sha
 from ossie_studio.governance import actions
 from ossie_studio.governance import repo as governance_repo
 from ossie_studio.mcp_surface.kind_base import Document, KindError, Location
+from ossie_studio.problems import Problem
+from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
 from ossie_studio.referentiels.repo import read_referentiel, write_referentiel
-from ossie_studio.referentiels.values import key_of
+from ossie_studio.referentiels.values import check_values, key_of
 
 # Champs d'un objet de cartographie (format du fichier), dans l'ordre d'écriture.
 OBJECT_FIELDS = ("cle", "type", "source", "cible", "nom", "documentation", "proprietes")
@@ -164,17 +174,50 @@ def carto_object(content: Any) -> CartoObject:
     )
 
 
+def _by_index(problems: list[Problem]) -> dict[int, list[Problem]]:
+    grouped: dict[int, list[Problem]] = defaultdict(list)
+    for problem in problems:
+        grouped[problem.index].append(problem)
+    return grouped
+
+
 class CartoObjectStore:
+    """Un objet ou une relation. `check` valide un lot par les règles du service
+    (`space.check_batch`, celles de `save_object`) : c'est la méthode de l'écriture
+    commune comme de l'import (ticket 1612cce4)."""
+
     def read(self, root: Path, location: Location) -> Document | None:
         return _file_document(root, location.path, _yaml)
 
-    def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
+    def _object(self, location: Location, content: Any) -> CartoObject:
         obj = carto_object(content)
         _same("cle", obj.key or None, location.identity["key"], "objet de cartographie")
         _same("type", obj.type or None, location.identity["type"], "objet de cartographie")
         obj.key = obj.key or location.identity["key"]
         obj.type = obj.type or location.identity["type"]
-        save_object(root, obj, create=create)
+        return obj
+
+    def check(
+        self, scope: Cartographie, entries: Sequence[tuple[Location, Any]]
+    ) -> list[tuple[int, Exception]]:
+        refused: list[tuple[int, Exception]] = []
+        objects: list[CartoObject] = []
+        ranks: list[int] = []
+        for rank, (location, content) in enumerate(entries):
+            try:
+                objects.append(self._object(location, content))
+                ranks.append(rank)
+            except KindError as exc:
+                refused.append((rank, exc))
+        for index, problems in _by_index(check_batch(scope, objects)).items():
+            refused.append((ranks[index], CartographieError("object_invalid", problems=problems)))
+        return sorted(refused, key=lambda r: r[0])
+
+    def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
+        refused = self.check(read_cartographie(root), [(location, content)])
+        if refused:
+            raise refused[0][1]
+        save_object(root, self._object(location, content), create=create)
         return []
 
     def delete(self, root: Path, location: Location) -> None:
@@ -316,7 +359,37 @@ def value_version(value: Any) -> str:
 
 class ReferentielValueStore:
     """Une seule valeur de `valeurs.json` : l'agent ne touche jamais le fichier
-    entier ; le service revalide toutes les valeurs et trie le fichier."""
+    entier ; le service revalide toutes les valeurs et trie le fichier. `check`
+    valide un lot de valeurs par le modèle (`values.check_values`, clé unique
+    comprise) : c'est la méthode de l'écriture commune comme de l'import (ticket
+    1612cce4)."""
+
+    def _value(self, location: Location, content: Any, fields: list[str]) -> dict[str, Any]:
+        value = _mapping(content, "valeur de référentiel")
+        for name, expected in zip(fields, location.entry or (), strict=False):
+            _same(name, value.get(name, expected), expected, "valeur de référentiel")
+            value.setdefault(name, expected)
+        return value
+
+    def check(
+        self, scope: dict[str, Any], entries: Sequence[tuple[Location, Any]]
+    ) -> list[tuple[int, Exception]]:
+        fields = model_key(scope)
+        refused: list[tuple[int, Exception]] = []
+        values: list[dict[str, Any]] = []
+        ranks: list[int] = []
+        for rank, (location, content) in enumerate(entries):
+            try:
+                values.append(self._value(location, content, fields))
+                ranks.append(rank)
+            except KindError as exc:
+                refused.append((rank, exc))
+        for index, problems in _by_index(check_values(scope, values)).items():
+            if 0 <= index < len(ranks):
+                refused.append(
+                    (ranks[index], ReferentielError("values_invalid", problems=problems))
+                )
+        return sorted(refused, key=lambda r: r[0])
 
     def _find(self, root: Path, location: Location) -> tuple[Any, list[str], int | None]:
         ref = read_referentiel(root, location.identity["referentiel"])
@@ -335,10 +408,10 @@ class ReferentielValueStore:
 
     def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
         ref, fields, index = self._find(root, location)
-        value = _mapping(content, "valeur de référentiel")
-        for name, expected in zip(fields, location.entry or (), strict=False):
-            _same(name, value.get(name, expected), expected, "valeur de référentiel")
-            value.setdefault(name, expected)
+        refused = self.check(ref.model, [(location, content)])
+        if refused:
+            raise refused[0][1]
+        value = self._value(location, content, fields)
         values = list(ref.values)
         if index is None:
             values.append(value)
