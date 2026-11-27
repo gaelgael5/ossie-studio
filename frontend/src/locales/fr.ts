@@ -1420,7 +1420,6 @@ export const fr = {
       list_write_kinds: 'Lister les genres de documents à écrire',
       describe_standard: 'Décrire un standard (format, syntaxe, règles)',
       read_schema: 'Lire un schéma (brut, asset, référentiel, type de cartographie)',
-      list_sources: 'Lister les sources',
       get_review: 'Voir la revue des changements',
     },
     navAgentConnections: 'Mes connexions agents',

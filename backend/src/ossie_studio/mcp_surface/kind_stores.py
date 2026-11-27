@@ -43,7 +43,7 @@ from ossie_studio.governance import repo as governance_repo
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
 from ossie_studio.mcp_surface.kind_base import Document, KindError, Location
-from ossie_studio.parsers.conventions import load_schema
+from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.problems import Problem
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
@@ -76,6 +76,14 @@ def _yaml(data: bytes) -> Any:
 
 def _text(data: bytes) -> str:
     return data.decode("utf-8")
+
+
+def _readable(data: bytes) -> Any:
+    """YAML ou JSON lu ; le texte brut si le fichier est illisible."""
+    try:
+        return load_schema(data)
+    except SchemaReadError:
+        return data.decode("utf-8", errors="replace")
 
 
 def _dump(content: Mapping[str, Any]) -> str:
@@ -640,7 +648,7 @@ class TriRulesStore:
             raise KindError(
                 "write_identity_invalid",
                 "source",
-                f"La source « {source} » n'existe pas (list_sources).",
+                f"La source « {source} » n'existe pas (list_documents, genre « source »).",
                 received=source,
             )
         set_tri_rules_fn(source, cleaned)(root)
@@ -658,16 +666,18 @@ class TriRulesStore:
 # --- Genres en lecture seule (ticket 56f3784a) ----------------------------------------------
 
 
-class ReadOnlySchemaStore:
-    """Un schéma raw ou d'asset : lisible, jamais écrit directement. Il est produit par
-    une action (la collecte, la curation), qui seule sait le tenir à jour."""
+class ReadOnlyStore:
+    """Un document lisible, jamais écrit directement (schéma raw ou d'asset, manifeste
+    d'une source…). Il est produit par une action (la collecte, la curation, la
+    déclaration d'une source), qui seule sait le tenir à jour. Un fichier illisible
+    (YAML cassé) est rendu en texte : l'agent voit ce qui ne va pas."""
 
     def __init__(self, label: str, actions: tuple[str, ...]) -> None:
         self.label = label
         self.actions = actions
 
     def read(self, root: Path, location: Location) -> Document | None:
-        return _file_document(root, location.path, load_schema)
+        return _file_document(root, location.path, _readable)
 
     def _refused(self) -> KindError:
         return read_only(self.label, self.actions)

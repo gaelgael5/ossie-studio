@@ -1418,7 +1418,6 @@ export const en = {
       list_write_kinds: 'List the kinds of documents to write',
       describe_standard: 'Describe a standard (format, syntax, rules)',
       read_schema: 'Read a schema (raw, asset, reference data, cartography type)',
-      list_sources: 'List sources',
       get_review: 'See the change review',
     },
     navAgentConnections: 'My agent connections',

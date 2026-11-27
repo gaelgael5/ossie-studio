@@ -59,7 +59,13 @@ from ossie_studio.referentiels.values import key_of
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import list_curation, read_tri_rules, read_tri_rules_raw
-from ossie_studio.sources.paths import ASSETS_DIR, MANIFEST_FILENAME, source_rel_dir
+from ossie_studio.sources.paths import (
+    ASSETS_DIR,
+    MANIFEST_FILENAME,
+    SOURCES_DIR,
+    is_valid_source_slug,
+    source_rel_dir,
+)
 from ossie_studio.sources.service import read_sources_tree
 
 # --- Les filtres déclarés -----------------------------------------------------------------
@@ -76,6 +82,7 @@ CONTAINS = ListFilter("contains", "Key of an object or relationship: the models 
 DETAIL_OF = ListFilter(
     "detail_of", "Key of a business process of the map: the BPMN processes that detail it."
 )
+SOURCE_TYPE = ListFilter("type", "Type of the source, e.g. 'git', 'snowflake', 'openapi'.")
 EQUALS = ListFilter(
     "equals",
     "Equality on simple top-level properties of the values, e.g. {pays: 'FR'}; all must "
@@ -297,6 +304,45 @@ def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
     return out
 
 
+# --- Sources, en lecture seule (epic « lectures communes », ticket 88fd2cc5) --------------
+
+
+def sources(root: Path, query: ListQuery) -> list[Item]:
+    """Ce que rendait `list_sources` : chaque source et son manifeste ; un manifeste
+    illisible est listé avec son erreur (`ok: false`), jamais ignoré en silence."""
+    wanted = _given(query, "type")
+    out = []
+    for entry in read_sources_tree(root):
+        manifest = entry.manifest
+        if wanted is not None and (manifest is None or manifest.type != wanted):
+            continue
+        valid = is_valid_source_slug(entry.slug)
+        directory = source_rel_dir(entry.slug) if valid else f"{SOURCES_DIR}/{entry.slug}"
+        if manifest is None:
+            summary: dict[str, Any] = {"ok": False, "error": entry.error}
+            name, text = entry.slug, ""
+        else:
+            summary = {
+                "ok": True,
+                "label": manifest.label,
+                "type": manifest.type,
+                "connection": manifest.connection,
+                "parameters": manifest.parameters,
+            }
+            name, text = manifest.label or entry.slug, f"{manifest.type} {manifest.connection}"
+        out.append(
+            Item(
+                {"source": entry.slug},
+                name,
+                f"{directory}/{MANIFEST_FILENAME}",
+                summary,
+                text=text,
+                changes_under=directory,
+            )
+        )
+    return out
+
+
 # --- Schémas raw et d'assets, en lecture seule (ticket 56f3784a) --------------------------
 
 
@@ -310,7 +356,8 @@ def _sources(root: Path, query: ListQuery) -> list[str]:
         raise KindError(
             "write_identity_invalid",
             "source",
-            f"La source « {wanted} » n'existe pas dans l'espace (list_sources).",
+            f"La source « {wanted} » n'existe pas dans l'espace "
+            "(list_documents, genre « source »).",
             received=wanted,
         )
     return [str(wanted)]

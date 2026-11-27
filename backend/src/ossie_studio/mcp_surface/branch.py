@@ -81,7 +81,7 @@ class BranchArgs(BranchParam):
 
 
 class SourceArgs(BranchArgs):
-    source: str = Field(description="Source slug (from list_sources).")
+    source: str = Field(description="Source slug (list_documents, kind 'source').")
 
 
 class ObjectArgs(SourceArgs):

@@ -133,29 +133,32 @@ async def test_sans_branch_l_agent_lit_le_publie_avec_draft_aussi_le_brouillon(
     # Source déclarée dans le brouillon de la personne seulement.
     await _draft_text(app, space, "sources/achats/manifest.yaml", _manifest("achats"))
 
-    published = await _ok(app, KEY, "list_sources", _ids(space))
+    published = await _ok(app, KEY, "list_documents", _ids(space, kind="source"))
     assert published["view"] == "published"
-    assert [s["slug"] for s in published["sources"]] == ["ventes"]
+    assert [s["identity"]["source"] for s in published["documents"]] == ["ventes"]
 
-    by_default = await _ok(app, AGENT, "list_sources", _ids(space))
+    by_default = await _ok(app, AGENT, "list_documents", _ids(space, kind="source"))
     assert by_default["view"] == "published"
-    assert [s["slug"] for s in by_default["sources"]] == ["ventes"]
+    assert [s["identity"]["source"] for s in by_default["documents"]] == ["ventes"]
 
-    draft = await _ok(app, AGENT, "list_sources", _ids(space, branch="draft"))
+    draft = await _ok(app, AGENT, "list_documents", _ids(space, kind="source", branch="draft"))
     assert draft["view"] == "draft"
-    by_slug = {s["slug"]: s for s in draft["sources"]}
+    by_slug = {s["identity"]["source"]: s for s in draft["documents"]}
     assert set(by_slug) == {"ventes", "achats"}
     assert by_slug["achats"]["unpublished_changes"] == 1
+    assert by_slug["achats"]["unpublished"] is True
     assert by_slug["ventes"]["unpublished_changes"] == 0
     assert by_slug["ventes"]["connection"] == "gh"
 
     # Vide : comme absent.
-    empty = await _ok(app, AGENT, "list_sources", _ids(space, branch=""))
+    empty = await _ok(app, AGENT, "list_documents", _ids(space, kind="source", branch=""))
     assert empty["view"] == "published"
 
 
 async def test_branch_autre_que_draft_refusee(app: FastAPI, space: ApiSpace) -> None:
-    result = await call_tool(app, AGENT, "list_sources", _ids(space, branch="main"))
+    result = await call_tool(
+        app, AGENT, "list_documents", _ids(space, kind="source", branch="main")
+    )
     assert result.is_error
     body = json.loads(result.content[0].text)
     assert body["error"] == "branch_unsupported"
@@ -165,15 +168,15 @@ async def test_branch_autre_que_draft_refusee(app: FastAPI, space: ApiSpace) -> 
         "branch_unsupported"
     )
     # L'ancien paramètre `view` n'existe plus.
-    assert await _refusal(app, AGENT, "list_sources", _ids(space, view="draft")) == (
-        "invalid_arguments"
-    )
+    assert await _refusal(
+        app, AGENT, "list_documents", _ids(space, kind="source", view="draft")
+    ) == ("invalid_arguments")
 
 
 async def test_cle_ne_peut_pas_demander_le_brouillon(app: FastAPI, space: ApiSpace) -> None:
-    assert await _refusal(app, KEY, "list_sources", _ids(space, branch="draft")) == (
-        "draft_requires_person"
-    )
+    assert await _refusal(
+        app, KEY, "list_documents", _ids(space, kind="source", branch="draft")
+    ) == ("draft_requires_person")
     # Les primitives du brouillon ne sont même pas proposées à une clé.
     assert await _refusal(app, KEY, "get_my_draft", _ids(space)) == "primitive_forbidden"
     assert await _refusal(app, KEY, "get_publish_readiness", _ids(space)) == ("primitive_forbidden")
@@ -345,12 +348,12 @@ async def test_gouvernance_lue_avec_le_brouillon(
 
 
 async def test_branche_introuvable_ou_d_un_autre_espace(app: FastAPI, space: ApiSpace) -> None:
-    assert await _refusal(app, KEY, "list_sources", _ids(space, branch_id=str(uuid.uuid4()))) == (
-        "branch_not_found"
-    )
-    assert await _refusal(app, KEY, "list_sources", _ids(space, space_id=str(uuid.uuid4()))) == (
-        "space_not_found"
-    )
+    assert await _refusal(
+        app, KEY, "list_documents", _ids(space, kind="source", branch_id=str(uuid.uuid4()))
+    ) == ("branch_not_found")
+    assert await _refusal(
+        app, KEY, "list_documents", _ids(space, kind="source", space_id=str(uuid.uuid4()))
+    ) == ("space_not_found")
 
 
 async def test_acces_au_depot_perdu_erreur_nommee(app: FastAPI, space: ApiSpace) -> None:
@@ -361,14 +364,14 @@ async def test_acces_au_depot_perdu_erreur_nommee(app: FastAPI, space: ApiSpace)
         )
     # Copie locale oubliée : la lecture doit retourner au dépôt.
     shutil.rmtree(app.state.settings.work_volume_path, ignore_errors=True)
-    error = await _refusal(app, KEY, "list_sources", _ids(space))
+    error = await _refusal(app, KEY, "list_documents", _ids(space, kind="source"))
     assert error == "repo_access_lost"
 
 
 async def test_arguments_invalides_refuses(app: FastAPI, space: ApiSpace) -> None:
-    assert await _refusal(app, KEY, "list_sources", {"space_id": "pas-un-uuid"}) == (
-        "invalid_arguments"
-    )
+    assert await _refusal(
+        app, KEY, "list_documents", {"space_id": "pas-un-uuid", "kind": "source"}
+    ) == ("invalid_arguments")
 
 
 # --- Droits par espace (agent pour une personne) -------------------------------------------------
@@ -412,4 +415,7 @@ async def test_capacite_d_un_autre_espace_ne_vaut_pas_ici(app: FastAPI, space: A
         return ana if token == "ana" else None
 
     app.state.mcp_resolvers.append(resolver)
-    assert await _refusal(app, "ana", "list_sources", _ids(space)) == "primitive_forbidden"
+    assert (
+        await _refusal(app, "ana", "list_documents", _ids(space, kind="source"))
+        == "primitive_forbidden"
+    )

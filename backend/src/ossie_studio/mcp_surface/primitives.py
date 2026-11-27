@@ -41,7 +41,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "accept_validation_warning": Implementation(prep.WarningArgs, prep.accept_validation_warning),
     # Lire un schéma, quel que soit son domaine (ticket 06ef8679)
     "read_schema": Implementation(schemas.ReadSchemaArgs, schemas.read_schema),
-    "list_sources": Implementation(BranchArgs, reads.list_sources),
     "get_reference_graph": Implementation(
         references.ReferenceGraphArgs, references.get_reference_graph
     ),

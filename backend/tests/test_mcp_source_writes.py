@@ -114,8 +114,9 @@ async def _refusal(app: FastAPI, token: str, name: str, args: dict[str, Any]) ->
 
 
 async def _sources(app: FastAPI, space: ApiSpace, branch: str = "draft") -> dict[str, Any]:
-    listed = await _ok(app, AGENT, "list_sources", _branch(space, branch=branch))
-    return {s["slug"]: s for s in listed["sources"]}
+    args = _branch(space, branch=branch, kind="source")
+    listed = await _ok(app, AGENT, "list_documents", args)
+    return {s["identity"]["source"]: s for s in listed["documents"]}
 
 
 # --- Déclarer, modifier, supprimer ----------------------------------------------------

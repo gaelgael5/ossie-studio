@@ -210,16 +210,6 @@ CATALOG: tuple[Primitive, ...] = (
     ),
     # --- Sources et schémas bruts
     Primitive(
-        id="list_sources",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "List the data sources declared on a branch (type, connection, parameters)."
-            + _DRAFT_NOTE
-        ),
-    ),
-    Primitive(
         id="get_reference_graph",
         domain="sources",
         access="read",

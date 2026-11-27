@@ -76,7 +76,8 @@ class DeclareSourceArgs(BranchArgs):
     type: str = Field(description="'git', a database engine, or 'openapi'.")
     connection: str = Field(default="", description="Connection slug (none for 'openapi').")
     parameters: dict[str, Any] = Field(
-        default_factory=dict, description="Type-specific parameters, as in list_sources."
+        default_factory=dict,
+        description="Type-specific parameters, as in the manifest (kind 'source').",
     )
 
 
