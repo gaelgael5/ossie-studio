@@ -188,9 +188,13 @@ CATALOG: tuple[Primitive, ...] = (
         # l'appel, sur l'espace visé.
         capability="spaces:read",
         description=(
-            "Read any schema of the space by its path, as the lists give it ('schema_path' "
-            "of list_raw_schemas and list_assets, 'path' of list_referentiels and "
-            "list_carto_types). Returns kind ('raw', 'asset', 'referentiel', 'carto_type'), "
+            "Read a schema of the space. For the content of a kind of document, by kind and "
+            "what types it, never a path: kind='carto_objet' + type (schema of an object of "
+            "that map type), kind='referentiel_valeur' + referentiel (model of the reference "
+            "list). A kind whose content depends on no type (models, processes, tags...) is "
+            "described by describe_standard instead. A raw or asset schema: kind='schema_raw' "
+            "or 'schema_asset' + identity {source, name} (list_documents). Returns "
+            "kind ('raw', 'asset', 'referentiel', 'carto_type'), "
             "version (content id in the branch read), unpublished, schema and extras. By "
             "default (resolved=true) the effective schema: a raw schema as collected "
             "(references resolved); an asset merged with its human work, extras carrying "
@@ -213,17 +217,6 @@ CATALOG: tuple[Primitive, ...] = (
         description=(
             "List the data sources declared on a branch (type, connection, parameters)."
             + _DRAFT_NOTE
-        ),
-    ),
-    Primitive(
-        id="list_raw_schemas",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "List the raw schemas collected from a source (one per object: table, entity, "
-            "API schema), with their field count, whether they are retained as assets, and "
-            "schema_path to read one with read_schema." + _DRAFT_NOTE
         ),
     ),
     Primitive(
@@ -302,24 +295,6 @@ CATALOG: tuple[Primitive, ...] = (
     ),
     # --- Assets (curation)
     Primitive(
-        id="list_assets",
-        domain="curation",
-        access="read",
-        capability="curation:read",
-        description=(
-            "List the assets of a source: the raw objects retained (fully or partly) for the "
-            "semantic layer; orphan = its raw object disappeared. schema_path: to read one "
-            "with read_schema." + _DRAFT_NOTE
-        ),
-    ),
-    Primitive(
-        id="get_tri_rules",
-        domain="curation",
-        access="read",
-        capability="curation:rules",
-        description="Read the triage rules of a source (patterns that set noise aside).",
-    ),
-    Primitive(
         id="get_review",
         domain="curation",
         access="read",
@@ -378,18 +353,6 @@ CATALOG: tuple[Primitive, ...] = (
             "ones): structure from the raw, enrichment kept. Written to the user's draft."
         ),
         person_only=True,
-    ),
-    Primitive(
-        id="set_tri_rules",
-        domain="curation",
-        access="write",
-        capability="curation:rules",
-        description=(
-            "Replace the triage rules of a source (patterns that set noise aside). Give the "
-            "complete list; an empty list removes all rules. Written to the user's draft."
-        ),
-        person_only=True,
-        idempotent=True,
     ),
     Primitive(
         id="apply_review",
@@ -494,334 +457,127 @@ CATALOG: tuple[Primitive, ...] = (
         person_only=True,
         destructive=True,
     ),
-    # --- Référentiels (lecture de la version publiée, jamais d'un brouillon)
+    # --- Écriture commune par genre (epic « Primitives MCP — écriture commune par genre »)
     Primitive(
-        id="list_referentiels",
-        domain="referentiels",
-        access="read",
-        capability="referentiels:read",
-        description=(
-            "List the reference data sets (référentiels) of a space: lists of business keys and "
-            "values maintained in Ossie-studio (countries, delivery modes, codes...), as "
-            "published. Each has a key of one or more properties (a composite key needs all of "
-            "them). Returns name, title, key properties, value count, path of the model (to read "
-            "it with read_schema) and the published commit."
-        ),
-    ),
-    Primitive(
-        id="search_referentiel_values",
-        domain="referentiels",
-        access="read",
-        capability="referentiels:read",
-        description=(
-            "Search the values of a published reference data set, sorted by key, with equality "
-            "filters on simple top-level properties. The result is bounded: 'has_more' tells "
-            "whether more values remain (use offset for the next page)."
-        ),
-    ),
-    Primitive(
-        id="get_referentiel_value",
-        domain="referentiels",
-        access="read",
-        capability="referentiels:read",
-        description=(
-            "Get one value of a published reference data set by its key; for a composite key, "
-            "give every key property."
-        ),
-    ),
-    # --- Cartographie : types et objets ArchiMate (ticket 41bf680e)
-    Primitive(
-        id="list_carto_types",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "List the object types of the space's business cartography: each is an ArchiMate 3.2 "
-            "type plus a name given by the people (slug, name, ArchiMate type, layer, nature "
-            "'object' or 'relation', object count, path of its schema). With catalogue=true, "
-            "also every ArchiMate 3.2 type of the catalogue, used or not." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="list_carto_objects",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "List the objects and relationships of the cartography (a relationship is an object "
-            "with a source and a target), optionally filtered by type (a space type slug, or an "
-            "ArchiMate type such as 'ApplicationComponent'), nature ('object' or 'relation') "
-            "and name (part of the name or key, case and accents ignored). Summaries: key, "
-            "name, type, ArchiMate type, nature, path, and source and target (with their path) "
-            "for a relationship. "
-            "Paged: 'total' and 'has_more' (use offset for the next page). Use it before "
-            "creating anything, to find what already exists." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="get_carto_object",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "Read one object or relationship of the cartography by its path, its key, or its "
-            "type and key (same result): name, type, "
-            "ArchiMate type, nature, documentation (markdown), properties (ArchiMate attributes "
-            "as ArchiMate values, with their French label in property_labels), source and target "
-            "for a relationship, and its incoming and outgoing relationships (key, type, "
-            "direction, the other end) to explore step by step, and the models that keep it "
-            "(slug, name, path). Returns its path and its version (content id in the branch "
-            "read), to give the write primitives to replace, modify or delete it." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    # --- Cartographie : modèles et vues (ticket be89037a)
-    Primitive(
-        id="list_carto_models",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "List the models (ArchiMate diagrams) of the cartography: slug, name, description, "
-            "number of objects and relationships kept, views (name and ArchiMate viewpoint), "
-            "rules file, number of problems, path of the model file. With contains (an object "
-            "or relationship key), only the models that keep it: where does an object appear."
-            + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="get_carto_model",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "Read one model by its slug or the path of its file (same result), with its version "
-            "(content id in the branch read) and the paths of its rules and graphic files: the "
-            "objects and relationships it keeps (key, name, "
-            "type, ArchiMate type; source and target for a relationship), its views with their "
-            "nodes (an object by its key and name, a note, a frame; nested nodes) and "
-            "connections (a relationship between two nodes). Never the drawing: no coordinate. "
-            "Use get_carto_object on a key for its details." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    # --- Cartographie : écriture (ticket d4723be3)
-    Primitive(
-        id="write_carto_documents",
-        domain="cartographie",
+        id="write_documents",
+        domain="documents",
         access="write",
-        capability="cartographie:write",
+        capability="spaces:read",
         description=(
-            "Write a list of cartography documents (objects and relationships) to the user's "
-            "draft, all together or not at all (one draft change, never published). Each "
-            "entry names its document by path ('cartographie/objets/<type>/<key in "
-            "lowercase>.yaml') or type and key: absent document = creation (no version); "
-            "present = complete replacement, version required (from get_carto_object); "
-            "delete: true = deletion, version required. Content is the document as its file "
-            "writes it (cle, type, nom, documentation, proprietes; source and cible for a "
-            "relationship): read its schema with read_schema on the type. A relationship may "
-            "target an object created in the same list; an object may be deleted with the "
-            "relationships that use it. Same checks as the screen (type schema, unique and "
-            "frozen key, relationship allowed by ArchiMate, object in use). On any refusal "
-            "nothing is written and every error is returned (carto_write_refused): JSONPath "
-            "in your request (e.g. $.documents[2].content.proprietes.volume_jour), code, "
-            "French message with what was received and expected. Returns each document's "
-            "path and new version."
+            "Write a list of documents of any writable kind (map types, objects and "
+            "relationships, models, BPMN processes, reference-list models and values, "
+            "governance, tag / classification / sorting rules, domains and their datasets, "
+            "relationships and references) to the user's draft, all together or not at "
+            "all (one draft change, never published). Each entry gives its kind and identity "
+            "(list_write_kinds): the system computes where the document goes, never give a "
+            "path. Absent document = creation (no version); present = complete replacement, "
+            "version required (read_document); delete: true = deletion, version required. "
+            "Content is the whole document as stored (describe_standard). Order is free: a "
+            "relationship may target an object created later in the list; an object may be "
+            "deleted with the relationships that use it. Each document is checked like the "
+            "screen before anything is written, and needs the screen's right for its kind. On "
+            "any refusal nothing is written and every error is returned (write_refused): "
+            "JSONPath in your request (e.g. $.documents[2].content.proprietes.volume_jour), "
+            "code, French message with what was received and expected, and 'aide' pointing to "
+            "describe_standard or list_write_kinds for a format error. Returns each "
+            "document's path and new version, and warnings."
         ),
         person_only=True,
         destructive=True,
     ),
     Primitive(
-        id="modify_carto_document",
-        domain="cartographie",
-        access="write",
-        capability="cartographie:write",
-        description=(
-            "Modify one cartography document of the user's draft by JSONPath operations "
-            "({path: '$.proprietes.volume_jour', value: 180} or {path: ..., delete: true}), "
-            "given its path and version (from get_carto_object). $.cle, $.type, $.source and "
-            "$.cible are frozen. The resulting document is checked like the screen before "
-            "writing; on refusal nothing is written and every error is returned with its "
-            "JSONPath ($.operations[i].path for a malformed operation, otherwise the path in "
-            "the document). Returns the new version."
-        ),
-        person_only=True,
-    ),
-    # --- Gouvernance
-    Primitive(
-        id="list_tags",
-        domain="governance",
+        id="list_documents",
+        domain="documents",
         access="read",
-        capability="governance:read",
-        description="List the governed tags of a branch (owner, description, links).",
+        # Visible de qui lit un espace ; la capacité de lecture du genre (celle de
+        # l'écran) est vérifiée à l'appel, sur l'espace visé.
+        capability="spaces:read",
+        description=(
+            "List the documents of one kind (list_write_kinds): map types, objects and "
+            "relationships, models, BPMN processes, reference lists, governance, rules, "
+            "domains and datasets, raw and asset schemas. Filters: identity fields as "
+            "partial filters "
+            "(e.g. identity={type: 'application'} for carto_objet, {referentiel: 'pays'} for "
+            "referentiel_valeur), 'search' (part of the name or identity, case and accents "
+            "ignored; any simple property of a reference-list value), and the kind's own "
+            "'filters' declared by list_write_kinds (e.g. {source: 'APP-CAISSE'}: the "
+            "relationships starting from that object; {contains: KEY}: the models keeping "
+            "it; {equals: {pays: 'FR'}}: reference-list values). Paginated (limit, offset, "
+            "has_more). Each document: kind, identity, name, path, version (to give to "
+            "write_documents / patch_document), unpublished when read from the draft, and a "
+            "summary (ArchiMate type and nature of a map type or object, ends of a "
+            "relationship, counts and views of a model, the value of a reference-list "
+            "entry...). Read a whole document with read_document. Needs the screen's right "
+            "to read that kind." + _DRAFT_NOTE
+        ),
+        idempotent=True,
     ),
     Primitive(
-        id="list_classifications",
-        domain="governance",
+        id="read_document",
+        domain="documents",
         access="read",
-        capability="governance:read",
-        description="List the classification schemes of a branch and their levels.",
+        # Visible de qui lit un espace ; la capacité de lecture du genre (celle de
+        # l'écran) est vérifiée à l'appel, sur l'espace visé.
+        capability="spaces:read",
+        description=(
+            "Read one document of any kind by its kind and identity (list_write_kinds), never "
+            "a path: its raw content (an object for YAML/JSON; the XML text for a BPMN "
+            "process; for a reference-list value, that value alone), its real path and its "
+            "version, to give as is to write_documents or patch_document. Read with "
+            "branch='draft' a document you are about to modify: writes go to the user's "
+            "draft. Unknown identity: document_not_found. Needs the screen's right to read "
+            "that kind." + _DRAFT_NOTE
+        ),
+        idempotent=True,
     ),
     Primitive(
-        id="list_certifications",
-        domain="governance",
+        id="list_write_kinds",
+        domain="documents",
         access="read",
-        capability="governance:read",
+        capability="spaces:read",
         description=(
-            "List the certifications of a branch: name, rank, the tag that links it to assets, "
-            "restricted or not." + _DRAFT_NOTE
+            "List every kind of document (map types, objects and relationships, models, "
+            "BPMN processes, reference lists, governance, rules, domains and datasets; raw "
+            "and asset schemas, read-only): for each, whether it is writable (or the action "
+            "that produces it), its identity fields and their "
+            "format, the path rule (the system computes the path), the standard of its "
+            "content (describe_standard), the syntax of patch_document paths (jsonpath or "
+            "xpath), the frozen fields, the filters of list_documents, and the size limit per "
+            "document. Start here before writing."
         ),
-    ),
-    # --- Écriture : gouvernance (toujours dans le brouillon de la personne). Les
-    # modifications sont partielles : seuls les champs donnés changent.
-    Primitive(
-        id="create_tag",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description=(
-            "Create a governed tag (identifier like 'gouvernance/pii', owner, description, "
-            "links, properties). Written to the user's draft (not published)."
-        ),
-        person_only=True,
-    ),
-    Primitive(
-        id="update_tag",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description=(
-            "Change a governed tag. Only the given fields change; links and properties replace "
-            "the whole map when given. Written to the user's draft (not published)."
-        ),
-        person_only=True,
         idempotent=True,
     ),
     Primitive(
-        id="delete_tag",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description="Delete a governed tag. Written to the user's draft (not published).",
-        person_only=True,
-        destructive=True,
-    ),
-    Primitive(
-        id="create_classification",
-        domain="governance",
-        access="write",
-        capability="governance:write",
+        id="describe_standard",
+        domain="documents",
+        access="read",
+        capability="spaces:read",
         description=(
-            "Create a classification scheme (e.g. Sensitivity), optionally with its levels. "
-            "Written to the user's draft (not published)."
+            "Explain a standard in full, in markdown, with valid examples: the format of each "
+            "kind of document, the JSONPath and XPath syntaxes of patch_document, the common "
+            "writing rules (an identity never changes, a batch is checked on its final state, "
+            "size limit) and the shape of errors. Without argument, list the standards. Format "
+            "errors of every tool point here through their 'aide' field."
         ),
-        person_only=True,
-    ),
-    Primitive(
-        id="update_classification",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description=(
-            "Change a classification scheme (not its levels). Only the given fields change. "
-            "Written to the user's draft (not published)."
-        ),
-        person_only=True,
         idempotent=True,
     ),
     Primitive(
-        id="delete_classification",
-        domain="governance",
+        id="patch_document",
+        domain="documents",
         access="write",
-        capability="governance:write",
+        capability="spaces:read",
         description=(
-            "Delete a classification scheme with all its levels. Written to the user's draft "
-            "(not published)."
+            "Modify one document of the user's draft, given its kind, identity and version "
+            "(read_document), by operations set / add / remove. Paths are JSONPath (RFC 9535 "
+            "singular query, e.g. '$.proprietes.volume_jour') or, for a BPMN process, XPath "
+            "with the bpmn:, bpmndi:, dc:, di: and urban: prefixes; each path designates "
+            "exactly one node. Frozen identity fields cannot change. The modified document is "
+            "checked whole like the screen before writing; on refusal nothing is written and "
+            "every error is returned with its path ($.operations[i].path for a malformed "
+            "operation, otherwise the path in the document) and 'aide'. Returns the new "
+            "version and warnings."
         ),
         person_only=True,
-        destructive=True,
-    ),
-    Primitive(
-        id="create_level",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description=(
-            "Add a level at the end of a classification scheme (name and short name unique in "
-            "the scheme). Written to the user's draft (not published)."
-        ),
-        person_only=True,
-    ),
-    Primitive(
-        id="update_level",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description=(
-            "Change a level of a classification scheme. Only the given fields change. Written "
-            "to the user's draft (not published)."
-        ),
-        person_only=True,
-        idempotent=True,
-    ),
-    Primitive(
-        id="delete_level",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description=(
-            "Delete a level of a classification scheme. Written to the user's draft "
-            "(not published)."
-        ),
-        person_only=True,
-        destructive=True,
-    ),
-    Primitive(
-        id="reorder_levels",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description=(
-            "Set the order of the levels of a classification scheme: give all its level ids, "
-            "each once. Written to the user's draft (not published)."
-        ),
-        person_only=True,
-        idempotent=True,
-    ),
-    Primitive(
-        id="create_certification",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description=(
-            "Create a certification (e.g. Gold), linked to assets by its own tag. Written to "
-            "the user's draft (not published)."
-        ),
-        person_only=True,
-    ),
-    Primitive(
-        id="update_certification",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description=(
-            "Change a certification (its slug stays). Only the given fields change. Written to "
-            "the user's draft (not published)."
-        ),
-        person_only=True,
-        idempotent=True,
-    ),
-    Primitive(
-        id="delete_certification",
-        domain="governance",
-        access="write",
-        capability="governance:write",
-        description="Delete a certification. Written to the user's draft (not published).",
-        person_only=True,
-        destructive=True,
     ),
 )
 

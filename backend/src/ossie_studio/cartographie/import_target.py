@@ -13,8 +13,12 @@ ou la cible d'une relation) ; **aucune suppression** (« On voit les suppression
 après. C'est tout un sujet qu'on traitera d'un bloc. ») ; écriture dans le
 brouillon, tout ou rien, un seul enregistrement.
 
-La validation est celle du service de la cartographie (`space.check_batch`) :
-aucune règle n'est réécrite ici.
+**Validation et écriture** (epic « Primitives MCP — écriture commune par genre »,
+ticket 1612cce4) : la cible est le genre `carto_objet` du registre. Chaque ligne est
+validée par la méthode du validateur de ce genre — celle de `write_documents`, qui
+applique les règles du service (`space.check_batch`) — et écrite par lui ; ses refus
+portent le même code et le même message que par MCP. Aucune validation n'est propre
+à l'import.
 """
 
 from __future__ import annotations
@@ -27,10 +31,13 @@ from typing import Any
 from ossie_studio.cartographie.catalog import Catalog, catalog
 from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.model import CartoObject, is_empty
-from ossie_studio.cartographie.space import Cartographie, check_batch, save_object
+from ossie_studio.cartographie.space import Cartographie
 from ossie_studio.imports.target import ItemProblem
+from ossie_studio.mcp_surface.kind_imports import check_import, checking_store
+from ossie_studio.mcp_surface.kinds import write_kind
 
 JOURNAL_TYPE = "carto_import"
+KIND = "carto_objet"
 IMPORTS_DIR = "cartographie/imports"
 # Ce qu'une ligne rend (format du fichier d'un objet, sans le type).
 FIELDS = ("cle", "type", "source", "cible", "nom", "documentation", "proprietes")
@@ -80,37 +87,16 @@ class CartoImportTarget:
             target=item.get("cible"),
         )
 
+    def _identity(self, item: Any) -> dict[str, Any]:
+        key = item.get("cle") if isinstance(item, dict) else None
+        return {"type": self.slug, "key": key}
+
     def check(self, produced: list[Any]) -> list[ItemProblem]:
-        problems: list[ItemProblem] = []
-        objects: list[CartoObject] = []
-        ranks: list[int] = []
-        for index, item in enumerate(produced):
-            key = str(item.get("cle") or "") if isinstance(item, dict) else ""
-            if not isinstance(item, dict):
-                problems.append(ItemProblem(index, "object_not_mapping", "", "", key))
-                continue
-            unknown = sorted(set(item) - set(FIELDS))
-            if unknown:
-                problems.append(
-                    ItemProblem(index, "object_field_unknown", ", ".join(unknown), unknown[0], key)
-                )
-                continue
-            if item.get("type") not in (None, self.slug):
-                problems.append(
-                    ItemProblem(index, "object_type_frozen", str(item["type"]), "type", key)
-                )
-                continue
-            obj = self._object(item)
-            if obj is None:
-                problems.append(ItemProblem(index, "object_field_invalid", "", "", key))
-                continue
-            objects.append(obj)
-            ranks.append(index)
-        for p in check_batch(self.space, objects, self.cat):
-            problems.append(
-                ItemProblem(ranks[p.index], p.code, p.detail, p.field, objects[p.index].key)
-            )
-        return sorted(problems, key=lambda p: (p.index, p.code, p.field))
+        entries = [(self._identity(item), item) for item in produced]
+        return [
+            ItemProblem(r.index, r.code, r.message, r.path, self.label(produced[r.index], r.index))
+            for r in check_import(KIND, self.space, entries, space=self.space)
+        ]
 
     def key(self, item: Any) -> Hashable | None:
         key = item.get("cle") if isinstance(item, dict) else None
@@ -121,27 +107,24 @@ class CartoImportTarget:
         return str(key) if key is not None else f"#{index + 1}"
 
     def write(self, root: Path, items: list[Any]) -> None:
-        """Crée ou modifie, par le service, les objets qui changent ; aucun n'est
-        supprimé (fusion seulement)."""
+        """Crée ou modifie, par le validateur du genre (celui de write_documents), les
+        objets qui changent ; aucun n'est supprimé (fusion seulement)."""
+        kind = write_kind(KIND)
+        store = checking_store(kind)
         before = {d["cle"]: d for d in self.current()}
-        pending = []
-        for item in items:
-            if before.get(item.get("cle")) == item:
-                continue
-            obj = self._object(item)
-            assert obj is not None  # validé avant
-            pending.append(obj)
+        pending = [item for item in items if before.get(item.get("cle")) != item]
         # Le lot est validé comme un tout ; à l'écriture, une relation peut viser un
         # objet (ou une relation) écrit plus loin : on rejoue tant qu'un passage
         # avance, puis on laisse le dernier refus remonter (tout ou rien).
         while pending:
-            failed: list[CartoObject] = []
+            failed: list[Any] = []
             last: CartographieError | None = None
-            for obj in pending:
+            for item in pending:
+                location = kind.locate(root, self._identity(item))
                 try:
-                    save_object(root, obj, create=obj.key not in self.space.objects, cat=self.cat)
+                    store.write(root, location, item, create=item["cle"] not in self.space.objects)
                 except CartographieError as exc:
-                    failed.append(obj)
+                    failed.append(item)
                     last = exc
             if last is not None and len(failed) == len(pending):
                 raise last

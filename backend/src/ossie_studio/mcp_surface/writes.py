@@ -34,7 +34,6 @@ from ossie_studio.sources.curation import (
     is_schema_file,
 )
 from ossie_studio.sources.curation_actions import CurationTarget, UnknownFieldsError, WriteResult
-from ossie_studio.sources.manifest import ManifestError
 from ossie_studio.spaces.workdir import WorkdirError
 
 # --- Arguments --------------------------------------------------------------------------
@@ -70,20 +69,6 @@ class EnrichArgs(ObjectWriteArgs):
     )
     fields: dict[str, EnrichValues] = Field(
         default_factory=dict, description="Enrichment per field name."
-    )
-
-
-class TriRuleArg(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    target: str = Field(description="What the pattern matches, as in get_tri_rules.")
-    pattern: str
-    kind: str = Field(description="'glob' or 'regex'.")
-    label: str = ""
-
-
-class SetTriRulesArgs(SourceWriteArgs):
-    rules: list[TriRuleArg] = Field(
-        description="The complete list of rules (replaces the current one; empty = none)."
     )
 
 
@@ -245,25 +230,6 @@ async def refresh_assets(ctx: PrimitiveContext, args: RefreshArgs) -> dict[str, 
 # --- Règles de tri et revue -------------------------------------------------------------------
 
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
-
-
-async def set_tri_rules(ctx: PrimitiveContext, args: SetTriRulesArgs) -> dict[str, Any]:
-    bv, user = await open_for_write(ctx, args)
-    await _source_ready(bv, args.source)
-    target = write_target(ctx, bv, user.email)
-    try:
-        result, rules = await curation_actions.set_tri_rules(
-            target, args.source, [rule.model_dump() for rule in args.rules]
-        )
-    except curation_actions.RulesInvalidError as exc:
-        raise PrimitiveError("tri_rules_invalid", fields=exc.fields) from None
-    except curation_actions.SourceMissingError:
-        raise PrimitiveError("source_not_found", source=args.source) from None
-    except ManifestError as exc:
-        raise PrimitiveError("manifest_invalid", fields=exc.fields) from None
-    except WorkdirError as exc:
-        raise PrimitiveError(exc.code) from None
-    return {**written_payload(result), "rules": rules}
 
 
 def _group(refs: list[ReviewFieldRef]) -> dict[str, list[str]]:

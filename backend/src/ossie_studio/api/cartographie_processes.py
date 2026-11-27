@@ -30,6 +30,7 @@ from ossie_studio.cartographie.process import (
     PROCESSES_DIR,
     Process,
     ProcessRead,
+    check_bpmn_schema,
     delete_process,
     list_processes,
     new_process_xml,
@@ -207,6 +208,7 @@ async def check_import(
     stem = body.filename.rsplit("/", 1)[-1].rsplit(".", 1)[0]
     try:
         process = parse_process(_checked(body.content))
+        check_bpmn_schema(body.content)
     except CartographieError as exc:
         return {"valid": False, "error": {"code": exc.code, **exc.detail}}
 

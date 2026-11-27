@@ -1,6 +1,7 @@
 """Primitive commune `read_schema` (ticket 06ef8679) : la nature se déduit du
 chemin, le schéma effectif par défaut, la capacité du domaine vérifiée sur
-l'espace, et les profils agents qui donnaient les anciennes lectures."""
+l'espace, et les profils agents qui donnaient les anciennes lectures. Désignation
+par genre et type, chemin facultatif (ticket 69be2ef9)."""
 
 from __future__ import annotations
 
@@ -28,6 +29,11 @@ TYPE_TEXT = (
     "  volume_jour:\n    type: integer\n    minimum: 0\n"
     "  frequence:\n    type: string\n"
 )
+MODEL_PATH = "referentiels/pays/modele.schema.yaml"
+MODEL_TEXT = (
+    "title: Pays\ntype: object\nx-key: [code]\nrequired: [code]\n"
+    "properties:\n  code: {type: string}\n  nom: {type: string}\n"
+)
 RAW_PATH = "sources/ventes/raw/customer.schema.yaml"
 ASSET_PATH = "sources/ventes/assets/customer.schema.yaml"
 SCHEMA = {"title": "Customer", "type": "object", "properties": {"id": {"type": "integer"}}}
@@ -45,6 +51,8 @@ async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
             ),
             RAW_PATH: json.dumps(SCHEMA),
             ASSET_PATH: json.dumps(SCHEMA),
+            MODEL_PATH: MODEL_TEXT,
+            "referentiels/pays/valeurs.json": "[]",
         },
     )
     async with app.state.pool.acquire() as conn:
@@ -104,9 +112,53 @@ async def test_type_de_cartographie_effectif_et_tel_qu_ecrit(app: FastAPI, space
 
 async def test_chemins_inconnus_ou_absents(app: FastAPI, space: ApiSpace) -> None:
     unknown = await _refusal(app, KEY, _ids(space, path="cartographie/objets/a/b.yaml"))
-    assert unknown == {"error": "schema_path_unknown", "path": "cartographie/objets/a/b.yaml"}
+    assert unknown == {
+        "error": "schema_path_unknown",
+        "path": "cartographie/objets/a/b.yaml",
+        "aide": {"primitive": "list_write_kinds"},
+    }
     missing = await _refusal(app, KEY, _ids(space, path="cartographie/types/absent.schema.yaml"))
     assert missing["error"] == "schema_not_found"
+
+
+async def test_par_genre_le_meme_schema_que_par_chemin(app: FastAPI, space: ApiSpace) -> None:
+    """Ticket 69be2ef9, critère 1 : genre + type rend exactement ce que rend le chemin,
+    pour chaque genre dont le contenu dépend d'un type."""
+    for designation, path in (
+        ({"kind": "carto_objet", "type": "processus-de-vente"}, TYPE_PATH),
+        ({"kind": "referentiel_valeur", "referentiel": "pays"}, MODEL_PATH),
+    ):
+        for resolved in (True, False):
+            by_kind = await _ok(app, KEY, _ids(space, **designation, resolved=resolved))
+            by_path = await _ok(app, KEY, _ids(space, path=path, resolved=resolved))
+            assert by_kind == by_path and by_kind["path"] == path
+
+
+async def test_par_genre_les_refus(app: FastAPI, space: ApiSpace) -> None:
+    """Un genre sans type renvoie à son standard ; ce qui le type manque, est en trop
+    ou est mal formé ; un chemin avec un genre suit la règle du genre (interdit)."""
+    untyped = await _refusal(app, KEY, _ids(space, kind="processus"))
+    assert untyped["error"] == "schema_kind_untyped"
+    assert untyped["aide"] == {"primitive": "describe_standard", "standard": "bpmn"}
+    cases = [
+        ({"kind": "carto_objet"}, "$.type"),
+        ({"kind": "carto_objet", "type": "role", "referentiel": "pays"}, "$.referentiel"),
+        ({"kind": "carto_objet", "type": "Pas Un Slug"}, "$.type"),
+        ({"type": "role"}, "$.type"),
+        ({}, "$.kind"),
+    ]
+    for designation, where in cases:
+        refused = await _refusal(app, KEY, _ids(space, **designation))
+        assert (refused["error"], refused["path"]) == ("schema_designation_invalid", where)
+        assert refused["aide"] == {"primitive": "list_write_kinds"}
+    with_path = await _refusal(
+        app, KEY, _ids(space, kind="carto_objet", type="processus-de-vente", path=TYPE_PATH)
+    )
+    assert with_path["error"] == "write_path_forbidden" and with_path["expected"] == TYPE_PATH
+    unknown = await _refusal(app, KEY, _ids(space, kind="inconnu"))
+    assert unknown["error"] == "write_kind_unknown"
+    absent = await _refusal(app, KEY, _ids(space, kind="carto_objet", type="absent"))
+    assert absent["error"] == "schema_not_found"
 
 
 async def test_capacite_du_domaine_verifiee_sur_l_espace(app: FastAPI, space: ApiSpace) -> None:

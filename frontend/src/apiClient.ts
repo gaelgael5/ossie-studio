@@ -408,6 +408,18 @@ export interface PluginParamItem {
   default: string
   value: string
 }
+// Paramètres généraux de l'application, page « Paramètres » (ticket ae8fc4b6).
+export interface AppSetting {
+  key: string
+  value: number
+  default: number
+  minimum: number
+  maximum: number
+  source: 'page' | 'config'
+  updated_at: string | null
+  updated_by: string | null
+}
+
 export interface ParsingPlugin {
   id: string
   label: string
@@ -2749,6 +2761,14 @@ export const api = {
       '/api/parsing/code-plugins',
     ),
   listParsingPlugins: () => apiFetch<{ plugins: ParsingPlugin[] }>('/api/parsing/plugins'),
+  listSettings: () => apiFetch<{ settings: AppSetting[] }>('/api/settings'),
+  setSetting: (key: string, value: number) =>
+    apiFetch<AppSetting>(`/api/settings/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+  resetSetting: (key: string) =>
+    apiFetch<AppSetting>(`/api/settings/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   setPluginParam: (pluginId: string, slug: string, value: string) =>
     apiFetch<{ plugin_id: string; slug: string; value: string }>(
       `/api/parsing/plugins/${encodeURIComponent(pluginId)}/parameters/${encodeURIComponent(slug)}`,

@@ -76,12 +76,12 @@ async def test_profil_lecture_livre_toutes_les_lectures(admin: AsyncClient) -> N
     assert lecture["is_builtin"] and lecture["all_read"]
     assert set(lecture["effective"]) == READ_PRIMITIVES
     # Le catalogue est exposé pour l'écran : lecture/écriture et capacité supposée.
-    entry = next(p for p in body["catalog"] if p["id"] == "list_assets")
+    entry = next(p for p in body["catalog"] if p["id"] == "get_review")
     assert entry == {
-        "id": "list_assets",
+        "id": "get_review",
         "domain": "curation",
         "access": "read",
-        "capability": "curation:read",
+        "capability": "curation:review",
         "person_only": False,
     }
 

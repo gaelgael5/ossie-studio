@@ -276,12 +276,13 @@ que si son contenu change : un fichier écrit à la main garde sa forme, et un
 déplacement ne touche que le graphique. Après l'enregistrement, le modèle est
 réhydraté (les nouvelles relations deviennent des objets existants).
 
-**Primitives MCP des modèles** (ticket be89037a, lecture seule) : `list_carto_models`
-(nom, description, nombre d'objets et de relations retenus, vues et points de vue,
-fichier de règles, problèmes ; `contains` = une clé : les modèles qui la retiennent)
-et `get_carto_model` (objets et relations retenus, vues avec leurs nœuds — objet par
-sa clé et son nom, note, cadre, imbrication — et connexions ; **jamais le dessin**).
-`get_carto_object` donne aussi les modèles qui retiennent l'objet (`models`).
+**Lecture des modèles par l'agent** (primitives communes, ticket 2113e7bc, qui
+remplacent `list_carto_models` et `get_carto_model` du ticket be89037a) :
+`list_documents(kind: carto_modele)` (nom, description, nombre d'objets et de relations
+retenus, vues et points de vue, fichier de règles, problèmes ; filtre `contains` = une
+clé : les modèles qui la retiennent) et `read_document(kind: carto_modele)` (le modèle
+tel qu'il est écrit : objets et relations retenus, vues, nœuds, connexions). Le dessin
+est un document à part (`carto_graphique`), jamais mêlé au modèle.
 
 **Le composant** est servi par l'application sous `/api/archimate`
 (`urban_archimate.mount`, paquet `urban-archimate==0.1.3`) : `urban-archimate.js` et

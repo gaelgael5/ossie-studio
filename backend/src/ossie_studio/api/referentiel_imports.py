@@ -48,7 +48,7 @@ async def _open(
 
 def _current(root: Path, name: str) -> tuple[ImportTarget, list[Any]]:
     ref = read_referentiel(root, name)
-    return ReferentielImportTarget(ref.model), list(ref.values)
+    return ReferentielImportTarget(ref.name, ref.model), list(ref.values)
 
 
 def _write(root: Path, name: str, target: ImportTarget, _now: list[Any], items: list[Any]) -> None:

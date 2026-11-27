@@ -2,14 +2,15 @@
 et leurs niveaux, certifications.
 
 Service commun à l'écran (routes `api/governance.py`, `api/classifications.py`)
-et à l'agent (primitives MCP, `mcp_surface/governance_writes.py`) : une seule
-règle métier. Chaque fonction s'exécute dans la vue de la personne (`root`), à
-l'intérieur du geste d'écriture de son brouillon : elle vérifie tout **avant**
-d'écrire, puis rend l'objet tel qu'il est écrit.
+et à l'agent (écriture commune par genre : `write_documents` / `patch_document`,
+validateurs `mcp_surface/kind_stores.py`) : une seule règle métier. Chaque
+fonction s'exécute dans la vue de la personne (`root`), à l'intérieur du geste
+d'écriture de son brouillon : elle vérifie tout **avant** d'écrire, puis rend
+l'objet tel qu'il est écrit.
 
 Modifications : seules les clés données dans `changes` changent. L'écran les
-donne toutes (il remplace l'objet) ; l'agent seulement celles qu'il veut
-changer. La validation porte sur l'objet complet obtenu.
+donne toutes (il remplace l'objet), comme l'agent qui écrit le document entier.
+La validation porte sur l'objet complet obtenu.
 
 Refus : `GovernanceRefused` porte le code nommé (le même à l'écran et pour
 l'agent), son statut HTTP pour l'écran et ses détails.

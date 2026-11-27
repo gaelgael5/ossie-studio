@@ -47,7 +47,7 @@ from typing import Any
 
 import yaml
 
-from ossie_studio.governance.repo import GOVERNANCE_DIR
+from ossie_studio.governance.repo import GOVERNANCE_DIR, Tag, read_tags, write_tag
 from ossie_studio.governance.tags import is_valid_tag_id, normalize_tag_id
 
 TAG_RULES_DIR = f"{GOVERNANCE_DIR}/tag-rules"
@@ -304,6 +304,32 @@ def write_tag_rule(root: Path, rule: TagRule) -> None:
         ),
         encoding="utf-8",
     )
+
+
+# Enregistrer une règle crée les tags gouvernés qu'elle cite et qui n'existent pas encore
+# (décision de Gael, cadrage du 22/11/2026), à l'écran comme par l'agent.
+
+
+def ensure_tags(root: Path, rule: TagRule) -> list[str]:
+    """Crée les tags de la règle absents du vocabulaire ; rend ceux créés."""
+    known = {t.id for t in read_tags(root)}
+    created = [t for t in rule.tags if t not in known]
+    for tag_id in created:
+        write_tag(root, Tag(tag_id, description=f"Créé par la règle de tags « {rule.name} »."))
+    return created
+
+
+def ensure_builtin_tags(root: Path) -> list[str]:
+    """Tags des règles fournies actives absents du vocabulaire : créés à la
+    première écriture de règles de l'espace (une lecture n'écrit jamais)."""
+    from ossie_studio.governance.builtin_tag_rules import builtin_rules
+
+    disabled = read_builtin_disabled(root)
+    created: list[str] = []
+    for rule in builtin_rules():
+        if rule.id not in disabled:
+            created += ensure_tags(root, rule)
+    return created
 
 
 def delete_tag_rule(root: Path, rule_id: str) -> bool:

@@ -1,6 +1,8 @@
-"""Primitives MCP de lecture de la cartographie (ticket 41bf680e) : lister les
-types, lister les objets, lire un objet par sa clé ; par clé d'API (vue publiée)
-et par agent connecté (vue brouillon)."""
+"""Lecture de la cartographie par l'agent : types, objets, relations et modèles, par
+les primitives communes `list_documents` et `read_document` (epic « Primitives MCP —
+écriture commune par genre », ticket 2113e7bc). Les tests des lectures par domaine
+qu'elles remplacent (tickets 41bf680e, be89037a, 5d0b3e7d) sont conservés, réécrits
+sur ces deux primitives : clé d'API (vue publiée) et agent connecté (vue brouillon)."""
 
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 
 from ossie_studio.mcp_surface.caller import McpCaller
+from ossie_studio.mcp_surface.catalog import BY_ID
 from tests.mcp_helpers import call_tool, tool_names
 from tests.space_fixture import ApiSpace, draft_write, forge_edit, make_api_space
 
@@ -78,34 +81,75 @@ async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
     return api_space
 
 
-async def _ok(app: FastAPI, token: str, tool: str, space: ApiSpace, **args: Any) -> dict[str, Any]:
+async def _call(
+    app: FastAPI, token: str, tool: str, space: ApiSpace, **args: Any
+) -> tuple[bool, dict[str, Any]]:
     result = await call_tool(
         app, token, tool, {"space_id": space.space_id, "branch_id": space.branch_id, **args}
     )
-    assert not result.is_error, result.content[0].text
+    if result.is_error:
+        return True, json.loads(result.content[0].text)
     data: dict[str, Any] = result.structured_content
+    return False, data
+
+
+async def _ok(app: FastAPI, token: str, tool: str, space: ApiSpace, **args: Any) -> dict[str, Any]:
+    error, data = await _call(app, token, tool, space, **args)
+    assert not error, data
     return data
 
 
-async def test_trois_primitives_offertes(app: FastAPI, space: ApiSpace) -> None:
+async def _refused(app: FastAPI, token: str, tool: str, space: ApiSpace, **args: Any) -> dict:
+    error, data = await _call(app, token, tool, space, **args)
+    assert error, data
+    return data
+
+
+async def _list(app: FastAPI, space: ApiSpace, kind: str, token: str = KEY, **args: Any) -> dict:
+    return await _ok(app, token, "list_documents", space, kind=kind, **args)
+
+
+def _keys(listing: dict[str, Any]) -> list[str]:
+    return [d["identity"]["key"] for d in listing["documents"]]
+
+
+APP_PATH = "cartographie/objets/application/app-boutique.yaml"
+APP_ID = {"type": "application", "key": "APP-BOUTIQUE"}
+REL_ID = {"type": "acces", "key": "REL-PRISE-COMMANDE-ECRIT-COMMANDE"}
+PRC_ID = {"type": "processus-de-vente", "key": "PRC-PRISE-COMMANDE"}
+
+
+async def test_lectures_communes_offertes(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 6 : les lectures par domaine ont disparu du catalogue."""
     names = set(await tool_names(app, KEY))
-    assert {"list_carto_types", "list_carto_objects", "get_carto_object"} <= names
+    assert {"list_documents", "read_document"} <= names
+    for old in (
+        "list_carto_types", "list_carto_objects", "get_carto_object", "list_carto_models",
+        "get_carto_model", "list_referentiels", "search_referentiel_values",
+        "get_referentiel_value", "list_tags", "list_classifications", "list_certifications",
+    ):  # fmt: skip
+        assert old not in BY_ID and old not in names
 
 
 async def test_lister_les_types(app: FastAPI, space: ApiSpace) -> None:
-    """Critère 1."""
-    data = await _ok(app, KEY, "list_carto_types", space)
-    assert data["view"] == "published" and "catalogue" not in data
-    by_slug = {t["slug"]: t for t in data["types"]}
-    assert (by_slug["application"]["archimate"], by_slug["application"]["nature"]) == (
-        "ApplicationComponent",
-        "object",
-    )
-    assert by_slug["application"]["layer"] == "application"
-    assert by_slug["application"]["objects"] == 1
+    """Critère 3 (ticket 2113e7bc) : objet ou relation, type ArchiMate ; le catalogue
+    ArchiMate complet passe par describe_standard('carto-type')."""
+    data = await _list(app, space, "carto_type")
+    assert data["view"] == "published" and data["kind"] == "carto_type"
+    by_slug = {t["identity"]["slug"]: t for t in data["documents"]}
+    application = by_slug["application"]
+    assert (application["archimate"], application["nature"]) == ("ApplicationComponent", "object")
+    assert application["layer"] == "application" and application["objects"] == 1
+    assert application["name"] == "Application"
+    assert application["path"] == "cartographie/types/application.schema.yaml"
+    assert len(application["version"]) == 40
     assert (by_slug["acces"]["archimate"], by_slug["acces"]["nature"]) == ("Access", "relation")
-    full = await _ok(app, KEY, "list_carto_types", space, catalogue=True)
-    catalogue = {t["archimate"]: t for t in full["catalogue"]}
+    relations = await _list(app, space, "carto_type", filters={"nature": "relation"})
+    assert [t["identity"]["slug"] for t in relations["documents"]] == ["acces"]
+    business = await _list(app, space, "carto_type", filters={"archimate": "BusinessObject"})
+    assert [t["identity"]["slug"] for t in business["documents"]] == ["document-metier"]
+    described = await call_tool(app, KEY, "describe_standard", {"standard": "carto-type"})
+    catalogue = {t["archimate"]: t for t in described.structured_content["archimate_catalogue"]}
     assert len(catalogue) == 72
     assert catalogue["BusinessInteraction"] == {
         "archimate": "BusinessInteraction",
@@ -116,19 +160,20 @@ async def test_lister_les_types(app: FastAPI, space: ApiSpace) -> None:
 
 
 async def test_lister_les_objets(app: FastAPI, space: ApiSpace) -> None:
-    """Critères 2 et 3."""
-    data = await _ok(app, KEY, "list_carto_objects", space, type="ApplicationComponent")
-    assert [o["key"] for o in data["objects"]] == ["APP-BOUTIQUE"] and data["total"] == 1
-    kept = await _ok(app, KEY, "list_carto_objects", space, type="application", name="BOUT")
-    assert [o["key"] for o in kept["objects"]] == ["APP-BOUTIQUE"]
-    empty = await _ok(
-        app, KEY, "list_carto_objects", space, type="ApplicationComponent", name="xyz"
-    )
-    assert (empty["objects"], empty["total"], empty["has_more"]) == ([], 0, False)
-    accents = await _ok(app, KEY, "list_carto_objects", space, name="ecrit")
-    assert [o["key"] for o in accents["objects"]] == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
-    relations = await _ok(app, KEY, "list_carto_objects", space, nature="relation")
-    [relation] = relations["objects"]
+    """Critère 1 : type, nom (recherche), chemin, version et identité ; pagination."""
+    data = await _list(app, space, "carto_objet", filters={"archimate": "ApplicationComponent"})
+    assert _keys(data) == ["APP-BOUTIQUE"] and data["total"] == 1
+    [boutique] = data["documents"]
+    assert boutique["identity"] == APP_ID and boutique["path"] == APP_PATH
+    assert len(boutique["version"]) == 40 and boutique["name"] == "Boutique en ligne"
+    kept = await _list(app, space, "carto_objet", identity={"type": "application"}, search="BOUT")
+    assert _keys(kept) == ["APP-BOUTIQUE"]
+    empty = await _list(app, space, "carto_objet", identity={"type": "application"}, search="xyz")
+    assert (empty["documents"], empty["total"], empty["has_more"]) == ([], 0, False)
+    accents = await _list(app, space, "carto_objet", search="ecrit")
+    assert _keys(accents) == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
+    relations = await _list(app, space, "carto_objet", filters={"nature": "relation"})
+    [relation] = relations["documents"]
     assert relation["nature"] == "relation"
     assert relation["source"] == {
         "key": "PRC-PRISE-COMMANDE",
@@ -138,75 +183,95 @@ async def test_lister_les_objets(app: FastAPI, space: ApiSpace) -> None:
         "path": "cartographie/objets/processus-de-vente/prc-prise-commande.yaml",
     }
     assert relation["target"]["key"] == "OBJ-COMMANDE"
-    page = await _ok(app, KEY, "list_carto_objects", space, nature="object", limit=2)
-    assert page["total"] == 3 and page["has_more"] is True and len(page["objects"]) == 2
-    rest = await _ok(app, KEY, "list_carto_objects", space, nature="object", limit=2, offset=2)
-    assert rest["has_more"] is False and len(rest["objects"]) == 1
-    unknown = await call_tool(
-        app, KEY, "list_carto_objects",
-        {"space_id": space.space_id, "branch_id": space.branch_id, "type": "Inconnu"},
-    )  # fmt: skip
-    assert unknown.is_error
-    assert json.loads(unknown.content[0].text)["error"] == "carto_type_not_found"
+    page = await _list(app, space, "carto_objet", filters={"nature": "object"}, limit=2)
+    assert page["total"] == 3 and page["has_more"] is True and len(page["documents"]) == 2
+    rest = await _list(app, space, "carto_objet", filters={"nature": "object"}, limit=2, offset=2)
+    assert rest["has_more"] is False and len(rest["documents"]) == 1
+
+
+async def test_relations_d_un_objet(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 2 : `source` rend les relations sortantes d'un objet, `cible` les
+    entrantes (ce que rendait get_carto_object dans « relations »)."""
+    outgoing = await _list(app, space, "carto_objet", filters={"source": "PRC-PRISE-COMMANDE"})
+    assert _keys(outgoing) == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
+    [relation] = outgoing["documents"]
+    assert relation["target"] == {
+        "key": "OBJ-COMMANDE",
+        "name": "Commande",
+        "type": "document-metier",
+        "exists": True,
+        "path": "cartographie/objets/document-metier/obj-commande.yaml",
+    }
+    assert relation["archimate"] == "Access"
+    incoming = await _list(app, space, "carto_objet", filters={"cible": "OBJ-COMMANDE"})
+    assert _keys(incoming) == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
+    none = await _list(app, space, "carto_objet", filters={"source": "APP-BOUTIQUE"})
+    assert none["documents"] == []
 
 
 async def test_lire_un_objet(app: FastAPI, space: ApiSpace) -> None:
-    """Critère 4."""
-    app_data = await _ok(app, KEY, "get_carto_object", space, key="APP-BOUTIQUE")
-    assert app_data["properties"] == {"criticite": "haute"}
-    assert app_data["documentation"] == "Site de vente."
-    assert app_data["relations"] == []
-    relation = await _ok(
-        app, KEY, "get_carto_object", space, key="REL-PRISE-COMMANDE-ECRIT-COMMANDE"
-    )
-    assert relation["nature"] == "relation"
-    assert relation["source"]["key"] == "PRC-PRISE-COMMANDE"
-    assert relation["target"]["name"] == "Commande"
-    assert relation["properties"] == {"acces": "Write"}
-    assert relation["property_labels"] == {"acces": "écriture"}
-    source = await _ok(app, KEY, "get_carto_object", space, key="PRC-PRISE-COMMANDE")
-    assert source["relations"] == [
-        {
-            "key": "REL-PRISE-COMMANDE-ECRIT-COMMANDE",
-            "name": "Écrit la commande",
-            "type": "acces",
-            "archimate": "Access",
-            "direction": "outgoing",
-            "other": {"key": "OBJ-COMMANDE", "name": "Commande", "type": "document-metier",
-                      "exists": True,
-                      "path": "cartographie/objets/document-metier/obj-commande.yaml"},
-            "path": "cartographie/objets/acces/rel-prise-commande-ecrit-commande.yaml",
-        }
-    ]  # fmt: skip
-    missing = await call_tool(
-        app, KEY, "get_carto_object",
-        {"space_id": space.space_id, "branch_id": space.branch_id, "key": "ABSENT"},
+    """Ce que rendait get_carto_object : contenu par read_document, libellés des
+    attributs ArchiMate par read_schema (x-labels)."""
+    boutique = await _ok(app, KEY, "read_document", space, kind="carto_objet", identity=APP_ID)
+    assert boutique["content"]["proprietes"] == {"criticite": "haute"}
+    assert boutique["content"]["documentation"] == "Site de vente."
+    relation = await _ok(app, KEY, "read_document", space, kind="carto_objet", identity=REL_ID)
+    assert relation["content"]["source"] == "PRC-PRISE-COMMANDE"
+    assert relation["content"]["proprietes"] == {"acces": "Write"}
+    schema = await _ok(app, KEY, "read_schema", space, kind="carto_objet", type="acces")
+    acces = schema["schema"]["properties"]["proprietes"]["properties"]["acces"]
+    assert acces["x-labels"]["Write"] == "écriture"
+    missing = await _refused(
+        app, KEY, "read_document", space, kind="carto_objet",
+        identity={"type": "application", "key": "ABSENT"},
     )  # fmt: skip
-    assert missing.is_error
-    error = json.loads(missing.content[0].text)
-    assert error["error"] == "carto_object_not_found" and error["key"] == "ABSENT"
+    assert missing["error"] == "document_not_found"
 
 
 async def test_vue_brouillon_et_vue_publiee(app: FastAPI, space: ApiSpace) -> None:
-    """Critère 5 : l'agent connecté voit le brouillon de la personne ; la clé d'API,
-    la version publiée seulement."""
+    """Critère 5 : un objet présent seulement dans le brouillon est absent sans
+    `branch`, présent avec `branch: draft` et marqué unpublished ; la clé d'API ne
+    lit jamais le brouillon."""
     await draft_write(
         app,
         space,
         "cartographie/objets/application/app-crm.yaml",
         {"cle": "APP-CRM", "type": "application", "nom": "CRM"},
     )
-    draft = await _ok(app, AGENT, "list_carto_objects", space, type="application", branch="draft")
+    by_type = {"type": "application"}
+    draft = await _list(app, space, "carto_objet", AGENT, identity=by_type, branch="draft")
     assert draft["view"] == "draft"
-    crm = next(o for o in draft["objects"] if o["key"] == "APP-CRM")
+    crm = next(o for o in draft["documents"] if o["identity"]["key"] == "APP-CRM")
     assert crm["unpublished"] is True
-    published = await _ok(app, KEY, "list_carto_objects", space, type="application")
-    assert [o["key"] for o in published["objects"]] == ["APP-BOUTIQUE"]
-    refused = await call_tool(
-        app, KEY, "list_carto_types",
-        {"space_id": space.space_id, "branch_id": space.branch_id, "view": "draft"},
-    )  # fmt: skip
-    assert refused.is_error
+    boutique = next(o for o in draft["documents"] if o["identity"]["key"] == "APP-BOUTIQUE")
+    assert "unpublished" not in boutique
+    published = await _list(app, space, "carto_objet", AGENT, identity=by_type)
+    assert _keys(published) == ["APP-BOUTIQUE"]
+    refused = await _refused(app, KEY, "list_documents", space, kind="carto_type", branch="draft")
+    assert refused["error"] == "draft_requires_person"
+    other = await _refused(app, AGENT, "list_documents", space, kind="carto_type", branch="main")
+    assert other["error"] == "branch_unsupported"
+
+
+async def test_genre_ou_filtre_inconnu(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 7 : erreur explicite, avec ce qui est possible et `aide`."""
+    unknown = await _refused(app, KEY, "list_documents", space, kind="inconnu")
+    assert unknown["error"] == "write_kind_unknown"
+    assert unknown["aide"] == {"primitive": "list_write_kinds"}
+    stray = await _refused(
+        app, KEY, "list_documents", space, kind="carto_type", filters={"source": "X"}
+    )
+    assert stray["error"] == "list_filter_unknown" and stray["path"] == "$.filters.source"
+    assert stray["expected"] == ["nature", "archimate"]
+    assert stray["aide"] == {"primitive": "list_write_kinds"}
+    identity = await _refused(
+        app, KEY, "list_documents", space, kind="carto_objet", identity={"cle": "X"}
+    )
+    assert identity["error"] == "list_filter_unknown" and identity["path"] == "$.identity.cle"
+    bad = await _refused(
+        app, KEY, "list_documents", space, kind="carto_objet", filters={"nature": "autre"}
+    )
+    assert bad["error"] == "list_filter_invalid" and bad["expected"] == ["object", "relation"]
 
 
 # --- Modèles et vues (ticket be89037a) -----------------------------------------------------
@@ -255,80 +320,60 @@ def with_model(space: ApiSpace) -> ApiSpace:
     return space
 
 
-async def test_primitives_des_modeles_offertes(app: FastAPI, with_model: ApiSpace) -> None:
-    names = set(await tool_names(app, KEY))
-    assert {"list_carto_models", "get_carto_model"} <= names
-
-
 async def test_lire_un_modele_sans_le_dessin(app: FastAPI, with_model: ApiSpace) -> None:
-    """Critères 1 et 3."""
-    data = await _ok(app, KEY, "get_carto_model", with_model, slug="boutique-applicatif")
-    assert data["name"] == "Boutique — vue applicative" and data["problems"] == []
-    assert [o["key"] for o in data["objects"]] == [
-        "APP-BOUTIQUE",
-        "PRC-PRISE-COMMANDE",
-        "OBJ-COMMANDE",
+    """Ce que rendait get_carto_model : le contenu du modèle (objets et relations
+    retenus, vues, nœuds, connexions) par read_document, les noms par list_documents ;
+    le dessin est un autre document (carto_graphique)."""
+    identity = {"slug": "boutique-applicatif"}
+    data = await _ok(app, KEY, "read_document", with_model, kind="carto_modele", identity=identity)
+    model = data["content"]
+    assert data["path"] == "cartographie/modeles/boutique-applicatif.modele.yaml"
+    assert len(data["version"]) == 40
+    assert model["nom"] == "Boutique — vue applicative"
+    assert model["elements"] == ["APP-BOUTIQUE", "PRC-PRISE-COMMANDE", "OBJ-COMMANDE"]
+    assert model["relationships"] == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
+    assert model["regles"] == "cartographie/regles/standard.rules.yaml"
+    assert model["graphique"] == "cartographie/modeles/boutique-applicatif.graphique.yaml"
+    [view] = model["vues"]
+    assert (view["nom"], view["point_de_vue"]) == ("Vue principale", "layered")
+    assert view["connexions"] == [
+        {"id": "C1", "relationship": "REL-PRISE-COMMANDE-ECRIT-COMMANDE", "de": "N2", "vers": "N3"}
     ]
-    assert data["objects"][0] == {
-        "key": "APP-BOUTIQUE",
-        "name": "Boutique en ligne",
-        "type": "application",
-        "archimate": "ApplicationComponent",
-        "exists": True,
-        "path": "cartographie/objets/application/app-boutique.yaml",
-    }
-    [relation] = data["relations"]
-    assert (relation["key"], relation["source"], relation["target"]) == (
-        "REL-PRISE-COMMANDE-ECRIT-COMMANDE",
-        "PRC-PRISE-COMMANDE",
-        "OBJ-COMMANDE",
+    assert '"x"' not in json.dumps(model)
+    names = await _list(app, with_model, "carto_objet")
+    by_key = {d["identity"]["key"]: d["name"] for d in names["documents"]}
+    assert [by_key[k] for k in model["elements"]] == [
+        "Boutique en ligne",
+        "Prise de commande",
+        "Commande",
+    ]
+    graphic = await _ok(
+        app, KEY, "read_document", with_model, kind="carto_graphique", identity=identity
     )
-    [view] = data["views"]
-    assert (view["name"], view["viewpoint"]) == ("Vue principale", "layered")
-    assert view["nodes"] == [
-        {
-            "id": "N1",
-            "element": "APP-BOUTIQUE",
-            "name": "Boutique en ligne",
-            "children": [
-                {"id": "N2", "element": "PRC-PRISE-COMMANDE", "name": "Prise de commande"}
-            ],
-        },
-        {"id": "N3", "element": "OBJ-COMMANDE", "name": "Commande"},
-        {"id": "N4", "note": "Atelier"},
-    ]
-    assert view["connections"] == [
-        {"id": "C1", "relationship": "REL-PRISE-COMMANDE-ECRIT-COMMANDE", "from": "N2", "to": "N3"}
-    ]
-    # Critère 3 : aucune coordonnée.
-    text = json.dumps(data)
-    assert '"x"' not in text and "graphique" not in json.dumps(
-        {k: v for k, v in data.items() if k not in ("path", "graphic_path")}
+    assert graphic["content"]["vues"]["VUE-1"]["noeuds"]["N1"]["x"] == 40
+    missing = await _refused(
+        app, KEY, "read_document", with_model, kind="carto_modele", identity={"slug": "absent"}
     )
-    missing = await call_tool(
-        app, KEY, "get_carto_model",
-        {"space_id": with_model.space_id, "branch_id": with_model.branch_id, "slug": "absent"},
-    )  # fmt: skip
-    assert missing.is_error
-    assert json.loads(missing.content[0].text)["error"] == "carto_model_not_found"
+    assert missing["error"] == "document_not_found"
 
 
 async def test_ou_apparait_un_objet(app: FastAPI, with_model: ApiSpace) -> None:
-    """Critère 2."""
-    listing = await _ok(app, KEY, "list_carto_models", with_model)
-    [model] = listing["models"]
-    assert (model["slug"], model["objects"], model["relations"]) == ("boutique-applicatif", 3, 1)
+    """Ce que rendaient list_carto_models et get_carto_object (« models ») : les
+    modèles, leurs décomptes et vues, et ceux qui retiennent un objet (`contains`)."""
+    listing = await _list(app, with_model, "carto_modele")
+    [model] = listing["documents"]
+    assert model["identity"] == {"slug": "boutique-applicatif"}
+    assert (model["name"], model["objects"], model["relations"]) == (
+        "Boutique — vue applicative",
+        3,
+        1,
+    )
     assert model["views"] == [{"id": "VUE-1", "name": "Vue principale", "viewpoint": "layered"}]
-    kept = await _ok(app, KEY, "list_carto_models", with_model, contains="APP-BOUTIQUE")
-    assert [m["slug"] for m in kept["models"]] == ["boutique-applicatif"]
-    detail = await _ok(app, KEY, "get_carto_object", with_model, key="APP-BOUTIQUE")
-    assert detail["models"] == [
-        {
-            "slug": "boutique-applicatif",
-            "name": "Boutique — vue applicative",
-            "path": "cartographie/modeles/boutique-applicatif.modele.yaml",
-        }
-    ]
+    assert model["problems"] == [] and model["readable"] is True
+    assert model["rules"] == "cartographie/regles/standard.rules.yaml"
+    assert model["path"] == "cartographie/modeles/boutique-applicatif.modele.yaml"
+    kept = await _list(app, with_model, "carto_modele", filters={"contains": "APP-BOUTIQUE"})
+    assert [m["identity"]["slug"] for m in kept["documents"]] == ["boutique-applicatif"]
     forge_edit(
         with_model,
         {
@@ -337,97 +382,45 @@ async def test_ou_apparait_un_objet(app: FastAPI, with_model: ApiSpace) -> None:
             )
         },
     )
-    alone = await _ok(app, KEY, "list_carto_models", with_model, contains="OBJ-FACTURE")
-    assert alone["models"] == []
-    unknown = await call_tool(
-        app, KEY, "list_carto_models",
-        {"space_id": with_model.space_id, "branch_id": with_model.branch_id, "contains": "ABSENT"},
-    )  # fmt: skip
-    assert json.loads(unknown.content[0].text)["error"] == "carto_object_not_found"
+    alone = await _list(app, with_model, "carto_modele", filters={"contains": "OBJ-FACTURE"})
+    assert alone["documents"] == []
+    rules = await _list(app, with_model, "carto_regles")
+    assert [r["identity"] for r in rules["documents"]] == [{"slug": "standard"}]
+    graphics = await _list(app, with_model, "carto_graphique")
+    assert [g["path"] for g in graphics["documents"]] == [
+        "cartographie/modeles/boutique-applicatif.graphique.yaml"
+    ]
 
 
-# --- Chemin, version et branch (ticket 5d0b3e7d) ------------------------------------------
-
-APP_PATH = "cartographie/objets/application/app-boutique.yaml"
-
-
-async def _refused(app: FastAPI, token: str, tool: str, space: ApiSpace, **args: Any) -> dict:
-    result = await call_tool(
-        app, token, tool, {"space_id": space.space_id, "branch_id": space.branch_id, **args}
-    )
-    assert result.is_error
-    error: dict[str, Any] = json.loads(result.content[0].text)
-    return error
-
-
-async def test_les_listes_rendent_le_chemin(app: FastAPI, space: ApiSpace) -> None:
-    """Critère 1, et le chemin du schéma de chaque type."""
-    data = await _ok(app, KEY, "list_carto_objects", space, type="ApplicationComponent")
-    [boutique] = data["objects"]
-    assert (boutique["key"], boutique["path"]) == ("APP-BOUTIQUE", APP_PATH)
-    types = await _ok(app, KEY, "list_carto_types", space)
-    by_slug = {t["slug"]: t for t in types["types"]}
-    assert by_slug["application"]["path"] == "cartographie/types/application.schema.yaml"
-
-
-async def test_lire_un_objet_par_chemin_cle_ou_type_et_cle(app: FastAPI, space: ApiSpace) -> None:
-    """Critère 2 : trois formes, même résultat, avec la version (empreinte Git)."""
-    by_key = await _ok(app, KEY, "get_carto_object", space, key="APP-BOUTIQUE")
-    by_path = await _ok(app, KEY, "get_carto_object", space, path=APP_PATH)
-    by_type = await _ok(app, KEY, "get_carto_object", space, type="application", key="APP-BOUTIQUE")
-    assert by_key == by_path == by_type
-    assert by_key["path"] == APP_PATH
-    assert isinstance(by_key["version"], str) and len(by_key["version"]) == 40
-    # Le contenu change : la version aussi.
+async def test_version_suit_le_contenu(app: FastAPI, space: ApiSpace) -> None:
+    """La version d'un document (empreinte Git du fichier) est la même dans la liste
+    et à la lecture, et change avec le contenu."""
+    listed = await _list(app, space, "carto_objet", identity=APP_ID)
+    read = await _ok(app, KEY, "read_document", space, kind="carto_objet", identity=APP_ID)
+    assert listed["documents"][0]["version"] == read["version"]
     forge_edit(space, {APP_PATH: "cle: APP-BOUTIQUE\ntype: application\nnom: Boutique\n"})
-    changed = await _ok(app, KEY, "get_carto_object", space, path=APP_PATH)
-    assert changed["version"] != by_key["version"]
-    # Formes qui ne désignent rien ou se contredisent.
+    changed = await _ok(app, KEY, "read_document", space, kind="carto_objet", identity=APP_ID)
+    assert changed["version"] != read["version"]
     wrong_type = await _refused(
-        app, KEY, "get_carto_object", space, type="processus-de-vente", key="APP-BOUTIQUE"
-    )
-    assert wrong_type["error"] == "carto_object_not_found"
-    mismatch = await _refused(
-        app, KEY, "get_carto_object", space, path=APP_PATH, key="OBJ-COMMANDE"
-    )
-    assert mismatch["error"] == "carto_object_not_found"
-    absent = await _refused(
-        app, KEY, "get_carto_object", space, path="cartographie/objets/application/x.yaml"
-    )
-    assert absent["error"] == "carto_object_not_found"
-    neither = await _refused(app, KEY, "get_carto_object", space)
-    assert neither["error"] == "invalid_arguments"
-
-
-async def test_lire_un_modele_par_chemin_ou_slug(app: FastAPI, with_model: ApiSpace) -> None:
-    """Critère 3."""
-    model_path = "cartographie/modeles/boutique-applicatif.modele.yaml"
-    by_slug = await _ok(app, KEY, "get_carto_model", with_model, slug="boutique-applicatif")
-    by_path = await _ok(app, KEY, "get_carto_model", with_model, path=model_path)
-    assert by_slug == by_path
-    assert by_slug["path"] == model_path and len(by_slug["version"]) == 40
-    assert by_slug["rules_path"] == "cartographie/regles/standard.rules.yaml"
-    assert by_slug["graphic_path"] == "cartographie/modeles/boutique-applicatif.graphique.yaml"
-    listing = await _ok(app, KEY, "list_carto_models", with_model)
-    assert listing["models"][0]["path"] == model_path
-    outside = await _refused(
-        app, KEY, "get_carto_model", with_model, path="cartographie/objets/application/a.yaml"
-    )
-    assert outside["error"] == "carto_model_not_found"
-    mismatch = await _refused(
-        app, KEY, "get_carto_model", with_model, path=model_path, slug="autre"
-    )
-    assert mismatch["error"] == "carto_model_not_found"
+        app, KEY, "read_document", space, kind="carto_objet",
+        identity={"type": "processus-de-vente", "key": "APP-BOUTIQUE"},
+    )  # fmt: skip
+    assert wrong_type["error"] == "document_not_found"
 
 
 async def test_objet_du_brouillon_selon_branch(app: FastAPI, space: ApiSpace) -> None:
-    """Critère 4 : absent sans branch, présent et marqué unpublished avec branch=draft ;
-    une autre branche est refusée."""
+    """Absent sans branch, présent et marqué unpublished avec branch=draft ; une autre
+    branche est refusée."""
+    crm = {"type": "application", "key": "APP-CRM"}
     crm_path = "cartographie/objets/application/app-crm.yaml"
     await draft_write(app, space, crm_path, {"cle": "APP-CRM", "type": "application", "nom": "CRM"})
-    published = await _refused(app, AGENT, "get_carto_object", space, path=crm_path)
-    assert published["error"] == "carto_object_not_found"
-    draft = await _ok(app, AGENT, "get_carto_object", space, path=crm_path, branch="draft")
+    published = await _refused(app, AGENT, "read_document", space, kind="carto_objet", identity=crm)
+    assert published["error"] == "document_not_found"
+    draft = await _ok(
+        app, AGENT, "read_document", space, kind="carto_objet", identity=crm, branch="draft"
+    )
     assert draft["unpublished"] is True and draft["view"] == "draft" and draft["version"]
-    other = await _refused(app, AGENT, "get_carto_object", space, key="APP-CRM", branch="main")
+    other = await _refused(
+        app, AGENT, "read_document", space, kind="carto_objet", identity=crm, branch="main"
+    )
     assert other["error"] == "branch_unsupported"

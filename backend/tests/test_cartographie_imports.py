@@ -116,7 +116,9 @@ async def test_une_propriete_invalide_refuse_tout(space: ApiSpace) -> None:
     report = refused.json()["error_args"]["report"]
     [error] = report["error_details"]
     assert (error["where"], error["key"]) == ("ligne 3", "APP-02")
-    assert error["field"] == "criticite"
+    # Même code, même champ et même message que par write_documents (ticket 1612cce4).
+    assert (error["code"], error["field"]) == ("carto_object_invalid", "$.proprietes.criticite")
+    assert error["message"].startswith("criticite doit être")
     assert await _object(space, "APP-01") is None
 
 
@@ -131,7 +133,14 @@ async def test_importer_des_relations(space: ApiSpace) -> None:
     missing = await _import(space, "acces", b"cle;nom;source;cible\nREL-2;Lit;PRC-ABSENT;DOC-Y\n")
     assert missing.status_code == 422
     [error] = missing.json()["error_args"]["report"]["error_details"]
-    assert (error["where"], error["code"]) == ("ligne 2", "relation_endpoint_unknown")
+    assert (error["where"], error["code"], error["field"]) == (
+        "ligne 2",
+        "carto_object_invalid",
+        "$.source",
+    )
+    assert error["message"] == (
+        "La source PRC-ABSENT n'existe ni dans l'espace ni dans la liste envoyée."
+    )
     await space.client.delete(_url(space, "acces", "/fichier"))
     await _declare(space, "composition", REL_TEMPLATE)
     refused = await _import(space, "composition", b"cle;nom;source;cible\nREL-3;C;PRC-X;DOC-Y\n")

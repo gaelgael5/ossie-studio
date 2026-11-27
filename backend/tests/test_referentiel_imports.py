@@ -212,7 +212,9 @@ async def test_valeur_produite_invalide_rattachee_a_sa_ligne(space: ApiSpace) ->
         await space.client.post(_url(space, "/transporteur/essai"), json={"template": no_mode})
     ).json()
     wheres = {(e["where"], e["code"], e["field"]) for e in result["error_details"]}
-    assert ("ligne 2", "value_required", "mode") in wheres
+    assert ("ligne 2", "values_invalid", "$.mode") in wheres
+    first = next(e for e in result["error_details"] if e["where"] == "ligne 2")
+    assert first["message"].endswith("mode est obligatoire.")
 
 
 # --- Critère 5 : template faux, ligne surlignée ------------------------------------------------

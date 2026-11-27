@@ -20,14 +20,6 @@ from ossie_studio.drafts.preparation import changed_upstream
 from ossie_studio.drafts.store import db_get_draft, db_list_objects
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
-from ossie_studio.governance.repo import (
-    CERTIFICATIONS_DIR,
-    CLASSIFICATIONS_DIR,
-    TAGS_DIR,
-    read_certs,
-    read_schemes,
-    read_tags,
-)
 from ossie_studio.mcp_surface.branch import (
     BranchArgs,
     BranchParam,
@@ -43,17 +35,14 @@ from ossie_studio.models import SpaceBranch, User
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
-    CurationObject,
     ReviewResult,
     build_review,
     get_object_detail,
     is_schema_file,
-    list_curation,
     published_raw,
     read_enrichment,
     read_source_trees,
     read_tri_rules,
-    read_tri_rules_raw,
 )
 from ossie_studio.sources.paths import ASSETS_DIR, is_valid_source_slug, source_rel_dir
 from ossie_studio.sources.service import SourceEntry, read_sources_tree
@@ -195,45 +184,6 @@ async def list_sources(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any
     return {"view": bv.view, "sources": [_source_payload(e, bv) for e in entries]}
 
 
-async def _curation_objects(
-    bv: BranchView, slug: str, directory: str, *, with_rules: bool
-) -> list[CurationObject]:
-    def read(root: Path) -> list[CurationObject] | None:
-        if not _source_exists(root, directory):
-            return None
-        rules = read_tri_rules(root, slug) if with_rules else ()
-        return list_curation(root, slug, rules, True)
-
-    objects = await bv.read(read)
-    if objects is None:
-        raise PrimitiveError("source_not_found", source=slug)
-    return objects
-
-
-async def list_raw_schemas(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args)
-    objects = await _curation_objects(bv, args.source, directory, with_rules=False)
-    return {
-        "view": bv.view,
-        "source": args.source,
-        "schemas": [
-            {
-                "path": o.path,
-                # Chemin dans l'espace, à donner à read_schema (ticket 06ef8679).
-                "schema_path": f"{directory}/{RAW_DIR}/{o.path}",
-                "title": o.title,
-                "kind": o.kind,
-                "fields": o.fields,
-                "retained": o.retained,
-                "unpublished": bv.unpublished(f"{directory}/{RAW_DIR}/{o.path}"),
-            }
-            for o in objects
-            if not o.orphan
-        ],
-    }
-
-
 # --- Assets (curation) ----------------------------------------------------------------
 
 
@@ -242,31 +192,6 @@ def _asset_unpublished(bv: BranchView, directory: str, path: str) -> bool:
     humain, ticket 7a284e55) l'est."""
     base = f"{directory}/{ASSETS_DIR}"
     return bv.unpublished(f"{base}/{path}") or bv.unpublished(f"{base}/{extend_name(path)}")
-
-
-async def list_assets(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args)
-    objects = await _curation_objects(bv, args.source, directory, with_rules=True)
-    return {
-        "view": bv.view,
-        "source": args.source,
-        "assets": [
-            {
-                "path": o.path,
-                "schema_path": f"{directory}/{ASSETS_DIR}/{o.path}",
-                "title": o.title,
-                "kind": o.kind,
-                "fields": o.fields,
-                "retained": o.retained,
-                "orphan": o.orphan,
-                "excluded_by": o.excluded_by,
-                "unpublished": _asset_unpublished(bv, directory, o.path),
-            }
-            for o in objects
-            if o.retained != "none"
-        ],
-    }
 
 
 def _enrichment(scope: Any) -> dict[str, Any]:
@@ -340,19 +265,6 @@ async def asset_payload(bv: BranchView, source: str, path: str) -> dict[str, Any
     }
 
 
-async def get_tri_rules(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args)
-
-    def read(root: Path) -> list[dict[str, Any]] | None:
-        return read_tri_rules_raw(root, args.source) if _source_exists(root, directory) else None
-
-    rules = await bv.read(read)
-    if rules is None:
-        raise PrimitiveError("source_not_found", source=args.source)
-    return {"view": bv.view, "source": args.source, "rules": rules}
-
-
 async def compute_review(bv: BranchView, slug: str) -> tuple[str, ReviewResult]:
     """(tête publiée, revue) d'une source, dans la vue lue. La base est la branche
     publiée : ce que mon brouillon ajoute, change ou laisse en écart avec mes
@@ -390,36 +302,3 @@ async def get_review(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
     bv = await open_branch(ctx, args)
     head_sha, review = await compute_review(bv, args.source)
     return {"view": bv.view, "source": args.source, **review_payload(head_sha, review)}
-
-
-# --- Gouvernance ----------------------------------------------------------------------
-
-
-async def list_tags(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args)
-    tags = await bv.read(read_tags)
-    return {
-        "view": bv.view,
-        "unpublished_changes": bv.unpublished_under(TAGS_DIR),
-        "tags": [asdict(t) for t in tags],
-    }
-
-
-async def list_classifications(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args)
-    schemes = await bv.read(read_schemes)
-    return {
-        "view": bv.view,
-        "unpublished_changes": bv.unpublished_under(CLASSIFICATIONS_DIR),
-        "schemes": [asdict(s) for s in schemes],
-    }
-
-
-async def list_certifications(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args)
-    certs = await bv.read(read_certs)
-    return {
-        "view": bv.view,
-        "unpublished_changes": bv.unpublished_under(CERTIFICATIONS_DIR),
-        "certifications": [asdict(c) for c in certs],
-    }

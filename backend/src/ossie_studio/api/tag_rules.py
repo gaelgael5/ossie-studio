@@ -21,12 +21,13 @@ from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep, gov_c
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
-from ossie_studio.governance.repo import Tag, read_tags, write_tag
 from ossie_studio.governance.tag_rules import (
     MATCH_ANY,
     TagRemoval,
     TagRule,
     delete_tag_rule,
+    ensure_builtin_tags,
+    ensure_tags,
     is_valid_rule_id,
     parse_rule,
     read_builtin_disabled,
@@ -97,26 +98,6 @@ async def list_tag_rules(
     own = [_payload(f.rel, f.rule, f.errors, f.rel.rsplit("/", 1)[-1][:-5]) for f in files]
     provided = [_builtin_payload(r, disabled) for r in builtin_rules()]
     return {"rules": provided + own}
-
-
-def ensure_tags(root: Path, rule: TagRule) -> list[str]:
-    """Crée les tags de la règle absents du vocabulaire ; rend ceux créés."""
-    known = {t.id for t in read_tags(root)}
-    created = [t for t in rule.tags if t not in known]
-    for tag_id in created:
-        write_tag(root, Tag(tag_id, description=f"Créé par la règle de tags « {rule.name} »."))
-    return created
-
-
-def ensure_builtin_tags(root: Path) -> list[str]:
-    """Tags des règles fournies actives absents du vocabulaire : créés à la
-    première écriture de règles de l'espace (une lecture n'écrit jamais)."""
-    disabled = read_builtin_disabled(root)
-    created: list[str] = []
-    for rule in builtin_rules():
-        if rule.id not in disabled:
-            created += ensure_tags(root, rule)
-    return created
 
 
 class BuiltinStateBody(BaseModel):

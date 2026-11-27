@@ -157,8 +157,14 @@ async def declare_source_primitive(
         )
         await _git_checks(ctx, manifest, args.connection)
         await declare_source(
-            bv.workdir, bv.space, bv.branch.git_ref, bv.username, bv.token,
-            user.email, user.email, manifest,
+            bv.workdir,
+            bv.space,
+            bv.branch.git_ref,
+            bv.username,
+            bv.token,
+            user.email,
+            user.email,
+            manifest,
         )
     except ApiError as exc:
         raise _refusal(exc) from None
@@ -173,9 +179,7 @@ async def declare_source_primitive(
     }
 
 
-async def update_source_primitive(
-    ctx: PrimitiveContext, args: UpdateSourceArgs
-) -> dict[str, Any]:
+async def update_source_primitive(ctx: PrimitiveContext, args: UpdateSourceArgs) -> dict[str, Any]:
     bv, user = await open_for_write(ctx, args)
     before = await _snapshot(ctx, user, bv)
     try:
@@ -183,14 +187,25 @@ async def update_source_primitive(
             ctx.conn, ctx.state.crypto, bv.workdir, bv.space.id, bv.branch.git_ref, args.source
         )
         manifest, connection = await sources_api._build_manifest(
-            ctx.conn, args.source, args.label, existing.type, args.connection, args.parameters,
+            ctx.conn,
+            args.source,
+            args.label,
+            existing.type,
+            args.connection,
+            args.parameters,
             # Les règles de tri se gèrent à part : une modification les préserve.
             triage=existing.triage,
         )
         await _git_checks(ctx, manifest, args.connection)
         await update_source(
-            bv.workdir, bv.space, bv.branch.git_ref, bv.username, bv.token,
-            user.email, user.email, manifest,
+            bv.workdir,
+            bv.space,
+            bv.branch.git_ref,
+            bv.username,
+            bv.token,
+            user.email,
+            user.email,
+            manifest,
         )
     except ApiError as exc:
         raise _refusal(exc) from None
@@ -212,8 +227,14 @@ async def delete_source_primitive(ctx: PrimitiveContext, args: SourceWriteArgs) 
     before = await _snapshot(ctx, user, bv)
     try:
         await delete_source(
-            bv.workdir, bv.space, bv.branch.git_ref, bv.username, bv.token,
-            user.email, user.email, args.source,
+            bv.workdir,
+            bv.space,
+            bv.branch.git_ref,
+            bv.username,
+            bv.token,
+            user.email,
+            user.email,
+            args.source,
         )
     except SourceNotFoundError:
         raise PrimitiveError("source_not_found", source=args.source) from None
@@ -251,12 +272,24 @@ async def collect_source(ctx: PrimitiveContext, args: CollectSourceArgs) -> dict
         # Même tâche de fond que l'écran, avec sa propre connexion.
         async with state.pool.acquire() as job_conn:
             workdir = DraftWorkdir(
-                state.workdir_manager, state.draft_views, state.pool, user.id, branch_id,
+                state.workdir_manager,
+                state.draft_views,
+                state.pool,
+                user.id,
+                branch_id,
                 conn=job_conn,
             )
             report: dict[str, object] = await sources_api._collect(
-                job_conn, state.crypto, user, workdir, state.source_collector,
-                space_id, branch_ref, args.source, args.force, progress,
+                job_conn,
+                state.crypto,
+                user,
+                workdir,
+                state.source_collector,
+                space_id,
+                branch_ref,
+                args.source,
+                args.force,
+                progress,
             )
             return report
 
@@ -331,8 +364,14 @@ async def deposit_contract(ctx: PrimitiveContext, args: DepositContractArgs) -> 
         # L'agent ne remplace jamais une version existante : il la retire d'abord
         # (geste destructif, confirmé par le client), puis la redépose.
         await bv.workdir.commit_to_branch(
-            bv.space.id, bv.branch.git_ref, bv.space.repo_url, bv.username, bv.token,
-            user.email, user.email, f"dépose le contrat {args.source} {version}",
+            bv.space.id,
+            bv.branch.git_ref,
+            bv.space.repo_url,
+            bv.username,
+            bv.token,
+            user.email,
+            user.email,
+            f"dépose le contrat {args.source} {version}",
             deposit_contract_fn(args.source, entry, raw, replace=False),
         )
     except ContractExistsError:
@@ -352,8 +391,14 @@ async def remove_contract(ctx: PrimitiveContext, args: ContractVersionArgs) -> d
     before = await _snapshot(ctx, user, bv)
     try:
         await bv.workdir.commit_to_branch(
-            bv.space.id, bv.branch.git_ref, bv.space.repo_url, bv.username, bv.token,
-            user.email, user.email, f"retire le contrat {args.source} {args.version}",
+            bv.space.id,
+            bv.branch.git_ref,
+            bv.space.repo_url,
+            bv.username,
+            bv.token,
+            user.email,
+            user.email,
+            f"retire le contrat {args.source} {args.version}",
             remove_contract_fn(args.source, args.version),
         )
     except ContractNotFoundError:

@@ -49,6 +49,8 @@ CATALOG: tuple[Domain, ...] = (
     # Journal d'audit et page Historique (ticket cf4434da) : lecture seule, aucune
     # capacité d'écriture — aucune route ne modifie une ligne d'audit.
     Domain("audit", ("audit:read",)),
+    # Paramètres généraux de l'application, page « Paramètres » (ticket ae8fc4b6).
+    Domain("settings", ("settings:read", "settings:write")),
 )
 
 ALL_CAPABILITIES: frozenset[str] = frozenset(
