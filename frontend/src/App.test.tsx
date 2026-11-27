@@ -79,6 +79,26 @@ test('admin connecté : la racine affiche l’accueil avec le lien secrets', asy
   await waitFor(() => expect(screen.getByText('Gérer les secrets')).toBeInTheDocument())
 })
 
+test('accueil : où signaler bugs et demandes d’évolution, même sans droit (ticket 6fcefecf)', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'lecteur@example.org', role: 'user' },
+        capabilities: [],
+      },
+    },
+  })
+  renderAt('/')
+  const block = await screen.findByRole('region', { name: 'Bugs et demandes d’évolution' })
+  const link = within(block).getByRole('link', { name: 'https://github.com/gaelgael5/ossie-studio/issues' })
+  expect(link).toHaveAttribute('href', 'https://github.com/gaelgael5/ossie-studio/issues')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+})
+
 test('login : des identifiants faux affichent le message traduit', async () => {
   await i18n.changeLanguage('fr')
   mockFetch({

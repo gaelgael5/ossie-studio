@@ -40,6 +40,9 @@ export const en = {
     homeLoggedInAs: 'Signed in as {{email}} ({{role}}).',
     manageSecrets: 'Manage secrets',
     manageConnectors: 'OIDC connectors',
+    homeFeedbackTitle: 'Bugs and feature requests',
+    homeFeedbackText:
+      'Found a bug or want a new feature? Report it in the project’s GitHub issues, describing the screen involved and what you expected:',
     semanticSoon: 'The semantic layer is coming in the next tickets.',
 
     secretsTitle: 'Secrets',

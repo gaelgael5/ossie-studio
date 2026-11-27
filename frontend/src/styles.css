@@ -4502,3 +4502,16 @@ urban-bpmn {
 .import-mapping select {
   max-width: 320px;
 }
+
+/* Accueil : où signaler bugs et demandes d'évolution (ticket 6fcefecf). */
+.home-feedback {
+  margin-top: 24px;
+  max-width: 720px;
+}
+.home-feedback h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.home-feedback p {
+  margin: 0;
+}

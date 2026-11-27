@@ -40,6 +40,9 @@ export const fr = {
     homeLoggedInAs: 'Connecté en tant que {{email}} ({{role}}).',
     manageSecrets: 'Gérer les secrets',
     manageConnectors: 'Connecteurs OIDC',
+    homeFeedbackTitle: 'Bugs et demandes d’évolution',
+    homeFeedbackText:
+      'Un bug, une demande d’évolution ? Signalez-les dans les issues GitHub du projet, en décrivant l’écran concerné et ce que vous attendiez :',
     semanticSoon:
       'La construction de la couche sémantique arrive dans les prochains tickets.',
 
