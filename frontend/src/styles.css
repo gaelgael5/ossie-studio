@@ -3038,6 +3038,22 @@ td.cell-error {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
+/* Onglet « Template JSLT » : éditeur à gauche, colonne d'actions à droite
+   (ticket e2b9d7de). */
+.ref-template-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+.ref-template-actions > .btn {
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .ref-template-layout {
+    grid-template-columns: 1fr;
+  }
+}
 .ref-counters {
   display: flex;
   gap: 12px;
@@ -3647,8 +3663,18 @@ td.cell-error {
   margin: 0;
   padding-left: 20px;
 }
-.carto-danger {
-  padding: 10px 16px;
+/* « Supprimer le type » dans les actions du haut, à droite d'« Enregistrer »
+   (ticket e2b9d7de). */
+.carto-delete {
+  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.carto-delete-note {
+  max-width: 220px;
+}
+.carto-base {
+  margin-top: 16px;
 }
 
 /* Onglet Objets et fiche d'un objet de cartographie (ticket 6f71bcba). */

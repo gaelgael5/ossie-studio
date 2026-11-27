@@ -1130,6 +1130,7 @@ export const en = {
     cartoBackToTypes: '← Back to types',
     cartoTypeBasedOn: 'based on {{type}} (ArchiMate)',
     cartoBandNote: 'notation and allowed relationships: those of {{type}}',
+    cartoTypeTab_summary: 'Summary',
     cartoTypeTab_properties: 'Properties',
     cartoTypeLabel: 'Label',
     cartoTypeLabelEdit: 'Edit label',

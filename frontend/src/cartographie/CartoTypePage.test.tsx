@@ -20,6 +20,7 @@ vi.mock('../referentiels/SchemaEditor', () => ({
     onVisual,
     onYaml,
     before,
+    after,
     visualTitle,
   }: {
     text: string
@@ -28,6 +29,7 @@ vi.mock('../referentiels/SchemaEditor', () => ({
     onVisual: (s: Record<string, unknown>) => void
     onYaml: (t: string) => void
     before?: React.ReactNode
+    after?: React.ReactNode
     visualTitle?: string
   }) => (
     <div>
@@ -39,6 +41,7 @@ vi.mock('../referentiels/SchemaEditor', () => ({
           visuel
         </button>
       ) : null}
+      {after}
     </div>
   ),
 }))
@@ -127,15 +130,38 @@ function lastPut(calls: { method: string; path: string; body?: string }[]) {
   return put ? (JSON.parse(put.body!).schema as Record<string, unknown>) : null
 }
 
+/** L'écran s'ouvre sur l'onglet « Résumé » (ticket e2b9d7de). */
+async function openProperties() {
+  await userEvent.setup().click(screen.getByRole('tab', { name: 'Propriétés' }))
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
   visualChange.current = (m) => m
 })
 
 describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
+  it('s’ouvre sur « Résumé » avec le bandeau ArchiMate ; Supprimer est à droite d’Enregistrer (ticket e2b9d7de)', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    expect(screen.getAllByRole('tab').map((b) => b.textContent)).toEqual(['Résumé', 'Propriétés', 'Relations', 'Imports'])
+    expect(screen.getByRole('tab', { name: 'Résumé' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('region', { name: 'Type ArchiMate' })).toHaveTextContent('Processus métier')
+    const save = screen.getByRole('button', { name: 'Enregistrer' })
+    const remove = screen.getByRole('button', { name: 'Supprimer le type' })
+    expect(save.closest('.page-actions')).toBe(remove.closest('.page-actions'))
+    expect(save.compareDocumentPosition(remove) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await openProperties()
+    expect(screen.queryByRole('region', { name: 'Type ArchiMate' })).not.toBeInTheDocument()
+    const added = screen.getByText('Ajoutées sur ce type')
+    const base = screen.getByText('Propriétés de base ArchiMate · lecture seule')
+    expect(added.compareDocumentPosition(base) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('en-tête, type ArchiMate figé et propriétés de base en lecture seule (critère 2)', async () => {
     setup()
     expect(await screen.findByRole('heading', { name: 'Processus de vente' })).toBeInTheDocument()
+    await openProperties()
     expect(screen.getAllByText('Métier').length).toBeGreaterThan(0)
     expect(screen.getByText(/repose sur Processus métier \(ArchiMate\)/)).toBeInTheDocument()
     expect(screen.getByText(/repose sur/)).toHaveTextContent('cartographie/types/processus-de-vente.schema.yaml · 23 objets')
@@ -148,6 +174,7 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
   it('ajouter canal (énumération) : le YAML et l’enregistrement le portent (critère 1)', async () => {
     const calls = setup()
     await screen.findByRole('heading', { name: 'Processus de vente' })
+    await openProperties()
     visualChange.current = (m) => ({ ...m, properties: { canal: CANAL } })
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'visuel' }))
@@ -179,6 +206,7 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
   it('libellé : la perte du focus valide, Échap annule, un libellé vide est refusé (ticket 1ad51345)', async () => {
     setup()
     await screen.findByRole('heading', { name: 'Processus de vente' })
+    await openProperties()
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Modifier le libellé' }))
     await user.clear(screen.getByLabelText('Libellé'))
@@ -202,6 +230,7 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
   it('retirer canal utilisé par 23 objets : refusé avant l’envoi (critère 4)', async () => {
     const calls = setup({ detail: detailOf({ properties: { canal: CANAL }, usage: { canal: 23 } }) })
     await screen.findByRole('heading', { name: 'Processus de vente' })
+    await openProperties()
     visualChange.current = (m) => ({ ...m, properties: {} })
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'visuel' }))
@@ -213,6 +242,7 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
   it('changer x-archimate dans le YAML : refusé avant l’envoi', async () => {
     setup()
     await screen.findByRole('heading', { name: 'Processus de vente' })
+    await openProperties()
     const user = userEvent.setup()
     const yaml = screen.getByLabelText('YAML')
     await user.clear(yaml)
@@ -224,6 +254,7 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
   it('une définition ($defs) ajoutée dans l’éditeur visuel : signalée avant l’envoi', async () => {
     setup()
     await screen.findByRole('heading', { name: 'Processus de vente' })
+    await openProperties()
     visualChange.current = (m) => ({ ...m, $defs: { adresse: { type: 'string' } } })
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'visuel' }))

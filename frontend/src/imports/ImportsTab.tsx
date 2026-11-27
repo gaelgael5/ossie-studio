@@ -614,8 +614,10 @@ function ImportView({
           mapping={mapping}
         />
       ) : (
-        <>
-        <div className="ref-import-result">
+        // Disposition (ticket e2b9d7de) : l'éditeur à gauche, jusqu'au bas de la
+        // fenêtre ; à droite, les boutons empilés, le panneau « Importer » puis le
+        // résultat de l'essai.
+        <div className="ref-template-layout">
           <div className="stack">
             {preview.isError ? (
               // Sans lecture du fichier, l'éditeur n'a aucune colonne à proposer après « $. » :
@@ -635,7 +637,9 @@ function ImportView({
               errorLine={errorLine}
               loading={t('loading')}
             />
-            <div className="row">
+          </div>
+          <div className="stack ref-template-side">
+            <div className="stack ref-template-actions">
               <BusyButton type="button" className="btn" busy={run.isPending} busyText={t('refImportRunBusy')} onClick={() => run.mutate()}>
                 {t('refImportRun', { keys: t(isMac() ? 'refImportRunKeysMac' : 'refImportRunKeys') })}
               </BusyButton>
@@ -663,24 +667,23 @@ function ImportView({
                 </BusyButton>
               ) : null}
             </div>
-          </div>
-          <div className="stack">
-            <h4>{t('refImportResult')}</h4>
-            {data.example_size === 0 ? <p className="empty-note">{t('refImportExampleNone')}</p> : null}
-            {trial ? <ImportReport report={trial} /> : <p className="muted">{t('refImportResultHint')}</p>}
+            {!readOnly ? (
+              <ImportRunPanel
+                name={name}
+                imports={imports}
+                detail={data}
+                mode={mode}
+                onMode={setMode}
+                templateSaved={template === data.template}
+              />
+            ) : null}
+            <div className="stack">
+              <h4>{t('refImportResult')}</h4>
+              {data.example_size === 0 ? <p className="empty-note">{t('refImportExampleNone')}</p> : null}
+              {trial ? <ImportReport report={trial} /> : <p className="muted">{t('refImportResultHint')}</p>}
+            </div>
           </div>
         </div>
-        {!readOnly ? (
-          <ImportRunPanel
-            name={name}
-            imports={imports}
-            detail={data}
-            mode={mode}
-            onMode={setMode}
-            templateSaved={template === data.template}
-          />
-        ) : null}
-        </>
       )}
     </div>
   )

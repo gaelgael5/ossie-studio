@@ -29,6 +29,7 @@ export default function SchemaEditor({
   onYaml,
   visualTitle,
   before,
+  after,
   yamlActions,
 }: {
   path: string
@@ -39,6 +40,8 @@ export default function SchemaEditor({
   onYaml: (text: string) => void
   visualTitle?: string
   before?: ReactNode
+  /** Sous l'éditeur visuel (propriétés de base d'un type, ticket e2b9d7de). */
+  after?: ReactNode
   yamlActions?: ReactNode
 }) {
   const { t, i18n } = useTranslation()
@@ -59,6 +62,7 @@ export default function SchemaEditor({
             {t('refModelUnreadable', { message: parsed.message })}
           </p>
         )}
+        {after}
       </section>
       <section aria-label={t('refModelYaml')}>
         <div className="row model-editor-head">
