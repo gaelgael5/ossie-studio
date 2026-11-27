@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { CartoViewNote, useCartoWrite } from '../cartographie/viewGate'
 import { Link, useLocation } from 'react-router-dom'
-import { api } from '../apiClient'
+import { api, sessionCapabilities } from '../apiClient'
 import type { ArchimateTypeInfo, CartoCatalog, CartoProcessSummary, CartoTypeSummary } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { NoBranchNote } from '../components/NoBranchNote'
+import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
 import { asciiLower } from '../slug'
 import { AddTypeDialog } from '../cartographie/AddTypeDialog'
@@ -62,7 +62,8 @@ type Screen = 'types' | 'objects' | 'models' | 'processes'
 
 function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: string }) {
   const { t } = useTranslation()
-  const { canWrite } = useCartoWrite(branchId)
+  const session = useSession()
+  const canWrite = sessionCapabilities(session.data).includes('cartographie:write')
   const [adding, setAdding] = useState(false)
   const [newModel, setNewModel] = useState(false)
   const [processDialog, setProcessDialog] = useState<'new' | 'import' | null>(null)
@@ -125,7 +126,6 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const processKeys = new Set((processes.data?.processes ?? []).map((p) => p.key))
   return (
     <main>
-      <CartoViewNote branchId={branchId} />
       <div className="breadcrumb">{t('cartoTitle')}</div>
       <div className="page-head">
         <div>

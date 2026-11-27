@@ -1,5 +1,5 @@
 import { ApiRequestError, type ApiErrorBody } from './errors'
-import { withDraftView } from './draftView'
+import { mergeViewBeforeWrite, withDraftView } from './draftView'
 
 // La gouvernance vit dans le dépôt de chaque espace, par branche : les appels
 // « /api/governance/… » visent l'espace et la branche choisis dans l'en-tête
@@ -32,6 +32,7 @@ export function governancePath(path: string): string {
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  mergeViewBeforeWrite(path, init?.method)
   const response = await fetch(withDraftView(governancePath(path), init?.method), {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
@@ -46,6 +47,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 /** Envoi d'un fichier (multipart) : le navigateur pose lui-même l'en-tête et sa
  * frontière, jamais `application/json`. */
 async function apiUpload<T>(path: string, form: FormData, method = 'PUT'): Promise<T> {
+  mergeViewBeforeWrite(path, method)
   const response = await fetch(withDraftView(governancePath(path), method), { method, body: form })
   const text = await response.text()
   const body = text ? JSON.parse(text) : {}

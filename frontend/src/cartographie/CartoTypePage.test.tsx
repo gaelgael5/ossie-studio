@@ -93,9 +93,7 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
   const detail = options.detail ?? detailOf()
   vi.stubGlobal(
     'fetch',
-    vi.fn((rawPath: string, init?: RequestInit) => {
-      // En vue publiée, les lectures portent `?view=published` (bug a512d8c3).
-      const path = rawPath.split('?')[0]
+    vi.fn((path: string, init?: RequestInit) => {
       const method = init?.method ?? 'GET'
       calls.push({ method, path, body: init?.body as string | undefined })
       let body: unknown = {}
@@ -296,18 +294,3 @@ describe('Cartographie — imports d’un type (ticket 49952be0)', () => {
     expect(await screen.findByText('Aucun import déclaré.')).toBeInTheDocument()
   })
 })
-
-describe('Cartographie — vue « Publiée » en lecture seule (bug a512d8c3)', () => {
-  afterEach(() => window.localStorage.removeItem('ossie.view.b1'))
-
-  it('en vue publiée, rien n’est modifiable et une note dit comment modifier', async () => {
-    window.localStorage.setItem('ossie.view.b1', 'published')
-    setup()
-    await screen.findByRole('heading', { name: 'Processus de vente' })
-    expect(screen.getByRole('note')).toHaveTextContent('Passez en vue « Fusionnée »')
-    for (const name of ['Enregistrer', 'Renommer', 'Supprimer le type']) {
-      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
-    }
-  })
-})
-

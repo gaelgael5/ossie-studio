@@ -1,9 +1,8 @@
 import { lazy, Suspense, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { CartoViewNote, useCartoWrite } from './viewGate'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { api } from '../apiClient'
+import { api, sessionCapabilities } from '../apiClient'
 import type {
   ArchimateTypeInfo,
   CartoCatalog,
@@ -18,6 +17,7 @@ import { ErrorList } from '../components/ErrorList'
 import { MarkdownView } from '../components/MarkdownView'
 import type { MarkdownEditorHandle } from '../components/MarkdownEditor'
 import { NoBranchNote } from '../components/NoBranchNote'
+import { useSession } from '../hooks'
 import { asciiLower } from '../slug'
 import { useWorkspace } from '../workspace'
 import type { FieldProblems } from '../referentiels/ValuePanel'
@@ -89,7 +89,8 @@ export function CartoObjectPage() {
 
 function ObjectScreen({ spaceId, branchId, objectKey }: { spaceId: string; branchId: string; objectKey: string }) {
   const { t } = useTranslation()
-  const { canWrite } = useCartoWrite(branchId)
+  const session = useSession()
+  const canWrite = sessionCapabilities(session.data).includes('cartographie:write')
   const isNew = objectKey === ''
   const catalog = useQuery({
     queryKey: ['carto-catalog'],
@@ -113,7 +114,6 @@ function ObjectScreen({ spaceId, branchId, objectKey }: { spaceId: string; branc
   const ready = catalog.data && types.data && objects.data && (isNew || detail.data)
   return (
     <main className="stack page-wide">
-      <CartoViewNote branchId={branchId} />
       <ErrorList messages={errors} />
       {!ready && errors.length === 0 ? <p className="muted">{t('loading')}</p> : null}
       {detail.error ? (

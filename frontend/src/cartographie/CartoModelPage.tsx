@@ -1,13 +1,13 @@
 import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { CartoViewNote, useCartoWrite } from './viewGate'
 import { Link, useParams } from 'react-router-dom'
-import { api } from '../apiClient'
+import { api, sessionCapabilities } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 import { NoBranchNote } from '../components/NoBranchNote'
+import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
 import { UnsavedProvider, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
 import { ModelDiagram } from './ModelDiagram'
@@ -46,7 +46,8 @@ export function CartoModelPage() {
 
 function ModelScreen({ spaceId, branchId, slug }: { spaceId: string; branchId: string; slug: string }) {
   const { t } = useTranslation()
-  const { canWrite } = useCartoWrite(branchId)
+  const session = useSession()
+  const canWrite = sessionCapabilities(session.data).includes('cartographie:write')
   const queryClient = useQueryClient()
   const element = useRef<ArchimateElement | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -100,7 +101,6 @@ function ModelScreen({ spaceId, branchId, slug }: { spaceId: string; branchId: s
   const saveProblems = problemsOf(save.error)
   return (
     <main className="carto-model-page">
-      <CartoViewNote branchId={branchId} />
       <div className="breadcrumb">
         {t('cartoTitle')} › <Link to={MODELS_TAB_PATH}>{t('cartoTabModels')}</Link> › {data?.name ?? slug}
       </div>

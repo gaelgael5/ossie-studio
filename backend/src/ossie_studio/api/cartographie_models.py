@@ -187,7 +187,7 @@ async def list_models(
     dates = await carto_history(conn, crypto, manager, space_id, branch_id, MODELS_DIR)
     states = await draft_states(conn, workdir, branch_id)
     return {
-        "readonly": workdir.published_only,  # vue « Publiée » : lecture seule (bug a512d8c3)
+        "readonly": False,
         "models": [_decorate(item, dates, states) for item in found["models"]],
         "rules": found["rules"],
     }

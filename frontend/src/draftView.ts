@@ -57,3 +57,35 @@ export function withDraftView(path: string, method: string | undefined): string 
   if (readDraftView(match[1] ?? null) !== 'published') return path
   return `${path}${path.includes('?') ? '&' : '?'}view=published`
 }
+
+// --- Première modification : retour en vue fusionnée (bug a512d8c3) ---------------------
+// Gael : « quand l'utilisateur commence à faire ses premières modifications il faut
+// automatiquement changer la vue en fusionné. » Toute écriture va dans le brouillon :
+// en vue « Publiée » ou « Brouillon », l'écran ne montrerait pas ce sur quoi elle
+// s'applique (un ajout se heurtait à un objet invisible). Dès qu'une écriture part
+// vers une branche, la vue de cette branche repasse en « Fusionnée », et les écrans
+// se relisent (les abonnés de `onAutoMerged`).
+
+// Les POST qui ne modifient rien : aperçus, essais, prévisualisations.
+const READ_ONLY_POST = /\/(apercu|essai|preview)(?:\?|$)/
+const autoMergedListeners = new Set<(branchId: string) => void>()
+
+/** S'abonner au retour automatique en vue fusionnée (relire les écrans). */
+export function onAutoMerged(listener: (branchId: string) => void): () => void {
+  autoMergedListeners.add(listener)
+  return () => autoMergedListeners.delete(listener)
+}
+
+/** Avant une écriture vers une branche : repasse sa vue en « Fusionnée » si besoin.
+ * Rend vrai si la vue a changé. Les routes du brouillon lui-même (publier, fusionner,
+ * abandonner) n'y touchent pas. */
+export function mergeViewBeforeWrite(path: string, method: string | undefined): boolean {
+  if ((method ?? 'GET') === 'GET' || READ_ONLY_POST.test(path)) return false
+  const match = BRANCH_PATH.exec(path)
+  if (!match || /\/branches\/[^/?]+\/draft(?:[/?]|$)/.test(path)) return false
+  const branchId = match[1] ?? ''
+  if (readDraftView(branchId) === 'merged') return false
+  writeDraftView(branchId, 'merged')
+  autoMergedListeners.forEach((l) => l(branchId))
+  return true
+}

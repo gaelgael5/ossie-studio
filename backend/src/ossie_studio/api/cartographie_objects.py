@@ -274,8 +274,7 @@ async def list_objects(
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     states = await draft_states(conn, workdir, branch_id)
-    # Vue « Publiée » : lecture seule (bug a512d8c3).
-    return {"readonly": workdir.published_only, "objects": [_with_state(i, states) for i in items]}
+    return {"readonly": False, "objects": [_with_state(i, states) for i in items]}
 
 
 @router.get("/{key}")
