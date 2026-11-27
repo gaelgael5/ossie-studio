@@ -50,7 +50,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "get_module": Implementation(app_map.ModuleArgs, app_map.get_module),
     "get_functions": Implementation(ObjectArgs, app_map.get_functions),
     "list_entry_points": Implementation(app_map.EntryPointsArgs, app_map.list_entry_points),
-    "get_tri_rules": Implementation(SourceArgs, reads.get_tri_rules),
     "get_review": Implementation(SourceArgs, reads.get_review),
     # Écriture et lecture communes par genre (epic « Primitives MCP — écriture commune »)
     "write_documents": Implementation(
@@ -74,7 +73,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "remove_asset": Implementation(writes.ObjectWriteArgs, writes.remove_asset),
     "enrich_asset": Implementation(writes.EnrichArgs, writes.enrich_asset),
     "refresh_assets": Implementation(writes.RefreshArgs, writes.refresh_assets),
-    "set_tri_rules": Implementation(writes.SetTriRulesArgs, writes.set_tri_rules),
     "apply_review": Implementation(writes.ApplyReviewArgs, writes.apply_review),
     # Sources (option 1 : réutilise l'écran des sources tel quel, ticket 1920df67)
     "declare_source": Implementation(

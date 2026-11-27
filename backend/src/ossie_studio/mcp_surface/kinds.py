@@ -36,6 +36,10 @@ from ossie_studio.cartographie.diagram import diagram_path, graphic_path, rules_
 from ossie_studio.cartographie.model import is_valid_key, object_path, type_path
 from ossie_studio.cartographie.process import process_path
 from ossie_studio.cartographie.space import read_cartographie
+from ossie_studio.governance import classification_rules as classification_rule_service
+from ossie_studio.governance import tag_rules as tag_rule_service
+from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
+from ossie_studio.governance.builtin_tag_rules import builtin_rules
 from ossie_studio.governance.repo import (
     InvalidGovernanceId,
     cert_path,
@@ -60,7 +64,12 @@ from ossie_studio.slugs import is_valid_slug
 from ossie_studio.sources.asset_files import is_extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import is_schema_file
-from ossie_studio.sources.paths import ASSETS_DIR, is_valid_source_slug, source_rel_dir
+from ossie_studio.sources.paths import (
+    ASSETS_DIR,
+    MANIFEST_FILENAME,
+    is_valid_source_slug,
+    source_rel_dir,
+)
 
 PathRule = Literal["forbidden", "allowed"]
 Syntax = Literal["jsonpath", "xpath"]
@@ -519,6 +528,100 @@ KINDS: tuple[WriteKind, ...] = (
         store=stores.CertificationStore(),
         lister=lists.certifications,
         identity_paths=("$.slug", "$.id"),
+    ),
+)
+
+# --- Les règles (ticket 71347227) -----------------------------------------------------------
+
+
+def _rule(kind: str, service: Any, builtin_ids: Callable[[], set[str]]) -> Locator:
+    """Une règle de tags ou de classification, par son identifiant : son fichier, ou,
+    pour une règle native (fournie par Ossie), le fichier d'état des natives."""
+
+    def locate(root: Path | None, identity: Mapping[str, Any]) -> Location:
+        rule_id = identity["id"]
+        if not isinstance(rule_id, str) or not service.is_valid_rule_id(rule_id):
+            raise _bad(kind, "id", rule_id, "minuscules, chiffres, « _ » et « - »")
+        if rule_id in builtin_ids():
+            return Location(kind, {"id": rule_id}, service.BUILTIN_STATE_FILE)
+        return Location(kind, {"id": rule_id}, service.rule_path(rule_id))
+
+    return locate
+
+
+def _tri_rules(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    source = identity["source"]
+    if not isinstance(source, str) or not is_valid_source_slug(source):
+        raise _bad("regles_tri", "source", source, "le slug d'une source (list_sources)")
+    return Location(
+        "regles_tri", {"source": source}, f"{source_rel_dir(source)}/{MANIFEST_FILENAME}"
+    )
+
+
+def _tag_rule_ids() -> set[str]:
+    return {r.id for r in builtin_rules()}
+
+
+def _classification_rule_ids() -> set[str]:
+    return {r.id for r in builtin_classification_rules()}
+
+
+_RULE_ID = IdentityField(
+    "id", "Id of the rule.", "lowercase letters, digits, '_' and '-'; 'ossie-…' for native rules"
+)
+KINDS = (
+    *KINDS,
+    WriteKind(
+        name="regle_tag",
+        description=(
+            "A tag rule: puts governed tags on raw objects from what the code says of them. "
+            "Native rules (provided by Ossie) are listed too: only 'enabled' changes."
+        ),
+        label="règle de tags",
+        identity=(_RULE_ID,),
+        standard="regle-tag",
+        syntax="jsonpath",
+        capability="governance:write",
+        read_capability="governance:read",
+        locator=_rule("regle_tag", tag_rule_service, _tag_rule_ids),
+        store=stores.TagRuleStore(),
+        lister=lists.tag_rule_items,
+        identity_paths=("$.id",),
+    ),
+    WriteKind(
+        name="regle_classification",
+        description=(
+            "A classification rule: gives a classification level to fields or objects. "
+            "Native rules (provided by Ossie) are listed too: only 'enabled' changes."
+        ),
+        label="règle de classification",
+        identity=(_RULE_ID,),
+        standard="regle-classification",
+        syntax="jsonpath",
+        capability="governance:write",
+        read_capability="governance:read",
+        locator=_rule(
+            "regle_classification", classification_rule_service, _classification_rule_ids
+        ),
+        store=stores.ClassificationRuleStore(),
+        lister=lists.classification_rule_items,
+        identity_paths=("$.id",),
+    ),
+    WriteKind(
+        name="regles_tri",
+        description=(
+            "The sorting rules of a source (they set noise aside in the curation): the "
+            "whole list, in the source's manifest. Nothing else of the manifest is touched."
+        ),
+        label="règles de tri",
+        identity=(IdentityField("source", "Slug of the source (list_sources).", _SLUG),),
+        standard="regles-tri",
+        syntax="jsonpath",
+        capability="curation:rules",
+        read_capability="curation:rules",
+        locator=_tri_rules,
+        store=stores.TriRulesStore(),
+        lister=lists.tri_rules,
     ),
 )
 

@@ -43,7 +43,6 @@ from ossie_studio.sources.curation import (
     read_enrichment,
     read_source_trees,
     read_tri_rules,
-    read_tri_rules_raw,
 )
 from ossie_studio.sources.paths import ASSETS_DIR, is_valid_source_slug, source_rel_dir
 from ossie_studio.sources.service import SourceEntry, read_sources_tree
@@ -264,19 +263,6 @@ async def asset_payload(bv: BranchView, source: str, path: str) -> dict[str, Any
         "object": _enrichment(enrichment.object),
         "fields": fields,
     }
-
-
-async def get_tri_rules(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args)
-
-    def read(root: Path) -> list[dict[str, Any]] | None:
-        return read_tri_rules_raw(root, args.source) if _source_exists(root, directory) else None
-
-    rules = await bv.read(read)
-    if rules is None:
-        raise PrimitiveError("source_not_found", source=args.source)
-    return {"view": bv.view, "source": args.source, "rules": rules}
 
 
 async def compute_review(bv: BranchView, slug: str) -> tuple[str, ReviewResult]:

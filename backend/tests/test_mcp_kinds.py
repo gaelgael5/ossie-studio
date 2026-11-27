@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from ossie_studio.authz.catalog import is_known_capability
 from ossie_studio.cartographie.diagram import (
     Diagram,
     Graphic,
@@ -56,6 +57,9 @@ def test_le_registre_declare_les_genres_du_tableau() -> None:
         "tag",
         "classification",
         "certification",
+        "regle_tag",
+        "regle_classification",
+        "regles_tri",
         "schema_raw",
         "schema_asset",
     ]
@@ -63,7 +67,10 @@ def test_le_registre_declare_les_genres_du_tableau() -> None:
         assert kind.path_rule == "forbidden"  # aucun genre n'autorise le chemin aujourd'hui
         assert kind.standard
         # Un genre en lecture seule (ticket 56f3784a) nomme l'action qui le produit.
-        assert kind.capability.endswith(":write") if kind.writable else kind.produced_by
+        # La capacité d'écriture est celle de l'écran (curation:rules pour les règles
+        # de tri).
+        assert is_known_capability(kind.capability) if kind.writable else kind.produced_by
+        assert is_known_capability(kind.read_capability)
         assert kind.syntax == ("xpath" if kind.name == "processus" else "jsonpath")
 
 

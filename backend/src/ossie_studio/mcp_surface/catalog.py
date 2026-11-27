@@ -295,13 +295,6 @@ CATALOG: tuple[Primitive, ...] = (
     ),
     # --- Assets (curation)
     Primitive(
-        id="get_tri_rules",
-        domain="curation",
-        access="read",
-        capability="curation:rules",
-        description="Read the triage rules of a source (patterns that set noise aside).",
-    ),
-    Primitive(
         id="get_review",
         domain="curation",
         access="read",
@@ -360,18 +353,6 @@ CATALOG: tuple[Primitive, ...] = (
             "ones): structure from the raw, enrichment kept. Written to the user's draft."
         ),
         person_only=True,
-    ),
-    Primitive(
-        id="set_tri_rules",
-        domain="curation",
-        access="write",
-        capability="curation:rules",
-        description=(
-            "Replace the triage rules of a source (patterns that set noise aside). Give the "
-            "complete list; an empty list removes all rules. Written to the user's draft."
-        ),
-        person_only=True,
-        idempotent=True,
     ),
     Primitive(
         id="apply_review",

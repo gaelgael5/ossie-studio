@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import asdict
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ossie_studio.cartographie.catalog import ArchimateType, catalog
@@ -31,6 +31,11 @@ from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.model import type_path
 from ossie_studio.cartographie.process import list_processes, parse_process, process_path
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
+from ossie_studio.governance import classification_rules as classification_rule_service
+from ossie_studio.governance import tag_rules as tag_rule_service
+from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
+from ossie_studio.governance.builtin_tag_rules import builtin_rules
+from ossie_studio.governance.classification_rules import read_classification_rules
 from ossie_studio.governance.repo import (
     cert_path,
     read_certs,
@@ -39,8 +44,13 @@ from ossie_studio.governance.repo import (
     scheme_path,
     tag_path,
 )
+from ossie_studio.governance.tag_rules import read_tag_rules
 from ossie_studio.mcp_surface.kind_base import Item, KindError, ListFilter, ListQuery
-from ossie_studio.mcp_surface.kind_stores import value_version
+from ossie_studio.mcp_surface.kind_stores import (
+    ClassificationRuleStore,
+    TagRuleStore,
+    value_version,
+)
 from ossie_studio.referentiels import published
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
@@ -48,8 +58,8 @@ from ossie_studio.referentiels.repo import list_referentiels, model_path, values
 from ossie_studio.referentiels.values import key_of
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
-from ossie_studio.sources.curation import list_curation, read_tri_rules
-from ossie_studio.sources.paths import ASSETS_DIR, source_rel_dir
+from ossie_studio.sources.curation import list_curation, read_tri_rules, read_tri_rules_raw
+from ossie_studio.sources.paths import ASSETS_DIR, MANIFEST_FILENAME, source_rel_dir
 from ossie_studio.sources.service import read_sources_tree
 
 # --- Les filtres déclarés -----------------------------------------------------------------
@@ -355,6 +365,82 @@ def asset_schemas(root: Path, query: ListQuery) -> list[Item]:
                     related=(f"{base}/{extend_name(obj.path)}",),
                 )
             )
+    return out
+
+
+# --- Règles (ticket 71347227) ------------------------------------------------------------
+
+
+def _rule_items(
+    root: Path, store: Any, builtins: Any, files: Any, state_file: str, extra: Any
+) -> list[Item]:
+    """Les règles natives (fournies par Ossie, leur état dans le dépôt) puis celles du
+    dépôt, valides ou non (une règle invalide porte ses erreurs)."""
+    out = []
+    for rule in builtins:
+        doc = store.native_document(root, rule.id)
+        summary = {"native": True, "enabled": doc["enabled"], **extra(rule), "errors": []}
+        out.append(
+            Item({"id": rule.id}, rule.name, state_file, summary, version=value_version(doc))
+        )
+    for found in files:
+        rule_id = PurePosixPath(found.rel).stem
+        rule = found.rule
+        summary = {
+            "native": False,
+            "enabled": rule.enabled if rule else None,
+            **(extra(rule) if rule else {}),
+            "errors": list(found.errors),
+        }
+        out.append(Item({"id": rule_id}, rule.name if rule else rule_id, found.rel, summary))
+    return out
+
+
+def tag_rule_items(root: Path, query: ListQuery) -> list[Item]:
+    return _rule_items(
+        root,
+        TagRuleStore(),
+        builtin_rules(),
+        read_tag_rules(root),
+        tag_rule_service.BUILTIN_STATE_FILE,
+        lambda r: {"tags": list(r.tags)},
+    )
+
+
+def classification_rule_items(root: Path, query: ListQuery) -> list[Item]:
+    schemes = read_schemes(root)
+
+    def extra(rule: Any) -> dict[str, Any]:
+        return {
+            "scheme": rule.scheme,
+            "values": list(rule.values),
+            "effect_errors": classification_rule_service.effect_errors(rule, schemes),
+        }
+
+    return _rule_items(
+        root,
+        ClassificationRuleStore(),
+        builtin_classification_rules(),
+        read_classification_rules(root),
+        classification_rule_service.BUILTIN_STATE_FILE,
+        extra,
+    )
+
+
+def tri_rules(root: Path, query: ListQuery) -> list[Item]:
+    """Les règles de tri de chaque source (la section `triage` de son manifeste)."""
+    out = []
+    for source in _sources(root, query):
+        rules = read_tri_rules_raw(root, source)
+        out.append(
+            Item(
+                {"source": source},
+                source,
+                f"{source_rel_dir(source)}/{MANIFEST_FILENAME}",
+                {"rules": len(rules)},
+                version=value_version(rules),
+            )
+        )
     return out
 
 

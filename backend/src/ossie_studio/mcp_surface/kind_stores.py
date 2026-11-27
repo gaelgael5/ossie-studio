@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +38,10 @@ from ossie_studio.cartographie.space import (
     save_type,
 )
 from ossie_studio.drafts.store import git_blob_sha
-from ossie_studio.governance import actions
+from ossie_studio.governance import actions, classification_rules, tag_rules
 from ossie_studio.governance import repo as governance_repo
+from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
+from ossie_studio.governance.builtin_tag_rules import builtin_rules
 from ossie_studio.mcp_surface.kind_base import Document, KindError, Location
 from ossie_studio.parsers.conventions import load_schema
 from ossie_studio.problems import Problem
@@ -46,6 +49,9 @@ from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
 from ossie_studio.referentiels.repo import read_referentiel, write_referentiel
 from ossie_studio.referentiels.values import check_values, key_of
+from ossie_studio.sources.curation import read_tri_rules_raw, set_tri_rules_fn
+from ossie_studio.sources.curation_actions import clean_tri_rules
+from ossie_studio.sources.tri import validate_tri_rules
 
 # Champs d'un objet de cartographie (format du fichier), dans l'ordre d'écriture.
 OBJECT_FIELDS = ("cle", "type", "source", "cible", "nom", "documentation", "proprietes")
@@ -426,6 +432,227 @@ class ReferentielValueStore:
         if index is not None:
             values = [v for i, v in enumerate(ref.values) if i != index]
             write_referentiel(root, ref.name, ref.model, values, create=False)
+
+
+# --- Règles (ticket 71347227) : tags, classification, tri ----------------------------------
+
+# Le champ du document qu'un code d'erreur des services de règles désigne.
+_RULE_FIELDS = {
+    "unknown_key": "$",
+    "not_mapping": "$",
+    "id_invalid": "$.id",
+    "id_reserved": "$.id",
+    "files_invalid": "$.files",
+    "sources_invalid": "$.sources",
+    "pattern_invalid": "$.when",
+    "match_invalid": "$.match",
+    "conditions_missing": "$.when",
+    "condition_unknown": "$.when",
+    "condition_invalid": "$.when",
+    "tags_invalid": "$.tags",
+    "flag_invalid": "$.enabled",
+    "effect_missing": "$.scheme",
+    "scheme_unknown": "$.scheme",
+    "value_unknown": "$.values",
+    "single_value": "$.values",
+}
+
+
+def _rule_refused(label: str, errors: list[str]) -> KindError:
+    """Les refus d'un service de règles, au champ du premier en cause."""
+    suffix = errors[0].split("_rule_", 1)[-1]
+    return KindError(
+        "write_content_invalid",
+        _RULE_FIELDS.get(suffix, "$"),
+        f"Règle « {label} » refusée par le service : {', '.join(errors)}.",
+        problems=errors,
+    )
+
+
+def _native_frozen(label: str) -> KindError:
+    return KindError(
+        "write_content_invalid",
+        "$",
+        f"Une règle native ({label}) est fournie par Ossie : seul « enabled » change "
+        "(l'activer ou la désactiver, comme à l'écran).",
+    )
+
+
+def _native_delete(label: str) -> KindError:
+    return KindError(
+        "write_delete_unsupported",
+        "delete",
+        f"Une règle native ({label}) ne se supprime pas : la désactiver (enabled: false), "
+        "comme à l'écran.",
+    )
+
+
+def _without(doc: Mapping[str, Any], *names: str) -> dict[str, Any]:
+    return {k: v for k, v in doc.items() if k not in names}
+
+
+class _RuleStore:
+    """Une règle de tags ou de classification : un fichier du dépôt, ou une règle
+    **native** fournie par Ossie dont seul l'état (activée ou non) vit dans le dépôt,
+    comme à l'écran. Validée par le service de l'écran."""
+
+    label = ""
+    service: Any = None
+
+    def _builtins(self) -> dict[str, Any]:
+        raise NotImplementedError
+
+    def native_document(self, root: Path, rule_id: str) -> dict[str, Any] | None:
+        rule = self._builtins().get(rule_id)
+        if rule is None:
+            return None
+        enabled = rule_id not in self.service.read_builtin_disabled(root)
+        doc: dict[str, Any] = self.service.rule_document(dataclass_replace(rule, enabled=enabled))
+        return doc
+
+    def read(self, root: Path, location: Location) -> Document | None:
+        rule_id = location.identity["id"]
+        native = self.native_document(root, rule_id)
+        if native is not None:
+            return Document(native, value_version(native), location.path or "")
+        return _file_document(root, location.path, _yaml)
+
+    def _check(self, root: Path, rule: Any) -> list[str]:
+        return []
+
+    def _after(self, root: Path, rule: Any) -> list[str]:
+        return []
+
+    def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
+        rule_id = location.identity["id"]
+        data = _mapping(content, self.label)
+        _same("id", data.get("id"), rule_id, self.label)
+        native = self.native_document(root, rule_id)
+        if native is not None:
+            if _without(data, "id", "enabled") != _without(native, "id", "enabled"):
+                raise _native_frozen(self.label)
+            disabled = self.service.read_builtin_disabled(root)
+            enabled = data.get("enabled", True)
+            if not isinstance(enabled, bool):
+                raise _rule_refused(self.label, [f"{self.label}_rule_flag_invalid"])
+            disabled.discard(rule_id) if enabled else disabled.add(rule_id)
+            self.service.write_builtin_disabled(root, disabled)
+            return self._after(root, None)
+        rule, errors = self.service.parse_rule(rule_id, {**data, "id": rule_id})
+        if rule is None:
+            raise _rule_refused(self.label, errors)
+        errors = self._check(root, rule)
+        if errors:
+            raise _rule_refused(self.label, errors)
+        self._write(root, rule)
+        return self._after(root, rule)
+
+    def _write(self, root: Path, rule: Any) -> None:
+        raise NotImplementedError
+
+    def delete(self, root: Path, location: Location) -> None:
+        rule_id = location.identity["id"]
+        if rule_id in self._builtins():
+            raise _native_delete(self.label)
+        self._delete(root, rule_id)
+
+    def _delete(self, root: Path, rule_id: str) -> None:
+        raise NotImplementedError
+
+
+class TagRuleStore(_RuleStore):
+    """Une règle de tags. Comme à l'écran, l'enregistrer crée les tags gouvernés
+    qu'elle cite et qui n'existent pas (rendus en avertissement)."""
+
+    label = "règle de tags"
+    service = tag_rules
+
+    def _builtins(self) -> dict[str, Any]:
+        return {r.id: r for r in builtin_rules()}
+
+    def _write(self, root: Path, rule: Any) -> None:
+        tag_rules.write_tag_rule(root, rule)
+
+    def _after(self, root: Path, rule: Any) -> list[str]:
+        created = tag_rules.ensure_tags(root, rule) if rule is not None else []
+        created += [t for t in tag_rules.ensure_builtin_tags(root) if t not in created]
+        return [f"Tag gouverné créé : {tag}." for tag in created]
+
+    def _delete(self, root: Path, rule_id: str) -> None:
+        tag_rules.delete_tag_rule(root, rule_id)
+
+
+class ClassificationRuleStore(_RuleStore):
+    """Une règle de classification. Comme à l'écran, son schéma et ses valeurs
+    doivent exister au moment de l'enregistrement."""
+
+    label = "règle de classification"
+    service = classification_rules
+
+    def _builtins(self) -> dict[str, Any]:
+        return {r.id: r for r in builtin_classification_rules()}
+
+    def _check(self, root: Path, rule: Any) -> list[str]:
+        found: list[str] = classification_rules.effect_errors(
+            rule, governance_repo.read_schemes(root)
+        )
+        return found
+
+    def _write(self, root: Path, rule: Any) -> None:
+        classification_rules.write_classification_rule(root, rule)
+
+    def _delete(self, root: Path, rule_id: str) -> None:
+        classification_rules.delete_classification_rule(root, rule_id)
+
+
+class TriRulesStore:
+    """Les règles de tri d'une source : la section `triage` de son manifeste, rien
+    d'autre (le service réécrit cette section et garde le reste du manifeste). Le
+    contenu est la liste complète des règles."""
+
+    def read(self, root: Path, location: Location) -> Document | None:
+        if location.path is None or not (root / location.path).is_file():
+            return None
+        rules = read_tri_rules_raw(root, location.identity["source"])
+        return Document(rules, value_version(rules), location.path)
+
+    def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
+        source = location.identity["source"]
+        if not isinstance(content, list) or not all(isinstance(r, Mapping) for r in content):
+            raise KindError(
+                "write_content_invalid",
+                "$",
+                "Les règles de tri d'une source sont une liste d'objets (target, pattern, "
+                "kind, label).",
+                received=content,
+            )
+        cleaned = clean_tri_rules([dict(r) for r in content])
+        errors = validate_tri_rules(cleaned)
+        if errors:
+            index = errors[0].split("]", 1)[0].removeprefix("triage[")
+            raise KindError(
+                "write_content_invalid",
+                f"$[{index}]" if index.isdigit() else "$",
+                f"Règles de tri refusées : {', '.join(errors)}.",
+                problems=errors,
+            )
+        if location.path is None or not (root / location.path).is_file():
+            raise KindError(
+                "write_identity_invalid",
+                "source",
+                f"La source « {source} » n'existe pas (list_sources).",
+                received=source,
+            )
+        set_tri_rules_fn(source, cleaned)(root)
+        return []
+
+    def delete(self, root: Path, location: Location) -> None:
+        raise KindError(
+            "write_delete_unsupported",
+            "delete",
+            "Les règles de tri d'une source ne se suppriment pas : écrire une liste vide "
+            "pour n'en avoir aucune.",
+        )
 
 
 # --- Genres en lecture seule (ticket 56f3784a) ----------------------------------------------

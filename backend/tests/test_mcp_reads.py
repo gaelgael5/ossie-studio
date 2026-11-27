@@ -283,8 +283,10 @@ async def test_assets_listes_et_lus_avec_leur_enrichissement(app: FastAPI, space
 
 
 async def test_regles_de_tri_et_revue(app: FastAPI, space: ApiSpace) -> None:
-    rules = await _ok(app, KEY, "get_tri_rules", _ids(space, source="ventes"))
-    assert rules["rules"][0]["pattern"] == "*Dto"
+    rules = await _ok(
+        app, KEY, "read_document", _ids(space, kind="regles_tri", identity={"source": "ventes"})
+    )
+    assert rules["content"][0]["pattern"] == "*Dto"
 
     review = await _ok(app, KEY, "get_review", _ids(space, source="ventes"))
     assert {"head_sha", "objects"} <= set(review)

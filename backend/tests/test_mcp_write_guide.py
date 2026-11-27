@@ -21,6 +21,7 @@ from ossie_studio.mcp_surface import write_guide
 from ossie_studio.mcp_surface.caller import McpCaller
 from ossie_studio.mcp_surface.doc_paths import Operation, apply_json, apply_xml
 from ossie_studio.mcp_surface.kinds import KINDS, write_kind
+from ossie_studio.sources.manifest import SourceManifest, dump_manifest
 from tests.mcp_helpers import call_tool
 from tests.space_fixture import ApiSpace, make_api_space
 
@@ -47,6 +48,16 @@ FIXTURE: dict[str, str] = {
         "cle: OBJ-COMMANDE\ntype: document-metier\nnom: Commande\n"
     ),
     "cartographie/regles/standard.rules.yaml": "lang: fr\n",
+    # Une source, pour les règles de tri (ticket 71347227).
+    "sources/ventes/manifest.yaml": dump_manifest(
+        SourceManifest(
+            slug="ventes",
+            label="Ventes",
+            type="git",
+            connection="gh",
+            parameters={"repository": "o/r", "branch": "main", "parsers": ["csharp"]},
+        )
+    ),
 }
 
 
