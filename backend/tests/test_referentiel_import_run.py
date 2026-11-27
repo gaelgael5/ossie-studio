@@ -244,12 +244,7 @@ async def test_une_cle_d_api_ne_peut_pas_importer(
     key = await _key(
         app,
         space.client,
-        [
-            "list_referentiels",
-            "read_schema",
-            "search_referentiel_values",
-            "get_referentiel_value",
-        ],
+        ["list_documents", "read_document", "read_schema"],
     )
     refused = await anonymous.post(
         _url(space, "/transporteur/import"),

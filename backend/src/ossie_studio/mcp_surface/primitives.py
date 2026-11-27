@@ -6,7 +6,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ossie_studio.mcp_surface import application as app_map
-from ossie_studio.mcp_surface import cartographie as carto
 from ossie_studio.mcp_surface import (
     document_reads,
     document_writes,
@@ -19,7 +18,6 @@ from ossie_studio.mcp_surface import (
 )
 from ossie_studio.mcp_surface import governance_writes as gov
 from ossie_studio.mcp_surface import preparation as prep
-from ossie_studio.mcp_surface import referentiels as refs
 from ossie_studio.mcp_surface.branch import BranchArgs, BranchParam, ObjectArgs, SourceArgs
 from ossie_studio.mcp_surface.core import (
     Implementation,
@@ -57,18 +55,15 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "list_assets": Implementation(SourceArgs, reads.list_assets),
     "get_tri_rules": Implementation(SourceArgs, reads.get_tri_rules),
     "get_review": Implementation(SourceArgs, reads.get_review),
-    # Cartographie : types et objets ArchiMate (ticket 41bf680e)
-    "list_carto_types": Implementation(carto.CartoTypesArgs, carto.list_carto_types),
-    "list_carto_objects": Implementation(carto.CartoObjectsArgs, carto.list_carto_objects),
-    "get_carto_object": Implementation(carto.CartoObjectArgs, carto.get_carto_object),
-    "list_carto_models": Implementation(carto.CartoModelsArgs, carto.list_carto_models),
-    "get_carto_model": Implementation(carto.CartoModelArgs, carto.get_carto_model),
-    # Cartographie : écriture (ticket d4723be3)
+    # Écriture et lecture communes par genre (epic « Primitives MCP — écriture commune »)
     "write_documents": Implementation(
         document_writes.WriteDocumentsArgs, document_writes.write_documents
     ),
     "patch_document": Implementation(
         document_writes.PatchDocumentArgs, document_writes.patch_document
+    ),
+    "list_documents": Implementation(
+        document_reads.ListDocumentsArgs, document_reads.list_documents
     ),
     "read_document": Implementation(document_reads.ReadDocumentArgs, document_reads.read_document),
     "list_write_kinds": Implementation(
@@ -77,8 +72,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "describe_standard": Implementation(
         write_guide.DescribeStandardArgs, write_guide.describe_standard
     ),
-    "list_tags": Implementation(BranchArgs, reads.list_tags),
-    "list_classifications": Implementation(BranchArgs, reads.list_classifications),
     # Écriture (brouillon de la personne)
     "retain_asset": Implementation(writes.RetainArgs, writes.retain_asset),
     "remove_asset": Implementation(writes.ObjectWriteArgs, writes.remove_asset),
@@ -103,14 +96,7 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "remove_contract": Implementation(
         source_writes.ContractVersionArgs, source_writes.remove_contract
     ),
-    # Référentiels (version publiée, même lecture que l'API)
-    "list_referentiels": Implementation(refs.SpaceArgs, refs.list_referentiels),
-    "search_referentiel_values": Implementation(
-        refs.SearchValuesArgs, refs.search_referentiel_values
-    ),
-    "get_referentiel_value": Implementation(refs.ValueByKeyArgs, refs.get_referentiel_value),
     # Gouvernance
-    "list_certifications": Implementation(BranchArgs, reads.list_certifications),
     "create_tag": Implementation(gov.CreateTagArgs, gov.create_tag),
     "update_tag": Implementation(gov.UpdateTagArgs, gov.update_tag),
     "delete_tag": Implementation(gov.TagArgs, gov.delete_tag),

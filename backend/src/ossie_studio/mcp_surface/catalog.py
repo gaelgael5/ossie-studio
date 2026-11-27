@@ -498,120 +498,6 @@ CATALOG: tuple[Primitive, ...] = (
         person_only=True,
         destructive=True,
     ),
-    # --- Référentiels (lecture de la version publiée, jamais d'un brouillon)
-    Primitive(
-        id="list_referentiels",
-        domain="referentiels",
-        access="read",
-        capability="referentiels:read",
-        description=(
-            "List the reference data sets (référentiels) of a space: lists of business keys and "
-            "values maintained in Ossie-studio (countries, delivery modes, codes...), as "
-            "published. Each has a key of one or more properties (a composite key needs all of "
-            "them). Returns name, title, key properties, value count, path of the model (to read "
-            "it with read_schema) and the published commit."
-        ),
-    ),
-    Primitive(
-        id="search_referentiel_values",
-        domain="referentiels",
-        access="read",
-        capability="referentiels:read",
-        description=(
-            "Search the values of a published reference data set, sorted by key, with equality "
-            "filters on simple top-level properties. The result is bounded: 'has_more' tells "
-            "whether more values remain (use offset for the next page)."
-        ),
-    ),
-    Primitive(
-        id="get_referentiel_value",
-        domain="referentiels",
-        access="read",
-        capability="referentiels:read",
-        description=(
-            "Get one value of a published reference data set by its key; for a composite key, "
-            "give every key property."
-        ),
-    ),
-    # --- Cartographie : types et objets ArchiMate (ticket 41bf680e)
-    Primitive(
-        id="list_carto_types",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "List the object types of the space's business cartography: each is an ArchiMate 3.2 "
-            "type plus a name given by the people (slug, name, ArchiMate type, layer, nature "
-            "'object' or 'relation', object count, path of its schema). With catalogue=true, "
-            "also every ArchiMate 3.2 type of the catalogue, used or not." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="list_carto_objects",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "List the objects and relationships of the cartography (a relationship is an object "
-            "with a source and a target), optionally filtered by type (a space type slug, or an "
-            "ArchiMate type such as 'ApplicationComponent'), nature ('object' or 'relation') "
-            "and name (part of the name or key, case and accents ignored). Summaries: key, "
-            "name, type, ArchiMate type, nature, path, and source and target (with their path) "
-            "for a relationship. "
-            "Paged: 'total' and 'has_more' (use offset for the next page). Use it before "
-            "creating anything, to find what already exists." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="get_carto_object",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "Read one object or relationship of the cartography by its path, its key, or its "
-            "type and key (same result): name, type, "
-            "ArchiMate type, nature, documentation (markdown), properties (ArchiMate attributes "
-            "as ArchiMate values, with their French label in property_labels), source and target "
-            "for a relationship, and its incoming and outgoing relationships (key, type, "
-            "direction, the other end) to explore step by step, and the models that keep it "
-            "(slug, name, path). Returns its path and its version (content id in the branch "
-            "read), to give the write primitives to replace, modify or delete it." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    # --- Cartographie : modèles et vues (ticket be89037a)
-    Primitive(
-        id="list_carto_models",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "List the models (ArchiMate diagrams) of the cartography: slug, name, description, "
-            "number of objects and relationships kept, views (name and ArchiMate viewpoint), "
-            "rules file, number of problems, path of the model file. With contains (an object "
-            "or relationship key), only the models that keep it: where does an object appear."
-            + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="get_carto_model",
-        domain="cartographie",
-        access="read",
-        capability="cartographie:read",
-        description=(
-            "Read one model by its slug or the path of its file (same result), with its version "
-            "(content id in the branch read) and the paths of its rules and graphic files: the "
-            "objects and relationships it keeps (key, name, "
-            "type, ArchiMate type; source and target for a relationship), its views with their "
-            "nodes (an object by its key and name, a note, a frame; nested nodes) and "
-            "connections (a relationship between two nodes). Never the drawing: no coordinate. "
-            "Use get_carto_object on a key for its details." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
     # --- Écriture commune par genre (epic « Primitives MCP — écriture commune par genre »)
     Primitive(
         id="write_documents",
@@ -638,6 +524,32 @@ CATALOG: tuple[Primitive, ...] = (
         ),
         person_only=True,
         destructive=True,
+    ),
+    Primitive(
+        id="list_documents",
+        domain="documents",
+        access="read",
+        # Visible de qui lit un espace ; la capacité de lecture du genre (celle de
+        # l'écran) est vérifiée à l'appel, sur l'espace visé.
+        capability="spaces:read",
+        description=(
+            "List the documents of one kind (list_write_kinds): map types, objects and "
+            "relationships, models, BPMN processes, reference-list models and values, tags, "
+            "classifications, certifications. Filters: identity fields as partial filters "
+            "(e.g. identity={type: 'application'} for carto_objet, {referentiel: 'pays'} for "
+            "referentiel_valeur), 'search' (part of the name or identity, case and accents "
+            "ignored; any simple property of a reference-list value), and the kind's own "
+            "'filters' declared by list_write_kinds (e.g. {source: 'APP-CAISSE'}: the "
+            "relationships starting from that object; {contains: KEY}: the models keeping "
+            "it; {equals: {pays: 'FR'}}: reference-list values). Paginated (limit, offset, "
+            "has_more). Each document: kind, identity, name, path, version (to give to "
+            "write_documents / patch_document), unpublished when read from the draft, and a "
+            "summary (ArchiMate type and nature of a map type or object, ends of a "
+            "relationship, counts and views of a model, the value of a reference-list "
+            "entry...). Read a whole document with read_document. Needs the screen's right "
+            "to read that kind." + _DRAFT_NOTE
+        ),
+        idempotent=True,
     ),
     Primitive(
         id="read_document",
@@ -704,31 +616,6 @@ CATALOG: tuple[Primitive, ...] = (
             "version and warnings."
         ),
         person_only=True,
-    ),
-    # --- Gouvernance
-    Primitive(
-        id="list_tags",
-        domain="governance",
-        access="read",
-        capability="governance:read",
-        description="List the governed tags of a branch (owner, description, links).",
-    ),
-    Primitive(
-        id="list_classifications",
-        domain="governance",
-        access="read",
-        capability="governance:read",
-        description="List the classification schemes of a branch and their levels.",
-    ),
-    Primitive(
-        id="list_certifications",
-        domain="governance",
-        access="read",
-        capability="governance:read",
-        description=(
-            "List the certifications of a branch: name, rank, the tag that links it to assets, "
-            "restricted or not." + _DRAFT_NOTE
-        ),
     ),
     # --- Écriture : gouvernance (toujours dans le brouillon de la personne). Les
     # modifications sont partielles : seuls les champs donnés changent.

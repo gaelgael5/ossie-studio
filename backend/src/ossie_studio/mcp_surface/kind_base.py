@@ -1,12 +1,14 @@
 """Les types communs du registre des genres d'écriture (enabler 7b4b8f3a) : un refus,
-un champ d'identité, l'emplacement d'un document, un document lu, et ce qu'un
-validateur sait faire (lire, écrire, supprimer — par le service de l'écran)."""
+un champ d'identité, l'emplacement d'un document, un document lu, ce qu'un
+validateur sait faire (lire, écrire, supprimer — par le service de l'écran), et ce
+que rend la liste d'un genre (`list_documents`, ticket 2113e7bc)."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 
 class KindError(Exception):
@@ -63,3 +65,44 @@ class Store(Protocol):
         ...
 
     def delete(self, root: Path, location: Location) -> None: ...
+
+
+# --- Lister les documents d'un genre (list_documents) -------------------------------------
+
+
+@dataclass(frozen=True)
+class ListFilter:
+    """Un filtre de list_documents propre à un genre, déclaré dans le registre."""
+
+    name: str
+    description: str  # en anglais, pour l'agent
+    type: Literal["string", "object"] = "string"
+    choices: tuple[str, ...] = ()
+
+
+@dataclass
+class Item:
+    """Un document dans une liste : son identité, son nom, son fichier et les champs de
+    synthèse que rendaient les lectures par domaine. `version` None : celle du
+    fichier ; `related` : d'autres fichiers du document (non publié si l'un l'est)."""
+
+    identity: dict[str, Any]
+    name: str
+    path: str
+    summary: dict[str, Any] = field(default_factory=dict)
+    text: str = ""  # cherché par `search`, en plus du nom et de l'identité
+    version: str | None = None
+    related: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ListQuery:
+    """Les filtres d'une liste, déjà contrôlés : l'identité partielle et les filtres
+    propres au genre (le lister applique les seconds, et peut se servir de la
+    première pour ne lire que le nécessaire)."""
+
+    identity: Mapping[str, Any]
+    filters: Mapping[str, Any]
+
+
+Lister = Callable[[Path, ListQuery], list[Item]]

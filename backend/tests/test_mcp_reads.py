@@ -306,14 +306,14 @@ async def test_gouvernance_lue_avec_le_brouillon(
     created = await client.post(f"{space.base}/governance/tags", json={"id": "gouvernance/pii"})
     assert created.status_code == 201, created.text
 
-    draft = await _ok(app, AGENT, "list_tags", _ids(space, branch="draft"))
-    assert [t["id"] for t in draft["tags"]] == ["gouvernance/pii"]
-    assert draft["unpublished_changes"] >= 1
-    published = await _ok(app, KEY, "list_tags", _ids(space))
-    assert published["tags"] == [] and published["unpublished_changes"] == 0
+    draft = await _ok(app, AGENT, "list_documents", _ids(space, kind="tag", branch="draft"))
+    assert [t["identity"]["id"] for t in draft["documents"]] == ["gouvernance/pii"]
+    assert draft["documents"][0]["unpublished"] is True
+    published = await _ok(app, KEY, "list_documents", _ids(space, kind="tag"))
+    assert published["documents"] == []
 
-    schemes = await _ok(app, KEY, "list_classifications", _ids(space))
-    assert schemes["view"] == "published" and isinstance(schemes["schemes"], list)
+    schemes = await _ok(app, KEY, "list_documents", _ids(space, kind="classification"))
+    assert schemes["view"] == "published" and isinstance(schemes["documents"], list)
 
 
 # --- Règles des espaces : erreurs nommées ------------------------------------------------------

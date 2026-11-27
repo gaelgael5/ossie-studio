@@ -230,3 +230,115 @@ async def test_droits_et_cle_d_api(app: FastAPI, space: ApiSpace) -> None:
         app, "read_document", space, KEY, kind="tag", identity={"id": "pii/email"}, branch="draft"
     )
     assert error and body["error"] == "draft_requires_person"
+
+
+# --- list_documents (ticket 2113e7bc) -----------------------------------------------------
+
+
+async def _list(
+    app: FastAPI, space: ApiSpace, kind: str, token: str = AGENT, **args: Any
+) -> dict[str, Any]:
+    error, body = await _call(app, "list_documents", space, token, kind=kind, **args)
+    assert not error, body
+    return body
+
+
+async def test_lister_processus_et_ceux_d_un_processus_metier(
+    app: FastAPI, space: ApiSpace
+) -> None:
+    """Le BPMN se liste comme le reste ; `detail_of` : les processus qui détaillent un
+    processus métier."""
+    listing = await _list(app, space, "processus")
+    [process] = listing["documents"]
+    assert process["identity"] == {"key": "PRC-VENTE-DETAIL"} and process["path"] == PROCESS
+    assert process["name"] == "Vente" and process["detail_of"] == "PRC-PRISE-COMMANDE"
+    read = await _read(app, space, "processus", {"key": "PRC-VENTE-DETAIL"})
+    assert process["version"] == read["version"]
+    detail = await _list(app, space, "processus", filters={"detail_of": "PRC-PRISE-COMMANDE"})
+    assert len(detail["documents"]) == 1
+    other = await _list(app, space, "processus", filters={"detail_of": "PRC-AUTRE"})
+    assert other["documents"] == []
+
+
+async def test_lister_valeurs_de_tous_les_referentiels(app: FastAPI, space: ApiSpace) -> None:
+    """Sans identity.referentiel : les valeurs de tous les référentiels ; leur version
+    est celle que rend read_document ; `equals` exige le référentiel."""
+    listing = await _list(app, space, "referentiel_valeur")
+    assert [d["identity"] for d in listing["documents"]] == [
+        {"referentiel": "pays", "key": "BE"},
+        {"referentiel": "pays", "key": "FR"},
+    ]
+    fr = listing["documents"][1]
+    assert fr["value"] == {"code": "FR", "nom": "France"} and fr["name"] == "FR"
+    read = await _read(app, space, "referentiel_valeur", {"referentiel": "pays", "key": "FR"})
+    assert fr["version"] == read["version"]
+    one = await _list(
+        app, space, "referentiel_valeur", identity={"referentiel": "pays", "key": "BE"}
+    )
+    assert [d["value"]["nom"] for d in one["documents"]] == ["Belgique"]
+    error, body = await _call(
+        app, "list_documents", space, kind="referentiel_valeur", filters={"equals": {"code": "FR"}}
+    )
+    assert error and body["error"] == "list_filter_invalid" and body["path"] == "$.filters.equals"
+
+
+async def test_lister_la_gouvernance_et_le_brouillon(app: FastAPI, space: ApiSpace) -> None:
+    """Tags, classifications et certifications ; ce qui vient du brouillon est marqué."""
+    tags = await _list(app, space, "tag")
+    [tag] = tags["documents"]
+    assert tag["identity"] == {"id": "pii/email"} and tag["owner"] == "dpo"
+    assert tag["path"] == "governance/tags/pii/email.yaml" and "unpublished" not in tag
+    error, written = await _call(
+        app,
+        "write_documents",
+        space,
+        message="Certification",
+        documents=[
+            {
+                "kind": "certification",
+                "identity": {"slug": "or"},
+                "content": {"name": "Or", "tag": "certification/or"},
+            }
+        ],
+    )
+    assert not error, written
+    draft = await _list(app, space, "certification", branch="draft")
+    [cert] = draft["documents"]
+    assert cert["identity"] == {"slug": "or"} and cert["name"] == "Or"
+    assert cert["unpublished"] is True
+    assert cert["version"] == written["documents"][0]["version"]
+    assert (await _list(app, space, "certification"))["documents"] == []
+
+
+async def test_lister_demande_le_droit_de_lire_le_genre(app: FastAPI, space: ApiSpace) -> None:
+    """Comme read_document : la capacité de lecture du genre (celle de l'écran)."""
+    assert (await _list(app, space, "carto_objet", LIMITED))["total"] == 1
+    error, body = await _call(app, "list_documents", space, LIMITED, kind="tag")
+    assert error and body["error"] == "primitive_forbidden"
+    assert body["capability"] == "governance:read"
+
+
+async def test_profils_qui_citaient_les_lectures_retirees(app: FastAPI) -> None:
+    """Un profil qui donnait une lecture retirée reçoit list_documents et
+    read_document ; il se charge sans erreur (migration 0042)."""
+    migration = (
+        Path(__file__).parents[1] / "src/ossie_studio/db/migrations/0042_list_documents.sql"
+    ).read_text(encoding="utf-8")
+    async with app.state.pool.acquire() as conn:
+        old = await conn.fetchval(
+            "INSERT INTO agent_profiles (name, primitives) "
+            "VALUES ('ancien', '{list_spaces,get_carto_object,list_tags}') RETURNING id"
+        )
+        other = await conn.fetchval(
+            "INSERT INTO agent_profiles (name, primitives) VALUES ('autre', '{list_spaces}') "
+            "RETURNING id"
+        )
+        await conn.execute(migration)
+        assert await conn.fetchval("SELECT primitives FROM agent_profiles WHERE id = $1", old) == [
+            "list_documents",
+            "list_spaces",
+            "read_document",
+        ]
+        assert await conn.fetchval(
+            "SELECT primitives FROM agent_profiles WHERE id = $1", other
+        ) == ["list_spaces"]

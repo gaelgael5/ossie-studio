@@ -26,8 +26,10 @@ from typing import Any
 
 from pydantic import Field
 
+from ossie_studio.cartographie.catalog import catalog
 from ossie_studio.mcp_surface.branch import BranchParam
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
+from ossie_studio.mcp_surface.kind_base import ListFilter
 from ossie_studio.mcp_surface.kinds import KINDS
 
 STANDARDS_DIR = Path(__file__).parent / "standards"
@@ -76,6 +78,17 @@ class DescribeStandardArgs(BranchParam):
     )
 
 
+def _filter(found: ListFilter) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "name": found.name,
+        "description": found.description,
+        "type": found.type,
+    }
+    if found.choices:
+        out["choices"] = list(found.choices)
+    return out
+
+
 def _limit(ctx: PrimitiveContext) -> int:
     return int(ctx.state.settings.document_max_bytes)
 
@@ -98,7 +111,7 @@ async def list_write_kinds(ctx: PrimitiveContext, args: ListWriteKindsArgs) -> d
             "syntax": kind.syntax,
             "identity_fields": list(kind.identity_paths),
             "frozen_fields": list(kind.frozen),
-            "list_filters": list(kind.list_filters),
+            "list_filters": [_filter(f) for f in kind.list_filters],
             "write_capability": kind.capability,
             "read_capability": kind.read_capability,
         }
@@ -113,6 +126,26 @@ async def list_write_kinds(ctx: PrimitiveContext, args: ListWriteKindsArgs) -> d
         "rules": "describe_standard('writing-rules')",
         "kinds": kinds,
     }
+
+
+def _archimate_catalogue() -> dict[str, Any]:
+    """Tous les types ArchiMate 3.2 sur lesquels baser un type de cartographie (ce que
+    rendait `list_carto_types(catalogue=true)`)."""
+    return {
+        "archimate_catalogue": [
+            {
+                "archimate": t.name,
+                "label": t.label,
+                "layer": t.layer or None,
+                "nature": "relation" if t.is_relation else "object",
+            }
+            for t in catalog().types.values()
+        ]
+    }
+
+
+# Ce qu'un standard rend en plus de son texte, calculé depuis le code.
+_EXTRAS = {"carto-type": _archimate_catalogue}
 
 
 async def describe_standard(ctx: PrimitiveContext, args: DescribeStandardArgs) -> dict[str, Any]:
@@ -134,6 +167,7 @@ async def describe_standard(ctx: PrimitiveContext, args: DescribeStandardArgs) -
         "title": found["title"],
         "document_max_bytes": _limit(ctx),
         "markdown": found["markdown"],
+        **(_EXTRAS[wanted]() if wanted in _EXTRAS else {}),
     }
 
 
@@ -157,14 +191,13 @@ _BY_CODE: dict[str, dict[str, str]] = {
     "branch_unsupported": _standard("writing-rules"),
     "schema_path_unknown": _KINDS_AIDE,
     "schema_designation_invalid": _KINDS_AIDE,
-    "carto_model_invalid": _standard("carto-modele"),
+    "list_filter_unknown": _KINDS_AIDE,
+    "list_filter_invalid": _KINDS_AIDE,
     "standard_unknown": {"primitive": "describe_standard"},
 }
-# Des arguments mal formés, par le domaine de la primitive : le standard de ce domaine.
+# Des arguments mal formés, par le domaine de la primitive : ce qui décrit ce domaine.
 _BY_DOMAIN: dict[str, dict[str, str]] = {
     "documents": _KINDS_AIDE,
-    "cartographie": _standard("carto-objet"),
-    "referentiels": _standard("referentiel-valeur"),
 }
 
 

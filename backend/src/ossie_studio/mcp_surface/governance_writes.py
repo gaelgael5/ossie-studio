@@ -91,7 +91,7 @@ class CreateClassificationArgs(BranchArgs):
 
 
 class SchemeArgs(BranchArgs):
-    scheme_id: str = Field(description="Scheme identifier (from list_classifications).")
+    scheme_id: str = Field(description="Scheme identifier (list_documents, kind classification).")
 
 
 class UpdateClassificationArgs(SchemeArgs):
@@ -108,7 +108,7 @@ class CreateLevelArgs(SchemeArgs, LevelValues):
 
 
 class LevelArgs(SchemeArgs):
-    level_id: str = Field(description="Level id (from list_classifications).")
+    level_id: str = Field(description="Level id (list_documents, kind classification).")
 
 
 class UpdateLevelArgs(LevelArgs):
@@ -150,7 +150,9 @@ class CreateCertificationArgs(BranchArgs):
 
 
 class CertificationArgs(BranchArgs):
-    certification_id: str = Field(description="Certification id (from list_certifications).")
+    certification_id: str = Field(
+        description="Certification id (list_documents, kind certification)."
+    )
 
 
 class UpdateCertificationArgs(CertificationArgs):

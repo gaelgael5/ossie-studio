@@ -307,7 +307,7 @@ class ReferentielModelStore:
         raise _unsupported("modèle de référentiel")
 
 
-def _value_version(value: Any) -> str:
+def value_version(value: Any) -> str:
     """La version d'une valeur : celle de son contenu (les autres valeurs du fichier
     peuvent changer sans la rendre périmée)."""
     canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -331,7 +331,7 @@ class ReferentielValueStore:
         if index is None:
             return None
         value = ref.values[index]
-        return Document(value, _value_version(value), location.path or "")
+        return Document(value, value_version(value), location.path or "")
 
     def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
         ref, fields, index = self._find(root, location)

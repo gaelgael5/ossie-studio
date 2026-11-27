@@ -195,8 +195,8 @@ async def _call(app: FastAPI, tool: str, args: dict[str, Any]) -> dict[str, Any]
 
 
 async def test_aide_dans_les_erreurs_de_format(app: FastAPI, space: ApiSpace) -> None:
-    """Critères 4 et 5 : write_documents, read_schema, une primitive existante ; un genre
-    inconnu renvoie vers list_write_kinds."""
+    """Critères 4 et 5 : write_documents, read_schema, list_documents ; un genre inconnu
+    renvoie vers list_write_kinds."""
     ids = {"space_id": space.space_id, "branch_id": space.branch_id}
     malformed = await _call(app, "write_documents", {**ids, "message": "x", "documents": [{}]})
     assert malformed["error"] == "invalid_arguments"
@@ -209,9 +209,12 @@ async def test_aide_dans_les_erreurs_de_format(app: FastAPI, space: ApiSpace) ->
     assert unknown["errors"][0]["aide"] == {"primitive": "list_write_kinds"}
     schema = await _call(app, "read_schema", {**ids, "path": "pas/un/schema"})
     assert schema["aide"] == {"primitive": "list_write_kinds"}
-    existing = await _call(app, "get_carto_object", ids)
-    assert existing["error"] == "invalid_arguments"
-    assert existing["aide"] == {"primitive": "describe_standard", "standard": "carto-objet"}
+    listing = await _call(app, "list_documents", ids)  # sans genre
+    assert listing["error"] == "invalid_arguments"
+    assert listing["aide"] == {"primitive": "list_write_kinds"}
+    stray = await _call(app, "list_documents", {**ids, "kind": "tag", "filters": {"x": 1}})
+    assert stray["error"] == "list_filter_unknown"
+    assert stray["aide"] == {"primitive": "list_write_kinds"}
     standard = await _call(app, "describe_standard", {"standard": "inconnu"})
     assert standard["error"] == "standard_unknown" and "carto-objet" in standard["expected"]
     branch = await _call(app, "list_write_kinds", {"branch": "main"})

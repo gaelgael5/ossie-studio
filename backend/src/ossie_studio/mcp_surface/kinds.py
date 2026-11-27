@@ -43,8 +43,16 @@ from ossie_studio.governance.repo import (
     scheme_path,
     tag_path,
 )
+from ossie_studio.mcp_surface import kind_lists as lists
 from ossie_studio.mcp_surface import kind_stores as stores
-from ossie_studio.mcp_surface.kind_base import IdentityField, KindError, Location, Store
+from ossie_studio.mcp_surface.kind_base import (
+    IdentityField,
+    KindError,
+    Lister,
+    ListFilter,
+    Location,
+    Store,
+)
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import load_model, model_key
 from ossie_studio.referentiels.repo import model_path, values_path
@@ -69,13 +77,15 @@ class WriteKind:
     read_capability: str  # pour lire
     locator: Locator
     store: Store  # le validateur : le service de l'écran
+    lister: Lister  # la liste du genre (list_documents), par le service de l'écran
     # Les champs du contenu qui portent l'identité : ils ne changent jamais (Gael :
     # « il faut recréer un objet et supprimer le précédent »).
     identity_paths: tuple[str, ...] = ()
     # Les autres champs figés (JSONPath dans le contenu).
     frozen: tuple[str, ...] = ()
-    # Les filtres que list_documents accepte pour ce genre.
-    list_filters: tuple[str, ...] = ()
+    # Les filtres propres au genre que list_documents accepte (en plus de l'identité
+    # partielle et de la recherche texte, communes).
+    list_filters: tuple[ListFilter, ...] = ()
     path_rule: PathRule = "forbidden"
     path_root: str = ""  # sous laquelle doit rester un chemin autorisé
     # Le champ d'identité qui donne le schéma exact du contenu (read_schema), et le
@@ -184,7 +194,7 @@ def _carto_objet(root: Path | None, identity: Mapping[str, Any]) -> Location:
             "write_identity_invalid",
             "type",
             f"Le type « {type_slug} » n'existe pas dans la cartographie de l'espace ; un objet "
-            "(ou une relation) prend un type existant (list_carto_types).",
+            "(ou une relation) prend un type existant (list_documents, genre carto_type).",
             received=type_slug,
         )
     return Location("carto_objet", _ids(identity, "type", "key"), object_path(type_slug, key))
@@ -230,7 +240,8 @@ def _referentiel_valeur(root: Path | None, identity: Mapping[str, Any]) -> Locat
             raise KindError(
                 "write_identity_invalid",
                 "referentiel",
-                f"Le référentiel « {name} » n'existe pas dans l'espace (list_referentiels).",
+                f"Le référentiel « {name} » n'existe pas dans l'espace (list_documents, "
+                "genre referentiel_modele).",
                 received=name,
             )
         fields = model_key(load_model(file.read_bytes()))
@@ -306,6 +317,8 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="cartographie:read",
         locator=_carto_type,
         store=stores.CartoTypeStore(),
+        lister=lists.carto_types,
+        list_filters=(lists.NATURE, lists.ARCHIMATE),
     ),
     WriteKind(
         name="carto_objet",
@@ -324,6 +337,8 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="cartographie:read",
         locator=_carto_objet,
         store=stores.CartoObjectStore(),
+        lister=lists.carto_objects,
+        list_filters=(lists.NATURE, lists.ARCHIMATE, lists.SOURCE, lists.CIBLE),
         identity_paths=("$.cle", "$.type"),
         frozen=("$.source", "$.cible"),
         typed_by="type",
@@ -340,6 +355,8 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="cartographie:read",
         locator=_diagram_file("carto_modele", diagram_path),
         store=stores.CartoModelStore(),
+        lister=lists.carto_models,
+        list_filters=(lists.CONTAINS,),
         identity_paths=("$.id",),
     ),
     WriteKind(
@@ -353,6 +370,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="cartographie:read",
         locator=_diagram_file("carto_graphique", graphic_path),
         store=stores.CartoGraphicStore(),
+        lister=lists.carto_graphics,
     ),
     WriteKind(
         name="carto_regles",
@@ -365,6 +383,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="cartographie:read",
         locator=_diagram_file("carto_regles", rules_path),
         store=stores.CartoRulesStore(),
+        lister=lists.carto_rules,
     ),
     WriteKind(
         name="processus",
@@ -383,6 +402,8 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="cartographie:read",
         locator=_processus,
         store=stores.ProcessStore(),
+        lister=lists.processes,
+        list_filters=(lists.DETAIL_OF,),
     ),
     WriteKind(
         name="referentiel_modele",
@@ -395,6 +416,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="referentiels:read",
         locator=_referentiel_modele,
         store=stores.ReferentielModelStore(),
+        lister=lists.referentiel_models,
     ),
     WriteKind(
         name="referentiel_valeur",
@@ -416,6 +438,8 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="referentiels:read",
         locator=_referentiel_valeur,
         store=stores.ReferentielValueStore(),
+        lister=lists.referentiel_values,
+        list_filters=(lists.EQUALS,),
         typed_by="referentiel",
         schema_kind="referentiel_modele",
     ),
@@ -430,6 +454,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="governance:read",
         locator=_governance("tag", tag_path, "pii/email"),
         store=stores.TagStore(),
+        lister=lists.tags,
         identity_paths=("$.id",),
     ),
     WriteKind(
@@ -443,6 +468,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="governance:read",
         locator=_governance("classification", scheme_path, "confidentialite"),
         store=stores.ClassificationStore(),
+        lister=lists.classifications,
         identity_paths=("$.id",),
     ),
     WriteKind(
@@ -456,6 +482,7 @@ KINDS: tuple[WriteKind, ...] = (
         read_capability="governance:read",
         locator=_certification,
         store=stores.CertificationStore(),
+        lister=lists.certifications,
         identity_paths=("$.slug", "$.id"),
     ),
 )

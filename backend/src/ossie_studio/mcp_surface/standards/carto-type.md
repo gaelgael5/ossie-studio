@@ -9,7 +9,8 @@ Content — the type's schema file:
 - `title`: the label shown on screen.
 - `x-archimate`: the ArchiMate type (`ApplicationComponent`, `BusinessProcess`, `Access`...),
   frozen once objects exist. A relationship type uses an ArchiMate relationship (`Access`,
-  `Assignment`, `Serving`...).
+  `Assignment`, `Serving`...). Every ArchiMate 3.2 type (id, French label, layer, nature) is
+  given with this standard by `describe_standard('carto-type')`, in `archimate_catalogue`.
 - `type: object`.
 - `properties` / `required`: only the **added** properties (JSON Schema 2020-12: string with
   `enum`, `format: date`, number, integer, boolean, object, array; names in lowercase, digits and

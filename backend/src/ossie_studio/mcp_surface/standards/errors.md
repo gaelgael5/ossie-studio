@@ -41,3 +41,16 @@ On success: `written: true`, the draft `revision`, each document's kind, identit
 ```
 
 A warning never blocks: the document is written.
+
+## Reading errors
+
+`read_document`, `list_documents` and `read_schema` return one error at a time, with the same
+fields at the top level (`error` for the code, `path` in your request, `message`, `expected`,
+`received`, `aide`):
+
+- `document_not_found`: no document of that kind and identity in the version read (with
+  `expected_path` when known). Not a format error: no `aide`. Read with `branch: draft` a
+  document you have just written.
+- `list_filter_unknown`: an identity field or a filter the kind does not declare (`expected`
+  lists the possible ones); `list_filter_invalid`: a filter value of the wrong form.
+- `schema_kind_untyped`: the content of that kind depends on no type; read its standard.

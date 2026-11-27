@@ -20,14 +20,6 @@ from ossie_studio.drafts.preparation import changed_upstream
 from ossie_studio.drafts.store import db_get_draft, db_list_objects
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
-from ossie_studio.governance.repo import (
-    CERTIFICATIONS_DIR,
-    CLASSIFICATIONS_DIR,
-    TAGS_DIR,
-    read_certs,
-    read_schemes,
-    read_tags,
-)
 from ossie_studio.mcp_surface.branch import (
     BranchArgs,
     BranchParam,
@@ -390,36 +382,3 @@ async def get_review(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
     bv = await open_branch(ctx, args)
     head_sha, review = await compute_review(bv, args.source)
     return {"view": bv.view, "source": args.source, **review_payload(head_sha, review)}
-
-
-# --- Gouvernance ----------------------------------------------------------------------
-
-
-async def list_tags(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args)
-    tags = await bv.read(read_tags)
-    return {
-        "view": bv.view,
-        "unpublished_changes": bv.unpublished_under(TAGS_DIR),
-        "tags": [asdict(t) for t in tags],
-    }
-
-
-async def list_classifications(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args)
-    schemes = await bv.read(read_schemes)
-    return {
-        "view": bv.view,
-        "unpublished_changes": bv.unpublished_under(CLASSIFICATIONS_DIR),
-        "schemes": [asdict(s) for s in schemes],
-    }
-
-
-async def list_certifications(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args)
-    certs = await bv.read(read_certs)
-    return {
-        "view": bv.view,
-        "unpublished_changes": bv.unpublished_under(CERTIFICATIONS_DIR),
-        "certifications": [asdict(c) for c in certs],
-    }

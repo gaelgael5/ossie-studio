@@ -1,8 +1,10 @@
 """Lecture des référentiels publiés (epic « Référentiels ») : l'API HTTP
 (ticket 2c321d50) et le service MCP (ticket e65b590b), même lecture, même droit.
 
-Seule la version publiée est servie, jamais un brouillon ; chaque réponse dit
-de quel commit publié elle provient."""
+Seule la version publiée est servie, jamais un brouillon ; chaque réponse de l'API
+dit de quel commit publié elle provient. Côté MCP, les référentiels se lisent par
+les primitives communes `list_documents`, `read_document` et `read_schema` (ticket
+2113e7bc) ; le droit d'une clé d'API sur l'API HTTP suit ces mêmes primitives."""
 
 from __future__ import annotations
 
@@ -25,12 +27,7 @@ from ossie_studio.referentiels.values import dump_values
 from tests.mcp_helpers import call_tool, mcp_client, tool_names
 from tests.space_fixture import ApiSpace, admin_workdir, forge_edit, make_api_space
 
-READS = {
-    "list_referentiels",
-    "read_schema",
-    "search_referentiel_values",
-    "get_referentiel_value",
-}
+READS = {"list_documents", "read_document", "read_schema"}
 
 MODEL: dict[str, Any] = {
     "title": "Délais de livraison",
@@ -233,10 +230,12 @@ async def test_authentification_et_droit_par_profil(
     assert response.status_code == 200, response.text
     assert response.json()["commit"] == commit
 
-    # Un profil qui n'a que la liste : liste oui, valeurs non.
-    lister = await _key(app, client, ["list_referentiels"])
+    # Un profil qui n'a que la liste (list_documents) : liste et recherche oui,
+    # modèle non (read_schema).
+    lister = await _key(app, client, ["list_documents"])
     assert (await _get(anonymous, url, key=lister)).status_code == 200
-    denied = await _get(anonymous, f"{url}/delais/valeurs", key=lister)
+    assert (await _get(anonymous, f"{url}/delais/valeurs", key=lister)).status_code == 200
+    denied = await _get(anonymous, f"{url}/delais/modele", key=lister)
     assert denied.status_code == 403
 
     # Révoquée : refusée.
@@ -265,56 +264,83 @@ def test_contrat_openapi_decrit_les_operations(app: FastAPI) -> None:
 async def test_mcp_meme_lecture_que_l_api(
     app: FastAPI, client: AsyncClient, space: ApiSpace
 ) -> None:
-    commit = _publish(space, VALUES)
+    _publish(space, VALUES)
     reader = await _key(app, client, sorted(READS))
     assert READS <= set(await tool_names(app, reader))
-    ids = {"space_id": space.space_id, "name": "delais"}
+    ids = {"space_id": space.space_id, "branch_id": space.branch_id}
 
-    listing = await call_tool(app, reader, "list_referentiels", {"space_id": space.space_id})
+    async def mcp(tool: str, **args: Any) -> dict[str, Any]:
+        result = await call_tool(app, reader, tool, {**ids, **args})
+        assert not result.is_error, result.content[0].text
+        data: dict[str, Any] = result.structured_content
+        return data
+
+    # La liste : ce que rend l'API, avec le chemin et la version du modèle.
+    listing = await mcp("list_documents", kind="referentiel_modele")
     api_listing = (await space.client.get(_base(space))).json()
-    # Même lecture que l'API ; le MCP ajoute le chemin du modèle (ticket 06ef8679).
-    mcp_items = listing.structured_content["referentiels"]
-    assert [r.pop("path") for r in mcp_items] == ["referentiels/delais/modele.schema.yaml"]
-    assert listing.structured_content == api_listing
+    [item] = listing["documents"]
+    assert item["identity"] == {"referentiel": "delais"}
+    assert item["path"] == "referentiels/delais/modele.schema.yaml" and item["version"]
+    fields = ("title", "description", "key", "count")
+    assert api_listing["referentiels"] == [{"name": "delais", **{f: item[f] for f in fields}}]
 
-    # Le modèle se lit par la primitive commune read_schema, avec sa clé.
-    model = (
-        await call_tool(
-            app,
-            reader,
-            "read_schema",
-            {
-                "space_id": space.space_id,
-                "branch_id": space.branch_id,
-                "path": "referentiels/delais/modele.schema.yaml",
-            },
-        )
-    ).structured_content
+    # Le modèle se lit par read_schema, avec sa clé.
+    model = await mcp("read_schema", kind="referentiel_valeur", referentiel="delais")
     api_model = (await space.client.get(f"{_base(space)}/delais/modele")).json()
     assert model["kind"] == "referentiel" and model["schema"] == api_model["model"]
     assert model["schema"]["x-key"] == ["pays", "mode"]
     assert model["extras"] == {"name": "delais", "key": ["pays", "mode"]}
 
-    value = (
-        await call_tool(
-            app, reader, "get_referentiel_value", {**ids, "key": {"pays": "FR", "mode": "site"}}
-        )
-    ).structured_content
-    assert value == {"commit": commit, "name": "delais", "value": VALUES[0]}
+    # Une valeur par sa clé composée : read_document.
+    key = {"pays": "FR", "mode": "site"}
+    value = await mcp(
+        "read_document", kind="referentiel_valeur", identity={"referentiel": "delais", "key": key}
+    )
+    assert value["content"] == VALUES[0]
 
-    # Recherche bornée, avec indication qu'il en reste.
-    found = (
-        await call_tool(
-            app,
-            reader,
-            "search_referentiel_values",
-            {**ids, "filters": {"mode": "site"}, "limit": 1},
-        )
-    ).structured_content
-    assert (len(found["values"]), found["total"], found["has_more"]) == (1, 3, True)
+    # Recherche par égalité, bornée, avec indication qu'il en reste : les mêmes
+    # valeurs, dans le même ordre, que l'API (et que search_referentiel_values).
+    by_ref = {"referentiel": "delais"}
+    found = await mcp(
+        "list_documents",
+        kind="referentiel_valeur",
+        identity=by_ref,
+        filters={"equals": {"mode": "site"}},
+        limit=1,
+    )
+    assert (len(found["documents"]), found["total"], found["has_more"]) == (1, 3, True)
+    every = await mcp(
+        "list_documents",
+        kind="referentiel_valeur",
+        identity=by_ref,
+        filters={"equals": {"mode": "site"}},
+    )
+    api_values = (
+        await space.client.get(f"{_base(space)}/delais/valeurs", params={"filter": "mode:site"})
+    ).json()
+    assert [d["value"] for d in every["documents"]] == api_values["values"]
+    assert every["documents"][0]["identity"]["key"] == {"pays": "BE", "mode": "site"}
+
+    # Recherche texte sur les propriétés simples des valeurs.
+    text = await mcp("list_documents", kind="referentiel_valeur", identity=by_ref, search="domi")
+    assert [d["value"] for d in text["documents"]] == [VALUES[1]]
+    unknown = await call_tool(
+        app,
+        reader,
+        "list_documents",
+        {**ids, "kind": "referentiel_valeur", "identity": by_ref, "filters": {"equals": {"x": 1}}},
+    )
+    assert unknown.is_error
 
     incomplete = await call_tool(
-        app, reader, "get_referentiel_value", {**ids, "key": {"pays": "FR"}}
+        app,
+        reader,
+        "read_document",
+        {
+            **ids,
+            "kind": "referentiel_valeur",
+            "identity": {"referentiel": "delais", "key": {"pays": "FR"}},
+        },
     )
     assert incomplete.is_error
 
@@ -324,7 +350,12 @@ async def test_mcp_profil_sans_acces_ne_voit_rien(
 ) -> None:
     other = await _key(app, client, ["list_spaces"])
     assert not READS & set(await tool_names(app, other))
-    refused = await call_tool(app, other, "list_referentiels", {"space_id": space.space_id})
+    refused = await call_tool(
+        app,
+        other,
+        "list_documents",
+        {"space_id": space.space_id, "branch_id": space.branch_id, "kind": "referentiel_modele"},
+    )
     assert refused.is_error
 
 

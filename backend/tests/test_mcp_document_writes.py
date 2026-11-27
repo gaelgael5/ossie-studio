@@ -135,8 +135,20 @@ async def _patch(
 
 
 async def _read(app: FastAPI, space: ApiSpace, path: str) -> dict[str, Any] | None:
-    error, body = await _call(app, "get_carto_object", space, path=path, branch="draft")
-    return None if error else body
+    """Un objet de cartographie tel que le brouillon le contient, par son fichier : sa
+    ligne de list_documents et son contenu (read_document) ; None s'il n'y est pas."""
+    error, listed = await _call(
+        app, "list_documents", space, kind="carto_objet", branch="draft", limit=200
+    )
+    assert not error, listed
+    found = next((d for d in listed["documents"] if d["path"] == path), None)
+    if found is None:
+        return None
+    error, doc = await _call(
+        app, "read_document", space, kind="carto_objet", identity=found["identity"], branch="draft"
+    )
+    assert not error, doc
+    return {**found, "properties": doc["content"].get("proprietes", {})}
 
 
 async def _draft(app: FastAPI, space: ApiSpace, path: str) -> bytes | None:
@@ -197,8 +209,11 @@ async def test_role_et_affectation_dans_la_meme_liste(app: FastAPI, space: ApiSp
     assert all(d["action"] == "created" and len(d["version"]) == 40 for d in paths.values())
     role = await _read(app, space, "cartographie/objets/role/rol-preparateur.yaml")
     assert role is not None and role["unpublished"] is True
-    published = await call_tool(app, AGENT, "get_carto_object", _ids(space, key="ROL-PREPARATEUR"))
-    assert published.is_error
+    role_id = {"type": "role", "key": "ROL-PREPARATEUR"}
+    error, published = await _call(
+        app, "read_document", space, kind="carto_objet", identity=role_id
+    )
+    assert error and published["error"] == "document_not_found"
 
 
 async def test_un_document_invalide_refuse_toute_la_liste(app: FastAPI, space: ApiSpace) -> None:
@@ -585,9 +600,9 @@ async def test_gouvernance_par_l_ecriture_commune(app: FastAPI, space: ApiSpace)
         [{"op": "add", "path": "$.levels[0]", "value": {"name": "Interne", "short_name": "INT"}}],
     )
     assert not error, patched
-    error, listed = await _call(app, "list_classifications", space, branch="draft")
+    error, listed = await _call(app, "list_documents", space, kind="classification", branch="draft")
     assert not error
-    scheme = next(s for s in listed["schemes"] if s["id"] == "sensibilite")
+    scheme = next(s for s in listed["documents"] if s["identity"] == {"id": "sensibilite"})
     assert [lv["name"] for lv in scheme["levels"]] == ["Interne", "Public"]
     error, renamed = await _patch(
         app,

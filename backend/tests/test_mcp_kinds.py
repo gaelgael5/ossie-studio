@@ -215,6 +215,7 @@ def test_chemin_autorise_reste_sous_sa_racine(tmp_path: Path) -> None:
         capability="essai:write",
         read_capability="essai:read",
         store=kind_stores.TagStore(),
+        lister=lambda root, query: [],
         locator=lambda root, identity: kinds.Location(
             "essai", {"id": identity["id"]}, f"essais/{identity['id']}.yaml"
         ),
