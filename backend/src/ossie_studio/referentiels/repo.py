@@ -7,19 +7,16 @@ personne passe par `service.py`.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ossie_studio.imports import files
+from ossie_studio.imports.declaration import Import, ImportDeclaration
+from ossie_studio.imports.errors import ImportsError
 from ossie_studio.referentiels.errors import ReferentielError
-from ossie_studio.referentiels.imports import (
-    ImportDeclaration,
-    ReferentielImport,
-    check_declaration,
-    dump_declaration,
-    example_name,
-    parse_declaration,
-)
 from ossie_studio.referentiels.model import dump_model, load_model, validate_model
 from ossie_studio.referentiels.values import (
     dump_values,
@@ -40,7 +37,7 @@ class Referentiel:
     name: str
     model: dict[str, Any]
     values: list[dict[str, Any]]
-    imports: list[ReferentielImport]
+    imports: list[Import]
 
 
 def referentiel_dir(name: str) -> str:
@@ -58,13 +55,13 @@ def values_path(name: str) -> str:
     return f"{referentiel_dir(name)}/{VALUES_FILE}"
 
 
+def imports_dir(name: str) -> str:
+    """Le dossier des imports d'un référentiel (cible du module commun d'import)."""
+    return f"{referentiel_dir(name)}/{IMPORTS_DIR}"
+
+
 def import_paths(name: str, decl: ImportDeclaration) -> list[str]:
-    base = f"{referentiel_dir(name)}/{IMPORTS_DIR}"
-    return [
-        f"{base}/{decl.slug}.yaml",
-        f"{base}/{decl.slug}.jslt",
-        f"{base}/{example_name(decl.slug, decl.format)}",
-    ]
+    return files.import_paths(imports_dir(name), decl)
 
 
 def _exists(root: Path, name: str) -> bool:
@@ -85,26 +82,21 @@ def list_referentiels(root: Path) -> list[str]:
 # --- Lecture ------------------------------------------------------------------------------
 
 
-def read_imports(root: Path, name: str) -> list[ReferentielImport]:
-    folder = root / referentiel_dir(name) / IMPORTS_DIR
-    if not folder.is_dir():
-        return []
-    out: list[ReferentielImport] = []
-    for file in sorted(folder.glob("*.yaml")):
-        slug = file.stem
-        if not is_valid_slug(slug):
-            continue
-        decl = parse_declaration(slug, file.read_text(encoding="utf-8"))
-        template = folder / f"{slug}.jslt"
-        example = folder / example_name(slug, decl.format)
-        out.append(
-            ReferentielImport(
-                decl,
-                template.read_text(encoding="utf-8") if template.is_file() else "",
-                example.read_bytes() if example.is_file() else b"",
-            )
-        )
-    return out
+@contextmanager
+def _as_referentiel() -> Iterator[None]:
+    """Un refus du module commun d'import devient un refus du référentiel, au même
+    code : ses appelants (routes, tests) ne voient pas la différence."""
+    try:
+        yield
+    except ReferentielError:
+        raise
+    except ImportsError as exc:
+        raise ReferentielError(exc.code, exc.status, exc.problems, **exc.detail) from None
+
+
+def read_imports(root: Path, name: str) -> list[Import]:
+    with _as_referentiel():
+        return files.read_imports(root, imports_dir(name))
 
 
 def read_referentiel(root: Path, name: str) -> Referentiel:
@@ -158,6 +150,12 @@ def write_referentiel(
     )
 
 
+def require_referentiel(root: Path, name: str) -> None:
+    """Refus « referentiel_not_found » si le référentiel n'existe pas."""
+    if not _exists(root, name):
+        raise ReferentielError("referentiel_not_found", 404, name=name)
+
+
 def write_import(
     root: Path,
     name: str,
@@ -166,53 +164,20 @@ def write_import(
     example: bytes,
     *,
     create: bool,
-) -> ReferentielImport:
-    """Écrit les trois fichiers d'un import. `create` : le slug doit être libre
-    (« import_slug_taken ») ; sinon l'import doit exister."""
-    if not _exists(root, name):
-        raise ReferentielError("referentiel_not_found", 404, name=name)
-    if not is_valid_slug(decl.slug):
-        raise ReferentielError("import_slug_invalid", slug=decl.slug)
-    problems = check_declaration(decl)
-    if problems:
-        raise ReferentielError("import_invalid", problems=problems)
-    folder = root / referentiel_dir(name) / IMPORTS_DIR
-    declaration = folder / f"{decl.slug}.yaml"
-    if create and declaration.is_file():
-        raise ReferentielError("import_slug_taken", 409, slug=decl.slug)
-    if not create and not declaration.is_file():
-        raise ReferentielError("import_not_found", 404, slug=decl.slug)
-    yaml_rel, jslt_rel, example_rel = import_paths(name, decl)
-    _write_text(root, yaml_rel, dump_declaration(decl))
-    _write_text(root, jslt_rel, template)
-    target = root / example_rel
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(example)
-    # Format changé : l'ancien fichier d'exemple (autre extension) disparaît.
-    for other in ("csv", "json"):
-        stale = folder / f"{decl.slug}.exemple.{other}"
-        if other != decl.format and stale.is_file():
-            stale.unlink()
-    return ReferentielImport(decl, template, example)
+) -> Import:
+    """Écrit les trois fichiers d'un import du référentiel (module commun)."""
+    require_referentiel(root, name)
+    with _as_referentiel():
+        return files.write_import(root, imports_dir(name), decl, template, example, create=create)
 
 
 def delete_import(root: Path, name: str, slug: str) -> None:
-    """Supprime les trois fichiers d'un import (« import_not_found » s'il n'existe pas)."""
-    if not _exists(root, name):
-        raise ReferentielError("referentiel_not_found", 404, name=name)
-    folder = root / referentiel_dir(name) / IMPORTS_DIR
-    if not is_valid_slug(slug) or not (folder / f"{slug}.yaml").is_file():
-        raise ReferentielError("import_not_found", 404, slug=slug)
-    for file in (f"{slug}.yaml", f"{slug}.jslt", f"{slug}.exemple.csv", f"{slug}.exemple.json"):
-        target = folder / file
-        if target.is_file():
-            target.unlink()
+    require_referentiel(root, name)
+    with _as_referentiel():
+        files.delete_import(root, imports_dir(name), slug)
 
 
-def read_import(root: Path, name: str, slug: str) -> ReferentielImport:
-    if not _exists(root, name):
-        raise ReferentielError("referentiel_not_found", 404, name=name)
-    found = next((i for i in read_imports(root, name) if i.slug == slug), None)
-    if found is None:
-        raise ReferentielError("import_not_found", 404, slug=slug)
-    return found
+def read_import(root: Path, name: str, slug: str) -> Import:
+    require_referentiel(root, name)
+    with _as_referentiel():
+        return files.read_import(root, imports_dir(name), slug)

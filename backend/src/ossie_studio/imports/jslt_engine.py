@@ -29,7 +29,7 @@ from urban_json.parsing import parse_to_tree
 from urban_json.parsing.script_builder_visitor import ScriptBuilderVisitor
 from urban_json.runtime import JsltEvaluationVisitor, RuntimeContext, Sources
 
-from ossie_studio.referentiels.jslt_profile import Violation, check_profile, unknown_functions
+from ossie_studio.imports.jslt_profile import Violation, check_profile, unknown_functions
 
 CAST_FUNCTION = "convert"
 _CORE_MODULE = "urban_json.functions."

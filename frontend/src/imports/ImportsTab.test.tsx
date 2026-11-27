@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ImportsTab } from './ImportsTab'
+import { referentielImports } from '../apiClient'
 
 // L'éditeur de Miles (Web Component servi par le serveur) est doublé par un champ,
 // comme dans Miles : la gouttière et le composant ont leurs propres tests.
@@ -130,7 +131,7 @@ function setup(
   )
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <ImportsTab spaceId="s1" branchId="b1" name="delais" readOnly={options.readOnly ?? false} />
+      <ImportsTab spaceId="s1" branchId="b1" name="delais" imports={referentielImports('s1', 'b1', 'delais')} readOnly={options.readOnly ?? false} />
     </QueryClientProvider>,
   )
   return calls

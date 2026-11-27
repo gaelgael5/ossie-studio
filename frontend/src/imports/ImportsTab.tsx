@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useUnsaved } from './unsaved'
+import { useUnsaved } from '../referentiels/unsaved'
 import { useTranslation } from 'react-i18next'
-import { api } from '../apiClient'
-import type { ImportMode, ImportPreview, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
+import type { ImportsApi, ImportMode, ImportPreview, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
@@ -25,15 +24,11 @@ const SEPARATORS = [';', ',', '\t', '|']
 const ENCODINGS = ['utf-8', 'cp1252', 'latin-1', 'utf-16']
 
 function AddImportDialog({
-  spaceId,
-  branchId,
-  name,
+  imports,
   onClose,
   onCreated,
 }: {
-  spaceId: string
-  branchId: string
-  name: string
+  imports: ImportsApi
   onClose: () => void
   onCreated: (slug: string) => void
 }) {
@@ -43,7 +38,7 @@ function AddImportDialog({
   const [format, setFormat] = useState<'csv' | 'json'>('csv')
   const create = useMutation({
     mutationFn: () =>
-      api.createReferentielImport(spaceId, branchId, name, { label: pair.label.trim(), slug: pair.finalSlug, format }),
+      imports.create({ label: pair.label.trim(), slug: pair.finalSlug, format }),
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: ['referentielImports'] })
       onCreated(created.slug)
@@ -97,9 +92,7 @@ function AddImportDialog({
 }
 
 function ExampleTab({
-  spaceId,
-  branchId,
-  name,
+  imports,
   detail,
   readOnly,
   preview,
@@ -107,9 +100,7 @@ function ExampleTab({
   reading,
   onReading,
 }: {
-  spaceId: string
-  branchId: string
-  name: string
+  imports: ImportsApi
   detail: ReferentielImportDetail
   readOnly: boolean
   preview: ImportPreview | undefined
@@ -127,11 +118,11 @@ function ExampleTab({
       ),
     )
   const upload = useMutation({
-    mutationFn: (file: File) => api.uploadReferentielImportExample(spaceId, branchId, name, detail.slug, file),
+    mutationFn: (file: File) => imports.uploadExample(detail.slug, file),
     onSuccess: refresh,
   })
   const saveReading = useMutation({
-    mutationFn: () => api.setReferentielImportReading(spaceId, branchId, name, detail.slug, reading),
+    mutationFn: () => imports.setReading(detail.slug, reading),
     onSuccess: refresh,
   })
   const readingChanged =
@@ -257,6 +248,7 @@ function ImportView({
   spaceId,
   branchId,
   name,
+  imports,
   slug,
   readOnly,
   onDeleted,
@@ -264,6 +256,7 @@ function ImportView({
   spaceId: string
   branchId: string
   name: string
+  imports: ImportsApi
   slug: string
   readOnly: boolean
   onDeleted: () => void
@@ -275,7 +268,7 @@ function ImportView({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const detail = useQuery({
     queryKey: ['referentielImport', spaceId, branchId, name, slug],
-    queryFn: () => api.getReferentielImport(spaceId, branchId, name, slug),
+    queryFn: () => imports.get(slug),
   })
   const data = detail.data
   const [reading, setReading] = useState<ImportReading | null>(null)
@@ -294,7 +287,7 @@ function ImportView({
   const preview = useQuery({
     queryKey: ['referentielImportPreview', spaceId, branchId, name, slug, effective, data?.example_size],
     queryFn: () =>
-      api.previewReferentielImport(spaceId, branchId, name, slug, data?.format === 'csv' ? effective ?? undefined : undefined),
+      imports.preview(slug, data?.format === 'csv' ? effective ?? undefined : undefined),
     enabled: data !== undefined && data.example_size > 0,
   })
   const refresh = () =>
@@ -304,22 +297,22 @@ function ImportView({
       ),
     )
   const run = useMutation({
-    mutationFn: () => api.tryReferentielImport(spaceId, branchId, name, slug, template ?? '', mode),
+    mutationFn: () => imports.trial(slug, template ?? '', mode),
     onSuccess: setTrial,
   })
   const saveTemplate = useMutation({
-    mutationFn: () => api.saveReferentielImportTemplate(spaceId, branchId, name, slug, template ?? ''),
+    mutationFn: () => imports.saveTemplate(slug, template ?? ''),
     onSuccess: refresh,
   })
   const rename = useMutation({
-    mutationFn: (label: string) => api.renameReferentielImport(spaceId, branchId, name, slug, label),
+    mutationFn: (label: string) => imports.rename(slug, label),
     onSuccess: async () => {
       setRenaming(null)
       await refresh()
     },
   })
   const remove = useMutation({
-    mutationFn: () => api.deleteReferentielImport(spaceId, branchId, name, slug),
+    mutationFn: () => imports.remove(slug),
     onSuccess: async () => {
       await refresh()
       onDeleted()
@@ -341,7 +334,7 @@ function ImportView({
       // Réglages de lecture : enregistrés par l'onglet « Exemple » d'ordinaire ;
       // ici, l'appel direct (l'onglet peut ne pas être affiché).
       if (readingDirty && reading) {
-        await api.setReferentielImportReading(spaceId, branchId, name, slug, reading)
+        await imports.setReading(slug, reading)
         await refresh()
       }
       if (templateDirty) await saveTemplate.mutateAsync()
@@ -414,9 +407,7 @@ function ImportView({
       </div>
       {sub === 'example' ? (
         <ExampleTab
-          spaceId={spaceId}
-          branchId={branchId}
-          name={name}
+          imports={imports}
           detail={data}
           readOnly={readOnly}
           preview={preview.data}
@@ -472,9 +463,8 @@ function ImportView({
         </div>
         {!readOnly ? (
           <ImportRunPanel
-            spaceId={spaceId}
-            branchId={branchId}
             name={name}
+            imports={imports}
             detail={data}
             mode={mode}
             onMode={setMode}
@@ -491,11 +481,13 @@ export function ImportsTab({
   spaceId,
   branchId,
   name,
+  imports,
   readOnly,
 }: {
   spaceId: string
   branchId: string
   name: string
+  imports: ImportsApi
   readOnly: boolean
 }) {
   const { t, i18n } = useTranslation()
@@ -503,10 +495,10 @@ export function ImportsTab({
   const [selected, setSelected] = useState<string | null>(null)
   const list = useQuery({
     queryKey: ['referentielImports', spaceId, branchId, name],
-    queryFn: () => api.listReferentielImports(spaceId, branchId, name),
+    queryFn: () => imports.list(),
   })
-  const imports = list.data?.imports ?? []
-  const current = selected ?? imports[0]?.slug ?? null
+  const items = list.data?.imports ?? []
+  const current = selected ?? items[0]?.slug ?? null
   return (
     <div className="ref-imports-layout">
       <aside className="panel stack" aria-label={t('refImports')}>
@@ -516,9 +508,9 @@ export function ImportsTab({
             {t('refValuesAdd')}
           </button>
         ) : null}
-        {list.data && imports.length === 0 ? <p className="empty-note">{t('refImportsEmpty')}</p> : null}
+        {list.data && items.length === 0 ? <p className="empty-note">{t('refImportsEmpty')}</p> : null}
         <ul className="plain-list">
-          {imports.map((imp) => (
+          {items.map((imp) => (
             <li key={imp.slug} className={imp.slug === current ? 'ref-item active' : 'ref-item'}>
               <button type="button" className="link-button link-strong" onClick={() => setSelected(imp.slug)}>
                 {imp.label}
@@ -534,9 +526,7 @@ export function ImportsTab({
       <section className="stack">
         {adding ? (
           <AddImportDialog
-            spaceId={spaceId}
-            branchId={branchId}
-            name={name}
+            imports={imports}
             onClose={() => setAdding(false)}
             onCreated={(slug) => {
               setAdding(false)
@@ -550,6 +540,7 @@ export function ImportsTab({
             spaceId={spaceId}
             branchId={branchId}
             name={name}
+            imports={imports}
             slug={current}
             readOnly={readOnly}
             onDeleted={() => setSelected(null)}

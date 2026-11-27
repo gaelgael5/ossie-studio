@@ -1,5 +1,6 @@
-"""Journal des imports de valeurs d'un référentiel (ticket « Importer des valeurs
-depuis un fichier »).
+"""Journal des imports (ticket « Importer des valeurs depuis un fichier » ;
+module commun depuis l'enabler 4f32c8c6 : le type d'objet journalisé est celui
+de la cible, `referentiel_import` pour un référentiel).
 
 Chaque import est une ligne du journal d'audit transverse (`audit_log`) : son
 auteur, le fichier, le mode et le compte rendu (nombres seulement, jamais une
@@ -22,9 +23,9 @@ import asyncpg
 
 from ossie_studio.audit.service import UPDATED, AuditEntry, record
 from ossie_studio.models import User
-from ossie_studio.referentiels.model import SEPARATOR
 
-OBJECT_TYPE = "referentiel_import"
+# Libellé journalisé « <propriétaire> (séparateur) <import> » : celui des référentiels.
+SEPARATOR = " \u203a "
 
 IMPORTED = "imported"
 UNCHANGED = "unchanged"
@@ -47,6 +48,7 @@ def object_id(branch_id: uuid.UUID, name: str, slug: str) -> str:
 
 async def record_import(
     conn: asyncpg.Connection,
+    object_type: str,
     actor: User,
     branch_id: uuid.UUID,
     name: str,
@@ -71,7 +73,7 @@ async def record_import(
         actor,
         AuditEntry(
             action=UPDATED,
-            object_type=OBJECT_TYPE,
+            object_type=object_type,
             object_id=object_id(branch_id, name, slug),
             object_label=f"{name}{SEPARATOR}{slug}",
             detail=detail,
@@ -80,9 +82,10 @@ async def record_import(
 
 
 async def last_imports(
-    conn: asyncpg.Connection, branch_id: uuid.UUID, name: str
+    conn: asyncpg.Connection, object_type: str, branch_id: uuid.UUID, name: str
 ) -> dict[str, LastImport]:
-    """Le dernier import abouti de chaque import du référentiel, par slug."""
+    """Le dernier import abouti de chaque import de ce propriétaire (un
+    référentiel, un type de cartographie), par slug."""
     prefix = object_id(branch_id, name, "")
     rows = await conn.fetch(
         """
@@ -93,7 +96,7 @@ async def last_imports(
           AND detail->>'outcome' <> $3
         ORDER BY object_id, at DESC
         """,
-        OBJECT_TYPE,
+        object_type,
         prefix,
         REFUSED,
     )
