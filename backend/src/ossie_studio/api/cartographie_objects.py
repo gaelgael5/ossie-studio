@@ -296,11 +296,24 @@ async def get_object(
         space = await target.cartographie()
         models = await target.read(lambda root: models_retaining(root, key))
         processes = await target.read(lambda root: processes_detailing(root, key))
+        found = space.objects.get(key)
+        # Le fichier tel qu'il est stocké (ticket 7dc220a4 : l'onglet Résumé d'un type
+        # affiche « pour le moment l'objet yaml »), pas une resérialisation.
+        text = (
+            await target.read(lambda root: _stored_text(root, found[0]))
+            if found is not None
+            else None
+        )
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     dates = await carto_history(conn, crypto, manager, space_id, branch_id)
     states = await draft_states(conn, workdir, branch_id)
-    return _detail(space, key, dates, states, models, processes)
+    return {**_detail(space, key, dates, states, models, processes), "yaml": text}
+
+
+def _stored_text(root: Path, path: str) -> str | None:
+    file = root / path
+    return file.read_text(encoding="utf-8") if file.is_file() else None
 
 
 async def _write_and_read(

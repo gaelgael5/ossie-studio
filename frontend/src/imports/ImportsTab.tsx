@@ -403,12 +403,64 @@ function ExampleTab({
 // L'aperçu des premières lignes et les chemins détectés, dans leur propre onglet
 // (ticket c2e5078c) : l'onglet « Fichier d'exemple » garde le dépôt, la lecture et
 // les colonnes du modèle.
-function PreviewTab({ preview, unreadable }: { preview: ImportPreview | undefined; unreadable: boolean }) {
+function PreviewTab({
+  preview,
+  unreadable,
+  onClear,
+}: {
+  preview: ImportPreview | undefined
+  unreadable: boolean
+  /** Absent : rien à nettoyer (pas de fichier d'exemple) ou lecture seule. */
+  onClear?: () => void
+}) {
   const { t } = useTranslation()
   // Cases dépliées, « ligne:colonne » (ticket 49f41fa2).
   const [open, setOpen] = useState<Set<string>>(() => new Set())
-  if (unreadable) return <p className="muted" role="note">{t('refImportPathsUnreadable')}</p>
-  if (!preview || preview.count === 0) return <p className="empty-note">{t('refImportPreviewEmpty')}</p>
+  const [confirmClear, setConfirmClear] = useState(false)
+  // « Nettoyer » (ticket 34fa9248) : retire le fichier d'exemple, après confirmation
+  // dans la page ; la déclaration, le template et les correspondances restent.
+  const clear = onClear ? (
+    confirmClear ? (
+      <div role="alertdialog" aria-label={t('refImportClearConfirm')} className="panel stack">
+        <p>{t('refImportClearConfirm')}</p>
+        <div className="row">
+          <button type="button" className="btn" onClick={() => setConfirmClear(false)}>
+            {t('cancelEdit')}
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={() => {
+              setConfirmClear(false)
+              onClear()
+            }}
+          >
+            {t('refImportClear')}
+          </button>
+        </div>
+      </div>
+    ) : (
+      <div className="row">
+        <button type="button" className="btn btn-sm" onClick={() => setConfirmClear(true)}>
+          {t('refImportClear')}
+        </button>
+      </div>
+    )
+  ) : null
+  if (unreadable)
+    return (
+      <div className="stack">
+        {clear}
+        <p className="muted" role="note">{t('refImportPathsUnreadable')}</p>
+      </div>
+    )
+  if (!preview || preview.count === 0)
+    return (
+      <div className="stack">
+        {clear}
+        <p className="empty-note">{t('refImportPreviewEmpty')}</p>
+      </div>
+    )
   const toggle = (key: string) =>
     setOpen((prev) => {
       const next = new Set(prev)
@@ -418,6 +470,7 @@ function PreviewTab({ preview, unreadable }: { preview: ImportPreview | undefine
     })
   return (
     <div className="stack">
+      {clear}
       <h4>{t('refImportPreview', { count: preview.count })}</h4>
       <div className="panel table-wrap">
         {/* Traits discrets entre colonnes et numéro de ligne (ticket 49f41fa2). */}
@@ -526,6 +579,15 @@ function ImportView({
         queryClient.invalidateQueries({ queryKey: [k] }),
       ),
     )
+  const clearExample = useMutation({
+    mutationFn: () => imports.clearExample(slug),
+    onSuccess: () =>
+      Promise.all(
+        ['referentielImport', 'referentielImports', 'referentielImportPreview', 'draft', 'draftChanges'].map((k) =>
+          queryClient.invalidateQueries({ queryKey: [k] }),
+        ),
+      ),
+  })
   // Le texte essayé est gardé avec le compte rendu : l'extrait d'une ligne fautive
   // doit montrer ce que le moteur a lu, même si l'éditeur a changé depuis.
   const [trialSource, setTrialSource] = useState('')
@@ -662,7 +724,14 @@ function ImportView({
           mapping={mapping}
         />
       ) : sub === 'preview' ? (
-        <PreviewTab preview={preview.data} unreadable={preview.isError} />
+        <>
+          <ErrorList messages={clearExample.error ? errorMessages(t, clearExample.error) : []} />
+          <PreviewTab
+            preview={preview.data}
+            unreadable={preview.isError}
+            onClear={!readOnly && data.example_size > 0 ? () => clearExample.mutate() : undefined}
+          />
+        </>
       ) : (
         // Disposition (ticket e2b9d7de) : l'éditeur à gauche, jusqu'au bas de la
         // fenêtre ; à droite, les boutons empilés, le panneau « Importer » puis le

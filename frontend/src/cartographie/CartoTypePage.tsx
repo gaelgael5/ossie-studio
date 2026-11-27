@@ -16,6 +16,7 @@ import type { RefModel } from '../referentiels/modelRules'
 import { UnsavedProvider, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
 import { ImportsTab } from '../imports/ImportsTab'
 import { ArchimateIcon } from './ArchimateIcon'
+import { TypeObjects } from './TypeObjects'
 import { RELATIONS, TypeRelations, readDeviations, writeDeviations } from './TypeRelations'
 import type { Deviations } from './TypeRelations'
 
@@ -333,7 +334,12 @@ function TypeEditor({
       </div>
       {/* Le bandeau ArchiMate vit dans l'onglet « Résumé », ouvert en premier
           (ticket e2b9d7de). */}
-      {tab === 'summary' ? <ArchimateBand info={info} archimate={detail.archimate} title={title} /> : null}
+      {tab === 'summary' ? (
+        <>
+          <ArchimateBand info={info} archimate={detail.archimate} title={title} />
+          <TypeObjects spaceId={spaceId} branchId={branchId} slug={detail.slug} />
+        </>
+      ) : null}
       {tab === 'relations' ? (
         parsed.ok ? (
           <TypeRelations
@@ -433,13 +439,20 @@ function ArchimateBand({ info, archimate, title }: { info: ArchimateTypeInfo | u
 
 function BaseProperties({ catalog, info }: { catalog: CartoCatalog; info: ArchimateTypeInfo | undefined }) {
   const { t } = useTranslation()
+  // Une relation porte aussi ses deux extrémités, `source` et `cible`, champs de
+  // chaque objet comme `cle` et `nom` (bug c5cf543c : un type Flow ne les montrait
+  // pas). Elles se choisissent sur l'objet ; les types reliables, dans « Relations ».
+  const base =
+    info?.kind === 'relation'
+      ? [...catalog.base, { name: 'source', type: 'string', required: true }, { name: 'cible', type: 'string', required: true }]
+      : catalog.base
   return (
     <div className="stack carto-base">
       <div className="panel carto-base-panel">
         <div className="carto-detail-title">{t('cartoBaseTitle')}</div>
         <table className="table">
           <tbody>
-            {catalog.base.map((b) => (
+            {base.map((b) => (
               <tr key={b.name}>
                 <td className="mono">
                   <span aria-label={t('cartoLocked')} title={t('cartoLocked')}>

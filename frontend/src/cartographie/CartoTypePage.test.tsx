@@ -58,6 +58,7 @@ const CATALOG = {
   ],
   types: [
     { name: 'BusinessProcess', kind: 'element', layer: 'business', label: 'Processus métier', definition: 'Déf.', icon: ICON, attributes: [], relations: [] },
+    { name: 'Flow', kind: 'relation', layer: 'relationship', label: 'Flux', definition: 'Déf.', icon: ICON, attributes: [], relations: [] },
   ],
 }
 const CANAL = { type: 'string', enum: ['site', 'magasin'], description: 'Canal de la vente' }
@@ -109,6 +110,16 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
       } else if (path === `${BASE}/types/processus-de-vente` && method === 'DELETE') body = { deleted: 'processus-de-vente', revision: 'draft:3' }
       else if (path === `${BASE}/types`) body = { readonly: false, types: [] }
       else if (path === `${BASE}/types/processus-de-vente/imports`) body = { imports: [] }
+      else if (path === `${BASE}/objets`)
+        body = {
+          readonly: false,
+          objects: [
+            { key: 'PRC-B', type: 'processus-de-vente', name: 'Vente B' },
+            { key: 'APP-X', type: 'application', name: 'Autre type' },
+            { key: 'PRC-A', type: 'processus-de-vente', name: 'Vente A' },
+          ],
+        }
+      else if (path === `${BASE}/objets/PRC-A`) body = { key: 'PRC-A', yaml: 'cle: PRC-A\nnom: Vente A\n' }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
   )
@@ -168,7 +179,18 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
     expect(screen.getByRole('link', { name: '← Retour aux types' })).toHaveAttribute('href', '/cartographie/types')
     const base = screen.getByText('Propriétés de base ArchiMate · lecture seule').closest('.panel') as HTMLElement
     for (const name of ['cle', 'nom', 'documentation']) expect(within(base).getByText(name)).toBeInTheDocument()
+    expect(within(base).queryByText('source')).not.toBeInTheDocument()
     expect(within(base).queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('type de relation : source et cible parmi les propriétés de base (bug c5cf543c)', async () => {
+    const flow = detailOf()
+    setup({ detail: { ...flow, archimate: 'Flow', document: { ...flow.document, 'x-archimate': 'Flow' } } })
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    await openProperties()
+    const base = screen.getByText('Propriétés de base ArchiMate · lecture seule').closest('.panel') as HTMLElement
+    expect(within(base).getByText('source').closest('tr')).toHaveTextContent('clé de l’objet de départ')
+    expect(within(base).getByText('cible').closest('tr')).toHaveTextContent('clé de l’objet d’arrivée')
   })
 
   it('ajouter canal (énumération) : le YAML et l’enregistrement le portent (critère 1)', async () => {
@@ -369,4 +391,16 @@ describe('Cartographie — imports d’un type (ticket 49952be0)', () => {
     await waitFor(() => expect(calls.some((c) => c.path === `${BASE}/types/processus-de-vente/imports`)).toBe(true))
     expect(await screen.findByText('Aucun import déclaré.')).toBeInTheDocument()
   })
+
+  it('« Résumé » liste les objets du type (clé, nom) ; la ligne cliquée montre son YAML (ticket 7dc220a4)', async () => {
+    setup()
+    const table = await screen.findByRole('table', { name: 'Objets de ce type' })
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows.map((r) => r.textContent)).toEqual(['PRC-AVente A', 'PRC-BVente B'])
+    expect(screen.getByText('Cliquez sur une ligne pour afficher l’objet.')).toBeInTheDocument()
+    await userEvent.setup().click(rows[0])
+    expect(await screen.findByLabelText('Fichier YAML de PRC-A')).toHaveTextContent('cle: PRC-A nom: Vente A')
+    expect(rows[0]).toHaveClass('selected')
+  })
+
 })

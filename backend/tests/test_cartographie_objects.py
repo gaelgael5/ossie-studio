@@ -226,3 +226,15 @@ async def test_droits(app: FastAPI, space: ApiSpace) -> None:
         denied = await ana.post(_url(space), json={"key": "X", "type": "acces", "name": "X"})
         assert denied.status_code == 403
         assert (await ana.delete(_url(space, "/OBJ-COMMANDE"))).status_code == 403
+
+
+async def test_fiche_porte_le_yaml_stocke(space: ApiSpace) -> None:
+    """Ticket 7dc220a4 : la fiche rend le fichier de l'objet tel qu'il est stocké."""
+    created = await _create(
+        space, key="APP-YAML", type="application", name="Yaml", properties={"criticite": "haute"}
+    )
+    assert created.status_code == 201, created.text
+    detail = await space.client.get(f"{_url(space)}/APP-YAML")
+    assert detail.status_code == 200, detail.text
+    text = detail.json()["yaml"]
+    assert "APP-YAML" in text and "nom: Yaml" in text

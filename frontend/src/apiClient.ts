@@ -1685,6 +1685,8 @@ export interface CartoObjectDetail {
   source: string | null
   target: string | null
   path: string
+  /** Le fichier de l'objet tel qu'il est stocké (ticket 7dc220a4). */
+  yaml?: string | null
   schema: Record<string, unknown> | null
   relations: { outgoing: CartoRelationSide[]; incoming: CartoRelationSide[] }
   dates: CartoDates | null
@@ -3187,6 +3189,8 @@ export interface ImportsApi {
   rename: (slug: string, label: string) => Promise<ReferentielImportDetail>
   remove: (slug: string) => Promise<void>
   uploadExample: (slug: string, file: File) => Promise<ReferentielImportDetail>
+  /** « Nettoyer » : retire le fichier d'exemple (ticket 34fa9248). */
+  clearExample: (slug: string) => Promise<ReferentielImportDetail>
   setReading: (slug: string, reading: ImportReading) => Promise<ReferentielImportDetail>
   preview: (slug: string, reading?: ImportReading) => Promise<ImportPreview>
   trial: (slug: string, template: string, mode?: ImportMode) => Promise<ImportTrial>
@@ -3213,6 +3217,7 @@ export function importsApi(
       form.append('file', file)
       return apiUpload(one(slug, '/exemple'), form)
     },
+    clearExample: (slug) => apiFetch(one(slug, '/exemple'), { method: 'DELETE' }),
     setReading: (slug, reading) => apiFetch(one(slug, '/lecture'), { method: 'PUT', body: JSON.stringify(reading) }),
     preview: (slug, reading) =>
       apiFetch(one(slug, '/apercu'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
