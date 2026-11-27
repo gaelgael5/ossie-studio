@@ -141,6 +141,13 @@ ERROR_CODES: tuple[str, ...] = (
     "dataset_name_taken",
     "relationship_cross_document",
     "relationship_columns_mismatch",
+    "relationship_dataset_missing",
+    "relationship_column_unknown",
+    "relationship_name_taken",
+    "relationship_not_found",
+    "reference_dataset_missing",
+    "reference_name_taken",
+    "reference_not_found",
     # Dataset manuel (ticket 1c68a20a).
     "dataset_name_invalid",
     "dataset_source_required",

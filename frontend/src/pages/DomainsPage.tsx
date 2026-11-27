@@ -11,6 +11,7 @@ import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
+import { DomainLinks } from './DomainLinks'
 import { ManualDatasetDialog } from './ManualDatasetDialog'
 import { LinkReferentielDialog, ReferentielLinkCell } from '../curation/ReferentielLink'
 import type { LinkableProperty } from '../curation/ReferentielLink'
@@ -345,6 +346,7 @@ function DatasetRows({
   onRemove,
   onEdit,
   where,
+  links,
 }: {
   datasets: DomainDataset[]
   canWrite: boolean
@@ -353,9 +355,13 @@ function DatasetRows({
   /** Modifier un dataset manuel (un dérivé reste en lecture seule). */
   onEdit: (dataset: DomainDataset) => void
   where: FieldsWhere
+  /** Nombre de relations et références d'un dataset : retirer le dataset les
+   * retire aussi, l'écran le dit avant de confirmer (ticket 4e856094). */
+  links: (name: string) => number
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState<Set<string>>(new Set())
+  const [confirming, setConfirming] = useState<string | null>(null)
   const toggle = (name: string) =>
     setOpen((prev) => {
       const next = new Set(prev)
@@ -403,12 +409,30 @@ function DatasetRows({
               className="btn btn-sm"
               disabled={pending}
               aria-label={t('domainRemoveDataset', { name: d.name })}
-              onClick={() => onRemove(d.name)}
+              onClick={() => (links(d.name) > 0 ? setConfirming(d.name) : onRemove(d.name))}
             >
               {t('domainRemove')}
             </button>
           ) : null}
           </div>
+          {confirming === d.name ? (
+            <div className="banner row" role="alertdialog" aria-label={t('domainRemoveDataset', { name: d.name })}>
+              <span>{t('domainRemoveWithLinks', { name: d.name, count: links(d.name) })}</span>
+              <button type="button" className="btn btn-sm" onClick={() => setConfirming(null)}>
+                {t('cancelEdit')}
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={() => {
+                  setConfirming(null)
+                  onRemove(d.name)
+                }}
+              >
+                {t('domainRemove')}
+              </button>
+            </div>
+          ) : null}
           {open.has(d.name) ? <DatasetFields dataset={d} canWrite={canWrite} where={where} /> : null}
         </li>
       ))}
@@ -557,6 +581,10 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
   const domain = detail.data
   const consultable = domain?.datasets.filter((d) => d.consultable) ?? []
   const virtual = domain?.datasets.filter((d) => !d.consultable) ?? []
+  const linksOf = (dataset: string) =>
+    [...(domain?.relationships ?? []), ...(domain?.references ?? [])].filter(
+      (l) => l.from_dataset === dataset || l.to_dataset === dataset,
+    ).length
   return (
     <main className="stack">
       <div className="breadcrumb">
@@ -626,45 +654,17 @@ function DomainScreen({ spaceId, branchId, name }: { spaceId: string; branchId: 
             {consultable.length > 0 ? (
               <section className="panel stack stack-tight">
                 <h3>{t('domainConsultableTitle', { count: consultable.length })}</h3>
-                <DatasetRows datasets={consultable} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} where={{ spaceId, branchId, domain: name }} />
+                <DatasetRows datasets={consultable} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} where={{ spaceId, branchId, domain: name }} links={linksOf} />
               </section>
             ) : null}
             {virtual.length > 0 ? (
               <section className="panel stack stack-tight">
                 <h3>{t('domainVirtualTitle', { count: virtual.length })}</h3>
                 <p className="muted small">{t('domainVirtualHint')}</p>
-                <DatasetRows datasets={virtual} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} where={{ spaceId, branchId, domain: name }} />
+                <DatasetRows datasets={virtual} canWrite={canWrite} pending={remove.isPending} onRemove={remove.mutate} onEdit={setManual} where={{ spaceId, branchId, domain: name }} links={linksOf} />
               </section>
             ) : null}
-            <section className="panel stack stack-tight">
-              <h3>{t('domainLinksTitle', { count: domain.relationships.length + domain.references.length })}</h3>
-              {domain.relationships.length + domain.references.length === 0 ? (
-                <p className="muted">{t('domainNoLinks')}</p>
-              ) : (
-                <ul className="list-plain small">
-                  {domain.relationships.map((r) => (
-                    <li key={r.name}>
-                      {t('domainLinkRelationship', {
-                        from: r.from_dataset,
-                        field: r.from_columns.join(', '),
-                        to: r.to_dataset,
-                        cardinality: 'n:1',
-                      })}
-                    </li>
-                  ))}
-                  {domain.references.map((r) => (
-                    <li key={r.name}>
-                      {t('domainLinkReference', {
-                        from: r.from_dataset,
-                        field: r.field,
-                        to: r.to_dataset,
-                        cardinality: r.cardinality,
-                      })}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+            <DomainLinks spaceId={spaceId} branchId={branchId} domain={domain} canWrite={canWrite} />
           </div>
           <section className="panel stack stack-tight">
             <h3>{t('domainGraph')}</h3>

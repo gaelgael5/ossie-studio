@@ -2541,6 +2541,27 @@ export const api = {
     apiFetch<void>(`/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     }),
+  // Relations et références d'un domaine à la main (ticket 4e856094).
+  createDomainRelationship: (spaceId: string, branchId: string, name: string, body: DomainRelationship) =>
+    apiFetch<DomainDetail>(`/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/relationships`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  saveDomainRelationship: (spaceId: string, branchId: string, name: string, current: string, body: DomainRelationship) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/relationships/${encodeURIComponent(current)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  deleteDomainRelationship: (spaceId: string, branchId: string, name: string, relationship: string) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/relationships/${encodeURIComponent(relationship)}`,
+      { method: 'DELETE' },
+    ),
+  deleteDomainReference: (spaceId: string, branchId: string, name: string, reference: string) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/references/${encodeURIComponent(reference)}`,
+      { method: 'DELETE' },
+    ),
   removeDomainDataset: (spaceId: string, branchId: string, name: string, dataset: string) =>
     apiFetch<void>(
       `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/datasets/${encodeURIComponent(dataset)}`,
