@@ -46,6 +46,11 @@ from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
 from ossie_studio.referentiels.repo import list_referentiels, model_path, values_path
 from ossie_studio.referentiels.values import key_of
+from ossie_studio.sources.asset_files import extend_name
+from ossie_studio.sources.collect_core import RAW_DIR
+from ossie_studio.sources.curation import list_curation, read_tri_rules
+from ossie_studio.sources.paths import ASSETS_DIR, source_rel_dir
+from ossie_studio.sources.service import read_sources_tree
 
 # --- Les filtres déclarés -----------------------------------------------------------------
 
@@ -277,6 +282,77 @@ def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
                     {"value": value},
                     text=_scalars(value),
                     version=value_version(value),
+                )
+            )
+    return out
+
+
+# --- Schémas raw et d'assets, en lecture seule (ticket 56f3784a) --------------------------
+
+
+def _sources(root: Path, query: ListQuery) -> list[str]:
+    """La source demandée (refus nommé si elle n'existe pas), ou toutes."""
+    wanted = query.identity.get("source")
+    known = [entry.slug for entry in read_sources_tree(root)]
+    if wanted is None:
+        return known
+    if wanted not in known:
+        raise KindError(
+            "write_identity_invalid",
+            "source",
+            f"La source « {wanted} » n'existe pas dans l'espace (list_sources).",
+            received=wanted,
+        )
+    return [str(wanted)]
+
+
+def raw_schemas(root: Path, query: ListQuery) -> list[Item]:
+    """Ce que rendait `list_raw_schemas` : chaque schéma collecté, son nombre de champs
+    et s'il est retenu en asset."""
+    out = []
+    for source in _sources(root, query):
+        directory = source_rel_dir(source)
+        for obj in list_curation(root, source, (), True):
+            if obj.orphan:
+                continue
+            summary = {"title": obj.title, "kind": obj.kind, "fields": obj.fields}
+            out.append(
+                Item(
+                    {"source": source, "name": obj.path},
+                    obj.title or obj.path,
+                    f"{directory}/{RAW_DIR}/{obj.path}",
+                    {**summary, "retained": obj.retained},
+                )
+            )
+    return out
+
+
+def asset_schemas(root: Path, query: ListQuery) -> list[Item]:
+    """Ce que rendait `list_assets` : chaque asset retenu, orphelin ou non (son raw a
+    disparu), et la règle de tri qui l'écarte."""
+    out = []
+    for source in _sources(root, query):
+        directory = source_rel_dir(source)
+        for obj in list_curation(root, source, read_tri_rules(root, source), True):
+            if obj.retained == "none":
+                continue
+            base = f"{directory}/{ASSETS_DIR}"
+            summary = {
+                "title": obj.title,
+                "kind": obj.kind,
+                "fields": obj.fields,
+                "retained": obj.retained,
+                "orphan": obj.orphan,
+                "excluded_by": obj.excluded_by,
+            }
+            out.append(
+                Item(
+                    {"source": source, "name": obj.path},
+                    obj.title or obj.path,
+                    f"{base}/{obj.path}",
+                    summary,
+                    # Le travail humain sur l'asset (non publié s'il l'est).
+                    related=(f"{base}/{extend_name(obj.path)}",),
                 )
             )
     return out

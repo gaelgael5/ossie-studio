@@ -35,12 +35,10 @@ from ossie_studio.models import SpaceBranch, User
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
-    CurationObject,
     ReviewResult,
     build_review,
     get_object_detail,
     is_schema_file,
-    list_curation,
     published_raw,
     read_enrichment,
     read_source_trees,
@@ -187,45 +185,6 @@ async def list_sources(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any
     return {"view": bv.view, "sources": [_source_payload(e, bv) for e in entries]}
 
 
-async def _curation_objects(
-    bv: BranchView, slug: str, directory: str, *, with_rules: bool
-) -> list[CurationObject]:
-    def read(root: Path) -> list[CurationObject] | None:
-        if not _source_exists(root, directory):
-            return None
-        rules = read_tri_rules(root, slug) if with_rules else ()
-        return list_curation(root, slug, rules, True)
-
-    objects = await bv.read(read)
-    if objects is None:
-        raise PrimitiveError("source_not_found", source=slug)
-    return objects
-
-
-async def list_raw_schemas(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args)
-    objects = await _curation_objects(bv, args.source, directory, with_rules=False)
-    return {
-        "view": bv.view,
-        "source": args.source,
-        "schemas": [
-            {
-                "path": o.path,
-                # Chemin dans l'espace, à donner à read_schema (ticket 06ef8679).
-                "schema_path": f"{directory}/{RAW_DIR}/{o.path}",
-                "title": o.title,
-                "kind": o.kind,
-                "fields": o.fields,
-                "retained": o.retained,
-                "unpublished": bv.unpublished(f"{directory}/{RAW_DIR}/{o.path}"),
-            }
-            for o in objects
-            if not o.orphan
-        ],
-    }
-
-
 # --- Assets (curation) ----------------------------------------------------------------
 
 
@@ -234,31 +193,6 @@ def _asset_unpublished(bv: BranchView, directory: str, path: str) -> bool:
     humain, ticket 7a284e55) l'est."""
     base = f"{directory}/{ASSETS_DIR}"
     return bv.unpublished(f"{base}/{path}") or bv.unpublished(f"{base}/{extend_name(path)}")
-
-
-async def list_assets(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args)
-    objects = await _curation_objects(bv, args.source, directory, with_rules=True)
-    return {
-        "view": bv.view,
-        "source": args.source,
-        "assets": [
-            {
-                "path": o.path,
-                "schema_path": f"{directory}/{ASSETS_DIR}/{o.path}",
-                "title": o.title,
-                "kind": o.kind,
-                "fields": o.fields,
-                "retained": o.retained,
-                "orphan": o.orphan,
-                "excluded_by": o.excluded_by,
-                "unpublished": _asset_unpublished(bv, directory, o.path),
-            }
-            for o in objects
-            if o.retained != "none"
-        ],
-    }
 
 
 def _enrichment(scope: Any) -> dict[str, Any]:

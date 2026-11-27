@@ -86,6 +86,18 @@ def _ids(space: ApiSpace, **extra: Any) -> dict[str, Any]:
     return {"space_id": space.space_id, "branch_id": space.branch_id, "source": "ventes", **extra}
 
 
+def _assets_args(space: ApiSpace, **extra: Any) -> dict[str, Any]:
+    """list_documents des assets de la source (ce que rendait list_assets, ticket
+    56f3784a)."""
+    return {
+        "space_id": space.space_id,
+        "branch_id": space.branch_id,
+        "kind": "schema_asset",
+        "identity": {"source": "ventes"},
+        **extra,
+    }
+
+
 async def _ok(app: FastAPI, token: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
     result = await call_tool(app, token, name, args)
     assert not result.is_error, result.content[0].text
@@ -217,14 +229,12 @@ async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) 
     )
     fields = {f["name"]: f for f in customer["extras"]["fields"]}
     assert fields["email"]["retained"] is True and fields["name"]["type"] == "integer"
-    assets = {
-        a["path"]
-        for a in (await _ok(app, AGENT, "list_assets", _ids(space, branch="draft")))["assets"]
-    }
+    draft = await _ok(app, AGENT, "list_documents", _assets_args(space, branch="draft"))
+    assets = {a["identity"]["name"] for a in draft["documents"]}
     assert assets == {"customer.schema.yaml", "order.schema.yaml"}
     # Rien n'est publié.
-    published = await _ok(app, AGENT, "list_assets", _ids(space))
-    assert {a["path"] for a in published["assets"]} == {
+    published = await _ok(app, AGENT, "list_documents", _assets_args(space))
+    assert {a["identity"]["name"] for a in published["documents"]} == {
         "customer.schema.yaml",
         "legacy.schema.yaml",
     }

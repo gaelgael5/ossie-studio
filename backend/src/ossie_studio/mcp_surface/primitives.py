@@ -42,7 +42,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     # Lire un schéma, quel que soit son domaine (ticket 06ef8679)
     "read_schema": Implementation(schemas.ReadSchemaArgs, schemas.read_schema),
     "list_sources": Implementation(BranchArgs, reads.list_sources),
-    "list_raw_schemas": Implementation(SourceArgs, reads.list_raw_schemas),
     "get_reference_graph": Implementation(
         references.ReferenceGraphArgs, references.get_reference_graph
     ),
@@ -51,7 +50,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "get_module": Implementation(app_map.ModuleArgs, app_map.get_module),
     "get_functions": Implementation(ObjectArgs, app_map.get_functions),
     "list_entry_points": Implementation(app_map.EntryPointsArgs, app_map.list_entry_points),
-    "list_assets": Implementation(SourceArgs, reads.list_assets),
     "get_tri_rules": Implementation(SourceArgs, reads.get_tri_rules),
     "get_review": Implementation(SourceArgs, reads.get_review),
     # Écriture et lecture communes par genre (epic « Primitives MCP — écriture commune »)

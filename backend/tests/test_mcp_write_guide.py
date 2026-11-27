@@ -113,8 +113,14 @@ def test_les_exemples_passent_leur_validateur(
 
 
 def test_chaque_genre_et_chaque_syntaxe_ont_un_exemple() -> None:
+    """Chaque genre qu'on peut écrire a un exemple ; un genre en lecture seule
+    (ticket 56f3784a) a son standard, qui nomme l'action qui le produit."""
     standards_with_examples = {s for s, _n, _t in _examples()}
     for kind in KINDS:
+        if not kind.writable:
+            text = write_guide.standards()[kind.standard]["markdown"]
+            assert all(action in text for action in kind.produced_by), kind.name
+            continue
         assert kind.standard in standards_with_examples, kind.name
     assert {"jsonpath", "xpath", "writing-rules"} <= standards_with_examples
 

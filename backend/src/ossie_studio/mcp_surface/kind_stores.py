@@ -40,6 +40,7 @@ from ossie_studio.drafts.store import git_blob_sha
 from ossie_studio.governance import actions
 from ossie_studio.governance import repo as governance_repo
 from ossie_studio.mcp_surface.kind_base import Document, KindError, Location
+from ossie_studio.parsers.conventions import load_schema
 from ossie_studio.problems import Problem
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
@@ -425,6 +426,41 @@ class ReferentielValueStore:
         if index is not None:
             values = [v for i, v in enumerate(ref.values) if i != index]
             write_referentiel(root, ref.name, ref.model, values, create=False)
+
+
+# --- Genres en lecture seule (ticket 56f3784a) ----------------------------------------------
+
+
+class ReadOnlySchemaStore:
+    """Un schéma raw ou d'asset : lisible, jamais écrit directement. Il est produit par
+    une action (la collecte, la curation), qui seule sait le tenir à jour."""
+
+    def __init__(self, label: str, actions: tuple[str, ...]) -> None:
+        self.label = label
+        self.actions = actions
+
+    def read(self, root: Path, location: Location) -> Document | None:
+        return _file_document(root, location.path, load_schema)
+
+    def _refused(self) -> KindError:
+        return read_only(self.label, self.actions)
+
+    def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
+        raise self._refused()
+
+    def delete(self, root: Path, location: Location) -> None:
+        raise self._refused()
+
+
+def read_only(label: str, actions: tuple[str, ...]) -> KindError:
+    """Le refus d'écrire un genre en lecture seule : il nomme l'action à utiliser."""
+    return KindError(
+        "write_kind_read_only",
+        "kind",
+        f"Un document « {label} » ne s'écrit pas directement : il est produit par "
+        f"{' / '.join(actions)}. Utiliser cette action à la place.",
+        actions=list(actions),
+    )
 
 
 # --- Gouvernance --------------------------------------------------------------------------

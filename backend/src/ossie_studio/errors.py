@@ -250,6 +250,7 @@ ERROR_CODES: tuple[str, ...] = (
     "write_identity_frozen",
     "write_document_too_large",
     "write_kind_forbidden",
+    "write_kind_read_only",
     "standard_unknown",
     "setting_not_found",
     "setting_value_invalid",

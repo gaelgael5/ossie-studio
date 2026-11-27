@@ -56,10 +56,14 @@ def test_le_registre_declare_les_genres_du_tableau() -> None:
         "tag",
         "classification",
         "certification",
+        "schema_raw",
+        "schema_asset",
     ]
     for kind in KINDS:
         assert kind.path_rule == "forbidden"  # aucun genre n'autorise le chemin aujourd'hui
-        assert kind.standard and kind.capability.endswith(":write")
+        assert kind.standard
+        # Un genre en lecture seule (ticket 56f3784a) nomme l'action qui le produit.
+        assert kind.capability.endswith(":write") if kind.writable else kind.produced_by
         assert kind.syntax == ("xpath" if kind.name == "processus" else "jsonpath")
 
 

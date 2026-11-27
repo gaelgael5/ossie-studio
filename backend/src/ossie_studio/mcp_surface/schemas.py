@@ -129,12 +129,18 @@ class ReadSchemaArgs(BranchArgs):
     referentiel: str | None = Field(
         default=None, description="With kind='referentiel_valeur': slug of the reference list."
     )
+    identity: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "With a kind whose document is itself a schema (schema_raw, schema_asset): its "
+            "identity, e.g. {source: 'ventes', name: 'customer.schema.yaml'}."
+        ),
+    )
     path: str | None = Field(
         default=None,
         description=(
-            "Without kind: path of the schema in the space, as the lists give it "
-            "('schema_path' of list_raw_schemas and list_assets). With kind: never needed "
-            "(refused for a kind whose path is fixed)."
+            "Path of the schema in the space, without kind (prefer kind). With kind: never "
+            "needed (refused for a kind whose path is fixed)."
         ),
     )
     resolved: bool = Field(
@@ -197,6 +203,8 @@ def designate(args: ReadSchemaArgs) -> Target:
     given = _typing_values(args)
     if not args.kind:
         stray = [name for name, value in given.items() if value]
+        if args.identity:
+            stray.append("identity")
         if stray:
             raise _invalid(stray[0], f"« {stray[0]} » accompagne un genre : donner aussi « kind ».")
         if not (args.path or "").strip():
@@ -210,6 +218,20 @@ def designate(args: ReadSchemaArgs) -> Target:
 
 
 def _by_kind(kind: WriteKind, args: ReadSchemaArgs, given: dict[str, str | None]) -> Target:
+    if kind.is_schema:
+        # Le document est lui-même un schéma (raw, asset, ticket 56f3784a) : désigné
+        # par son identité, lu comme par chemin.
+        try:
+            location = kind.locate(None, args.identity or {}, args.path)
+        except KindError as exc:
+            raise kind_error(exc, kind.standard) from None
+        assert location.path is not None
+        return classify(location.path)
+    if args.identity:
+        raise _invalid(
+            "identity",
+            f"Le schéma d'un document « {kind.label} » ne se désigne pas par une identité.",
+        )
     if kind.typed_by is None or kind.schema_kind is None:
         raise PrimitiveError(
             "schema_kind_untyped",

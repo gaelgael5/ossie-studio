@@ -188,16 +188,25 @@ async def test_schemas_bruts_listes_et_lus_avec_la_marque_du_brouillon(
     changed = {**CUSTOMER, "properties": {**CUSTOMER["properties"], "email": {"type": "string"}}}
     await draft_write(app, space, "sources/ventes/raw/customer.schema.yaml", changed)
 
-    listed = await _ok(app, AGENT, "list_raw_schemas", _ids(space, branch="draft", source="ventes"))
-    by_path = {s["path"]: s for s in listed["schemas"]}
-    assert set(by_path) == {"customer.schema.yaml", "order.schema.yaml"}
-    assert by_path["customer.schema.yaml"]["unpublished"] is True
-    assert by_path["customer.schema.yaml"]["fields"] == 3
-    assert by_path["customer.schema.yaml"]["retained"] == "partial"
-    assert by_path["order.schema.yaml"]["unpublished"] is False
+    # Ticket 56f3784a : ce que rendait list_raw_schemas, par list_documents.
+    raw = {"kind": "schema_raw", "identity": {"source": "ventes"}}
+    listed = await _ok(app, AGENT, "list_documents", _ids(space, branch="draft", **raw))
+    by_name = {s["identity"]["name"]: s for s in listed["documents"]}
+    assert set(by_name) == {"customer.schema.yaml", "order.schema.yaml"}
+    assert by_name["customer.schema.yaml"]["unpublished"] is True
+    assert by_name["customer.schema.yaml"]["fields"] == 3
+    assert by_name["customer.schema.yaml"]["retained"] == "partial"
+    assert len(by_name["customer.schema.yaml"]["version"]) == 40
+    assert "unpublished" not in by_name["order.schema.yaml"]
 
-    schema_path = by_path["customer.schema.yaml"]["schema_path"]
+    schema_path = by_name["customer.schema.yaml"]["path"]
     assert schema_path == "sources/ventes/raw/customer.schema.yaml"
+    by_kind = _ids(
+        space,
+        kind="schema_raw",
+        identity={"source": "ventes", "name": "customer.schema.yaml"},
+    )
+    assert (await _ok(app, KEY, "read_schema", by_kind))["schema"] == CUSTOMER
     customer = _ids(space, path=schema_path)
     draft = await _ok(app, AGENT, "read_schema", {**customer, "branch": "draft"})
     assert "email" in draft["schema"]["properties"] and draft["unpublished"] is True
@@ -210,12 +219,9 @@ async def test_schemas_bruts_listes_et_lus_avec_la_marque_du_brouillon(
 
 
 async def test_schema_et_source_introuvables_nommes(app: FastAPI, space: ApiSpace) -> None:
-    assert await _refusal(app, KEY, "list_raw_schemas", _ids(space, source="inconnue")) == (
-        "source_not_found"
-    )
-    assert await _refusal(app, KEY, "list_raw_schemas", _ids(space, source="../etc")) == (
-        "source_not_found"
-    )
+    for source in ("inconnue", "../etc"):
+        unknown = _ids(space, kind="schema_raw", identity={"source": source})
+        assert await _refusal(app, KEY, "list_documents", unknown) == "write_identity_invalid"
     for name in ("absent.schema.yaml", "a/b.schema.yaml"):
         path = f"sources/ventes/raw/{name}"
         assert await _refusal(app, KEY, "read_schema", _ids(space, path=path)) == (
@@ -231,12 +237,29 @@ async def test_schema_et_source_introuvables_nommes(app: FastAPI, space: ApiSpac
 
 
 async def test_assets_listes_et_lus_avec_leur_enrichissement(app: FastAPI, space: ApiSpace) -> None:
-    listed = await _ok(app, KEY, "list_assets", _ids(space, source="ventes"))
-    assert [(a["path"], a["retained"], a["orphan"]) for a in listed["assets"]] == [
+    # Ticket 56f3784a : ce que rendait list_assets, par list_documents.
+    listed = await _ok(
+        app,
+        KEY,
+        "list_documents",
+        _ids(space, kind="schema_asset", identity={"source": "ventes"}),
+    )
+    docs = listed["documents"]
+    assert [(a["identity"]["name"], a["retained"], a["orphan"]) for a in docs] == [
         ("customer.schema.yaml", "partial", False)
     ]
-
-    assert listed["assets"][0]["schema_path"] == "sources/ventes/assets/customer.schema.yaml"
+    assert docs[0]["path"] == "sources/ventes/assets/customer.schema.yaml"
+    by_kind = await _ok(
+        app,
+        KEY,
+        "read_schema",
+        _ids(
+            space,
+            kind="schema_asset",
+            identity={"source": "ventes", "name": "customer.schema.yaml"},
+        ),
+    )
+    assert by_kind["kind"] == "asset" and by_kind["schema"]["x-businessName"] == "Client"
 
     # Ticket 06ef8679, critère 2 : le schéma de l'asset et, dans `extras`, tout ce
     # que rendait read_asset.

@@ -342,3 +342,80 @@ async def test_profils_qui_citaient_les_lectures_retirees(app: FastAPI) -> None:
         assert await conn.fetchval(
             "SELECT primitives FROM agent_profiles WHERE id = $1", other
         ) == ["list_spaces"]
+
+
+# --- Schémas raw et d'assets, en lecture seule (ticket 56f3784a) ----------------------------
+
+RAW_SCHEMA = {"title": "Client", "type": "object", "properties": {"id": {"type": "integer"}}}
+
+
+async def test_schemas_raw_et_assets_se_lisent_sans_s_ecrire(app: FastAPI, space: ApiSpace) -> None:
+    """Critères 3 et 4 : l'écriture est refusée en nommant l'action ; list_write_kinds
+    les montre lisibles, non écrivables ; read_document les lit."""
+    forge_edit(
+        space,
+        {
+            "sources/ventes/manifest.yaml": "label: Ventes\ntype: postgresql\nparameters: {}\n",
+            "sources/ventes/raw/customer.schema.yaml": json.dumps(RAW_SCHEMA),
+        },
+    )
+    raw_id = {"source": "ventes", "name": "customer.schema.yaml"}
+    read = await _read(app, space, "schema_raw", raw_id)
+    assert read["content"] == RAW_SCHEMA
+    assert read["path"] == "sources/ventes/raw/customer.schema.yaml"
+    for kind, actions in (
+        ("schema_raw", ["collect_source"]),
+        ("schema_asset", ["retain_asset", "enrich_asset", "refresh_assets"]),
+    ):
+        error, body = await _call(
+            app,
+            "write_documents",
+            space,
+            message="x",
+            documents=[{"kind": kind, "identity": raw_id, "content": RAW_SCHEMA}],
+        )
+        assert error, body
+        [refusal] = body["errors"]
+        assert (refusal["code"], refusal["path"]) == ("write_kind_read_only", "$.documents[0].kind")
+        assert refusal["actions"] == actions
+        assert all(action in refusal["message"] for action in actions)
+        assert refusal["aide"]["primitive"] == "describe_standard"
+    error, body = await _call(
+        app,
+        "patch_document",
+        space,
+        kind="schema_raw",
+        identity=raw_id,
+        version=read["version"],
+        operations=[{"op": "set", "path": "$.title", "value": "Autre"}],
+    )
+    assert error and body["errors"][0]["code"] == "write_kind_read_only"
+    kinds = await call_tool(app, AGENT, "list_write_kinds", {})
+    listed = {k["kind"]: k for k in kinds.structured_content["kinds"]}
+    assert listed["schema_raw"]["writable"] is False
+    assert listed["schema_raw"]["produced_by"] == ["collect_source"]
+    assert listed["schema_raw"]["write_capability"] is None
+    assert listed["carto_objet"]["writable"] is True
+    bad = await _call(
+        app,
+        "read_document",
+        space,
+        kind="schema_raw",
+        identity={"source": "ventes", "name": "../manifest.yaml"},
+    )
+    assert bad[0] and bad[1]["error"] == "write_identity_invalid"
+
+
+async def test_profils_qui_citaient_les_listes_de_schemas(app: FastAPI) -> None:
+    """Migration 0045 : list_raw_schemas / list_assets → list_documents, read_document."""
+    migration = (
+        Path(__file__).parents[1] / "src/ossie_studio/db/migrations/0045_schema_lists_removed.sql"
+    ).read_text(encoding="utf-8")
+    async with app.state.pool.acquire() as conn:
+        old = await conn.fetchval(
+            "INSERT INTO agent_profiles (name, primitives) "
+            "VALUES ('vieux', '{list_assets,list_raw_schemas}') RETURNING id"
+        )
+        await conn.execute(migration)
+        kept = await conn.fetchval("SELECT primitives FROM agent_profiles WHERE id = $1", old)
+    assert kept == ["list_documents", "read_document"]

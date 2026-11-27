@@ -57,6 +57,10 @@ from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import load_model, model_key
 from ossie_studio.referentiels.repo import model_path, values_path
 from ossie_studio.slugs import is_valid_slug
+from ossie_studio.sources.asset_files import is_extend_name
+from ossie_studio.sources.collect_core import RAW_DIR
+from ossie_studio.sources.curation import is_schema_file
+from ossie_studio.sources.paths import ASSETS_DIR, is_valid_source_slug, source_rel_dir
 
 PathRule = Literal["forbidden", "allowed"]
 Syntax = Literal["jsonpath", "xpath"]
@@ -88,6 +92,12 @@ class WriteKind:
     list_filters: tuple[ListFilter, ...] = ()
     path_rule: PathRule = "forbidden"
     path_root: str = ""  # sous laquelle doit rester un chemin autorisé
+    # Écriture permise, ou interdite (ticket 56f3784a) : un genre en lecture seule est
+    # produit par une action, que nomme le refus (`produced_by`).
+    writable: bool = True
+    produced_by: tuple[str, ...] = ()
+    # Le document est lui-même un schéma : read_schema le lit par son identité.
+    is_schema: bool = False
     # Le champ d'identité qui donne le schéma exact du contenu (read_schema), et le
     # genre du document qui porte ce schéma : son identité (un seul champ) prend la
     # valeur de ce champ (le type d'un objet → le document carto_type de ce slug).
@@ -302,6 +312,31 @@ def _certification(root: Path | None, identity: Mapping[str, Any]) -> Location:
     return Location("certification", {"slug": slug}, cert_path(found.id) if found else None)
 
 
+def _schema_file(kind: str, folder: str) -> Locator:
+    """Un schéma d'une source : `<source>/<folder>/<nom>` (raw/ ou assets/). Le nom est
+    celui que rend la liste (un fichier de schéma, jamais « .. »)."""
+
+    def locate(root: Path | None, identity: Mapping[str, Any]) -> Location:
+        source = identity["source"]
+        if not isinstance(source, str) or not is_valid_source_slug(source):
+            raise _bad(kind, "source", source, "le slug d'une source (list_sources)")
+        name = identity["name"]
+        pure = PurePosixPath(str(name))
+        valid = (
+            isinstance(name, str)
+            and not pure.is_absolute()
+            and ".." not in pure.parts
+            and is_schema_file(pure.name)
+            and not (folder == ASSETS_DIR and is_extend_name(name))
+        )
+        if not valid:
+            raise _bad(kind, "name", name, "le nom d'un schéma, tel que la liste le rend")
+        path = f"{source_rel_dir(source)}/{folder}/{pure.as_posix()}"
+        return Location(kind, _ids(identity, "source", "name"), path)
+
+    return locate
+
+
 _SLUG = "lowercase letters, digits and dashes"
 _KEY = "uppercase letters, digits and dashes"
 
@@ -484,6 +519,55 @@ KINDS: tuple[WriteKind, ...] = (
         store=stores.CertificationStore(),
         lister=lists.certifications,
         identity_paths=("$.slug", "$.id"),
+    ),
+)
+
+# Les schémas d'une source, en lecture seule (ticket 56f3784a).
+_SOURCE_FIELD = IdentityField("source", "Slug of the source (list_sources).", _SLUG)
+_SCHEMA_NAME = IdentityField(
+    "name", "Name of the schema file, as list_documents gives it.", "the listed file name"
+)
+KINDS = (
+    *KINDS,
+    WriteKind(
+        name="schema_raw",
+        description=(
+            "A raw schema collected from a source (one per object: table, entity, API "
+            "schema). Read-only: produced by collect_source."
+        ),
+        label="schéma raw",
+        identity=(_SOURCE_FIELD, _SCHEMA_NAME),
+        standard="schema-raw",
+        syntax="jsonpath",
+        capability="sources:collect",
+        read_capability="sources:read",
+        locator=_schema_file("schema_raw", RAW_DIR),
+        store=stores.ReadOnlySchemaStore("schéma raw", ("collect_source",)),
+        lister=lists.raw_schemas,
+        writable=False,
+        produced_by=("collect_source",),
+        is_schema=True,
+    ),
+    WriteKind(
+        name="schema_asset",
+        description=(
+            "The schema of an asset retained from a raw object for the semantic layer. "
+            "Read-only: produced by retain_asset, enrich_asset and refresh_assets."
+        ),
+        label="schéma d'asset",
+        identity=(_SOURCE_FIELD, _SCHEMA_NAME),
+        standard="schema-asset",
+        syntax="jsonpath",
+        capability="curation:write",
+        read_capability="curation:read",
+        locator=_schema_file("schema_asset", ASSETS_DIR),
+        store=stores.ReadOnlySchemaStore(
+            "schéma d'asset", ("retain_asset", "enrich_asset", "refresh_assets")
+        ),
+        lister=lists.asset_schemas,
+        writable=False,
+        produced_by=("retain_asset", "enrich_asset", "refresh_assets"),
+        is_schema=True,
     ),
 )
 

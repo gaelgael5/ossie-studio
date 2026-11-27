@@ -43,6 +43,7 @@ from ossie_studio.mcp_surface.branch import BranchArgs, BranchView, open_branch
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError, agent_name
 from ossie_studio.mcp_surface.doc_paths import Operation, PathError, apply_json, apply_xml
 from ossie_studio.mcp_surface.kind_base import KindError, Location
+from ossie_studio.mcp_surface.kind_stores import read_only
 from ossie_studio.mcp_surface.kinds import WriteKind, write_kind
 from ossie_studio.mcp_surface.write_errors import (
     DOMAIN_ERRORS,
@@ -153,6 +154,19 @@ async def _capability_refusals(
             kind = write_kind(name)
         except KindError as exc:
             out[base] = translate(exc, base=base, content_path=base, content=None, standard="")[0]
+            continue
+        if not kind.writable:
+            # Genre en lecture seule (ticket 56f3784a) : le refus nomme l'action qui le
+            # produit.
+            [refusal] = translate(
+                read_only(kind.label, kind.produced_by),
+                base=base,
+                content_path=base,
+                content=None,
+                standard=kind.standard,
+            )
+            refusal.aide = aide_standard(kind.standard)
+            out[base] = refusal
             continue
         caps = scoped if kind.capability in SPACE_SCOPED else unscoped
         if kind.capability not in caps:

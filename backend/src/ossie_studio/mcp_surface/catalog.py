@@ -192,8 +192,8 @@ CATALOG: tuple[Primitive, ...] = (
             "what types it, never a path: kind='carto_objet' + type (schema of an object of "
             "that map type), kind='referentiel_valeur' + referentiel (model of the reference "
             "list). A kind whose content depends on no type (models, processes, tags...) is "
-            "described by describe_standard instead. For a raw or asset schema, by path, as "
-            "the lists give it ('schema_path' of list_raw_schemas and list_assets). Returns "
+            "described by describe_standard instead. A raw or asset schema: kind='schema_raw' "
+            "or 'schema_asset' + identity {source, name} (list_documents). Returns "
             "kind ('raw', 'asset', 'referentiel', 'carto_type'), "
             "version (content id in the branch read), unpublished, schema and extras. By "
             "default (resolved=true) the effective schema: a raw schema as collected "
@@ -217,17 +217,6 @@ CATALOG: tuple[Primitive, ...] = (
         description=(
             "List the data sources declared on a branch (type, connection, parameters)."
             + _DRAFT_NOTE
-        ),
-    ),
-    Primitive(
-        id="list_raw_schemas",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "List the raw schemas collected from a source (one per object: table, entity, "
-            "API schema), with their field count, whether they are retained as assets, and "
-            "schema_path to read one with read_schema." + _DRAFT_NOTE
         ),
     ),
     Primitive(
@@ -305,17 +294,6 @@ CATALOG: tuple[Primitive, ...] = (
         idempotent=True,
     ),
     # --- Assets (curation)
-    Primitive(
-        id="list_assets",
-        domain="curation",
-        access="read",
-        capability="curation:read",
-        description=(
-            "List the assets of a source: the raw objects retained (fully or partly) for the "
-            "semantic layer; orphan = its raw object disappeared. schema_path: to read one "
-            "with read_schema." + _DRAFT_NOTE
-        ),
-    ),
     Primitive(
         id="get_tri_rules",
         domain="curation",

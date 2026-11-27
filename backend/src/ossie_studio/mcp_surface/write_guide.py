@@ -115,9 +115,12 @@ async def list_write_kinds(ctx: PrimitiveContext, args: ListWriteKindsArgs) -> d
             "identity_fields": list(kind.identity_paths),
             "frozen_fields": list(kind.frozen),
             "list_filters": [_filter(f) for f in kind.list_filters],
-            "write_capability": kind.capability,
+            "writable": kind.writable,
+            "write_capability": kind.capability if kind.writable else None,
             "read_capability": kind.read_capability,
         }
+        if not kind.writable:
+            item["produced_by"] = list(kind.produced_by)
         if kind.typed_by:
             item["schema"] = (
                 f"The exact schema of the content depends on '{kind.typed_by}': "
