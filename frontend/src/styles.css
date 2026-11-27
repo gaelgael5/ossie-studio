@@ -3068,6 +3068,34 @@ td.cell-error {
 .template-problem p {
   margin: 0;
 }
+/* Aperçu d'un import (ticket 49f41fa2) : trait très discret entre colonnes,
+   numéro de ligne, valeurs longues repliées. */
+.import-preview th + th,
+.import-preview td + td {
+  border-left: 1px solid var(--surface-muted);
+}
+.import-preview .import-preview-num {
+  font-family: var(--mono);
+  color: var(--muted);
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+}
+.import-preview-long {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.import-preview-long:hover,
+.import-preview-long:focus-visible {
+  color: var(--link);
+}
 .ref-template-doc {
   margin: 0;
   overflow-wrap: anywhere;

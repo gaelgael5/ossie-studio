@@ -18,10 +18,12 @@ import { TemplateEditor } from './TemplateEditor'
 // deuxième pour éditer le template. » L'essai n'écrit rien ; « Importer », au pied du
 // sous-onglet Template, écrit les valeurs dans les modifications (ticket a909dc66).
 
-type Sub = 'example' | 'template'
+type Sub = 'example' | 'preview' | 'template'
 const SEPARATORS = [';', ',', '\t', '|']
 // utf-16 : ce qu'Excel écrit en « Texte Unicode » ; détecté au dépôt par son BOM (ticket 123631e5).
 const ENCODINGS = ['utf-8', 'cp1252', 'latin-1', 'utf-16']
+// Longueur d'une valeur de l'aperçu au-delà de laquelle elle est repliée (ticket 49f41fa2).
+const PREVIEW_CUT = 50
 // Documentation du langage JSLT, liée depuis l'onglet du template (ticket 35342e93).
 const JSLT_DOC_URL = 'https://github.com/gaelgael5/Jslt'
 function AddImportDialog({
@@ -394,39 +396,78 @@ function ExampleTab({
           ) : null}
         </div>
       ) : null}
-      {preview && preview.count > 0 ? (
-        <div className="stack">
-          <h4>{t('refImportPreview', { count: preview.count })}</h4>
-          <div className="panel table-wrap">
-            <table className="table" aria-label={t('refImportPreviewTable')}>
-              <thead>
-                <tr>
-                  {preview.columns.map((c) => (
-                    <th key={c}>{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {preview.rows.map((row, i) => (
-                  <tr key={i}>
-                    {preview.columns.map((c) => (
-                      <td key={c}>{shownCell(row[c])}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <h4>{t('refImportPaths')}</h4>
-          <ul className="plain-list mono small" aria-label={t('refImportPaths')}>
-            {preview.paths.map((p) => (
-              <li key={p.path}>
-                {p.path} <span className="muted">{p.kind}</span>
-              </li>
+    </div>
+  )
+}
+
+// L'aperçu des premières lignes et les chemins détectés, dans leur propre onglet
+// (ticket c2e5078c) : l'onglet « Fichier d'exemple » garde le dépôt, la lecture et
+// les colonnes du modèle.
+function PreviewTab({ preview, unreadable }: { preview: ImportPreview | undefined; unreadable: boolean }) {
+  const { t } = useTranslation()
+  // Cases dépliées, « ligne:colonne » (ticket 49f41fa2).
+  const [open, setOpen] = useState<Set<string>>(() => new Set())
+  if (unreadable) return <p className="muted" role="note">{t('refImportPathsUnreadable')}</p>
+  if (!preview || preview.count === 0) return <p className="empty-note">{t('refImportPreviewEmpty')}</p>
+  const toggle = (key: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  return (
+    <div className="stack">
+      <h4>{t('refImportPreview', { count: preview.count })}</h4>
+      <div className="panel table-wrap">
+        {/* Traits discrets entre colonnes et numéro de ligne (ticket 49f41fa2). */}
+        <table className="table import-preview" aria-label={t('refImportPreviewTable')}>
+          <thead>
+            <tr>
+              <th className="import-preview-num">{t('refImportPreviewRow')}</th>
+              {preview.columns.map((c) => (
+                <th key={c}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {preview.rows.map((row, i) => (
+              <tr key={i}>
+                <td className="import-preview-num">{i + 1}</td>
+                {preview.columns.map((c) => {
+                  const text = shownCell(row[c])
+                  const key = `${i}:${c}`
+                  if (text.length <= PREVIEW_CUT) return <td key={c}>{text}</td>
+                  // Au-delà de 50 caractères : le début et « … » ; un clic sur la
+                  // case montre tout, un autre replie.
+                  const expanded = open.has(key)
+                  return (
+                    <td key={c}>
+                      <button
+                        type="button"
+                        className="import-preview-long"
+                        aria-expanded={expanded}
+                        title={expanded ? undefined : text}
+                        onClick={() => toggle(key)}
+                      >
+                        {expanded ? text : `${text.slice(0, PREVIEW_CUT)}…`}
+                      </button>
+                    </td>
+                  )
+                })}
+              </tr>
             ))}
-          </ul>
-        </div>
-      ) : null}
+          </tbody>
+        </table>
+      </div>
+      <h4>{t('refImportPaths')}</h4>
+      <ul className="plain-list mono small" aria-label={t('refImportPaths')}>
+        {preview.paths.map((p) => (
+          <li key={p.path}>
+            {p.path} <span className="muted">{p.kind}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -596,7 +637,7 @@ function ImportView({
         </div>
       ) : null}
       <div className="tabs" role="tablist">
-        {(['example', 'template'] as Sub[]).map((key, index) => (
+        {(['example', 'preview', 'template'] as Sub[]).map((key, index) => (
           <button
             key={key}
             type="button"
@@ -620,6 +661,8 @@ function ImportView({
           onReading={setReading}
           mapping={mapping}
         />
+      ) : sub === 'preview' ? (
+        <PreviewTab preview={preview.data} unreadable={preview.isError} />
       ) : (
         // Disposition (ticket e2b9d7de) : l'éditeur à gauche, jusqu'au bas de la
         // fenêtre ; à droite, les boutons empilés, le panneau « Importer » puis le
