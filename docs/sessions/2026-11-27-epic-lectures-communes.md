@@ -28,7 +28,7 @@ les référentiels, la gouvernance, les règles, les domaines et les schémas.
 | e806a6b4 | Genre `contrat` en lecture seule, retrait de `list_contracts` | en revue |
 | dcc52af7 | Modules par `schema_raw`, retrait de `list_modules` | en revue |
 | 2c069134 | Genre `extension_raw`, retrait de `get_functions` | en revue |
-| 15c43ed1 | Genre `point_entree`, retrait de `list_entry_points` et `get_module` | prêt pour dev |
+| 15c43ed1 | Genre `point_entree`, retrait de `list_entry_points` et `get_module` | en revue |
 | 970c90ae | Genre `profil_relation` | prêt pour dev |
 | 2459ff40 | Vérification d'intention (avec Gael) | à faire |
 
@@ -51,3 +51,9 @@ Catalogue : 38 primitives sur `dev`, **32 visées**.
   `module` (avec `identity.source`). Migration `0049` (`list_modules`).
 - Genre `extension_raw` : même identité que `schema_raw` ; le système calcule le
   `<clé>.extend.yaml`. Plus de troncature (la lecture rend tout). Migration `0050`.
+- Genre `point_entree` : identité `{source, owner, method, endpoint}` — `owner` le
+  schéma qui le porte, `method` `*` quand la classe elle-même est le point d'entrée,
+  `endpoint` « VERBE /route » pour HTTP, sinon la nature (`task`, `message`) ; jamais
+  de chemin, et le registre refuse les valeurs vides. `get_module` = quatre lectures
+  communes (expliquées dans le standard `point-entree`). `mcp_surface/application.py`
+  supprimé. Migration `0051`. Catalogue : **32 primitives**.

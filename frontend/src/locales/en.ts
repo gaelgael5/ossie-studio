@@ -1395,8 +1395,6 @@ export const en = {
     },
     mcpPrim: {
       get_reference_graph: 'Neighbourhood of a raw object: what it references and who references it',
-      get_module: 'Read a module: its objects, free functions and entry points',
-      list_entry_points: 'List entry points (and those missing from the contract)',
       get_collect_status: 'Follow a collection',
       declare_source: 'Declare a source',
       update_source: 'Edit a source',

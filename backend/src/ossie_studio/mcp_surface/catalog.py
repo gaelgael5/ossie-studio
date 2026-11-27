@@ -225,36 +225,6 @@ CATALOG: tuple[Primitive, ...] = (
         ),
         idempotent=True,
     ),
-    # --- Cartographie applicative (modules, fonctions, points d'entrée ; ticket 72ce32b3)
-    Primitive(
-        id="get_module",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "One module of a source (its name or title: list_documents(kind='schema_raw', "
-            "filters={kind: 'module'})): the raw objects that "
-            "belong to it (nearest project file up the tree), its free functions (minimal API, "
-            "module-level functions) and its entry points (HTTP verb and route, background "
-            "task, message consumer; method and owner; contract status: linked, absent or "
-            "not_compared). Truncated beyond 200 items per list." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="list_entry_points",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "Entry points of a source or of one module: HTTP endpoints (verb, route), "
-            "background tasks, message consumers, with the method and owner. "
-            "contract_status='absent' answers 'which routes of the code are missing from the "
-            "OpenAPI contract?'; 'linked' returns those matched to a contract operation. "
-            "Truncated beyond 200." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
     # --- Assets (curation)
     Primitive(
         id="get_review",

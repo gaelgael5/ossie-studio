@@ -361,6 +361,33 @@ def _raw_extension(root: Path | None, identity: Mapping[str, Any]) -> Location:
     return Location("extension_raw", schema.identity, f"{folder}/{extend_file(key_of(name))}")
 
 
+def _entry_point(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """Un point d'entrée : une entrée du `.extend.yaml` du schéma qui le porte (classe
+    ou module) ; l'identité ne contient aucun chemin."""
+    try:
+        carrier = _schema_file("point_entree", RAW_DIR)(
+            root, {**identity, "name": identity["owner"]}
+        )
+    except KindError as exc:
+        if exc.field != "name":
+            raise
+        raise _bad(
+            "point_entree", "owner", identity["owner"], "le schéma qui le porte (la liste le rend)"
+        ) from None
+    assert carrier.path is not None
+    for name in ("method", "endpoint"):
+        if not isinstance(identity[name], str):
+            raise _bad("point_entree", name, identity[name], "le texte que la liste rend")
+    folder, _sep, schema = carrier.path.rpartition("/")
+    ids = _ids(identity, "source", "owner", "method", "endpoint")
+    return Location(
+        "point_entree",
+        ids,
+        f"{folder}/{extend_file(key_of(schema))}",
+        (ids["method"], ids["endpoint"]),
+    )
+
+
 def _schema_file(kind: str, folder: str) -> Locator:
     """Un schéma d'une source : `<source>/<folder>/<nom>` (raw/ ou assets/). Le nom est
     celui que rend la liste (un fichier de schéma, jamais « .. »)."""
@@ -841,6 +868,44 @@ KINDS = (
         store=stores.ReadOnlyStore("extension raw", ("collect_source",)),
         lister=lists.raw_extensions,
         list_filters=(lists.RAW_MODULE,),
+        writable=False,
+        produced_by=("collect_source",),
+    ),
+    WriteKind(
+        name="point_entree",
+        description=(
+            "An entry point of the code: an HTTP route (verb and route), a background task or "
+            "a message consumer, with the method and the class or module that carries it, its "
+            "module and its status against the OpenAPI contract of the source (linked, absent, "
+            "not_compared). Read-only: produced by collect_source."
+        ),
+        label="point d'entrée",
+        identity=(
+            _SOURCE_FIELD,
+            IdentityField(
+                "owner",
+                "Schema of the class or module that carries it (its schema_raw name).",
+                "the listed value",
+            ),
+            IdentityField(
+                "method",
+                "Method or function name; '*' when the class itself is the entry point.",
+                "the listed value",
+            ),
+            IdentityField(
+                "endpoint",
+                "'VERB /route' for an HTTP entry point; 'task' or 'message' otherwise.",
+                "the listed value",
+            ),
+        ),
+        standard="point-entree",
+        syntax="jsonpath",
+        capability="sources:collect",
+        read_capability="sources:read",
+        locator=_entry_point,
+        store=lists.EntryPointStore("point d'entrée", ("collect_source",)),
+        lister=lists.entry_points,
+        list_filters=(lists.ENTRY_MODULE, lists.ENTRY_CONTRACT, lists.ENTRY_KIND),
         writable=False,
         produced_by=("collect_source",),
     ),

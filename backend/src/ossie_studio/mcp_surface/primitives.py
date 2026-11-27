@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ossie_studio.mcp_surface import application as app_map
 from ossie_studio.mcp_surface import (
     document_reads,
     document_writes,
@@ -45,8 +44,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
         references.ReferenceGraphArgs, references.get_reference_graph
     ),
     # Cartographie applicative (ticket 72ce32b3)
-    "get_module": Implementation(app_map.ModuleArgs, app_map.get_module),
-    "list_entry_points": Implementation(app_map.EntryPointsArgs, app_map.list_entry_points),
     "get_review": Implementation(SourceArgs, reads.get_review),
     # Écriture et lecture communes par genre (epic « Primitives MCP — écriture commune »)
     "write_documents": Implementation(

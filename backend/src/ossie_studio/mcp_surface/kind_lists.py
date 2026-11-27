@@ -45,9 +45,17 @@ from ossie_studio.governance.repo import (
     tag_path,
 )
 from ossie_studio.governance.tag_rules import read_tag_rules
-from ossie_studio.mcp_surface.kind_base import Item, KindError, ListFilter, ListQuery
+from ossie_studio.mcp_surface.kind_base import (
+    Document,
+    Item,
+    KindError,
+    ListFilter,
+    ListQuery,
+    Location,
+)
 from ossie_studio.mcp_surface.kind_stores import (
     ClassificationRuleStore,
+    ReadOnlyStore,
     TagRuleStore,
     value_version,
 )
@@ -64,7 +72,11 @@ from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.contracts import read_contracts_view
 from ossie_studio.sources.curation import list_curation, read_tri_rules, read_tri_rules_raw
 from ossie_studio.sources.explorer import collect_source_entries
-from ossie_studio.sources.explorer_application import application_view, members_by_module
+from ossie_studio.sources.explorer_application import (
+    application_view,
+    members_by_module,
+    module_detail,
+)
 from ossie_studio.sources.paths import (
     ASSETS_DIR,
     CONTRATS_DIR,
@@ -97,6 +109,20 @@ RAW_MODULE = ListFilter(
     "module",
     "A module of the source (its name or its title, from filters {kind: 'module'}): the raw "
     "objects that belong to it (nearest project file up the tree, as the Explorer does).",
+)
+ENTRY_MODULE = ListFilter(
+    "module",
+    "A module of the source (its name or its title, from list_documents(kind='schema_raw', "
+    "filters={kind: 'module'})): its entry points.",
+)
+ENTRY_CONTRACT = ListFilter(
+    "contract_status",
+    "'absent' = entry points missing from the OpenAPI contract of the source; 'linked' = "
+    "matched to an operation; 'not_compared' = never compared to a contract.",
+    choices=("linked", "absent", "not_compared"),
+)
+ENTRY_KIND = ListFilter(
+    "kind", "'http' (verb and route), 'task' or 'message'.", choices=("http", "task", "message")
 )
 EQUALS = ListFilter(
     "equals",
@@ -411,6 +437,7 @@ class _Application:
     def __init__(self, root: Path, source: str) -> None:
         view = application_view(entries := collect_source_entries(root, source))
         modules: list[dict[str, Any]] = view["modules"]
+        self.root, self.source, self.entries, self.modules = root, source, entries, modules
         by_id = {m["id"]: m for m in modules}
         members = members_by_module(entries)
 
@@ -443,6 +470,10 @@ class _Application:
 
     def members_of(self, source: str, wanted: str) -> set[str]:
         """Les objets d'un module, désigné par son nom de schéma ou son titre."""
+        return self.members[self.module_name(source, wanted)]
+
+    def module_name(self, source: str, wanted: str) -> str:
+        """Le nom de schéma d'un module désigné par son nom ou son titre."""
         name = wanted if wanted in self.members else self.titles.get(wanted.casefold())
         if name is None:
             raise KindError(
@@ -453,7 +484,100 @@ class _Application:
                 received=wanted,
                 expected=sorted(self.members),
             )
-        return self.members[name]
+        return name
+
+    def entry_points(self) -> list[tuple[dict[str, str], dict[str, Any]]]:
+        """Les points d'entrée de chaque module, comme l'aperçu d'un module de la vue
+        « Application » (`module_detail`) : (identité, contenu)."""
+        raw = self.root / source_rel_dir(self.source) / RAW_DIR
+
+        def read(name: str) -> str | None:
+            file = raw / name
+            return file.read_text(encoding="utf-8") if file.is_file() else None
+
+        out = []
+        for module in self.modules:
+            detail = module_detail(self.entries, module["file"], read) or {}
+            out += [_entry_point(p, module) for p in detail.get("entry_points", [])]
+        return out
+
+
+def _entry_point(
+    point: dict[str, Any], module: dict[str, Any]
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Un point d'entrée : son identité (le schéma qui le porte, la méthode, et pour
+    une route HTTP le verbe et la route ; jamais un chemin de fichier) et ce que
+    rendait `list_entry_points`."""
+    contract = point.get("contract")
+    owner = point.get("owner_file") or module["file"]
+    kind = str(point.get("kind") or "")
+    verb_route = f"{point.get('verb') or ''} {point.get('route') or ''}".strip()
+    endpoint = (verb_route or kind) if kind == "http" else kind
+    # « * » : la classe elle-même est le point d'entrée (aucune méthode).
+    identity = {"owner": owner, "method": point.get("method") or "*", "endpoint": endpoint}
+    content = {
+        "kind": point.get("kind"),
+        "verb": point.get("verb"),
+        "route": point.get("route"),
+        "method": point.get("method"),
+        "owner": point.get("owner"),
+        "owner_name": owner,
+        "module": module["title"],
+        "module_name": module["file"],
+        "contract_status": contract["status"] if contract else "not_compared",
+        "contract_operations": (contract or {}).get("operations") or [],
+    }
+    return identity, content
+
+
+def _extension_path(source: str, owner: str) -> str:
+    return f"{source_rel_dir(source)}/{RAW_DIR}/{extend_file(raw_key_of(owner))}"
+
+
+def entry_points(root: Path, query: ListQuery) -> list[Item]:
+    """Ce que rendait `list_entry_points` (ticket 15c43ed1) : les points d'entrée d'une
+    source, filtrables par module, par état au contrat et par nature."""
+    wanted_module = _module_filter(query)
+    status = _given(query, "contract_status")
+    nature = _given(query, "kind")
+    out = []
+    for source in _sources(root, query):
+        app = _Application(root, source)
+        module = app.module_name(source, wanted_module) if wanted_module else None
+        for identity, content in app.entry_points():
+            if module is not None and content["module_name"] != module:
+                continue
+            if status is not None and content["contract_status"] != status:
+                continue
+            if nature is not None and content["kind"] != nature:
+                continue
+            carrier = content["owner"] or content["module"]
+            name = f"{carrier}.{identity['method']}"
+            if content["kind"] == "http":
+                name = identity["endpoint"]
+            out.append(
+                Item(
+                    {"source": source, **identity},
+                    name,
+                    _extension_path(source, identity["owner"]),
+                    content,
+                    text=f"{content['method'] or ''} {content['owner'] or ''} {content['module']}",
+                    version=value_version(content),
+                )
+            )
+    return out
+
+
+class EntryPointStore(ReadOnlyStore):
+    """Un point d'entrée, lu comme la liste le calcule (une entrée du `.extend.yaml` de
+    son porteur ; sa version est celle de son contenu)."""
+
+    def read(self, root: Path, location: Location) -> Document | None:
+        source = str(location.identity["source"])
+        for identity, content in _Application(root, source).entry_points():
+            if {"source": source, **identity} == dict(location.identity):
+                return Document(content, value_version(content), location.path or "")
+        return None
 
 
 def _module_filter(query: ListQuery) -> Any:

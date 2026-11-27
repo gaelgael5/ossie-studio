@@ -1,6 +1,7 @@
-"""Primitives MCP de la cartographie applicative (ticket 72ce32b3) : modules,
-fonctions et points d'entrée, par clé d'API (vue publiée) et par agent connecté
-(vue brouillon), sur l'index de l'Explorateur raw."""
+"""La cartographie applicative lue par les primitives communes (epic « Primitives MCP
+— lectures communes », tickets dcc52af7, 2c069134, 15c43ed1) : modules par le genre
+`schema_raw`, méthodes et fonctions par `extension_raw`, points d'entrée par
+`point_entree` ; par clé d'API (vue publiée) et par agent connecté (vue brouillon)."""
 
 from __future__ import annotations
 
@@ -263,28 +264,37 @@ async def test_list_modules_retiree(app: FastAPI, space: ApiSpace) -> None:
     assert sorted(primitives) == ["get_module", "list_documents", "read_document"]
 
 
-# --- Critère 2 : get_module ---------------------------------------------------------------
+# --- Un module en quatre lectures communes (ticket 15c43ed1, ex-get_module) ----------------
 
 
-async def test_get_module(app: FastAPI, space: ApiSpace) -> None:
-    data = await _ok(app, AGENT, "get_module", _args(space, branch="draft", module="Boutique.Api"))
-    assert data["view"] == "draft"
-    assert data["module"]["project"] == PROJECTS["Api"]
-    assert [o["title"] for o in data["objects"]] == ["CommandesController"]
-    assert [(f["name"], f["entry_point"]["route"]) for f in data["free_functions"]] == [
-        ("Vider", "/paniers/{id}")
-    ]
-    routes = {(p["verb"], p["route"], p["contract_status"]) for p in data["entry_points"]}
+def _entries(space: ApiSpace, **filters: Any) -> dict[str, Any]:
+    ids = {"space_id": space.space_id, "branch_id": space.branch_id}
+    return {**ids, "kind": "point_entree", "identity": {"source": "boutique"}, "filters": filters}
+
+
+async def test_un_module_en_quatre_lectures(app: FastAPI, space: ApiSpace) -> None:
+    """Tout ce que rendait get_module : le module, ses objets, ses fonctions libres,
+    ses points d'entrée."""
+    name = schema_file(module_key(PROJECTS["Api"]))
+    draft = {"branch": "draft"}
+    ids = {"space_id": space.space_id, "branch_id": space.branch_id, **draft}
+    identity = {"source": "boutique", "name": name}
+    module = await _ok(
+        app, AGENT, "read_document", {**ids, "kind": "schema_raw", "identity": identity}
+    )
+    assert module["view"] == "draft"
+    assert module["content"]["x-module"]["project"] == PROJECTS["Api"]
+    objects = await _ok(app, AGENT, "list_documents", {**_raw(space, module=name), **draft})
+    assert [o["title"] for o in objects["documents"]] == ["CommandesController"]
+    functions = await _ok(app, AGENT, "read_document", {**_ext(space, name), **draft})
+    assert [f["name"] for f in functions["content"]["functions"]] == ["Vider"]
+    points = await _ok(app, AGENT, "list_documents", {**_entries(space, module=name), **draft})
+    routes = {(p["verb"], p["route"], p["contract_status"]) for p in points["documents"]}
     assert routes == {
         ("GET", "/api/commandes/{id}", "linked"),
         ("PUT", "/api/commandes/{id}/statut", "absent"),
         ("DELETE", "/paniers/{id}", "not_compared"),
     }
-    # Par son chemin aussi.
-    by_path = await _ok(
-        app, KEY, "get_module", _args(space, module=schema_file(module_key(PROJECTS["Api"])))
-    )
-    assert by_path["module"]["title"] == "Boutique.Api"
 
 
 # --- Méthodes et fonctions : genre extension_raw (ticket 2c069134) -------------------------
@@ -380,25 +390,83 @@ async def test_get_functions_retiree(app: FastAPI, space: ApiSpace) -> None:
     assert sorted(primitives) == ["list_documents", "read_document"]
 
 
-# --- Critère 4 : list_entry_points filtré par état au contrat ------------------------------
+# --- Genre point_entree (ticket 15c43ed1, ex-list_entry_points) ----------------------------
 
 
 async def test_routes_absentes_du_contrat(app: FastAPI, space: ApiSpace) -> None:
-    absent = await _ok(app, KEY, "list_entry_points", _args(space, contract_status="absent"))
-    assert [(p["route"], p["method"], p["module"]) for p in absent["entry_points"]] == [
+    """« Quelles routes du code manquent au contrat ? » en une lecture ; filtres par
+    module, état au contrat (not_compared aussi) et nature."""
+    absent = await _ok(app, KEY, "list_documents", _entries(space, contract_status="absent"))
+    assert [(p["route"], p["method"], p["module"]) for p in absent["documents"]] == [
         ("/api/commandes/{id}/statut", "Changer", "Boutique.Api")
     ]
-    every = await _ok(app, KEY, "list_entry_points", _args(space))
-    assert len(every["entry_points"]) == 3
-    one = await _ok(app, KEY, "list_entry_points", _args(space, module="Boutique.Domain"))
-    assert one["entry_points"] == []
+    every = await _ok(app, KEY, "list_documents", _entries(space))
+    assert len(every["documents"]) == 3
+    domain = await _ok(app, KEY, "list_documents", _entries(space, module="Boutique.Domain"))
+    assert domain["documents"] == []
+    never = await _ok(app, KEY, "list_documents", _entries(space, contract_status="not_compared"))
+    assert [(p["route"], p["owner"]) for p in never["documents"]] == [("/paniers/{id}", None)]
+    tasks = await _ok(app, KEY, "list_documents", _entries(space, kind="task"))
+    assert tasks["documents"] == []
+
+
+async def test_lire_un_point_d_entree(app: FastAPI, space: ApiSpace) -> None:
+    """L'identité vient de la liste, sans chemin ; elle ne change pas d'une collecte à
+    l'autre quand le code ne change pas."""
+    every = await _ok(app, KEY, "list_documents", _entries(space, contract_status="linked"))
+    [listed] = every["documents"]
+    assert listed["identity"] == {
+        "source": "boutique",
+        "owner": "commandescontroller.schema.yaml",
+        "method": "Lire",
+        "endpoint": "GET /api/commandes/{id}",
+    }
+    ids = {"space_id": space.space_id, "branch_id": space.branch_id}
+    read = await _ok(
+        app, KEY, "read_document", {**ids, "kind": "point_entree", "identity": listed["identity"]}
+    )
+    assert read["content"]["contract_operations"][0]["operationId"] == "lire"
+    assert read["version"] == listed["version"]
+    assert read["path"] == f"{RAW}/commandescontroller.extend.yaml"
+    # Une nouvelle publication qui ne touche pas au code : même identité, même version.
+    forge_edit(space, {f"{RAW}/autre.schema.yaml": _class("Autre")})
+    again = await _ok(app, KEY, "list_documents", _entries(space, contract_status="linked"))
+    assert again["documents"][0]["identity"] == listed["identity"]
+    assert again["documents"][0]["version"] == listed["version"]
+    module = {**listed["identity"], "owner": schema_file(module_key(PROJECTS["Api"]))}
+    missing = await call_tool(
+        app, KEY, "read_document", {**ids, "kind": "point_entree", "identity": module}
+    )
+    assert json.loads(missing.content[0].text)["error"] == "document_not_found"
+
+
+async def test_un_point_d_entree_ne_s_ecrit_pas_et_primitives_retirees(
+    app: FastAPI, space: ApiSpace
+) -> None:
+    assert not {"list_entry_points", "get_module"} & {p.id for p in CATALOG}
+    assert len(CATALOG) == 32
+    kinds = (await call_tool(app, KEY, "list_write_kinds", {})).structured_content["kinds"]
+    point = next(k for k in kinds if k["kind"] == "point_entree")
+    assert point["writable"] is False and point["produced_by"] == ["collect_source"]
+    assert [f["name"] for f in point["list_filters"]] == ["module", "contract_status", "kind"]
+    async with app.state.pool.acquire() as conn:
+        profile = await conn.fetchval(
+            "INSERT INTO agent_profiles (name, primitives) VALUES ('ancien', $1) RETURNING id",
+            ["list_entry_points", "get_module", "list_spaces"],
+        )
+        await conn.execute(_migration("0051_entry_points_and_module_removed.sql"))
+        primitives = await conn.fetchval(
+            "SELECT primitives FROM agent_profiles WHERE id = $1", profile
+        )
+    assert sorted(primitives) == ["list_documents", "list_spaces", "read_document"]
 
 
 # --- Critère 5 : erreurs nommées, source sans module ----------------------------------------
 
 
 async def test_erreurs_nommees_et_source_sans_module(app: FastAPI, space: ApiSpace) -> None:
-    assert await _error(app, "get_module", _args(space, module="Inconnu")) == "module_not_found"
+    unknown = await call_tool(app, KEY, "list_documents", _entries(space, module="Inconnu"))
+    assert json.loads(unknown.content[0].text)["error"] == "list_filter_invalid"
     absent = await call_tool(app, KEY, "list_documents", _raw(space, "absente", kind="module"))
     assert json.loads(absent.content[0].text)["error"] == "write_identity_invalid"
     empty = await _ok(app, KEY, "list_documents", _raw(space, "vide", kind="module"))
