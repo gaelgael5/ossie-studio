@@ -27,7 +27,7 @@ les référentiels, la gouvernance, les règles, les domaines et les schémas.
 | 88fd2cc5 | Genre `source` en lecture seule, retrait de `list_sources` | en revue |
 | e806a6b4 | Genre `contrat` en lecture seule, retrait de `list_contracts` | en revue |
 | dcc52af7 | Modules par `schema_raw`, retrait de `list_modules` | en revue |
-| 2c069134 | Genre `extension_raw`, retrait de `get_functions` | prêt pour dev |
+| 2c069134 | Genre `extension_raw`, retrait de `get_functions` | en revue |
 | 15c43ed1 | Genre `point_entree`, retrait de `list_entry_points` et `get_module` | prêt pour dev |
 | 970c90ae | Genre `profil_relation` | prêt pour dev |
 | 2459ff40 | Vérification d'intention (avec Gael) | à faire |
@@ -49,3 +49,5 @@ Catalogue : 38 primitives sur `dev`, **32 visées**.
   lecture de raw de l'Explorateur (`collect_source_entries` → `application_view`), sans
   l'index en base (un lister du registre n'a pas de connexion). Filtres `kind` et
   `module` (avec `identity.source`). Migration `0049` (`list_modules`).
+- Genre `extension_raw` : même identité que `schema_raw` ; le système calcule le
+  `<clé>.extend.yaml`. Plus de troncature (la lecture rend tout). Migration `0050`.

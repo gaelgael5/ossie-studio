@@ -51,7 +51,9 @@ from ossie_studio.mcp_surface.kind_stores import (
     TagRuleStore,
     value_version,
 )
-from ossie_studio.parsers.application import MODULE_KIND
+from ossie_studio.parsers.application import MODULE_KIND, extend_file
+from ossie_studio.parsers.application import key_of as raw_key_of
+from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.referentiels import published
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
@@ -454,18 +456,23 @@ class _Application:
         return self.members[name]
 
 
-def raw_schemas(root: Path, query: ListQuery) -> list[Item]:
-    """Ce que rendait `list_raw_schemas` : chaque schéma collecté, son nombre de champs
-    et s'il est retenu en asset. Un module porte en plus ce que rendait `list_modules`
-    (ticket dcc52af7) ; filtres `kind` (nature de l'objet) et `module` (ses objets)."""
-    wanted_kind = _given(query, "kind")
-    wanted_module = _given(query, "module")
-    if wanted_module is not None and "source" not in query.identity:
+def _module_filter(query: ListQuery) -> Any:
+    wanted = _given(query, "module")
+    if wanted is not None and "source" not in query.identity:
         raise KindError(
             "list_filter_invalid",
             "$.filters.module",
             "« module » désigne un module d'une source : donner aussi identity.source.",
         )
+    return wanted
+
+
+def raw_schemas(root: Path, query: ListQuery) -> list[Item]:
+    """Ce que rendait `list_raw_schemas` : chaque schéma collecté, son nombre de champs
+    et s'il est retenu en asset. Un module porte en plus ce que rendait `list_modules`
+    (ticket dcc52af7) ; filtres `kind` (nature de l'objet) et `module` (ses objets)."""
+    wanted_kind = _given(query, "kind")
+    wanted_module = _module_filter(query)
     out = []
     for source in _sources(root, query):
         directory = source_rel_dir(source)
@@ -486,6 +493,52 @@ def raw_schemas(root: Path, query: ListQuery) -> list[Item]:
                     obj.title or obj.path,
                     f"{directory}/{RAW_DIR}/{obj.path}",
                     {**summary, "retained": obj.retained, **module},
+                )
+            )
+    return out
+
+
+def _functions_summary(file: Path) -> dict[str, Any]:
+    try:
+        data = load_schema(file.read_bytes())
+    except SchemaReadError:
+        data = None
+    if not isinstance(data, dict):
+        return {"readable": False}
+    return {
+        "methods": len(data.get("methods") or []),
+        "functions": len(data.get("functions") or []),
+        "entry_point": isinstance(data.get("entryPoint"), dict),
+    }
+
+
+def raw_extensions(root: Path, query: ListQuery) -> list[Item]:
+    """Les objets raw qui ont une extension (`<clé>.extend.yaml` : méthodes d'une classe,
+    fonctions libres d'un module), ce que lisait `get_functions` (ticket 2c069134).
+    Filtre `module` : les objets d'un module (la règle de l'Explorateur)."""
+    wanted_module = _module_filter(query)
+    out = []
+    for source in _sources(root, query):
+        directory = f"{source_rel_dir(source)}/{RAW_DIR}"
+        objects = [o for o in list_curation(root, source, (), True) if not o.orphan]
+        members = (
+            _Application(root, source).members_of(source, wanted_module)
+            if (wanted_module is not None)
+            else None
+        )
+        for obj in objects:
+            if members is not None and obj.path not in members:
+                continue
+            extension = f"{directory}/{extend_file(raw_key_of(obj.path))}"
+            file = root / extension
+            if not file.is_file():
+                continue
+            out.append(
+                Item(
+                    {"source": source, "name": obj.path},
+                    obj.title or obj.path,
+                    extension,
+                    {"title": obj.title, "kind": obj.kind, **_functions_summary(file)},
                 )
             )
     return out

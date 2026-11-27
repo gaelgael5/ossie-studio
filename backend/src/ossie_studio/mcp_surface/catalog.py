@@ -242,20 +242,6 @@ CATALOG: tuple[Primitive, ...] = (
         idempotent=True,
     ),
     Primitive(
-        id="get_functions",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "Methods of a raw object (a class): name, parameters and types, return type, "
-            "visibility (public, internal, protected; private methods are not collected), "
-            "static, async, and the entry point when the method is one (HTTP verb and route). "
-            "Read from the object's .extend.yaml; its schema stays standard JSON Schema. "
-            "Truncated beyond 200." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
         id="list_entry_points",
         domain="sources",
         access="read",

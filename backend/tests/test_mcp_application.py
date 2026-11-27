@@ -5,17 +5,25 @@ fonctions et points d'entrée, par clé d'API (vue publiée) et par agent connec
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
 import asyncpg
 import pytest
+import yaml
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from ossie_studio.mcp_surface import write_guide
 from ossie_studio.mcp_surface.caller import McpCaller
 from ossie_studio.mcp_surface.catalog import CATALOG
-from ossie_studio.parsers.application import dump_functions, module_key, module_schema
+from ossie_studio.parsers.application import (
+    dump_functions,
+    module_key,
+    module_schema,
+    validate_functions,
+)
 from ossie_studio.parsers.conventions import dump_schema, schema_file
 from ossie_studio.sources.collect_core import TechEntry, TechManifest, dump_tech_manifest
 from ossie_studio.sources.manifest import SourceManifest, dump_manifest
@@ -279,21 +287,97 @@ async def test_get_module(app: FastAPI, space: ApiSpace) -> None:
     assert by_path["module"]["title"] == "Boutique.Api"
 
 
-# --- Critère 3 : get_functions --------------------------------------------------------------
+# --- Méthodes et fonctions : genre extension_raw (ticket 2c069134) -------------------------
 
 
-async def test_get_functions(app: FastAPI, space: ApiSpace) -> None:
-    data = await _ok(
-        app, KEY, "get_functions", _args(space, path="commandescontroller.schema.yaml")
-    )
-    methods = {m["name"]: m for m in data["methods"]}
-    assert methods["Lire"]["entry_point"]["verb"] == "GET"
+def _ext(space: ApiSpace, name: str) -> dict[str, Any]:
+    ids = {"space_id": space.space_id, "branch_id": space.branch_id}
+    identity = {"source": "boutique", "name": name}
+    return {**ids, "kind": "extension_raw", "identity": identity}
+
+
+async def test_methodes_d_une_classe(app: FastAPI, space: ApiSpace) -> None:
+    """Toutes les méthodes, telles que le parseur les a écrites ; un objet sans
+    méthode n'a pas d'extension (document_not_found)."""
+    data = await _ok(app, KEY, "read_document", _ext(space, "commandescontroller.schema.yaml"))
+    assert data["path"] == f"{RAW}/commandescontroller.extend.yaml" and data["version"]
+    methods = {m["name"]: m for m in data["content"]["methods"]}
+    assert methods["Lire"]["entryPoint"]["verb"] == "GET"
     assert methods["Lire"]["parameters"] == [{"name": "id", "type": "Guid"}]
+    assert methods["Lire"]["entryPoint"]["contract"]["status"] == "linked"
     assert (methods["Calculer"]["visibility"], methods["Calculer"]["static"]) == ("internal", True)
-    assert "entry_point" not in methods["Calculer"]
-    # Un objet sans fonction : liste vide.
-    empty = await _ok(app, KEY, "get_functions", _args(space, path="commande.schema.yaml"))
-    assert empty["methods"] == []
+    assert "entryPoint" not in methods["Calculer"]
+    missing = await call_tool(app, KEY, "read_document", _ext(space, "commande.schema.yaml"))
+    assert json.loads(missing.content[0].text)["error"] == "document_not_found"
+
+
+async def test_fonctions_libres_d_un_module(app: FastAPI, space: ApiSpace) -> None:
+    name = schema_file(module_key(PROJECTS["Api"]))
+    data = await _ok(app, KEY, "read_document", _ext(space, name))
+    assert [f["name"] for f in data["content"]["functions"]] == ["Vider"]
+
+
+async def test_lister_les_extensions(app: FastAPI, space: ApiSpace) -> None:
+    """Les objets qui ont une extension, et ceux d'un module."""
+    args = {**_ext(space, ""), "identity": {"source": "boutique"}}
+    every = await _ok(app, KEY, "list_documents", args)
+    by_title = {d["title"]: d for d in every["documents"]}
+    assert set(by_title) == {"CommandesController", "Boutique.Api"}
+    controller = by_title["CommandesController"]
+    assert (controller["methods"], controller["functions"], controller["entry_point"]) == (
+        3,
+        0,
+        False,
+    )
+    in_api = await _ok(app, KEY, "list_documents", {**args, "filters": {"module": "Boutique.Api"}})
+    assert [d["title"] for d in in_api["documents"]] == ["CommandesController"]
+
+
+async def test_une_extension_ne_s_ecrit_pas(app: FastAPI, space: ApiSpace) -> None:
+    async with app.state.pool.acquire() as conn:
+        writer = await conn.fetchval(
+            "INSERT INTO agent_profiles (name, primitives, all_read) VALUES ('w', $1, true) "
+            "RETURNING id",
+            ["write_documents"],
+        )
+        admin_id = await conn.fetchval("SELECT id FROM users WHERE is_bootstrap")
+    caller = McpCaller(kind="oauth", ref="w", agent_profile_id=writer, user_id=admin_id)
+
+    async def resolver(_conn: asyncpg.Connection, token: str, _res: str) -> McpCaller | None:
+        return caller if token == "writer" else None
+
+    app.state.mcp_resolvers.append(resolver)
+    document = {
+        "kind": "extension_raw",
+        "identity": {"source": "boutique", "name": "commande.schema.yaml"},
+        "content": {"methods": []},
+    }
+    ids = {"space_id": space.space_id, "branch_id": space.branch_id}
+    result = await call_tool(
+        app, "writer", "write_documents", {**ids, "message": "x", "documents": [document]}
+    )
+    [refusal] = json.loads(result.content[0].text)["errors"]
+    assert refusal["code"] == "write_kind_read_only" and "collect_source" in refusal["message"]
+
+
+def test_l_exemple_du_standard_passe_le_schema_du_parseur() -> None:
+    text = write_guide.standards()["extension-raw"]["markdown"]
+    [block] = re.findall(r"```yaml content\n(.*?)```", text, re.DOTALL)
+    validate_functions(yaml.safe_load(block))
+
+
+async def test_get_functions_retiree(app: FastAPI, space: ApiSpace) -> None:
+    assert "get_functions" not in {p.id for p in CATALOG}
+    async with app.state.pool.acquire() as conn:
+        profile = await conn.fetchval(
+            "INSERT INTO agent_profiles (name, primitives) VALUES ('ancien', $1) RETURNING id",
+            ["get_functions"],
+        )
+        await conn.execute(_migration("0050_get_functions_removed.sql"))
+        primitives = await conn.fetchval(
+            "SELECT primitives FROM agent_profiles WHERE id = $1", profile
+        )
+    assert sorted(primitives) == ["list_documents", "read_document"]
 
 
 # --- Critère 4 : list_entry_points filtré par état au contrat ------------------------------
@@ -315,25 +399,20 @@ async def test_routes_absentes_du_contrat(app: FastAPI, space: ApiSpace) -> None
 
 async def test_erreurs_nommees_et_source_sans_module(app: FastAPI, space: ApiSpace) -> None:
     assert await _error(app, "get_module", _args(space, module="Inconnu")) == "module_not_found"
-    assert (
-        await _error(app, "get_functions", _args(space, path="absent.schema.yaml"))
-        == "schema_not_found"
-    )
     absent = await call_tool(app, KEY, "list_documents", _raw(space, "absente", kind="module"))
     assert json.loads(absent.content[0].text)["error"] == "write_identity_invalid"
     empty = await _ok(app, KEY, "list_documents", _raw(space, "vide", kind="module"))
     assert empty["documents"] == []
 
 
-# --- Critère 6 : troncature annoncée ------------------------------------------------------
+# --- Plus de troncature : toutes les méthodes se lisent -------------------------------------
 
 
-async def test_reponse_tronquee(app: FastAPI, space: ApiSpace) -> None:
+async def test_toutes_les_methodes_sans_troncature(app: FastAPI, space: ApiSpace) -> None:
     many = {"methods": [{"name": f"M{i:03d}", "visibility": "public"} for i in range(205)]}
     forge_edit(space, {f"{RAW}/commande.extend.yaml": dump_functions(many)})
-    data = await _ok(app, KEY, "get_functions", _args(space, path="commande.schema.yaml"))
-    assert data["truncated"] is True
-    assert len(data["methods"]) == 200
+    data = await _ok(app, KEY, "read_document", _ext(space, "commande.schema.yaml"))
+    assert len(data["content"]["methods"]) == 205
 
 
 # --- Critère 7 : OAuth (vue brouillon) et clé d'API (vue publiée) ----------------------------

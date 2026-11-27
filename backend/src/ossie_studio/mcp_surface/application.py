@@ -7,8 +7,8 @@ Un agent voit ce que montre la vue « Application » de l'Explorateur raw :
 - (les modules d'une source se listent par `list_documents(kind: schema_raw)`, filtre
   `kind: module`, ticket dcc52af7) ;
 - `get_module` : un module, ses objets, ses fonctions libres, ses points d'entrée ;
-- `get_functions` : les méthodes d'un objet raw (signature, visibilité, `static`,
-  point d'entrée) ;
+- (les méthodes d'un objet raw se lisent par `read_document(kind: extension_raw)`,
+  ticket 2c069134) ;
 - `list_entry_points` : les points d'entrée d'une source ou d'un module, filtrables
   par état au contrat — « quelles routes du code manquent au contrat ? ».
 
@@ -26,7 +26,6 @@ from pydantic import Field
 
 from ossie_studio.mcp_surface.branch import (
     BranchView,
-    ObjectArgs,
     SourceArgs,
     open_branch,
     source_dir,
@@ -34,7 +33,6 @@ from ossie_studio.mcp_surface.branch import (
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
 from ossie_studio.parsers.application import extend_file, key_of
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
-from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.explorer import ExplorerObject, SourceEntries
 from ossie_studio.sources.explorer_application import (
     application_view,
@@ -210,31 +208,6 @@ def _entry(point: dict[str, Any], module: dict[str, Any]) -> dict[str, Any]:
         "contract_status": contract["status"] if contract else "not_compared",
         "contract_operations": (contract or {}).get("operations") or [],
     }
-
-
-async def get_functions(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
-    if not is_schema_file(args.path):
-        raise PrimitiveError("schema_not_found", path=args.path)
-    bv, entries = await _entries(ctx, args)
-    obj = next((o for o in entries.objects if o.file == args.path), None)
-    if obj is None:
-        raise PrimitiveError("schema_not_found", source=args.source, path=args.path)
-    name = extend_file(key_of(args.path))
-    doc = _load((await _read_raw(bv, args.source, [name]))[name])
-    methods = [_function(m) for m in doc.get("methods") or [] if isinstance(m, dict)]
-    shown, truncated = _truncate(methods)
-    out: dict[str, Any] = {
-        "view": bv.view,
-        "source": args.source,
-        "path": args.path,
-        "title": obj.title,
-        "kind": obj.kind,
-        "truncated": truncated,
-        "methods": shown,
-    }
-    if isinstance(doc.get("entryPoint"), dict):
-        out["entry_point"] = _point(doc["entryPoint"])
-    return out
 
 
 async def list_entry_points(ctx: PrimitiveContext, args: EntryPointsArgs) -> dict[str, Any]:

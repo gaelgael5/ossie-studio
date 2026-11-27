@@ -17,7 +17,7 @@ from ossie_studio.mcp_surface import (
     writes,
 )
 from ossie_studio.mcp_surface import preparation as prep
-from ossie_studio.mcp_surface.branch import BranchArgs, BranchParam, ObjectArgs, SourceArgs
+from ossie_studio.mcp_surface.branch import BranchArgs, BranchParam, SourceArgs
 from ossie_studio.mcp_surface.core import (
     Implementation,
     PrimitiveContext,
@@ -46,7 +46,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     ),
     # Cartographie applicative (ticket 72ce32b3)
     "get_module": Implementation(app_map.ModuleArgs, app_map.get_module),
-    "get_functions": Implementation(ObjectArgs, app_map.get_functions),
     "list_entry_points": Implementation(app_map.EntryPointsArgs, app_map.list_entry_points),
     "get_review": Implementation(SourceArgs, reads.get_review),
     # Écriture et lecture communes par genre (epic « Primitives MCP — écriture commune »)

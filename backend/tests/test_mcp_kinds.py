@@ -67,6 +67,7 @@ def test_le_registre_declare_les_genres_du_tableau() -> None:
         "source",
         "contrat",
         "schema_raw",
+        "extension_raw",
         "schema_asset",
     ]
     for kind in KINDS:

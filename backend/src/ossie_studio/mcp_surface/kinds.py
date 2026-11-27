@@ -58,6 +58,7 @@ from ossie_studio.mcp_surface.kind_base import (
     Location,
     Store,
 )
+from ossie_studio.parsers.application import extend_file, key_of
 from ossie_studio.parsers.openapi import is_valid_version_name
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import load_model, model_key
@@ -349,6 +350,15 @@ def _contract(root: Path | None, identity: Mapping[str, Any]) -> Location:
     found = next((v.entry for v in views if v.entry.version == version), None)
     path = f"{source_rel_dir(source)}/{CONTRATS_DIR}/{found.file}" if found else None
     return Location("contrat", {"source": source, "version": version}, path)
+
+
+def _raw_extension(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """L'extension d'un objet raw : `<source>/raw/<clé>.extend.yaml`, à côté du schéma
+    que l'identité désigne (même identité que `schema_raw`)."""
+    schema = _schema_file("extension_raw", RAW_DIR)(root, identity)
+    assert schema.path is not None
+    folder, _sep, name = schema.path.rpartition("/")
+    return Location("extension_raw", schema.identity, f"{folder}/{extend_file(key_of(name))}")
 
 
 def _schema_file(kind: str, folder: str) -> Locator:
@@ -812,6 +822,27 @@ KINDS = (
         writable=False,
         produced_by=("collect_source",),
         is_schema=True,
+    ),
+    WriteKind(
+        name="extension_raw",
+        description=(
+            "The extension of a raw object, written by the parser next to its schema: the "
+            "methods of a class, the free functions of a module, their entry points (HTTP "
+            "route, background task, message consumer) and their contract status. Same "
+            "identity as the raw schema. Read-only: produced by collect_source."
+        ),
+        label="extension raw",
+        identity=(_SOURCE_FIELD, _SCHEMA_NAME),
+        standard="extension-raw",
+        syntax="jsonpath",
+        capability="sources:collect",
+        read_capability="sources:read",
+        locator=_raw_extension,
+        store=stores.ReadOnlyStore("extension raw", ("collect_source",)),
+        lister=lists.raw_extensions,
+        list_filters=(lists.RAW_MODULE,),
+        writable=False,
+        produced_by=("collect_source",),
     ),
     WriteKind(
         name="schema_asset",
