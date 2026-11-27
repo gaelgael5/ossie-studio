@@ -1296,6 +1296,7 @@ export const fr = {
     refImportDiffDeleted: 'supprimée',
     refImportLast: 'importé le {{date}}',
     refImportLastBy: 'dernier import le {{date}} par {{by}}',
+    refImportJsltDoc: 'Documentation du langage JSLT :',
     refImportRunTitle: 'Importer',
     refImportMode: 'Mode',
     refImportMode_merge: 'Fusionner par clé',

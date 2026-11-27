@@ -22,7 +22,8 @@ type Sub = 'example' | 'template'
 const SEPARATORS = [';', ',', '\t', '|']
 // utf-16 : ce qu'Excel écrit en « Texte Unicode » ; détecté au dépôt par son BOM (ticket 123631e5).
 const ENCODINGS = ['utf-8', 'cp1252', 'latin-1', 'utf-16']
-
+// Documentation du langage JSLT, liée depuis l'onglet du template (ticket 35342e93).
+const JSLT_DOC_URL = 'https://github.com/gaelgael5/Jslt'
 function AddImportDialog({
   imports,
   onClose,
@@ -667,6 +668,14 @@ function ImportView({
                 </BusyButton>
               ) : null}
             </div>
+            {/* La documentation du langage, là où l'on écrit le template (ticket
+                35342e93) ; adresse en clair pour pouvoir la recopier. */}
+            <p className="small ref-template-doc">
+              {t('refImportJsltDoc')}{' '}
+              <a href={JSLT_DOC_URL} target="_blank" rel="noopener noreferrer" className="link-strong mono">
+                {JSLT_DOC_URL}
+              </a>
+            </p>
             {!readOnly ? (
               <ImportRunPanel
                 name={name}

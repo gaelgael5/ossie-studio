@@ -267,6 +267,11 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     await user.click(screen.getByRole('tab', { name: '2. Template JSLT' }))
     expect(screen.queryByRole('button', { name: 'Enregistrer le template' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Importer' })).not.toBeInTheDocument()
+    // La documentation du langage reste accessible en lecture seule (ticket 35342e93).
+    const doc = screen.getByRole('link', { name: 'https://github.com/gaelgael5/Jslt' })
+    expect(doc).toHaveAttribute('target', '_blank')
+    expect(doc).toHaveAttribute('rel', 'noopener noreferrer')
+    expect(doc.closest('p')).toHaveTextContent('Documentation du langage JSLT :')
   })
 })
 
