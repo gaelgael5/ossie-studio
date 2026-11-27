@@ -8,7 +8,7 @@ from urban_json import default_registry
 
 from ossie_studio.imports.jslt_engine import (
     _CORE_MODULE,
-    OutsideProfileError,
+    UnknownFunctionError,
     compile_template,
     evaluate,
     function_registry,
@@ -57,9 +57,54 @@ def test_registre_isole_fidele_au_coeur() -> None:
 def test_today_ecartee() -> None:
     """`today` dépend du jour d'exécution : refusée, nommée ; `now` et `uuid` restent
     (décision de Gael, 26/11/2026)."""
-    with pytest.raises(OutsideProfileError) as refused:
+    with pytest.raises(UnknownFunctionError) as refused:
         compile_template('{"jour": today()}')
     [violation] = refused.value.violations
     assert (violation.construct, violation.detail) == ("fonction_inconnue", "today")
     names = set(function_registry().names())
     assert "today" not in names and {"now", "uuid"} <= names
+
+
+@pytest.mark.parametrize(
+    ("source", "document", "expected"),
+    [
+        ('{"s": (null ?? "false") == "true"}', {}, {"s": False}),
+        (
+            '{"s": ($["Statut archivé"] ?? "false") == "true"}',
+            {"Statut archivé": "true"},
+            {"s": True},
+        ),
+        (
+            '{"s": ($["Statut archivé"] ?? "false") == "true"}',
+            {"Statut archivé": "false"},
+            {"s": False},
+        ),
+        ('{"s": ($["Statut archivé"] ?? "false") == "true"}', {}, {"s": False}),
+        ('{"s": $.n != 2}', {"n": 3}, {"s": True}),
+        ('{"s": $.n >= 2}', {"n": 2}, {"s": True}),
+    ],
+)
+def test_comparaisons_admises(source: str, document: object, expected: object) -> None:
+    """Ticket 2d39db17 : la ligne de Gael compile et donne un booléen."""
+    assert evaluate(compile_template(source), document, 10_000) == expected
+
+
+@pytest.mark.parametrize(
+    ("source", "document", "expected"),
+    [
+        ('{"s": $.a + 1}', {"a": 2}, {"s": 3}),
+        ('{"s": !$.a}', {"a": True}, {"s": False}),
+    ],
+)
+def test_langage_complet_admis(source: str, document: object, expected: object) -> None:
+    """Gael, 27/11 : le template est choisi pour sa flexibilité ; plus de profil qui
+    retire l'arithmétique, la logique ou la négation."""
+    assert evaluate(compile_template(source), document, 10_000) == expected
+
+
+def test_fonction_inconnue_refusee_et_nommee() -> None:
+    with pytest.raises(UnknownFunctionError) as caught:
+        compile_template('{"s": inexistante($.a)}')
+    assert [(v.construct, v.detail) for v in caught.value.violations] == [
+        ("fonction_inconnue", "inexistante")
+    ]

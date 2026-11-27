@@ -5,14 +5,14 @@ import { explainProblem } from './templateHint'
 describe('explainProblem', () => {
   const source = '{\n  "a": ($["X"] ?? "f") == "t",\n  "b": "x" == \'y\'\n}'
 
-  it('?? entre parenthèses : extrait, repère sous la colonne, piste', () => {
+  it('erreur de syntaxe : extrait, repère sous la colonne, sans piste inventée', () => {
     const e = explainProblem(
       { code: 'template_syntax', message: 'no viable alternative at input \'($["X"]??\' (ligne 2, colonne 16)', line: 2, column: 16 },
       source,
     )
     expect(e.excerpt).toEqual({ text: '  "a": ($["X"] ?? "f") == "t",', caret: '                ^' })
     expect(e.reason).toEqual({ key: 'unreadable', token: '($["X"]??' })
-    expect(e.hints).toEqual(['coalesce_parens'])
+    expect(e.hints).toEqual([])
   })
 
   it('chaîne entre apostrophes : piste des guillemets doubles', () => {
@@ -24,19 +24,19 @@ describe('explainProblem', () => {
     expect(e.hints).toEqual(['quotes'])
   })
 
-  it('hors du profil : opérateur non pris en charge', () => {
-    const e = explainProblem({ code: 'template_outside_profile', message: 'operateur : equal', line: 2, column: 7 }, source)
-    expect(e.reason).toEqual({ key: 'outside_profile', token: 'operateur : equal' })
-    expect(e.hints).toEqual(['outside_profile'])
+  it('fonction inconnue : nommée, avec la piste du catalogue', () => {
+    const e = explainProblem({ code: 'template_unknown_function', message: 'today', line: 2, column: 7 }, source)
+    expect(e.reason).toEqual({ key: 'unknown_function', token: 'today' })
+    expect(e.hints).toEqual(['unknown_function'])
   })
 
-  it('la ligne de la capture de Gael : apostrophes et ?? entre parenthèses', () => {
+  it('la ligne de la capture de Gael : apostrophes', () => {
     const line = '    "statut_archive": ($["Statut archivé"] ?? \'false\') == \'true\','
     const e = explainProblem(
       { code: 'template_syntax', message: 'no viable alternative at input \'($["Statut archivé"]??\' (ligne 1, colonne 43)', line: 1, column: 43 },
       line,
     )
-    expect(e.hints).toEqual(['quotes', 'coalesce_parens'])
+    expect(e.hints).toEqual(['quotes'])
   })
 
   it('sans position : ni extrait ni repère ; tabulations recopiées sous le repère', () => {

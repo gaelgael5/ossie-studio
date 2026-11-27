@@ -26,8 +26,8 @@ import openpyxl
 from ossie_studio.imports.declaration import ImportDeclaration
 from ossie_studio.imports.jslt_engine import (
     EvaluationError,
-    OutsideProfileError,
     TemplateSyntaxError,
+    UnknownFunctionError,
     UnsupportedConstructError,
     compile_template,
     evaluate,
@@ -293,11 +293,11 @@ def check_template(source: str) -> list[TemplateProblem]:
         compile_template(source)
     except TemplateSyntaxError as exc:
         return [TemplateProblem("template_syntax", exc.message, exc.line, exc.column)]
-    except OutsideProfileError as exc:
+    except UnknownFunctionError as exc:
         return [
             TemplateProblem(
-                "template_outside_profile",
-                f"{v.construct}{f' : {v.detail}' if v.detail else ''}",
+                "template_unknown_function",
+                v.detail or "",
                 v.line,
                 v.column,
             )

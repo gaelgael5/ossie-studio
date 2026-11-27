@@ -4,9 +4,9 @@ Gael : « On reprend le même système que pour les référentiels. L'idéal ser
 de factoriser ce qu'on a fait. » Tout ce qui ne dépend pas d'un domaine vit ici :
 déclaration d'un import et ses trois fichiers (`declaration`, `files`), lecture
 des fichiers, chemins détectés, essai, transformation ligne à ligne, compte rendu
-et tout ou rien (`engine`), moteur JSLT et son profil (`jslt_engine`,
-`jslt_profile`, repris de Miles : toute correction reste à reporter des deux
-côtés), journal (`journal`).
+et tout ou rien (`engine`), moteur JSLT (`jslt_engine`, repris de Miles) et la
+vérification du catalogue de fonctions (`jslt_profile` ; le profil restrictif de
+Miles est retiré côté Ossie, ticket 2d39db17), journal (`journal`).
 
 Ce qui dépend du domaine passe par une **cible** (`target.ImportTarget`) : le
 schéma qui valide chaque élément produit, la clé d'un élément, son libellé. Les

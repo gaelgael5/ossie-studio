@@ -29,7 +29,7 @@ from urban_json.parsing import parse_to_tree
 from urban_json.parsing.script_builder_visitor import ScriptBuilderVisitor
 from urban_json.runtime import JsltEvaluationVisitor, RuntimeContext, Sources
 
-from ossie_studio.imports.jslt_profile import Violation, check_profile, unknown_functions
+from ossie_studio.imports.jslt_profile import Violation, unknown_functions
 
 CAST_FUNCTION = "convert"
 _CORE_MODULE = "urban_json.functions."
@@ -51,11 +51,11 @@ class TemplateSyntaxError(Exception):
         self.message, self.line, self.column = message, line, column
 
 
-class OutsideProfileError(Exception):
-    """Template lisible mais hors profil : toutes les constructions fautives, situées."""
+class UnknownFunctionError(Exception):
+    """Template lisible qui appelle des fonctions absentes du catalogue, situées."""
 
     def __init__(self, violations: tuple[Violation, ...]) -> None:
-        super().__init__(f"{len(violations)} construction(s) hors profil")
+        super().__init__(f"{len(violations)} fonction(s) inconnue(s)")
         self.violations = violations
 
 
@@ -107,7 +107,7 @@ class Template:
 
 
 def parse_ast(source: str) -> JsltBase:
-    """Arbre du moteur pour ce texte, sans aucune vérification de profil."""
+    """Arbre du moteur pour ce texte, sans vérifier le catalogue de fonctions."""
     try:
         ast: JsltBase = ScriptBuilderVisitor().visit(parse_to_tree(source))
     except JsltSyntaxError as exc:
@@ -128,11 +128,12 @@ def parse_ast(source: str) -> JsltBase:
 
 
 def compile_template(source: str) -> Template:
-    """Analyse le template et le confronte au profil ; refuse ce qui n'y entre pas."""
+    """Compile le template et refuse les fonctions absentes du catalogue ; tout le
+    reste du langage est admis (ticket 2d39db17, plus de profil restrictif)."""
     ast = parse_ast(source)
-    violations = check_profile(ast) + unknown_functions(ast, function_registry())
+    violations = unknown_functions(ast, function_registry())
     if violations:
-        raise OutsideProfileError(violations)
+        raise UnknownFunctionError(violations)
     return Template(source, ast)
 
 
