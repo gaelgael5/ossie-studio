@@ -1252,7 +1252,7 @@ requires-dist = [
     { name = "tree-sitter-typescript", specifier = ">=0.23.2" },
     { name = "urban-archimate", specifier = "==0.1.3" },
     { name = "urban-bpmn", specifier = "==0.1.1" },
-    { name = "urban-json", specifier = "==0.8.0" },
+    { name = "urban-json", specifier = "==0.9.0" },
     { name = "urban-json-editor", specifier = "==0.4.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
@@ -2054,14 +2054,14 @@ wheels = [
 
 [[package]]
 name = "urban-json"
-version = "0.8.0"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "antlr4-python3-runtime" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/49/1e/02206441e86bb3499e513b299448a6fb9e6d0c3e4bc37c7afa9d734e60e8/urban_json-0.8.0.tar.gz", hash = "sha256:354c5b4de841e3aea1f2ffefe41dd64e4ab174f32f457cedb729b3a3c873fa1f", size = 219637, upload-time = "2026-11-12T04:20:21.157Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/f7/8393ba0bc94d1d3e97ddeece9972f94d994c96aeddfd417823cd75b6a352/urban_json-0.9.0.tar.gz", hash = "sha256:3dac479170960f9fb98f14804bceb2bd6482ed6b143a00f3f0614ca8cd9c0d31", size = 220773, upload-time = "2026-11-27T16:55:30.832Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4c/3c/c106bb866e54536920e8c9921e86e6b011193b3bec2f2342c72a081a1214/urban_json-0.8.0-py3-none-any.whl", hash = "sha256:28bdbb4c1ac1449855514b8e15503f62a3489de6aaa0d4ebd168961d463d7454", size = 182063, upload-time = "2026-11-12T04:20:19.766Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/2d/9f6aa82efaaa6a6a2af5b1687be12e5388d2ed575e95ba60f0b6e6272b36/urban_json-0.9.0-py3-none-any.whl", hash = "sha256:a8ac582f9de9667cd06ad02bf602dad27a6fe4a96da461321df0a54218f2e34c", size = 182802, upload-time = "2026-11-27T16:55:29.619Z" },
 ]
 
 [[package]]

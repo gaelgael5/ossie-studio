@@ -1305,7 +1305,6 @@ export const en = {
     refImportTemplateReason_extra: '“{{token}}” is extraneous here.',
     refImportTemplateReason_outside_profile: 'Construct not supported by the import profile: {{token}}.',
     refImportTemplateHint_quotes: 'Hint: in JSLT, strings use double quotes ("false"), not single quotes.',
-    refImportTemplateHint_coalesce_parens: 'Hint: the engine rejects ?? inside parentheses; write it without them, e.g. $["Column"] ?? "value".',
     refImportTemplateHint_outside_profile: 'Hint: the import profile only accepts part of the language; see the documentation https://github.com/gaelgael5/Jslt.',
     refImportRunTitle: 'Import',
     refImportMode: 'Mode',

@@ -1307,7 +1307,6 @@ export const fr = {
     refImportTemplateReason_extra: '« {{token}} » est en trop à cet endroit.',
     refImportTemplateReason_outside_profile: 'Construction non prise en charge par le profil d’import : {{token}}.',
     refImportTemplateHint_quotes: 'Piste : en JSLT, les chaînes s’écrivent entre guillemets doubles ("false"), pas entre apostrophes.',
-    refImportTemplateHint_coalesce_parens: 'Piste : le moteur refuse ?? entre parenthèses ; écrivez-le sans parenthèses, par exemple $["Colonne"] ?? "valeur".',
     refImportTemplateHint_outside_profile: 'Piste : le profil d’import n’accepte qu’une partie du langage ; voir la documentation https://github.com/gaelgael5/Jslt.',
     refImportRunTitle: 'Importer',
     refImportMode: 'Mode',
