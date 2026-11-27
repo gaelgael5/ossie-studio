@@ -111,11 +111,11 @@ function card(name: string): HTMLElement {
   return screen.getByRole('link', { name }).closest('article') as HTMLElement
 }
 
-describe('Cartographie — onglet Processus (ticket 7e061c3e)', () => {
-  it('un quatrième onglet en vignettes : aperçu, détail de, non rattaché, nombres', async () => {
+describe('Cartographie — écran Processus (ticket 7e061c3e)', () => {
+  it('l’écran Processus en vignettes : aperçu, détail de, non rattaché, nombres', async () => {
     setup()
     await screen.findByRole('link', { name: 'Prise de commande — détail' })
-    expect(screen.getByRole('tab', { name: /Processus/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { level: 1, name: 'Processus' })).toBeInTheDocument()
     const detail = card('Prise de commande — détail')
     expect(within(detail).getByText('PRC-PRISE-COMMANDE-DETAIL')).toBeInTheDocument()
     expect(within(detail).getByRole('link', { name: 'Prise de commande' })).toHaveAttribute(

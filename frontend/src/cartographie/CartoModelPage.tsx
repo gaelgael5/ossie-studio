@@ -102,7 +102,7 @@ function ModelScreen({ spaceId, branchId, slug }: { spaceId: string; branchId: s
   return (
     <main className="carto-model-page">
       <div className="breadcrumb">
-        <Link to={MODELS_TAB_PATH}>{t('cartoTitle')}</Link> › {t('cartoTabModels')} › {data?.name ?? slug}
+        {t('cartoTitle')} › <Link to={MODELS_TAB_PATH}>{t('cartoTabModels')}</Link> › {data?.name ?? slug}
       </div>
       <div className="page-head">
         <div>

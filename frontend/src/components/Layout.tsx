@@ -43,7 +43,17 @@ const MAIN_NAV: NavEntry[] = [
   },
   { key: 'navDomains', to: '/domaines', capability: 'curation:read', prefix: '/domaines' },
   // Juste après « Modèles », avant « Gouvernance » (Gael, epic « Cartographie »).
-  { key: 'navCartographie', to: '/cartographie', capability: 'cartographie:read', prefix: '/cartographie' },
+  // Des écrans indépendants sous « Cartographie ▾ » (ticket 1bea81d8, Gael).
+  {
+    key: 'navCartographie',
+    items: [
+      { key: 'cartoTabTypes', to: '/cartographie/types', capability: 'cartographie:read', prefix: '/cartographie/types' },
+      { key: 'cartoTabObjects', to: '/cartographie/objets', capability: 'cartographie:read', prefix: '/cartographie/objets' },
+      { key: 'cartoTabModels', to: '/cartographie/modeles', capability: 'cartographie:read', prefix: '/cartographie/modeles' },
+      // Les processus BPMN (epic « Cartographie — processus BPMN », Gael).
+      { key: 'cartoTabProcesses', to: '/cartographie/processus', capability: 'cartographie:read', prefix: '/cartographie/processus' },
+    ],
+  },
   { key: 'navGovernance', to: '/governance/tags', capability: 'governance:read', prefix: '/governance' },
 ]
 

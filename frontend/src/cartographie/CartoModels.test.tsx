@@ -124,10 +124,11 @@ function card(name: string): HTMLElement {
 }
 
 describe('Cartographie — onglet Modèles (ticket 5a05c7bb)', () => {
-  it('un troisième onglet, des vignettes avec aperçu, vues, nombres et règles', async () => {
+  it('écran Modèles indépendant (ticket 1bea81d8) : vignettes avec aperçu, vues, nombres et règles', async () => {
     setup()
     await screen.findByRole('link', { name: 'Boutique — vue applicative' })
-    expect(screen.getByRole('tab', { name: /Modèles/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('heading', { level: 1, name: 'Modèles' })).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     const boutique = card('Boutique — vue applicative')
     expect(within(boutique).getByText('2 vues')).toBeInTheDocument()
     expect(within(boutique).getByText('MOD-BOUTIQUE-APPLICATIF')).toBeInTheDocument()

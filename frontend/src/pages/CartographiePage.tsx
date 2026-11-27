@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
-import type { ArchimateTypeInfo, CartoCatalog, CartoTypeSummary } from '../apiClient'
+import type { ArchimateTypeInfo, CartoCatalog, CartoProcessSummary, CartoTypeSummary } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { NoBranchNote } from '../components/NoBranchNote'
@@ -17,13 +17,13 @@ import { ModelsTab, MODELS_TAB_PATH } from '../cartographie/ModelsTab'
 import { NewModelDialog } from '../cartographie/NewModelDialog'
 import { ProcessesTab, PROCESSES_TAB_PATH } from '../cartographie/ProcessesTab'
 import { AttachProcessDialog, ImportProcessDialog, NewProcessDialog } from '../cartographie/ProcessDialogs'
-import type { CartoProcessSummary } from '../apiClient'
 
-// Écran « Cartographie » (epic « Cartographie — types et objets », ticket e7521e80) :
-// les types de l'espace en vignettes, un filtre, « + Ajouter » ; onglet Objets
-// (ticket 6f71bcba), à l'adresse /cartographie/objets ; onglet Modèles (epic
-// « Cartographie — modèles et vues », ticket 5a05c7bb), /cartographie/modeles ; onglet
-// Processus (epic « Cartographie — processus BPMN », ticket 7e061c3e), /cartographie/processus. Une seule couleur,
+// Écrans de la cartographie (epic « Cartographie — types et objets ») : Types
+// (ticket e7521e80, /cartographie/types), Objets (ticket 6f71bcba,
+// /cartographie/objets), Modèles (ticket 5a05c7bb, /cartographie/modeles) et Processus
+// (epic « Cartographie — processus BPMN », ticket 7e061c3e, /cartographie/processus).
+// D'abord des onglets d'un même écran, ce sont des écrans indépendants ouverts depuis
+// le menu « Cartographie ▾ » du haut (ticket 1bea81d8, Gael). Une seule couleur,
 // celle de l'application (Gael : pas de couleurs de couche ArchiMate) ; la couche
 // se lit dans le texte. Les écritures vont dans le brouillon de la personne, sur
 // toute branche (comme les Référentiels) ; la barre du brouillon est celle du Layout.
@@ -55,6 +55,9 @@ export function CartographiePage() {
 }
 
 export const OBJECTS_TAB_PATH = '/cartographie/objets'
+export const TYPES_PATH = '/cartographie/types'
+
+type Screen = 'types' | 'objects' | 'models' | 'processes'
 
 
 function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: string }) {
@@ -65,16 +68,17 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const [newModel, setNewModel] = useState(false)
   const [processDialog, setProcessDialog] = useState<'new' | 'import' | null>(null)
   const [attaching, setAttaching] = useState<CartoProcessSummary | null>(null)
-  const navigate = useNavigate()
   const pathname = useLocation().pathname
-  const tab = pathname.startsWith(OBJECTS_TAB_PATH)
-    ? 'objects'
+  // /cartographie (ancien écran à onglets) ouvre les Objets.
+  const tab: Screen = pathname.startsWith(TYPES_PATH)
+    ? 'types'
     : pathname.startsWith(MODELS_TAB_PATH)
       ? 'models'
       : pathname.startsWith(PROCESSES_TAB_PATH)
         ? 'processes'
-        : 'types'
+        : 'objects'
   const objectsTab = tab === 'objects'
+  // Chaque écran ne charge que ce qu'il affiche (le catalogue, petit, sert partout).
   const catalog = useQuery({
     queryKey: ['carto-catalog'],
     queryFn: () => api.getCartoCatalog(spaceId, branchId),
@@ -83,20 +87,26 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const list = useQuery({
     queryKey: ['carto-types', spaceId, branchId],
     queryFn: () => api.listCartoTypes(spaceId, branchId),
+    enabled: tab === 'types' || objectsTab,
   })
   const objects = useQuery({
     queryKey: ['carto-objects', spaceId, branchId],
     queryFn: () => api.listCartoObjects(spaceId, branchId),
+    enabled: tab !== 'types',
   })
   const models = useQuery({
     queryKey: ['carto-models', spaceId, branchId],
     queryFn: () => api.listCartoModels(spaceId, branchId),
+    enabled: tab === 'models',
   })
   const processes = useQuery({
     queryKey: ['carto-processes', spaceId, branchId],
     queryFn: () => api.listCartoProcesses(spaceId, branchId),
+    enabled: tab === 'processes',
   })
-  const editable = canWrite && !(list.data?.readonly ?? false)
+  const editable =
+    canWrite &&
+    !(list.data?.readonly ?? objects.data?.readonly ?? models.data?.readonly ?? processes.data?.readonly ?? false)
   const types = list.data?.types ?? []
   const errors = [catalog.error, list.error, objects.error, models.error, processes.error].flatMap((e) =>
     e ? errorMessages(t, e) : [],
@@ -107,6 +117,7 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
     models: 'cartoModelsSubtitle',
     processes: 'cartoProcessesSubtitle',
   }[tab]
+  const title = { types: 'cartoTabTypes', objects: 'cartoTabObjects', models: 'cartoTabModels', processes: 'cartoTabProcesses' }[tab]
   // Les processus métier de l'espace : ce qu'un processus BPMN peut détailler.
   const businessProcesses = (objects.data?.objects ?? [])
     .filter((o) => o.archimate === 'BusinessProcess')
@@ -115,9 +126,10 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const processKeys = new Set((processes.data?.processes ?? []).map((p) => p.key))
   return (
     <main>
+      <div className="breadcrumb">{t('cartoTitle')}</div>
       <div className="page-head">
         <div>
-          <h1 className="page-title">{t('cartoTitle')}</h1>
+          <h1 className="page-title">{t(title)}</h1>
           <p className="page-sub">{t(subtitle)}</p>
         </div>
         {editable && objectsTab ? (
@@ -146,50 +158,10 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           </button>
         ) : null}
       </div>
-      <div className="tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          className={`tab${tab === 'types' ? ' active' : ''}`}
-          aria-selected={tab === 'types'}
-          onClick={() => navigate('/cartographie')}
-        >
-          {t('cartoTabTypes')}
-          {list.data ? <span className="muted">{types.length}</span> : null}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`tab${objectsTab ? ' active' : ''}`}
-          aria-selected={objectsTab}
-          onClick={() => navigate(OBJECTS_TAB_PATH)}
-        >
-          {t('cartoTabObjects')}
-          {objects.data ? <span className="muted">{objects.data.objects.length}</span> : null}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`tab${tab === 'models' ? ' active' : ''}`}
-          aria-selected={tab === 'models'}
-          onClick={() => navigate(MODELS_TAB_PATH)}
-        >
-          {t('cartoTabModels')}
-          {models.data ? <span className="muted">{models.data.models.length}</span> : null}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`tab${tab === 'processes' ? ' active' : ''}`}
-          aria-selected={tab === 'processes'}
-          onClick={() => navigate(PROCESSES_TAB_PATH)}
-        >
-          {t('cartoTabProcesses')}
-          {processes.data ? <span className="muted">{processes.data.processes.length}</span> : null}
-        </button>
-      </div>
       <ErrorList messages={errors} />
-      {list.isLoading || catalog.isLoading ? <p className="muted">{t('loading')}</p> : null}
+      {list.isLoading || catalog.isLoading || objects.isLoading || models.isLoading || processes.isLoading ? (
+        <p className="muted">{t('loading')}</p>
+      ) : null}
       {catalog.data && list.data && tab === 'types' ? (
         <TypesTab catalog={catalog.data} types={types} editable={editable} onAdd={() => setAdding(true)} />
       ) : null}

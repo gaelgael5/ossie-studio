@@ -322,7 +322,10 @@ Epic « Cartographie — processus BPMN » (docflow f97e7afe), enabler 1d35290d.
   par Ossie se lisent sans avertissement, l'extension ignorée ; avec l'extension
   d'urban-bpmn chargée, le rattachement est retrouvé.
 
-### L'onglet Processus (feature 7e061c3e)
+### L'écran Processus (feature 7e061c3e)
+
+Ouvert depuis le menu « Cartographie ▾ » (Types, Objets, Modèles, Processus ; ticket
+1bea81d8), à l'adresse `/cartographie/processus`.
 
 Code : `api/cartographie_processes.py` (routes sous
 `/api/spaces/{space}/branches/{branch}/cartographie/processus`), front

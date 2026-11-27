@@ -11,7 +11,7 @@ import { ErrorList } from '../components/ErrorList'
 import { ProcessPreview } from './ProcessPreview'
 import { cartoProcessPath } from './ProcessesTab'
 
-// Fenêtres de l'onglet Processus (ticket 7e061c3e, maquette validée par Gael) : créer un
+// Fenêtres de l'écran Processus (ticket 7e061c3e, maquette validée par Gael) : créer un
 // processus, importer un fichier BPMN produit par un autre outil (vérifications et
 // aperçu avant d'écrire ; le fichier est gardé tel quel), rattacher un processus au
 // processus métier dont il est le détail. Pour l'éditeur (ticket 48335b93) : la demande

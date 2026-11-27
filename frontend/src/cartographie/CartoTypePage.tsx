@@ -69,7 +69,7 @@ function CartoTypeScreen({ spaceId, branchId, slug }: { spaceId: string; branchI
       <ErrorList messages={errors} />
       {detail.isLoading || catalog.isLoading ? <p className="muted">{t('loading')}</p> : null}
       {detail.error ? (
-        <Link to="/cartographie" className="btn btn-sm">
+        <Link to="/cartographie/types" className="btn btn-sm">
           {t('cartoBackToTypes')}
         </Link>
       ) : null}
@@ -143,7 +143,7 @@ function TypeEditor({
     mutationFn: () => api.deleteCartoType(spaceId, branchId, detail.slug),
     onSuccess: async () => {
       await invalidate()
-      navigate('/cartographie')
+      navigate('/cartographie/types')
     },
   })
   const saveable = parsed.ok && guard === null
@@ -171,7 +171,7 @@ function TypeEditor({
     <>
       <div>
         <div className="breadcrumb">
-          <Link to="/cartographie">{t('cartoTitle')}</Link> › {t('cartoTabTypes')} › {detail.slug}
+          {t('cartoTitle')} › <Link to="/cartographie/types">{t('cartoTabTypes')}</Link> › {detail.slug}
         </div>
         <div className="page-head">
           <div className="carto-type-head">
@@ -241,7 +241,7 @@ function TypeEditor({
           {detail.state === 'created' ? <span className="badge carto-badge-new">{t('cartoNew')}</span> : null}
           {detail.state === 'modified' ? <span className="badge badge-warn">{t('cartoUnpublished')}</span> : null}
         </p>
-        <Link to="/cartographie" className="btn btn-sm">
+        <Link to="/cartographie/types" className="btn btn-sm">
           {t('cartoBackToTypes')}
         </Link>
       </div>

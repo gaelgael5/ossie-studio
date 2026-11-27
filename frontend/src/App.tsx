@@ -138,7 +138,8 @@ function AppRoutes() {
         <Route path="/referentiels" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/referentiels/:name" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/referentiels/:name/parametrage" element={gate('referentiels:read', <ReferentielsPage />)} />
-        <Route path="/cartographie" element={gate('cartographie:read', <CartographiePage />)} />
+        <Route path="/cartographie" element={<Navigate to="/cartographie/objets" replace />} />
+        <Route path="/cartographie/types" element={gate('cartographie:read', <CartographiePage />)} />
         <Route path="/cartographie/types/:slug" element={gate('cartographie:read', <CartoTypePage />)} />
         <Route path="/cartographie/objets" element={gate('cartographie:read', <CartographiePage />)} />
         <Route path="/cartographie/objets/nouveau" element={gate('cartographie:read', <CartoObjectPage />)} />

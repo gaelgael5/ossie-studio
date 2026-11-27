@@ -39,9 +39,11 @@ tous ses tickets livrés).
 - À l'import, l'`id` du document devient la clé (seule retouche) : ticket 1 (« la clé est
   aussi l'id du bpmn:definitions ») et ticket 2 (« gardé tel quel ») concilient ainsi.
 
-## Notes techniques (onglet Processus, 7e061c3e)
+## Notes techniques (écran Processus, 7e061c3e)
 
-- Détail des routes et de l'écran : `docs/conventions-cartographie.md`, « L'onglet
+- D'abord un quatrième onglet, l'écran Processus est devenu une entrée du menu
+  « Cartographie ▾ » après la fusion de `dev` (ticket 1bea81d8 : un écran par entrée).
+- Détail des routes et de l'écran : `docs/conventions-cartographie.md`, « L'écran
   Processus ».
 - Écarts au ticket (validés par Gael le 26 novembre : 1 et 3 ; 2 expliqué) :
   - « Lecture seule à la racine » remplacé par la règle des droits : sans

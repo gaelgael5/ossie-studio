@@ -165,7 +165,7 @@ function ProcessScreen({ spaceId, branchId, processKey }: { spaceId: string; bra
   return (
     <main className="carto-model-page">
       <div className="breadcrumb">
-        <Link to={PROCESSES_TAB_PATH}>{t('cartoTitle')}</Link> › {t('cartoTabProcesses')} › {data?.name ?? processKey}
+        {t('cartoTitle')} › <Link to={PROCESSES_TAB_PATH}>{t('cartoTabProcesses')}</Link> › {data?.name ?? processKey}
       </div>
       <div className="page-head">
         <div>

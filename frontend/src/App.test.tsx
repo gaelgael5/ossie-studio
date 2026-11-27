@@ -1066,11 +1066,21 @@ test('menu : « Cartographie » juste après « Modèles », avant « Gouvernanc
   })
   renderAt('/')
   const nav = await screen.findByRole('navigation', { name: 'Ossie Studio' })
-  await waitFor(() => expect(within(nav).getByRole('link', { name: 'Cartographie' })).toBeInTheDocument())
+  const carto = await within(nav).findByRole('button', { name: /^Cartographie/ })
   const labels = [...nav.querySelectorAll('.topnav-menu > .topnav-item, .topnav-menu > .topnav-dropdown > .topnav-item')]
     .map((el) => (el.textContent ?? '').replace(' ▾', ''))
     .filter((text) => ['Modèles', 'Cartographie', 'Gouvernance'].includes(text))
   expect(labels).toEqual(['Modèles', 'Cartographie', 'Gouvernance'])
+  // Ticket 1bea81d8 : des écrans indépendants sous « Cartographie ▾ » ; les processus
+  // BPMN y ont le leur (epic « Cartographie — processus BPMN »).
+  await userEvent.setup().click(carto)
+  const menu = within(nav).getAllByRole('menu')[0]
+  expect(within(menu).getAllByRole('menuitem').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+    ['Types', '/cartographie/types'],
+    ['Objets', '/cartographie/objets'],
+    ['Modèles', '/cartographie/modeles'],
+    ['Processus', '/cartographie/processus'],
+  ])
 })
 
 test('menu : « Sources » et « Curation » regroupés dans le bloc « Collecte »', async () => {

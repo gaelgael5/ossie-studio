@@ -12,8 +12,8 @@ import { shortDate } from './dates'
 import { cartoObjectPath } from './ObjectsTab'
 import { ProcessPreview } from './ProcessPreview'
 
-// Onglet Processus de la Cartographie (epic « Cartographie — processus BPMN », ticket
-// 7e061c3e, maquette validée par Gael le 26 novembre) : les processus BPMN en vignettes,
+// Écran Processus de la Cartographie, ouvert par le menu « Cartographie ▾ » (epic
+// « Cartographie — processus BPMN », ticket 7e061c3e, maquette validée par Gael) : les processus BPMN en vignettes,
 // avec l'aperçu de leur dessin, une barre de filtre (recherche, Tous / Rattachés / Non
 // rattachés, participant), « + Nouveau processus » et « Importer un fichier BPMN ». Un
 // processus non rattaché à un processus métier est signalé, avec « Rattacher… ».
