@@ -1364,6 +1364,9 @@ export const en = {
     refPanelNo: 'no',
     refPanelEmptyOption: '—',
     refPanelKeyLocked: '(key, fixed)',
+    // Erreurs d'un objet de cartographie importé (ticket a38d1278).
+    refValueError_object_key_invalid: 'invalid key: uppercase letters, digits and single hyphens (e.g. SMO, APP-01)',
+    refValueError_property_invalid: 'value rejected by the property type',
     refValueError_value_required: 'required',
     refValueError_value_type: 'wrong type',
     refValueError_value_enum: 'value not allowed',

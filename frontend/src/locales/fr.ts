@@ -1366,6 +1366,9 @@ export const fr = {
     refPanelNo: 'non',
     refPanelEmptyOption: '—',
     refPanelKeyLocked: '(clé, figée)',
+    // Erreurs d'un objet de cartographie importé (ticket a38d1278).
+    refValueError_object_key_invalid: 'clé invalide : majuscules, chiffres et tirets simples (ex. SMO, APP-01)',
+    refValueError_property_invalid: 'valeur refusée par le type de la propriété',
     refValueError_value_required: 'requis',
     refValueError_value_type: 'mauvais type',
     refValueError_value_enum: 'valeur non permise',
