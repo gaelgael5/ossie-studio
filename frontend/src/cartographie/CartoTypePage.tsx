@@ -233,7 +233,7 @@ function TypeEditor({
                 {!readOnly && parsed.ok ? (
                   <button
                     type="button"
-                    className="btn btn-sm carto-type-label-edit"
+                    className="carto-type-label-edit"
                     aria-label={t('cartoTypeLabelEdit')}
                     title={t('cartoTypeLabelEdit')}
                     onClick={() => {

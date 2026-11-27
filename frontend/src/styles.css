@@ -4357,13 +4357,29 @@ urban-bpmn {
 }
 
 /* Libellé d'un type, édité derrière un crayon à droite du titre (ticket 1ad51345). */
-.carto-type-label-input {
-  max-width: 560px;
-  padding: 2px 8px;
+/* Le champ prend la taille du titre qu'il remplace : l'en-tête ne saute pas. */
+.carto-type-label-input.input {
+  flex: 0 1 560px;
+  width: auto;
+  min-width: 0;
+  font-size: 2.1rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  padding: 0 8px;
 }
 .carto-type-label-edit {
-  font-size: 1.1rem;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: 1.2rem;
   line-height: 1;
+  padding: 4px;
+  cursor: pointer;
+}
+.carto-type-label-edit:hover,
+.carto-type-label-edit:focus-visible {
+  color: var(--link);
 }
 
 /* Onglet « Relations » : source | relation | cibles acceptées (ticket 3fdb1e6e). */
