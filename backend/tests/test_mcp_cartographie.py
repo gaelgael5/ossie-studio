@@ -135,6 +135,7 @@ async def test_lister_les_objets(app: FastAPI, space: ApiSpace) -> None:
         "name": "Prise de commande",
         "type": "processus-de-vente",
         "exists": True,
+        "path": "cartographie/objets/processus-de-vente/prc-prise-commande.yaml",
     }
     assert relation["target"]["key"] == "OBJ-COMMANDE"
     page = await _ok(app, KEY, "list_carto_objects", space, nature="object", limit=2)
@@ -172,7 +173,9 @@ async def test_lire_un_objet(app: FastAPI, space: ApiSpace) -> None:
             "archimate": "Access",
             "direction": "outgoing",
             "other": {"key": "OBJ-COMMANDE", "name": "Commande", "type": "document-metier",
-                      "exists": True},
+                      "exists": True,
+                      "path": "cartographie/objets/document-metier/obj-commande.yaml"},
+            "path": "cartographie/objets/acces/rel-prise-commande-ecrit-commande.yaml",
         }
     ]  # fmt: skip
     missing = await call_tool(
@@ -272,6 +275,7 @@ async def test_lire_un_modele_sans_le_dessin(app: FastAPI, with_model: ApiSpace)
         "type": "application",
         "archimate": "ApplicationComponent",
         "exists": True,
+        "path": "cartographie/objets/application/app-boutique.yaml",
     }
     [relation] = data["relations"]
     assert (relation["key"], relation["source"], relation["target"]) == (
@@ -299,7 +303,7 @@ async def test_lire_un_modele_sans_le_dessin(app: FastAPI, with_model: ApiSpace)
     # Critère 3 : aucune coordonnée.
     text = json.dumps(data)
     assert '"x"' not in text and "graphique" not in json.dumps(
-        {k: v for k, v in data.items() if k != "path"}
+        {k: v for k, v in data.items() if k not in ("path", "graphic_path")}
     )
     missing = await call_tool(
         app, KEY, "get_carto_model",
@@ -319,7 +323,11 @@ async def test_ou_apparait_un_objet(app: FastAPI, with_model: ApiSpace) -> None:
     assert [m["slug"] for m in kept["models"]] == ["boutique-applicatif"]
     detail = await _ok(app, KEY, "get_carto_object", with_model, key="APP-BOUTIQUE")
     assert detail["models"] == [
-        {"slug": "boutique-applicatif", "name": "Boutique — vue applicative"}
+        {
+            "slug": "boutique-applicatif",
+            "name": "Boutique — vue applicative",
+            "path": "cartographie/modeles/boutique-applicatif.modele.yaml",
+        }
     ]
     forge_edit(
         with_model,
@@ -336,3 +344,90 @@ async def test_ou_apparait_un_objet(app: FastAPI, with_model: ApiSpace) -> None:
         {"space_id": with_model.space_id, "branch_id": with_model.branch_id, "contains": "ABSENT"},
     )  # fmt: skip
     assert json.loads(unknown.content[0].text)["error"] == "carto_object_not_found"
+
+
+# --- Chemin, version et branch (ticket 5d0b3e7d) ------------------------------------------
+
+APP_PATH = "cartographie/objets/application/app-boutique.yaml"
+
+
+async def _refused(app: FastAPI, token: str, tool: str, space: ApiSpace, **args: Any) -> dict:
+    result = await call_tool(
+        app, token, tool, {"space_id": space.space_id, "branch_id": space.branch_id, **args}
+    )
+    assert result.is_error
+    error: dict[str, Any] = json.loads(result.content[0].text)
+    return error
+
+
+async def test_les_listes_rendent_le_chemin(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 1, et le chemin du schéma de chaque type."""
+    data = await _ok(app, KEY, "list_carto_objects", space, type="ApplicationComponent")
+    [boutique] = data["objects"]
+    assert (boutique["key"], boutique["path"]) == ("APP-BOUTIQUE", APP_PATH)
+    types = await _ok(app, KEY, "list_carto_types", space)
+    by_slug = {t["slug"]: t for t in types["types"]}
+    assert by_slug["application"]["path"] == "cartographie/types/application.schema.yaml"
+
+
+async def test_lire_un_objet_par_chemin_cle_ou_type_et_cle(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 2 : trois formes, même résultat, avec la version (empreinte Git)."""
+    by_key = await _ok(app, KEY, "get_carto_object", space, key="APP-BOUTIQUE")
+    by_path = await _ok(app, KEY, "get_carto_object", space, path=APP_PATH)
+    by_type = await _ok(app, KEY, "get_carto_object", space, type="application", key="APP-BOUTIQUE")
+    assert by_key == by_path == by_type
+    assert by_key["path"] == APP_PATH
+    assert isinstance(by_key["version"], str) and len(by_key["version"]) == 40
+    # Le contenu change : la version aussi.
+    forge_edit(space, {APP_PATH: "cle: APP-BOUTIQUE\ntype: application\nnom: Boutique\n"})
+    changed = await _ok(app, KEY, "get_carto_object", space, path=APP_PATH)
+    assert changed["version"] != by_key["version"]
+    # Formes qui ne désignent rien ou se contredisent.
+    wrong_type = await _refused(
+        app, KEY, "get_carto_object", space, type="processus-de-vente", key="APP-BOUTIQUE"
+    )
+    assert wrong_type["error"] == "carto_object_not_found"
+    mismatch = await _refused(
+        app, KEY, "get_carto_object", space, path=APP_PATH, key="OBJ-COMMANDE"
+    )
+    assert mismatch["error"] == "carto_object_not_found"
+    absent = await _refused(
+        app, KEY, "get_carto_object", space, path="cartographie/objets/application/x.yaml"
+    )
+    assert absent["error"] == "carto_object_not_found"
+    neither = await _refused(app, KEY, "get_carto_object", space)
+    assert neither["error"] == "invalid_arguments"
+
+
+async def test_lire_un_modele_par_chemin_ou_slug(app: FastAPI, with_model: ApiSpace) -> None:
+    """Critère 3."""
+    model_path = "cartographie/modeles/boutique-applicatif.modele.yaml"
+    by_slug = await _ok(app, KEY, "get_carto_model", with_model, slug="boutique-applicatif")
+    by_path = await _ok(app, KEY, "get_carto_model", with_model, path=model_path)
+    assert by_slug == by_path
+    assert by_slug["path"] == model_path and len(by_slug["version"]) == 40
+    assert by_slug["rules_path"] == "cartographie/regles/standard.rules.yaml"
+    assert by_slug["graphic_path"] == "cartographie/modeles/boutique-applicatif.graphique.yaml"
+    listing = await _ok(app, KEY, "list_carto_models", with_model)
+    assert listing["models"][0]["path"] == model_path
+    outside = await _refused(
+        app, KEY, "get_carto_model", with_model, path="cartographie/objets/application/a.yaml"
+    )
+    assert outside["error"] == "carto_model_not_found"
+    mismatch = await _refused(
+        app, KEY, "get_carto_model", with_model, path=model_path, slug="autre"
+    )
+    assert mismatch["error"] == "carto_model_not_found"
+
+
+async def test_objet_du_brouillon_selon_branch(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 4 : absent sans branch, présent et marqué unpublished avec branch=draft ;
+    une autre branche est refusée."""
+    crm_path = "cartographie/objets/application/app-crm.yaml"
+    await draft_write(app, space, crm_path, {"cle": "APP-CRM", "type": "application", "nom": "CRM"})
+    published = await _refused(app, AGENT, "get_carto_object", space, path=crm_path)
+    assert published["error"] == "carto_object_not_found"
+    draft = await _ok(app, AGENT, "get_carto_object", space, path=crm_path, branch="draft")
+    assert draft["unpublished"] is True and draft["view"] == "draft" and draft["version"]
+    other = await _refused(app, AGENT, "get_carto_object", space, key="APP-CRM", branch="main")
+    assert other["error"] == "branch_unsupported"

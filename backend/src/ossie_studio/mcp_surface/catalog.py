@@ -537,8 +537,8 @@ CATALOG: tuple[Primitive, ...] = (
         description=(
             "List the object types of the space's business cartography: each is an ArchiMate 3.2 "
             "type plus a name given by the people (slug, name, ArchiMate type, layer, nature "
-            "'object' or 'relation', object count). With catalogue=true, also every ArchiMate "
-            "3.2 type of the catalogue, used or not." + _DRAFT_NOTE
+            "'object' or 'relation', object count, path of its schema). With catalogue=true, "
+            "also every ArchiMate 3.2 type of the catalogue, used or not." + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
@@ -552,7 +552,8 @@ CATALOG: tuple[Primitive, ...] = (
             "with a source and a target), optionally filtered by type (a space type slug, or an "
             "ArchiMate type such as 'ApplicationComponent'), nature ('object' or 'relation') "
             "and name (part of the name or key, case and accents ignored). Summaries: key, "
-            "name, type, ArchiMate type, nature, and source and target for a relationship. "
+            "name, type, ArchiMate type, nature, path, and source and target (with their path) "
+            "for a relationship. "
             "Paged: 'total' and 'has_more' (use offset for the next page). Use it before "
             "creating anything, to find what already exists." + _DRAFT_NOTE
         ),
@@ -564,12 +565,14 @@ CATALOG: tuple[Primitive, ...] = (
         access="read",
         capability="cartographie:read",
         description=(
-            "Read one object or relationship of the cartography by its key: name, type, "
+            "Read one object or relationship of the cartography by its path, its key, or its "
+            "type and key (same result): name, type, "
             "ArchiMate type, nature, documentation (markdown), properties (ArchiMate attributes "
             "as ArchiMate values, with their French label in property_labels), source and target "
             "for a relationship, and its incoming and outgoing relationships (key, type, "
             "direction, the other end) to explore step by step, and the models that keep it "
-            "(slug, name)." + _DRAFT_NOTE
+            "(slug, name, path). Returns its path and its version (content id in the branch "
+            "read), to give the write primitives to replace, modify or delete it." + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
@@ -582,8 +585,9 @@ CATALOG: tuple[Primitive, ...] = (
         description=(
             "List the models (ArchiMate diagrams) of the cartography: slug, name, description, "
             "number of objects and relationships kept, views (name and ArchiMate viewpoint), "
-            "rules file, number of problems. With contains (an object or relationship key), "
-            "only the models that keep it: where does an object appear." + _DRAFT_NOTE
+            "rules file, number of problems, path of the model file. With contains (an object "
+            "or relationship key), only the models that keep it: where does an object appear."
+            + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
@@ -593,7 +597,9 @@ CATALOG: tuple[Primitive, ...] = (
         access="read",
         capability="cartographie:read",
         description=(
-            "Read one model by its slug: the objects and relationships it keeps (key, name, "
+            "Read one model by its slug or the path of its file (same result), with its version "
+            "(content id in the branch read) and the paths of its rules and graphic files: the "
+            "objects and relationships it keeps (key, name, "
             "type, ArchiMate type; source and target for a relationship), its views with their "
             "nodes (an object by its key and name, a note, a frame; nested nodes) and "
             "connections (a relationship between two nodes). Never the drawing: no coordinate. "
