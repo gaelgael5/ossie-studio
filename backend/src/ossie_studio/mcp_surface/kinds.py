@@ -40,6 +40,7 @@ from ossie_studio.governance import classification_rules as classification_rule_
 from ossie_studio.governance import tag_rules as tag_rule_service
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
+from ossie_studio.governance.relation_profiles import profile_path as relation_profile_path
 from ossie_studio.governance.repo import (
     InvalidGovernanceId,
     cert_path,
@@ -388,6 +389,17 @@ def _entry_point(root: Path | None, identity: Mapping[str, Any]) -> Location:
     )
 
 
+def _relation_profile(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """Un profil de relations : `governance/relation-profiles/<id>.yaml` (le chemin du
+    service de l'écran)."""
+    value = identity["id"]
+    try:
+        path = relation_profile_path(str(value))
+    except ValueError:
+        raise _bad("profil_relation", "id", value, "un identifiant sûr (ex. « etoile »)") from None
+    return Location("profil_relation", _ids(identity, "id"), path)
+
+
 def _schema_file(kind: str, folder: str) -> Locator:
     """Un schéma d'une source : `<source>/<folder>/<nom>` (raw/ ou assets/). Le nom est
     celui que rend la liste (un fichier de schéma, jamais « .. »)."""
@@ -697,6 +709,29 @@ KINDS = (
         locator=_tri_rules,
         store=stores.TriRulesStore(),
         lister=lists.tri_rules,
+    ),
+    WriteKind(
+        name="profil_relation",
+        description=(
+            "A relation profile: naming conventions that give the virtual relations of SQL "
+            "sources without declared foreign keys (e.g. ACCOUNT_HK points to "
+            "ACCOUNT_HUB.ACCOUNT_HK). The profile provided by Ossie ('Data Vault 2.0') is "
+            "listed too: writing its id customizes it, deleting the customization restores it."
+        ),
+        label="profil de relations",
+        identity=(
+            IdentityField(
+                "id", "Id of the profile.", "lowercase letters, digits, '_' and '-'; e.g. 'etoile'"
+            ),
+        ),
+        standard="profil-relation",
+        syntax="jsonpath",
+        capability="governance:write",
+        read_capability="governance:read",
+        locator=_relation_profile,
+        store=stores.RelationProfileStore(),
+        lister=lists.relation_profile_items,
+        identity_paths=("$.id",),
     ),
 )
 

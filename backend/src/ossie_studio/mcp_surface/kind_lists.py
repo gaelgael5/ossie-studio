@@ -36,6 +36,9 @@ from ossie_studio.governance import tag_rules as tag_rule_service
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
 from ossie_studio.governance.classification_rules import read_classification_rules
+from ossie_studio.governance.relation_profiles import builtin_profiles, read_profile_files
+from ossie_studio.governance.relation_profiles import profile_document as relation_profile_document
+from ossie_studio.governance.relation_profiles import profile_path as relation_profile_path
 from ossie_studio.governance.repo import (
     cert_path,
     read_certs,
@@ -776,6 +779,39 @@ def tri_rules(root: Path, query: ListQuery) -> list[Item]:
 
 
 # --- Gouvernance --------------------------------------------------------------------------
+
+
+def relation_profile_items(root: Path, query: ListQuery) -> list[Item]:
+    """Les profils de relations, comme l'écran les liste : le profil fourni n'apparaît
+    qu'une fois (sa version de l'espace s'il en a une), puis ceux de l'espace."""
+    files = {f.rel.rsplit("/", 1)[-1].removesuffix(".yaml"): f for f in read_profile_files(root)}
+    builtins = {p.id: p for p in builtin_profiles()}
+    out = []
+    for profile_id in [*builtins, *sorted(set(files) - set(builtins))]:
+        file = files.get(profile_id)
+        profile = file.profile if file else builtins[profile_id]
+        summary: dict[str, Any] = {
+            "builtin": profile_id in builtins,
+            "customized": file is not None and profile_id in builtins,
+        }
+        if profile is None:
+            summary["errors"] = list(file.errors) if file else []
+        else:
+            summary |= {"name": profile.name, "rules": len(profile.rules)}
+        doc = relation_profile_document(profile) if profile else None
+        out.append(
+            Item(
+                {"id": profile_id},
+                profile.name if profile else profile_id,
+                relation_profile_path(profile_id),
+                summary,
+                text=profile.description if profile else "",
+                # Le profil fourni non personnalisé n'a pas de fichier : la version de
+                # son contenu, comme à la lecture.
+                version=value_version(doc) if file is None and doc else None,
+            )
+        )
+    return out
 
 
 def tags(root: Path, query: ListQuery) -> list[Item]:

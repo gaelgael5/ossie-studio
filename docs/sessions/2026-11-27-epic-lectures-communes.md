@@ -29,7 +29,7 @@ les référentiels, la gouvernance, les règles, les domaines et les schémas.
 | dcc52af7 | Modules par `schema_raw`, retrait de `list_modules` | en revue |
 | 2c069134 | Genre `extension_raw`, retrait de `get_functions` | en revue |
 | 15c43ed1 | Genre `point_entree`, retrait de `list_entry_points` et `get_module` | en revue |
-| 970c90ae | Genre `profil_relation` | prêt pour dev |
+| 970c90ae | Genre `profil_relation` | en revue |
 | 2459ff40 | Vérification d'intention (avec Gael) | à faire |
 
 Catalogue : 38 primitives sur `dev`, **32 visées**.
@@ -57,3 +57,7 @@ Catalogue : 38 primitives sur `dev`, **32 visées**.
   de chemin, et le registre refuse les valeurs vides. `get_module` = quatre lectures
   communes (expliquées dans le standard `point-entree`). `mcp_surface/application.py`
   supprimé. Migration `0051`. Catalogue : **32 primitives**.
+- Genre `profil_relation` : écrivable, validé par `parse_profile` (la méthode de l'écran) ;
+  le refus pointe la règle fautive, retrouvée par le même service. Le profil fourni
+  `ossie-datavault` existe sans fichier (version de son contenu) ; l'écrire le
+  personnalise, supprimer la personnalisation le rétablit, le supprimer lui est refusé.
