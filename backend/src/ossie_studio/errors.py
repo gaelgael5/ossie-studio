@@ -185,6 +185,8 @@ ERROR_CODES: tuple[str, ...] = (
     "import_invalid",
     "import_unreadable",
     "import_example_too_large",
+    "import_mapping_unknown",
+    "import_mapping_duplicate",
     "import_file_too_large",
     "import_file_empty",
     "import_refused",

@@ -53,14 +53,42 @@ def infer_type(values: list[Any]) -> str:
     return "string"
 
 
-def compare(columns: list[str], properties: list[str]) -> list[dict[str, Any]]:
-    """Chaque colonne, la propriété qui lui correspond (ou None) et le nom qu'aurait
-    la propriété ajoutée."""
+def effective_mapping(
+    columns: list[str], properties: list[str], chosen: dict[str, str] | None = None
+) -> dict[str, str | None]:
+    """La propriété de chaque colonne (ticket 47716786) : le choix enregistré s'il
+    vise une propriété du modèle ("" : colonne ignorée), sinon la correspondance par
+    nom normalisé, sauf si cette propriété est déjà prise par un choix. Un choix vers
+    une propriété disparue du modèle est ignoré (retour à la correspondance par nom)."""
+    chosen = {c: p for c, p in (chosen or {}).items() if p == "" or p in properties}
+    taken = {p for p in chosen.values() if p}
     by_name = {property_name(p): p for p in properties}
+    out: dict[str, str | None] = {}
+    for column in columns:
+        if column in chosen:
+            out[column] = chosen[column] or None
+        else:
+            auto = by_name.get(property_name(column))
+            out[column] = auto if auto not in taken else None
+    return out
+
+
+def auto_property(column: str, properties: list[str]) -> str | None:
+    """La correspondance par nom normalisé seule (sans les choix)."""
+    return {property_name(p): p for p in properties}.get(property_name(column))
+
+
+def compare(
+    columns: list[str], properties: list[str], chosen: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
+    """Chaque colonne, la propriété qui lui correspond (ou None), si elle a été
+    choisie à la main, et le nom qu'aurait la propriété ajoutée."""
+    mapping = effective_mapping(columns, properties, chosen)
     return [
         {
             "column": c,
-            "property": by_name.get(property_name(c)),
+            "property": mapping[c],
+            "chosen": c in (chosen or {}) and mapping[c] != auto_property(c, properties),
             "proposed": property_name(c),
         }
         for c in columns
@@ -97,13 +125,14 @@ def _path(column: str) -> str:
     return f"$.{column}" if plain else f'$["{escaped}"]'
 
 
-def _expression(prop: str, kind: str | None, columns: dict[str, list[Any]]) -> str:
-    by_name = {property_name(c): c for c in columns}
-    column = by_name.get(property_name(prop))
+def _expression(
+    prop: str, kind: str | None, columns: dict[str, list[Any]], assigned: dict[str, str]
+) -> str:
+    column = assigned.get(prop)
     if column is None:
         return "null"
     expr = _path(column)
-    seen = runtime_kind(columns[column])
+    seen = runtime_kind(columns.get(column, []))
     # Conversion écrite si le type voulu n'est pas celui des valeurs lues ; un entier
     # lu pour une propriété « number » convient tel quel.
     if kind in CASTS and seen != kind and not (kind == "number" and seen == "integer"):
@@ -115,19 +144,26 @@ def resolve_template(
     fields: list[tuple[str, str | None]],
     group: tuple[str, list[tuple[str, str | None]]] | None,
     columns: dict[str, list[Any]],
+    chosen: dict[str, str] | None = None,
 ) -> str:
     """Un template JSLT écrit d'après le modèle et les colonnes du fichier (ticket
     0598c41b, « Résoudre le template ») : toutes les propriétés, chacune reliée à la colonne
-    qui lui correspond (nom normalisé, comme 221d832b) ou à `null`, avec la
-    conversion quand le type diffère. `fields` : (nom, type JSON Schema) au premier
-    niveau ; `group` : un objet imbriqué (la cartographie : `proprietes`)."""
+    qui lui correspond — choisie à la main (47716786), sinon même nom normalisé
+    (221d832b) — ou à `null`, avec la conversion quand le type diffère. `fields` :
+    (nom, type JSON Schema) au premier niveau ; `group` : un objet imbriqué (la
+    cartographie : `proprietes`)."""
+    names = [n for n, _ in fields] + ([n for n, _ in group[1]] if group else [])
+    assigned: dict[str, str] = {}
+    for column, prop in effective_mapping(list(columns), names, chosen).items():
+        if prop is not None:
+            assigned.setdefault(prop, column)
     lines = ["{"]
     entries: list[str] = [
-        f'  "{name}": {_expression(name, kind, columns)}' for name, kind in fields
+        f'  "{name}": {_expression(name, kind, columns, assigned)}' for name, kind in fields
     ]
     if group is not None:
         name, inner = group
-        body = ",\n".join(f'    "{n}": {_expression(n, k, columns)}' for n, k in inner)
+        body = ",\n".join(f'    "{n}": {_expression(n, k, columns, assigned)}' for n, k in inner)
         entries.append(f'  "{name}": {{\n{body}\n  }}' if inner else f'  "{name}": {{}}')
     lines.append(",\n".join(entries))
     lines.append("}")

@@ -140,7 +140,18 @@ function ExampleTab({
         queryClient.invalidateQueries({ queryKey: [k] }),
       )),
   })
+  // La propriété de chaque colonne, choisie à la main (ticket 47716786) : enregistrée
+  // dans la déclaration, reprise par « Résoudre le template ».
+  const setMapping = useMutation({
+    mutationFn: ({ column, property }: { column: string; property: string }) =>
+      imports.setMapping(detail.slug, column, property),
+    onSuccess: () =>
+      Promise.all(['referentielImport', 'referentielImportPreview', 'draft', 'draftChanges'].map((k) =>
+        queryClient.invalidateQueries({ queryKey: [k] }),
+      )),
+  })
   const comparison = preview?.comparison ?? []
+  const properties = preview?.properties ?? []
   return (
     <div className="stack">
       <ErrorList messages={[upload.error, saveReading.error, previewError].flatMap((e) => (e ? errorMessages(t, e) : []))} />
@@ -277,12 +288,14 @@ function ExampleTab({
       {comparison.length > 0 ? (
         <div className="stack">
           <h4>{t('refImportColumns')}</h4>
-          <ErrorList messages={addProperty.error ? errorMessages(t, addProperty.error) : []} />
+          <p className="muted small">{t('refImportMappingHint')}</p>
+          <ErrorList messages={[addProperty.error, setMapping.error].flatMap((e) => (e ? errorMessages(t, e) : []))} />
           <table className="table" aria-label={t('refImportColumns')}>
             <thead>
               <tr>
                 <th>{t('refImportColumn')}</th>
                 <th>{t('refImportModelProperty')}</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -290,11 +303,26 @@ function ExampleTab({
                 <tr key={c.column}>
                   <td className="mono">{c.column}</td>
                   <td>
-                    {c.property ? (
-                      <span className="mono">{c.property}</span>
-                    ) : readOnly ? (
-                      <span className="muted">{t('refImportNoProperty')}</span>
-                    ) : (
+                    <span className="row">
+                      <select
+                        className="input"
+                        aria-label={t('refImportMappingFor', { column: c.column })}
+                        value={c.property ?? ''}
+                        disabled={readOnly || setMapping.isPending}
+                        onChange={(e) => setMapping.mutate({ column: c.column, property: e.target.value })}
+                      >
+                        <option value="">{t('refImportMappingNone')}</option>
+                        {properties.map((p) => (
+                          <option key={p} value={p}>
+                            {p}
+                          </option>
+                        ))}
+                      </select>
+                      {c.chosen ? <span className="badge">{t('refImportMappingChosen')}</span> : null}
+                    </span>
+                  </td>
+                  <td>
+                    {!c.property && !readOnly && !properties.includes(c.proposed) ? (
                       <button
                         type="button"
                         className="btn btn-sm"
@@ -304,7 +332,7 @@ function ExampleTab({
                       >
                         {t('refImportAddProperty', { name: c.proposed })}
                       </button>
-                    )}
+                    ) : null}
                   </td>
                 </tr>
               ))}

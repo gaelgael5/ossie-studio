@@ -30,7 +30,14 @@ from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.imports import files
-from ossie_studio.imports.columns import compare, infer_type, property_name, resolve_template
+from ossie_studio.imports.columns import (
+    auto_property,
+    compare,
+    effective_mapping,
+    infer_type,
+    property_name,
+    resolve_template,
+)
 from ossie_studio.imports.declaration import TABULAR, Import, ImportDeclaration, example_name
 from ossie_studio.imports.engine import (
     MERGE,
@@ -86,6 +93,11 @@ class ReadingBody(BaseModel):
 class ColumnBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     column: str = Field(min_length=1, max_length=200)
+
+
+class MappingBody(ColumnBody):
+    # La propriété choisie pour la colonne (ticket 47716786) ; "" : colonne ignorée.
+    property: str = Field(default="", max_length=200)
 
 
 Mode = Literal["merge", "replace"]
@@ -456,11 +468,11 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
         header = body.header if body is not None else decl.header
         # Colonnes face aux propriétés du modèle, si le fichier a un en-tête (221d832b).
         comparison = (
-            compare(list(result["columns"]), properties)
+            compare(list(result["columns"]), properties, decl.mapping)
             if header and decl.format in TABULAR
             else []
         )
-        return {**result, **out, "comparison": comparison}
+        return {**result, **out, "comparison": comparison, "properties": properties}
 
     @router.post("/{slug}/resoudre")
     async def resolve(
@@ -493,7 +505,8 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             if isinstance(record.data, dict):
                 for key, value in record.data.items():
                     columns.setdefault(str(key), []).append(value)
-        return {"template": resolve_template(fields, group, columns)}
+        chosen = imp.declaration.mapping if imp.declaration.header else {}
+        return {"template": resolve_template(fields, group, columns, chosen)}
 
     @router.post("/{slug}/proprietes")
     async def add_model_property(
@@ -529,6 +542,56 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             f"ajoute la propriété {name} {adapter.of(owner)}", write
         )
         return {**added, "revision": revision}
+
+    @router.put("/{slug}/correspondances")
+    async def set_mapping(
+        request: Request,
+        conn: ConnDep,
+        crypto: CryptoDep,
+        user: Writer,
+        workdir: DraftWorkdirDep,
+        space_id: uuid.UUID,
+        branch_id: uuid.UUID,
+        slug: str,
+        body: MappingBody,
+    ) -> dict[str, object]:
+        """La propriété d'une colonne, choisie à la main (ticket 47716786) ; reprise
+        par « Résoudre le template ». Un choix égal à la correspondance par nom n'est
+        pas gardé (la déclaration ne porte que les écarts)."""
+        owner = owner_of(request)
+        handle = await adapter.open(conn, crypto, workdir, space_id, branch_id, user)
+
+        def write(root: Path) -> Import:
+            imp = read_one(owner, slug)(root)
+            properties = adapter.properties(root, owner)
+            if body.property and body.property not in properties:
+                raise ApiError("import_mapping_unknown", status_code=400, property=body.property)
+            chosen = dict(imp.declaration.mapping)
+            if body.property == auto_property(body.column, properties) and not any(
+                p == body.property for c, p in chosen.items() if c != body.column
+            ):
+                chosen.pop(body.column, None)
+            else:
+                chosen[body.column] = body.property
+            try:
+                columns = read_example(imp.declaration, imp.example).columns
+            except ExampleError:
+                columns = []
+            if body.column not in columns:
+                columns = [*columns, body.column]
+            taken = [p for p in effective_mapping(columns, properties, chosen).values() if p]
+            duplicate = next((p for p in taken if taken.count(p) > 1), None)
+            if duplicate is not None:
+                raise ApiError("import_mapping_duplicate", status_code=409, property=duplicate)
+            decl = replace(imp.declaration, mapping=chosen)
+            return files.write_import(
+                root, folder(owner), decl, imp.template, imp.example, create=False
+            )
+
+        imp, _rev = await handle.write(
+            f"correspondance {body.column} de l'import {slug} {adapter.of(owner)}", write
+        )
+        return detail(owner, imp)
 
     def check_mode(mode: str) -> None:
         if mode not in adapter.modes:

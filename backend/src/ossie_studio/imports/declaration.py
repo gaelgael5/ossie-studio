@@ -4,7 +4,8 @@ trois fichiers, dans le dossier d'imports que fixe sa cible (pour un référenti
 
     <slug>.yaml                   la déclaration : libellé, format (csv | json),
                                   réglages de lecture (séparateur, encodage,
-                                  ligne d'en-tête, pour le CSV)
+                                  ligne d'en-tête, pour le CSV ; feuille du
+                                  classeur ; correspondances colonne → propriété)
     <slug>.jslt                   le template JSLT
     <slug>.exemple.csv | .json    le fichier d'exemple (octets tels quels)
 """
@@ -12,7 +13,7 @@ trois fichiers, dans le dossier d'imports que fixe sa cible (pour un référenti
 from __future__ import annotations
 
 import codecs
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import yaml
@@ -37,6 +38,10 @@ class ImportDeclaration:
     header: bool = True
     # Feuille d'un classeur Excel (ticket 6f6066e9) ; vide : la seule feuille, ou à choisir.
     sheet: str = ""
+    # Correspondances colonne → propriété choisies à la main (ticket 47716786) ; seuls
+    # les choix qui diffèrent de la correspondance par nom sont gardés, "" = colonne
+    # ignorée. Lues par « Résoudre le template ».
+    mapping: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -84,6 +89,8 @@ def dump_declaration(decl: ImportDeclaration) -> str:
         data["header"] = decl.header
         if decl.sheet:
             data["sheet"] = decl.sheet
+    if decl.mapping and decl.format in TABULAR:
+        data["mapping"] = dict(decl.mapping)
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
 
@@ -97,6 +104,12 @@ def parse_declaration(slug: str, text: str) -> ImportDeclaration:
     if not isinstance(data, dict) or data.get("format") not in FORMATS:
         raise ImportsError("import_unreadable", slug=slug)
     header = data.get("header", True)
+    raw_mapping = data.get("mapping")
+    mapping = (
+        {str(k): "" if v is None else str(v) for k, v in raw_mapping.items()}
+        if isinstance(raw_mapping, dict)
+        else {}
+    )
     return ImportDeclaration(
         slug=slug,
         label=str(data.get("label") or ""),
@@ -105,4 +118,5 @@ def parse_declaration(slug: str, text: str) -> ImportDeclaration:
         encoding=str(data.get("encoding", "utf-8")),
         header=header if isinstance(header, bool) else True,
         sheet=str(data.get("sheet") or ""),
+        mapping=mapping,
     )

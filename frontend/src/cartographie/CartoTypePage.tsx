@@ -80,7 +80,7 @@ function CartoTypeScreen({ spaceId, branchId, slug }: { spaceId: string; branchI
       ) : null}
       {detail.data && catalog.data ? (
         <TypeEditor
-          key={detail.data.yaml}
+          key={detail.data.slug}
           spaceId={spaceId}
           branchId={branchId}
           detail={detail.data}
@@ -130,6 +130,15 @@ function TypeEditor({
   const info = catalog.types.find((ty) => ty.name === detail.archimate)
   const layer = catalog.layers.find((l) => l.key === info?.layer)?.label ?? (info?.kind === 'relation' ? t('cartoLayerRelations') : '')
   const [text, setText] = useState(detail.yaml)
+  // Le document relu (enregistré, propriété ajoutée par un import…) remplace le texte
+  // de l'éditeur sans remonter l'écran : l'onglet ouvert et l'import en cours restent
+  // affichés (Gael : « il faut rester sur l'écran »). Avant, une clé sur le YAML
+  // remontait tout et ramenait à l'onglet « Propriétés ».
+  const [shown, setShown] = useState(detail.yaml)
+  if (shown !== detail.yaml) {
+    setShown(detail.yaml)
+    setText(detail.yaml)
+  }
   const [tab, setTab] = useState<Tab>('properties')
   const parsed = useMemo(() => parseModel(text), [text])
   const saved = detail.document as RefModel
