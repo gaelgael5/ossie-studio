@@ -1288,7 +1288,7 @@ export const fr = {
     refImportDiffDeleted: 'supprimée',
     refImportLast: 'importé le {{date}}',
     refImportLastBy: 'dernier import le {{date}} par {{by}}',
-    refImportRunTitle: 'Importer dans le référentiel',
+    refImportRunTitle: 'Importer',
     refImportMode: 'Mode',
     refImportMode_merge: 'Fusionner par clé',
     refImportMode_replace: 'Remplacer toutes les valeurs',

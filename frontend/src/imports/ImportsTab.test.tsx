@@ -283,7 +283,7 @@ describe('Référentiels — importer des valeurs (ticket a909dc66)', () => {
   it('fusion sur le fichier d’exemple : compte rendu et changement enregistré', async () => {
     const calls = setup()
     const user = await openTemplate()
-    const panel = screen.getByRole('region', { name: 'Importer dans le référentiel' })
+    const panel = screen.getByRole('region', { name: 'Importer' })
     expect(within(panel).getByLabelText('Mode')).toHaveValue('merge')
     // Pas de « Web API » : les API des référentiels sont en lecture seule.
     expect(panel).not.toHaveTextContent('POST /api')
@@ -300,7 +300,7 @@ describe('Référentiels — importer des valeurs (ticket a909dc66)', () => {
   it('remplacement : confirmation d’abord, puis suppressions dans le compte rendu', async () => {
     const calls = setup({ run: { status: 200, body: { ...DONE, mode: 'replace', deleted: 3 } } })
     const user = await openTemplate()
-    const panel = screen.getByRole('region', { name: 'Importer dans le référentiel' })
+    const panel = screen.getByRole('region', { name: 'Importer' })
     await user.selectOptions(within(panel).getByLabelText('Mode'), 'replace')
     await user.click(within(panel).getByRole('button', { name: 'Importer' }))
     expect(importCall(calls)).toBeUndefined()
@@ -323,7 +323,7 @@ describe('Référentiels — importer des valeurs (ticket a909dc66)', () => {
   it('un autre fichier déposé part avec l’import', async () => {
     const calls = setup()
     const user = await openTemplate()
-    const panel = screen.getByRole('region', { name: 'Importer dans le référentiel' })
+    const panel = screen.getByRole('region', { name: 'Importer' })
     await user.click(within(panel).getByLabelText('Autre fichier'))
     expect(within(panel).getByRole('button', { name: 'Importer' })).toBeDisabled()
     const file = new File(['Pays;Mode;Delai\nFR;site;2\n'], 'novembre.csv', { type: 'text/csv' })
@@ -341,7 +341,7 @@ describe('Référentiels — importer des valeurs (ticket a909dc66)', () => {
       },
     })
     const user = await openTemplate()
-    const panel = screen.getByRole('region', { name: 'Importer dans le référentiel' })
+    const panel = screen.getByRole('region', { name: 'Importer' })
     await user.click(within(panel).getByRole('button', { name: 'Importer' }))
     expect(await within(panel).findByText(/Import refusé : 1 ligne\(s\) en erreur/)).toBeInTheDocument()
     expect(within(panel).getByRole('list', { name: 'Erreurs du template' })).toHaveTextContent('ligne 4')

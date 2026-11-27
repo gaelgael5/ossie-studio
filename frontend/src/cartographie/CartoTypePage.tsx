@@ -70,7 +70,7 @@ function CartoTypeScreen({ spaceId, branchId, slug }: { spaceId: string; branchI
     ...(detail.error ? errorMessages(t, detail.error) : []),
   ]
   return (
-    <main className="stack page-wide">
+    <main className="stack">
       <ErrorList messages={errors} />
       {detail.isLoading || catalog.isLoading ? <p className="muted">{t('loading')}</p> : null}
       {detail.error ? (

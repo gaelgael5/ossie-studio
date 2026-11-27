@@ -113,7 +113,7 @@ function ObjectScreen({ spaceId, branchId, objectKey }: { spaceId: string; branc
   const errors = [catalog.error, types.error, objects.error, detail.error].flatMap((e) => (e ? errorMessages(t, e) : []))
   const ready = catalog.data && types.data && objects.data && (isNew || detail.data)
   return (
-    <main className="stack page-wide">
+    <main className="stack">
       <ErrorList messages={errors} />
       {!ready && errors.length === 0 ? <p className="muted">{t('loading')}</p> : null}
       {detail.error ? (

@@ -1286,7 +1286,7 @@ export const en = {
     refImportDiffDeleted: 'deleted',
     refImportLast: 'imported on {{date}}',
     refImportLastBy: 'last imported on {{date}} by {{by}}',
-    refImportRunTitle: 'Import into the reference data',
+    refImportRunTitle: 'Import',
     refImportMode: 'Mode',
     refImportMode_merge: 'Merge by key',
     refImportMode_replace: 'Replace all values',
