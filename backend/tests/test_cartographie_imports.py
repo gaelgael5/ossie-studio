@@ -322,6 +322,8 @@ def test_reconnaitre_un_renommage() -> None:
     before = t({"a": s, "b": n, "c": s})
     assert property_renames(before, t({"a": s, "bb": n, "c": s})) == {"b": "bb"}
     assert property_renames(before, t({"x": s, "b": n, "y": s})) == {"a": "x", "c": "y"}
+    described = {"type": "number", "description": ""}  # ajouté par l'éditeur visuel
+    assert property_renames(before, t({"a": s, "bb": described, "c": s})) == {"b": "bb"}
     assert property_renames(before, t({"a": s, "bb": s, "c": s})) == {}  # définition changée
     assert property_renames(before, t({"a": s, "c": s, "d": n})) == {}  # retrait + ajout ailleurs
     assert property_renames(before, t({"a": s, "b": n})) == {}  # retrait seul

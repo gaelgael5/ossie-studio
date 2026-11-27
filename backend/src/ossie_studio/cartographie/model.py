@@ -73,7 +73,23 @@ def property_renames(before: CartoType, after: CartoType) -> dict[str, str]:
         if o != n
         and o not in after.properties
         and n not in before.properties
-        and before.properties[o] == after.properties[n]
+        and _shape(before.properties[o]) == _shape(after.properties[n])
+    }
+
+
+# Ce qui ne fait pas la définition d'une propriété : l'éditeur visuel ajoute
+# `description: ""` à une propriété qu'on renomme, et changer la description en
+# même temps que le nom reste un renommage.
+_ANNOTATIONS = frozenset({"description", "title", "examples", "$comment"})
+
+
+def _shape(schema: Any) -> Any:
+    if not isinstance(schema, dict):
+        return schema
+    return {
+        k: _shape(v)
+        for k, v in schema.items()
+        if k not in _ANNOTATIONS and v not in ("", None) and v != [] and v != {}
     }
 
 
