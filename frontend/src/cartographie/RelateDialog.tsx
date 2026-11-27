@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
@@ -20,6 +20,8 @@ import { cartoObjectPath } from './ObjectsTab'
 // d'ArchiMate permettent entre les deux, puis la clé, le nom, les attributs du
 // type (sens d'un accès…) et les propriétés ajoutées. La relation est écrite dans
 // son propre fichier ; sa documentation se rédige ensuite dans sa fiche.
+// Depuis l'éditeur BPMN (« Créer la relation », ticket 48335b93) : la cible et le type
+// arrivent pré-remplis, et la fenêtre se ferme sans quitter l'éditeur (`onCreated`).
 
 const KEY_FORMAT = /^[A-Z0-9]+(?:-[A-Z0-9]+)*$/
 const RESULTS = 8
@@ -57,6 +59,9 @@ export function RelateDialog({
   source,
   objects,
   onClose,
+  initialTarget = null,
+  initialArchimate = '',
+  onCreated,
 }: {
   spaceId: string
   branchId: string
@@ -64,14 +69,22 @@ export function RelateDialog({
   source: RelateSource
   objects: CartoObjectSummary[]
   onClose: () => void
+  /** La cible déjà choisie. */
+  initialTarget?: CartoObjectSummary | null
+  /** Le type ArchiMate à choisir d'office, s'il est permis et que l'espace en a un. */
+  initialArchimate?: string
+  /** Après la création, à la place d'ouvrir la fiche de la relation. */
+  onCreated?: (key: string) => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
-  const [target, setTarget] = useState<CartoObjectSummary | null>(null)
+  const [target, setTarget] = useState<CartoObjectSummary | null>(initialTarget)
   const [choice, setChoice] = useState<CartoRelationTypeChoice | null>(null)
-  const [key, setKey] = useState('')
+  const [key, setKey] = useState(() =>
+    initialTarget ? proposedKey(source.key, initialTarget.key, new Set(objects.map((o) => o.key))) : '',
+  )
   const [keyTouched, setKeyTouched] = useState(false)
   const [name, setName] = useState('')
   const [nameTouched, setNameTouched] = useState(false)
@@ -112,6 +125,19 @@ export function RelateDialog({
     propose(target, next)
   }
 
+  // Le type demandé, choisi d'office une fois les types permis connus.
+  const latestChoose = useRef(chooseType)
+  latestChoose.current = chooseType
+  const preset = useRef(false)
+  useEffect(() => {
+    if (preset.current || !initialArchimate) return
+    const found = allowed.data?.types.find((ty) => ty.archimate === initialArchimate)
+    if (found) {
+      preset.current = true
+      latestChoose.current(found)
+    }
+  }, [allowed.data, initialArchimate])
+
   const keyError = !key ? null : !KEY_FORMAT.test(key) ? t('cartoKeyFormat') : taken.has(key) ? t('cartoKeyTaken') : null
   const schema = choice?.object_schema ?? null
   const missing = missingRequired(schema, properties)
@@ -134,7 +160,8 @@ export function RelateDialog({
         ),
       )
       onClose()
-      navigate(cartoObjectPath(saved.key), { state: { from: { key: source.key, name: source.name } } })
+      if (onCreated) onCreated(saved.key)
+      else navigate(cartoObjectPath(saved.key), { state: { from: { key: source.key, name: source.name } } })
     },
   })
   const problems: FieldProblems = new Map(missing.map((p) => [p, ['value_required']]))

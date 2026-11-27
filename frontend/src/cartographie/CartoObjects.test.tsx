@@ -90,7 +90,7 @@ const PRISE = {
     outgoing: [{ key: 'REL-ECRIT-COMMANDE', name: 'Écrit la commande', type: 'acces', type_title: 'Accès', archimate: 'Access', properties: { acces: 'Write' }, other: { key: 'OBJ-COMMANDE', name: 'Commande', type_title: 'Document métier', exists: true } }],
     incoming: [],
   },
-  dates: DATES, state: null, problems: [],
+  dates: DATES, state: null, problems: [], processes: ['PRC-PRISE-COMMANDE-DETAIL'],
 }
 
 type Call = { method: string; path: string; body?: string }
@@ -111,6 +111,7 @@ function setup(url: string, options: { capabilities?: string[]; app?: Record<str
       else if (path === `${BASE}/types/application`) body = { object_schema: APP_SCHEMA }
       else if (path === `${BASE}/objets` && method === 'GET') body = { readonly: false, objects: OBJECTS }
       else if (path === `${BASE}/modeles`) body = { readonly: false, models: [], rules: [] }
+      else if (path === `${BASE}/processus`) body = { readonly: false, processes: [] }
       else if (path === `${BASE}/objets` && method === 'POST') {
         const sent = JSON.parse(String(init?.body)) as Record<string, unknown>
         body = { ...appDetail(sent.properties as Record<string, unknown>), key: sent.key, name: sent.name, state: 'created', dates: null, revision: 'draft:1' }
@@ -122,7 +123,7 @@ function setup(url: string, options: { capabilities?: string[]; app?: Record<str
       } else if (path === `${BASE}/objets/APP-BOUTIQUE`) body = app
       else if (path === `${BASE}/objets/PRC-PRISE-COMMANDE`) body = PRISE
       else if (path === `${BASE}/objets/PRC-PAIEMENT` && method === 'DELETE') body = { deleted: 'PRC-PAIEMENT' }
-      else if (path === `${BASE}/objets/PRC-PAIEMENT`) body = { ...PRISE, key: 'PRC-PAIEMENT', name: 'Paiement en ligne', relations: { outgoing: [], incoming: [] } }
+      else if (path === `${BASE}/objets/PRC-PAIEMENT`) body = { ...PRISE, key: 'PRC-PAIEMENT', name: 'Paiement en ligne', relations: { outgoing: [], incoming: [] }, processes: [] }
       else if (path === `${BASE}/objets/OBJ-RETENU`) body = { ...PRISE, key: 'OBJ-RETENU', name: 'Objet retenu', relations: { outgoing: [], incoming: [] }, models: [{ slug: 'boutique', name: 'Boutique — vue applicative' }] }
       else if (path.startsWith(`${BASE}/objets/`)) {
         // Toute autre fiche (relation ouverte, objet créé) : une fiche sans relation.
@@ -361,6 +362,39 @@ describe('Cartographie — fiche d’un objet (ticket 6f71bcba)', () => {
     expect(screen.getByLabelText('ports[1]')).toHaveValue(443)
     await user.click(within(crumbs).getByRole('button', { name: 'Propriétés' }))
     expect(screen.getByRole('button', { name: 'ouvrir ›' })).toBeInTheDocument()
+  })
+
+  it('processus métier : « Ouvrir le détail BPMN » s’il existe, sinon « Créer le détail BPMN » (ticket 7e061c3e)', async () => {
+    setup('/cartographie/objets/PRC-PRISE-COMMANDE')
+    await screen.findByRole('heading', { name: 'Prise de commande' })
+    const section = screen.getByRole('region', { name: 'Détail BPMN' })
+    expect(within(section).getByRole('link', { name: 'Ouvrir le détail BPMN' })).toHaveAttribute(
+      'href',
+      '/cartographie/processus/PRC-PRISE-COMMANDE-DETAIL',
+    )
+  })
+
+  it('« Créer le détail BPMN » propose le processus métier déjà choisi', async () => {
+    setup('/cartographie/objets/PRC-PAIEMENT')
+    await screen.findByRole('heading', { name: 'Paiement en ligne' })
+    const user = userEvent.setup()
+    await user.click(within(screen.getByRole('region', { name: 'Détail BPMN' })).getByRole('button', { name: 'Créer le détail BPMN' }))
+    const dialog = screen.getByRole('dialog', { name: 'Nouveau processus' })
+    expect(within(dialog).getByLabelText('Détail du processus métier')).toHaveValue('PRC-PAIEMENT')
+  })
+
+  it('en lecture : « Aucun détail BPMN. », pas de création', async () => {
+    setup('/cartographie/objets/PRC-PAIEMENT', { capabilities: ['cartographie:read'] })
+    await screen.findByRole('heading', { name: 'Paiement en ligne' })
+    const section = screen.getByRole('region', { name: 'Détail BPMN' })
+    expect(within(section).getByText('Aucun détail BPMN.')).toBeInTheDocument()
+    expect(within(section).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('une application n’a pas de section « Détail BPMN »', async () => {
+    setup('/cartographie/objets/APP-BOUTIQUE')
+    await screen.findByRole('heading', { name: 'Boutique en ligne' })
+    expect(screen.queryByRole('region', { name: 'Détail BPMN' })).not.toBeInTheDocument()
   })
 
   it('sans le droit de modifier : fiche visible, rien de modifiable (critère 10)', async () => {

@@ -11,4 +11,6 @@ fichier.
 - `service` : lecture et écriture dans le brouillon de la personne.
 - `diagram` : le format d'un modèle (diagramme) : modèle, règles, graphique, et le
   modèle hydraté que reçoit le composant `urban-archimate`.
+- `process` : le format d'un processus BPMN (XML BPMN 2.0 gardé tel quel, rattachements
+  par l'extension d'`urban-bpmn`).
 """

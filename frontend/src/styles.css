@@ -4137,6 +4137,198 @@ urban-archimate {
   --ua-notation-fond: var(--panel);
 }
 
+/* Onglet Processus de la cartographie (ticket 7e061c3e) : l'aperçu BPMN en trait
+   sarcelle sur la trame, comme celui des modèles. */
+.carto-process-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.carto-bpmn-shape {
+  fill: var(--panel);
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-bpmn-pool,
+.carto-bpmn-lane {
+  fill: none;
+}
+.carto-bpmn-data {
+  stroke-dasharray: 3 2;
+}
+.carto-bpmn-flow {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-bpmn-label {
+  font-family: var(--font-ui);
+  fill: var(--text);
+}
+.carto-process-detail {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.carto-over-cover {
+  position: relative;
+  z-index: 2;
+}
+.carto-process-attach {
+  margin-left: auto;
+}
+.carto-add-link {
+  background: none;
+  border: 0;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.carto-add-sub {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.carto-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .carto-import {
+    grid-template-columns: 1fr;
+  }
+}
+.carto-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px dashed var(--primary);
+  border-radius: var(--radius);
+  background: var(--chip-bg);
+  cursor: pointer;
+}
+.carto-file-badge {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 40px;
+  height: 48px;
+  padding-bottom: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-size: 0.7rem;
+}
+.carto-link {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.carto-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.carto-check {
+  display: flex;
+  gap: 10px;
+}
+.carto-check-mark {
+  width: 1em;
+  font-weight: 700;
+}
+.carto-check-ok .carto-check-mark {
+  color: var(--primary);
+}
+.carto-check-warn .carto-check-mark {
+  color: var(--warn-fg);
+}
+.carto-check-ko .carto-check-mark {
+  color: var(--danger-fg);
+}
+.carto-import-preview {
+  height: 280px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
+  background-size: 14px 14px;
+}
+/* Page d'un processus (ticket 48335b93) : l'éditeur urban-bpmn occupe la page. */
+.carto-process-editor {
+  /* Les calques de l'éditeur (filigrane bpmn.io…) restent sous les fenêtres d'Ossie. */
+  isolation: isolate;
+  height: calc(100vh - 290px);
+  min-height: 480px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+/* Raccord du composant urban-bpmn (son contrat : variables --ub-*). */
+urban-bpmn {
+  --ub-police: var(--font-ui);
+  --ub-texte: var(--text);
+  --ub-fond: var(--bg);
+  --ub-bordure: var(--border);
+  --ub-accent: var(--primary);
+}
+.carto-attach-prompt {
+  max-width: 640px;
+  margin-top: 12px;
+}
+.carto-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.carto-pick {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.carto-pick:hover {
+  background: var(--surface-muted);
+}
+.carto-pick.active {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+}
+.carto-process-unattached {
+  display: inline-block;
+  margin-top: 6px;
+}
+.carto-bpmn-links {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* Onglet « Relations » de la fiche d'un type (ticket 2643fd8f). */
 .carto-relation-rule {
   display: flex;

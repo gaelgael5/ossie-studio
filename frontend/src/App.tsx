@@ -30,6 +30,7 @@ import { CartographiePage } from './pages/CartographiePage'
 import { CartoTypePage } from './cartographie/CartoTypePage'
 import { CartoObjectPage } from './cartographie/CartoObjectPage'
 import { CartoModelPage } from './cartographie/CartoModelPage'
+import { CartoProcessPage } from './cartographie/CartoProcessPage'
 import { ReferentielsPage } from './pages/ReferentielsPage'
 import { SourceDetailPage } from './pages/SourceDetailPage'
 import { ParsingPluginsPage } from './pages/ParsingPluginsPage'
@@ -145,6 +146,8 @@ function AppRoutes() {
         <Route path="/cartographie/objets/:key" element={gate('cartographie:read', <CartoObjectPage />)} />
         <Route path="/cartographie/modeles" element={gate('cartographie:read', <CartographiePage />)} />
         <Route path="/cartographie/modeles/:slug" element={gate('cartographie:read', <CartoModelPage />)} />
+        <Route path="/cartographie/processus" element={gate('cartographie:read', <CartographiePage />)} />
+        <Route path="/cartographie/processus/:key" element={gate('cartographie:read', <CartoProcessPage />)} />
         <Route path="/domaines" element={gate('curation:read', <DomainsPage />)} />
         <Route path="/domaines/:name" element={gate('curation:read', <DomainPage />)} />
         <Route path="/secrets" element={gate('secrets:read', <SecretsPage />)} />

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router-dom'
 import { api, sessionCapabilities } from '../apiClient'
-import type { ArchimateTypeInfo, CartoCatalog, CartoTypeSummary } from '../apiClient'
+import type { ArchimateTypeInfo, CartoCatalog, CartoProcessSummary, CartoTypeSummary } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { NoBranchNote } from '../components/NoBranchNote'
@@ -15,12 +15,15 @@ import { ArchimateIcon } from '../cartographie/ArchimateIcon'
 import { ObjectsTab, NEW_OBJECT_PATH } from '../cartographie/ObjectsTab'
 import { ModelsTab, MODELS_TAB_PATH } from '../cartographie/ModelsTab'
 import { NewModelDialog } from '../cartographie/NewModelDialog'
+import { ProcessesTab, PROCESSES_TAB_PATH } from '../cartographie/ProcessesTab'
+import { AttachProcessDialog, ImportProcessDialog, NewProcessDialog } from '../cartographie/ProcessDialogs'
 
 // Écrans de la cartographie (epic « Cartographie — types et objets ») : Types
 // (ticket e7521e80, /cartographie/types), Objets (ticket 6f71bcba,
-// /cartographie/objets) et Modèles (ticket 5a05c7bb, /cartographie/modeles).
-// D'abord des onglets d'un même écran, ce sont trois écrans indépendants ouverts
-// depuis le menu « Cartographie ▾ » du haut (ticket 1bea81d8, Gael). Une seule couleur,
+// /cartographie/objets), Modèles (ticket 5a05c7bb, /cartographie/modeles) et Processus
+// (epic « Cartographie — processus BPMN », ticket 7e061c3e, /cartographie/processus).
+// D'abord des onglets d'un même écran, ce sont des écrans indépendants ouverts depuis
+// le menu « Cartographie ▾ » du haut (ticket 1bea81d8, Gael). Une seule couleur,
 // celle de l'application (Gael : pas de couleurs de couche ArchiMate) ; la couche
 // se lit dans le texte. Les écritures vont dans le brouillon de la personne, sur
 // toute branche (comme les Référentiels) ; la barre du brouillon est celle du Layout.
@@ -54,7 +57,7 @@ export function CartographiePage() {
 export const OBJECTS_TAB_PATH = '/cartographie/objets'
 export const TYPES_PATH = '/cartographie/types'
 
-type Screen = 'types' | 'objects' | 'models'
+type Screen = 'types' | 'objects' | 'models' | 'processes'
 
 
 function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: string }) {
@@ -63,9 +66,17 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const canWrite = sessionCapabilities(session.data).includes('cartographie:write')
   const [adding, setAdding] = useState(false)
   const [newModel, setNewModel] = useState(false)
+  const [processDialog, setProcessDialog] = useState<'new' | 'import' | null>(null)
+  const [attaching, setAttaching] = useState<CartoProcessSummary | null>(null)
   const pathname = useLocation().pathname
   // /cartographie (ancien écran à onglets) ouvre les Objets.
-  const tab: Screen = pathname.startsWith(TYPES_PATH) ? 'types' : pathname.startsWith(MODELS_TAB_PATH) ? 'models' : 'objects'
+  const tab: Screen = pathname.startsWith(TYPES_PATH)
+    ? 'types'
+    : pathname.startsWith(MODELS_TAB_PATH)
+      ? 'models'
+      : pathname.startsWith(PROCESSES_TAB_PATH)
+        ? 'processes'
+        : 'objects'
   const objectsTab = tab === 'objects'
   // Chaque écran ne charge que ce qu'il affiche (le catalogue, petit, sert partout).
   const catalog = useQuery({
@@ -76,7 +87,7 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const list = useQuery({
     queryKey: ['carto-types', spaceId, branchId],
     queryFn: () => api.listCartoTypes(spaceId, branchId),
-    enabled: tab !== 'models',
+    enabled: tab === 'types' || objectsTab,
   })
   const objects = useQuery({
     queryKey: ['carto-objects', spaceId, branchId],
@@ -88,13 +99,31 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
     queryFn: () => api.listCartoModels(spaceId, branchId),
     enabled: tab === 'models',
   })
-  const editable = canWrite && !(list.data?.readonly ?? objects.data?.readonly ?? models.data?.readonly ?? false)
+  const processes = useQuery({
+    queryKey: ['carto-processes', spaceId, branchId],
+    queryFn: () => api.listCartoProcesses(spaceId, branchId),
+    enabled: tab === 'processes',
+  })
+  const editable =
+    canWrite &&
+    !(list.data?.readonly ?? objects.data?.readonly ?? models.data?.readonly ?? processes.data?.readonly ?? false)
   const types = list.data?.types ?? []
-  const errors = [catalog.error, list.error, objects.error, models.error].flatMap((e) =>
+  const errors = [catalog.error, list.error, objects.error, models.error, processes.error].flatMap((e) =>
     e ? errorMessages(t, e) : [],
   )
-  const subtitle = { types: 'cartoSubtitle', objects: 'cartoObjectsSubtitle', models: 'cartoModelsSubtitle' }[tab]
-  const title = { types: 'cartoTabTypes', objects: 'cartoTabObjects', models: 'cartoTabModels' }[tab]
+  const subtitle = {
+    types: 'cartoSubtitle',
+    objects: 'cartoObjectsSubtitle',
+    models: 'cartoModelsSubtitle',
+    processes: 'cartoProcessesSubtitle',
+  }[tab]
+  const title = { types: 'cartoTabTypes', objects: 'cartoTabObjects', models: 'cartoTabModels', processes: 'cartoTabProcesses' }[tab]
+  // Les processus métier de l'espace : ce qu'un processus BPMN peut détailler.
+  const businessProcesses = (objects.data?.objects ?? [])
+    .filter((o) => o.archimate === 'BusinessProcess')
+    .map((o) => ({ key: o.key, name: o.name }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const processKeys = new Set((processes.data?.processes ?? []).map((p) => p.key))
   return (
     <main>
       <div className="breadcrumb">{t('cartoTitle')}</div>
@@ -108,6 +137,16 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
             {t('cartoNewObject')}
           </Link>
         ) : null}
+        {editable && tab === 'processes' ? (
+          <div className="page-actions">
+            <button type="button" className="btn" onClick={() => setProcessDialog('import')}>
+              {t('cartoImportProcess')}
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => setProcessDialog('new')}>
+              {t('cartoNewProcess')}
+            </button>
+          </div>
+        ) : null}
         {editable && tab === 'models' ? (
           <button type="button" className="btn btn-primary" onClick={() => setNewModel(true)}>
             {t('cartoNewModel')}
@@ -120,7 +159,7 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
         ) : null}
       </div>
       <ErrorList messages={errors} />
-      {list.isLoading || catalog.isLoading || objects.isLoading || models.isLoading ? (
+      {list.isLoading || catalog.isLoading || objects.isLoading || models.isLoading || processes.isLoading ? (
         <p className="muted">{t('loading')}</p>
       ) : null}
       {catalog.data && list.data && tab === 'types' ? (
@@ -144,6 +183,44 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
           objects={objects.data.objects}
           editable={editable}
           onNew={() => setNewModel(true)}
+        />
+      ) : null}
+      {processes.data && tab === 'processes' ? (
+        <ProcessesTab
+          spaceId={spaceId}
+          branchId={branchId}
+          processes={processes.data.processes}
+          editable={editable}
+          onNew={() => setProcessDialog('new')}
+          onImport={() => setProcessDialog('import')}
+          onAttach={setAttaching}
+        />
+      ) : null}
+      {processDialog === 'new' ? (
+        <NewProcessDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          choices={businessProcesses}
+          taken={processKeys}
+          onClose={() => setProcessDialog(null)}
+        />
+      ) : null}
+      {processDialog === 'import' ? (
+        <ImportProcessDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          choices={businessProcesses}
+          taken={processKeys}
+          onClose={() => setProcessDialog(null)}
+        />
+      ) : null}
+      {attaching ? (
+        <AttachProcessDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          process={attaching}
+          choices={businessProcesses}
+          onClose={() => setAttaching(null)}
         />
       ) : null}
       {newModel && catalog.data && models.data ? (

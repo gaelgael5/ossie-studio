@@ -35,6 +35,7 @@ from ossie_studio.cartographie.model import (
     is_empty,
     properties_schema,
 )
+from ossie_studio.cartographie.process import processes_detailing
 from ossie_studio.cartographie.service import CartographieTarget
 from ossie_studio.cartographie.space import Cartographie, read_cartographie, save_object
 from ossie_studio.deps import ConnDep
@@ -206,6 +207,7 @@ def _detail(
     dates: dict[str, FileDates],
     states: dict[str, str],
     models: list[tuple[str, str]],
+    processes: list[str] | None = None,
 ) -> dict[str, Any]:
     found = space.objects.get(key)
     if found is None:
@@ -239,6 +241,8 @@ def _detail(
         "problems": [problem_payload(p) for p in space.problems if p.path == path],
         # Les modèles qui le retiennent (epic « Cartographie — modèles et vues »).
         "models": [{"slug": slug, "name": name} for slug, name in models],
+        # Les processus BPMN qui le détaillent (epic « Cartographie — processus BPMN »).
+        "processes": processes or [],
     }
 
 
@@ -291,10 +295,12 @@ async def get_object(
     try:
         space = await target.cartographie()
         models = await target.read(lambda root: models_retaining(root, key))
+        processes = await target.read(lambda root: processes_detailing(root, key))
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     dates = await carto_history(conn, crypto, manager, space_id, branch_id)
-    return _detail(space, key, dates, await draft_states(conn, workdir, branch_id), models)
+    states = await draft_states(conn, workdir, branch_id)
+    return _detail(space, key, dates, states, models, processes)
 
 
 async def _write_and_read(

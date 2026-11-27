@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- export Camunda -->
+<bpmn2:definitions xmlns:bpmn2="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" id='Definitions_9' targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn2:process id="Proc_A" name="Retour client" isExecutable="true">
+    <bpmn2:extensionElements>
+      <camunda:properties><camunda:property name="sla" value="2j" /></camunda:properties>
+    </bpmn2:extensionElements>
+    <bpmn2:startEvent id="S" />
+  </bpmn2:process>
+  <bpmndi:BPMNDiagram id="D"><bpmndi:BPMNPlane id="P" bpmnElement="Proc_A">
+    <bpmndi:BPMNShape id="S_di" bpmnElement="S"><dc:Bounds x="10" y="10" width="36" height="36" /></bpmndi:BPMNShape>
+  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn2:definitions>

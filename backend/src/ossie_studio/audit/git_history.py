@@ -122,7 +122,8 @@ def referentiel_events(commits: list[PathCommit], filters: AuditFilters) -> list
 CARTO_TYPE = "carto_type"
 CARTO_OBJECT = "carto_object"
 CARTO_MODEL = "carto_model"
-CARTOGRAPHIE_TYPES = (CARTO_TYPE, CARTO_OBJECT, CARTO_MODEL)
+CARTO_PROCESS = "carto_process"
+CARTOGRAPHIE_TYPES = (CARTO_TYPE, CARTO_OBJECT, CARTO_MODEL, CARTO_PROCESS)
 _CARTO_TYPE_SUFFIX = ".schema.yaml"
 # Un modèle et son graphique : un seul objet du journal, le modèle (son slug).
 _CARTO_MODEL_SUFFIXES = (".modele.yaml", ".graphique.yaml")
@@ -132,8 +133,12 @@ def _carto_target(path: str) -> tuple[str, str] | None:
     """(type d'objet du journal, identifiant) d'un fichier de la cartographie : un
     type (`cartographie/types/<slug>.schema.yaml`, son slug) ou un objet
     (`cartographie/objets/<type>/<clé en minuscules>.yaml`, sa clé), ou un modèle
-    (`cartographie/modeles/<slug>.modele.yaml` et son graphique, son slug)."""
+    (`cartographie/modeles/<slug>.modele.yaml` et son graphique, son slug), ou un
+    processus BPMN (`cartographie/processus/<clé en minuscules>.bpmn`, sa clé)."""
     parts = PurePosixPath(path).parts
+    if len(parts) == 3 and parts[:2] == ("cartographie", "processus"):
+        if parts[2].endswith(".bpmn"):
+            return CARTO_PROCESS, parts[2][: -len(".bpmn")].upper()
     if len(parts) == 3 and parts[:2] == ("cartographie", "modeles"):
         for suffix in _CARTO_MODEL_SUFFIXES:
             if parts[2].endswith(suffix):

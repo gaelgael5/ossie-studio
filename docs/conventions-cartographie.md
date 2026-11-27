@@ -1,4 +1,4 @@
-# Conventions — cartographie (types, objets, relations, modèles)
+# Conventions — cartographie (types, objets, relations, modèles, processus)
 
 Epic « Cartographie — types et objets » (docflow 65d94dd0), enablers f8167ae1 (format)
 et 0e088eaa (catalogue ArchiMate 3.2, règles de relation, points de vue).
@@ -284,5 +284,105 @@ sa clé et son nom, note, cadre, imbrication — et connexions ; **jamais le des
 `get_carto_object` donne aussi les modèles qui retiennent l'objet (`models`).
 
 **Le composant** est servi par l'application sous `/api/archimate`
-(`urban_archimate.mount`, paquet `urban-archimate==0.1.2`) : `urban-archimate.js` et
+(`urban_archimate.mount`, paquet `urban-archimate==0.1.3`) : `urban-archimate.js` et
 le schéma.
+
+## Un processus BPMN
+
+Epic « Cartographie — processus BPMN » (docflow f97e7afe), enabler 1d35290d. Code :
+`cartographie/process.py`.
+
+- **Un fichier XML BPMN 2.0 standard**, dessin compris (`bpmndi`), rangé dans
+  `cartographie/processus/<clé en minuscules>.bpmn`. La clé (règle des clés de la
+  cartographie) est aussi l'`id` du `bpmn:definitions`.
+- **Gardé tel quel** : Ossie lit avec `defusedxml` (entités refusées) et ne fait que des
+  retouches ciblées du texte — `id` du document aligné sur la clé
+  (`with_definitions_id`), rattachement au processus métier (`with_detail`). Préfixes,
+  extensions d'autres outils, commentaires et dessin sont conservés.
+- **Rattachements** : l'extension du composant `urban-bpmn`, `<urban:reference cle type/>`
+  dans `bpmn:extensionElements` (espace de noms
+  `https://github.com/gaelgael5/urban-bpmn/schema/1.0`). Sur `bpmn:process` : le
+  processus métier détaillé (`BusinessProcess`) ; sur `bpmn:collaboration` : la
+  collaboration métier (`BusinessCollaboration`, une seule) ; sur un participant, un
+  couloir, un objet ou un stockage de données : l'objet Ossie. Quand Ossie ajoute une
+  référence, il déclare l'espace de noms sur la balise elle-même.
+- **Noms** : le XML garde le nom de chaque élément rattaché ; la source est l'objet Ossie.
+  `referenced_objects` donne la liste (clé, nom à jour, type) que le composant reçoit à
+  l'ouverture (`references`) et applique.
+- **Contrôles à la lecture** (`read_process`, identifiant en cause et élément BPMN) :
+  `process_unreadable` (message de l'analyseur), `process_not_bpmn`,
+  `process_no_diagram`, `process_id_mismatch`, `process_reference_unknown`,
+  `process_detail_not_business_process`,
+  `process_collaboration_not_business_collaboration`, `process_collaboration_multiple`.
+  Supprimer un objet référencé reste permis : la référence est signalée à la lecture.
+- **Écriture** (`save_process`) : refus nommés `process_key_invalid`, `process_exists`,
+  `process_not_found`, `process_invalid` ; rien n'est écrit en cas de refus.
+  `new_process_xml` crée un processus avec un événement de début dessiné.
+- Vérifié avec bpmn-moddle (l'analyseur de bpmn.io) : les fichiers créés ou retouchés
+  par Ossie se lisent sans avertissement, l'extension ignorée ; avec l'extension
+  d'urban-bpmn chargée, le rattachement est retrouvé.
+
+### L'écran Processus (feature 7e061c3e)
+
+Ouvert depuis le menu « Cartographie ▾ » (Types, Objets, Modèles, Processus ; ticket
+1bea81d8), à l'adresse `/cartographie/processus`.
+
+Code : `api/cartographie_processes.py` (routes sous
+`/api/spaces/{space}/branches/{branch}/cartographie/processus`), front
+`cartographie/ProcessesTab.tsx`, `ProcessDialogs.tsx`, `CartoProcessPage.tsx`,
+`ProcessPreview.tsx`.
+
+- **Liste** (`GET …/processus`) : par processus, la clé, le nom, le processus métier
+  détaillé (`detail_of`, avec son nom à jour), les nombres (participants, couloirs, objets
+  rattachés hors processus et collaboration), les noms des participants (pour le filtre)
+  et un **aperçu** calculé depuis le dessin (`preview` : boîtes `pool`, `lane`, `event`,
+  `gateway`, `task`, `data`, et les flux). Dates de publication et état du brouillon
+  comme les autres fichiers de la cartographie.
+- **Créer** (`POST …/processus`) : clé, nom, processus métier facultatif ; refus
+  `process_name_missing`, `process_key_invalid`, `process_exists`.
+- **Importer** : `POST …/processus/verifier` vérifie sans rien écrire (XML BPMN 2.0
+  valide, dessin présent, nombres, éléments rattachés, aperçu, nom et clé proposés
+  `PRC-<NOM>`) ; `POST …/processus/importer` range le fichier **tel quel** — seules
+  retouches : `id` du document = clé, nom du processus s'il a été changé, rattachement
+  s'il a été choisi. Un fichier sans dessin est refusé ; taille limitée à 5 Mo
+  (`process_too_large`).
+- **Rattacher / détacher** (`POST …/processus/{clé}/rattacher`, `detail_of` à `null` pour
+  détacher) ; **supprimer** (`DELETE …/processus/{clé}`) : les objets rattachés restent.
+- **Fiche d'un processus métier** (`BusinessProcess`) : section « Détail BPMN »
+  — « Ouvrir le détail BPMN » s'il existe (champ `processes` de la fiche), sinon « Créer
+  le détail BPMN » (fenêtre de création, processus métier déjà choisi).
+- **Droits** : lecture avec `cartographie:read`, toute écriture avec
+  `cartographie:write`.
+
+### L'éditeur d'un processus (feature 48335b93)
+
+Le composant `urban-bpmn` (paquet `urban-bpmn==0.1.1`) est servi par l'application sous
+`/api/bpmn` (`urban_bpmn.mount`). Code : `cartographie/process_tools.py`, routes dans
+`api/cartographie_processes.py`, front `CartoProcessPage.tsx`, `ProcessEditor.tsx`,
+`urbanBpmn.ts`.
+
+- **Ouvrir** (`GET …/{clé}/contenu`) : le XML tel quel et les objets référencés avec leur
+  nom à jour (`references`) ; le composant affiche et réexporte ces noms.
+- **Processus non rattaché** : l'écran demande d'abord le processus métier (« Rattacher
+  et ouvrir ») ; « Continuer sans » ouvre l'éditeur, la boîte montre alors tout l'espace.
+- **Boîte à outils** (`GET …/{clé}/outils`) : groupe `lies` (« Liés au processus » :
+  acteurs, rôles, collaborations affectés au processus métier — Assignment ; objets
+  métier qu'il accède — Access ; applications qui le servent — Serving), puis `autres`
+  (« Autres objets de l'espace », du même genre) ; sans processus métier, un seul groupe
+  `objets`. Outil : libellé, pictogramme ArchiMate du type, `clé · type` au survol.
+- **Pose** (`GET …/{clé}/pose/{objet}?collaboration=`) : acteur → `participant`, rôle →
+  `couloir`, objet métier → `objet-donnees`, application → `stockage-donnees`,
+  collaboration → `collaboration` avec ses `membres` (acteurs et rôles qu'elle agrège ou
+  compose). Tout autre type est refusé (`process_drop_unsupported`) : à décider avec Gael.
+  Non relié, l'objet porte un avertissement qui nomme la relation qui manque (`relation`,
+  `source`, `target`) ; un acteur membre de la collaboration désignée par le dessin est
+  relié. L'écran en fait la phrase et l'action « Créer la relation » : la fenêtre
+  « Nouvelle relation » s'ouvre avec les deux extrémités et le type choisis, et se ferme
+  sans quitter l'éditeur. La pose n'est jamais bloquée ; rien n'est créé d'office.
+- **Rattacher un élément du dessin** (délégué `attach`, `GET …/{clé}/rattachables?element=`) :
+  participant → acteurs, couloir → rôles, objet de données → objets métier, stockage →
+  applications, collaboration → collaborations, processus → processus métier ; une tâche
+  ne se rattache à rien.
+- **Enregistrer** (`PUT …/{clé}`, Ctrl+S) : le XML rendu par le composant, contrôlé comme
+  tout processus (BPMN lisible, dessin, clés existantes et du bon type) ; refusé sinon,
+  rien n'est écrit. Sans `cartographie:write` : lecture seule.

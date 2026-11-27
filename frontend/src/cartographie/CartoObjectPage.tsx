@@ -27,6 +27,8 @@ import { FoldedProperties, isEmpty, missingRequired, propertyNames } from './Fol
 import type { Props } from './FoldedProperties'
 import { longDate } from './dates'
 import { cartoModelPath } from './ModelsTab'
+import { NewProcessDialog } from './ProcessDialogs'
+import { cartoProcessPath } from './ProcessesTab'
 import { cartoObjectPath } from './ObjectsTab'
 import { RelateDialog } from './RelateDialog'
 import type { RelateSource } from './RelateDialog'
@@ -462,6 +464,9 @@ function ObjectEditor({
               })}
             </p>
           ) : null}
+          {detail && detail.archimate === 'BusinessProcess' ? (
+            <BpmnDetailSection spaceId={spaceId} branchId={branchId} detail={detail} objects={objects} readOnly={readOnly} />
+          ) : null}
           {detail && (detail.models?.length ?? 0) > 0 ? <ModelsSection models={detail.models} /> : null}
           {isRelation && detail ? <RuleSection catalog={catalog} detail={detail} /> : null}
           <FileSection detail={detail} typeSlug={type} keyValue={key} />
@@ -740,6 +745,62 @@ function RelationRow({
       </div>
       <span aria-hidden="true">›</span>
     </div>
+  )
+}
+
+/** Le détail BPMN d'un processus métier (epic « Cartographie — processus BPMN », ticket
+ * 7e061c3e) : l'ouvrir s'il existe, sinon le créer, rattaché à ce processus métier. */
+function BpmnDetailSection({
+  spaceId,
+  branchId,
+  detail,
+  objects,
+  readOnly,
+}: {
+  spaceId: string
+  branchId: string
+  detail: CartoObjectDetail
+  objects: CartoObjectSummary[]
+  readOnly: boolean
+}) {
+  const { t } = useTranslation()
+  const [creating, setCreating] = useState(false)
+  const processes = detail.processes ?? []
+  const all = useQuery({
+    queryKey: ['carto-processes', spaceId, branchId],
+    queryFn: () => api.listCartoProcesses(spaceId, branchId),
+    enabled: creating,
+  })
+  const choices = objects.filter((o) => o.archimate === 'BusinessProcess').map((o) => ({ key: o.key, name: o.name }))
+  return (
+    <section className="panel carto-section" aria-label={t('cartoBpmnDetail')}>
+      <h2 className="carto-detail-title">{t('cartoBpmnDetail')}</h2>
+      {processes.length > 0 ? (
+        <div className="row carto-bpmn-links">
+          {processes.map((key, i) => (
+            <Link key={key} to={cartoProcessPath(key)} className={`btn${i === 0 ? ' btn-primary' : ''}`}>
+              {processes.length === 1 ? t('cartoOpenBpmnDetail') : t('cartoOpenBpmnDetailKey', { key })}
+            </Link>
+          ))}
+        </div>
+      ) : readOnly ? (
+        <p className="muted small">{t('cartoNoBpmnDetail')}</p>
+      ) : (
+        <button type="button" className="btn" onClick={() => setCreating(true)}>
+          {t('cartoCreateBpmnDetail')}
+        </button>
+      )}
+      {creating ? (
+        <NewProcessDialog
+          spaceId={spaceId}
+          branchId={branchId}
+          choices={choices}
+          taken={new Set((all.data?.processes ?? []).map((p) => p.key))}
+          initialDetail={detail.key}
+          onClose={() => setCreating(false)}
+        />
+      ) : null}
+    </section>
   )
 }
 

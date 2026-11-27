@@ -1678,6 +1678,8 @@ export interface CartoObjectDetail {
   problems: { path: string; code: string; detail: string; field: string }[]
   /** Les modèles qui le retiennent (epic « Cartographie — modèles et vues »). */
   models: { slug: string; name: string }[]
+  /** Les processus BPMN qui le détaillent (epic « Cartographie — processus BPMN »). */
+  processes?: string[]
 }
 
 export interface CartoObjectBody {
@@ -1757,6 +1759,79 @@ export interface CartoModelBody {
   rules: string
   view: string
   viewpoint: string
+}
+
+// --- Processus BPMN de la cartographie (epic « Cartographie — processus BPMN », 7e061c3e) ---
+
+/** Un objet de la cartographie tel que le voit l'éditeur BPMN (`ReferencedObject`). */
+export interface CartoBpmnObject {
+  cle: string
+  nom: string
+  type: string
+}
+
+/** La relation qui manque à un objet posé (l'écran en fait la phrase et l'action). */
+export interface CartoBpmnMissing {
+  code: 'process_drop_not_linked'
+  relation: string
+  source: string
+  source_name: string
+  target: string
+  target_name: string
+}
+
+/** Ce que rend Ossie quand un objet est posé dans l'éditeur BPMN (ticket 48335b93). */
+export interface CartoBpmnDrop {
+  nom: string
+  type: string
+  genre: 'participant' | 'couloir' | 'objet-donnees' | 'stockage-donnees' | 'collaboration'
+  membres?: (CartoBpmnObject & { genre: CartoBpmnDrop['genre'] })[]
+  avertissement?: CartoBpmnMissing
+}
+
+/** L'aperçu du dessin d'un processus : formes (nature simplifiée) et liens (points). */
+export interface CartoProcessPreview {
+  boxes: { x: number; y: number; l: number; h: number; kind: 'pool' | 'lane' | 'event' | 'gateway' | 'task' | 'data' | 'other'; label: string }[]
+  links: { points: number[][] }[]
+}
+
+export interface CartoProcessSummary {
+  key: string
+  name: string
+  path: string
+  errors: number
+  readable: boolean
+  /** Le processus métier dont il est le détail ; null : non rattaché. */
+  detail_of: { key: string; name: string | null; exists: boolean } | null
+  participants: number
+  lanes: number
+  /** Éléments rattachés à un objet (participants, couloirs, données). */
+  attached: number
+  /** Noms des participants (piscines), pour le filtre. */
+  pools: string[]
+  preview: CartoProcessPreview
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+}
+
+export interface CartoProcessCheck {
+  valid: boolean
+  error: { code: string; detail?: string } | null
+  has_diagram?: boolean
+  participants?: number
+  lanes?: number
+  elements?: number
+  flows?: number
+  attached?: number
+  name?: string
+  suggested_key?: string
+  preview?: CartoProcessPreview
+}
+
+export interface CartoProcessBody {
+  key: string
+  name: string
+  detail_of: string | null
 }
 
 // --- Référentiels (epic « Référentiels », ticket 829a86a7) ---------------------------------
@@ -2482,6 +2557,54 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}`,
       { method: 'DELETE' },
     ),
+  listCartoProcesses: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; processes: CartoProcessSummary[] }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus`),
+  getCartoProcess: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<CartoProcessSummary & { problems: CartoProblem[] }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}`),
+  /** Le fichier BPMN tel quel et les objets référencés (noms à jour), pour le composant. */
+  getCartoProcessContent: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ key: string; content: string; references: { cle: string; nom: string; type: string }[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/contenu`,
+    ),
+  createCartoProcess: (spaceId: string, branchId: string, body: CartoProcessBody) =>
+    apiFetch<CartoProcessSummary & { revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  checkCartoProcessImport: (spaceId: string, branchId: string, body: { content: string; filename: string }) =>
+    apiFetch<CartoProcessCheck>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/verifier`, { method: 'POST', body: JSON.stringify(body) }),
+  importCartoProcess: (spaceId: string, branchId: string, body: CartoProcessBody & { content: string }) =>
+    apiFetch<CartoProcessSummary & { revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/importer`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  attachCartoProcess: (spaceId: string, branchId: string, key: string, detailOf: string | null) =>
+    apiFetch<CartoProcessSummary & { revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/rattacher`, {
+      method: 'POST',
+      body: JSON.stringify({ detail_of: detailOf }),
+    }),
+  deleteCartoProcess: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+    }),
+  /** La boîte à outils de l'éditeur BPMN : « Liés au processus », puis les autres. */
+  getCartoProcessToolbox: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ detail_of: string | null; groupes: CartoToolGroup[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/outils`,
+    ),
+  dropCartoProcessObject: (spaceId: string, branchId: string, key: string, objectKey: string, collaboration: string) =>
+    apiFetch<CartoBpmnDrop>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/pose/${encodeURIComponent(objectKey)}?collaboration=${encodeURIComponent(collaboration)}`,
+    ),
+  listCartoProcessAttachable: (spaceId: string, branchId: string, key: string, element: string) =>
+    apiFetch<{ element: string; objets: CartoBpmnObject[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/rattachables?element=${encodeURIComponent(element)}`,
+    ),
+  saveCartoProcess: (spaceId: string, branchId: string, key: string, content: string) =>
+    apiFetch<CartoProcessSummary & { revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
   createCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>
     apiFetch<{ type: CartoTypeSummary; revision: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types`,
