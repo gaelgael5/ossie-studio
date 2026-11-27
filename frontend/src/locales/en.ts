@@ -1134,6 +1134,7 @@ export const en = {
     cartoTypeBasedOn: 'based on {{type}} (ArchiMate)',
     cartoBandNote: 'notation and allowed relationships: those of {{type}}',
     cartoTypeTab_properties: 'Properties',
+    cartoViewReadOnly: '“Published” or “Draft” view: read only. Switch to the “Merged” view (View menu, at the top) to edit the cartography: your changes go to your draft, which this view does not fully show.',
     cartoTypeTab_imports: 'Imports',
     cartoTypeTab_relations: 'Relationships',
     cartoRelationsIntro: 'Relationships that objects of type “{{type}}” may have towards other types. ArchiMate targets are checked by default; unchecked, they stay visible and disabled.',

@@ -204,7 +204,9 @@ async def list_types(
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     states = await draft_states(conn, workdir, branch_id)
-    return {"readonly": False, "types": [_with_state(i, states) for i in items]}
+    # Vue « Publiée » : lecture seule, toute écriture irait dans un brouillon que la
+    # vue ne montre pas (bug a512d8c3).
+    return {"readonly": workdir.published_only, "types": [_with_state(i, states) for i in items]}
 
 
 def _candidate(body: TypeBody) -> CartoType:

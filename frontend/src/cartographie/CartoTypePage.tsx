@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { CartoViewNote, useCartoWrite } from './viewGate'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { api, cartoImports, sessionCapabilities } from '../apiClient'
+import { api, cartoImports } from '../apiClient'
 import type { ArchimateTypeInfo, CartoCatalog, CartoTypeDetail } from '../apiClient'
 import { ApiRequestError, errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 import { NoBranchNote } from '../components/NoBranchNote'
-import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
 import SchemaEditor from '../referentiels/SchemaEditor'
 import { fromVisual, modelText, parseModel } from '../referentiels/modelRules'
@@ -54,8 +54,7 @@ export function CartoTypePage() {
 
 function CartoTypeScreen({ spaceId, branchId, slug }: { spaceId: string; branchId: string; slug: string }) {
   const { t } = useTranslation()
-  const session = useSession()
-  const canWrite = sessionCapabilities(session.data).includes('cartographie:write')
+  const { canWrite } = useCartoWrite(branchId)
   const catalog = useQuery({
     queryKey: ['carto-catalog'],
     queryFn: () => api.getCartoCatalog(spaceId, branchId),
@@ -71,6 +70,7 @@ function CartoTypeScreen({ spaceId, branchId, slug }: { spaceId: string; branchI
   ]
   return (
     <main className="stack">
+      <CartoViewNote branchId={branchId} />
       <ErrorList messages={errors} />
       {detail.isLoading || catalog.isLoading ? <p className="muted">{t('loading')}</p> : null}
       {detail.error ? (
