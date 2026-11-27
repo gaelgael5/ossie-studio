@@ -1,0 +1,65 @@
+"""Les types communs du registre des genres d'écriture (enabler 7b4b8f3a) : un refus,
+un champ d'identité, l'emplacement d'un document, un document lu, et ce qu'un
+validateur sait faire (lire, écrire, supprimer — par le service de l'écran)."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Protocol
+
+
+class KindError(Exception):
+    """Un refus du registre ou d'un validateur : le code, le champ en cause (un nom
+    d'identité, `path`, ou un JSONPath dans le contenu) et un message en français."""
+
+    def __init__(self, code: str, field: str, message: str, **extra: Any) -> None:
+        super().__init__(code)
+        self.code = code
+        self.field = field
+        self.message = message
+        self.extra = extra
+
+
+@dataclass(frozen=True)
+class IdentityField:
+    name: str
+    description: str  # en anglais, pour l'agent
+    format: str  # la forme attendue, en clair
+
+
+@dataclass(frozen=True)
+class Location:
+    """Où vit un document : le fichier de l'espace et, pour une valeur de
+    référentiel, la valeur visée dans ce fichier (les valeurs de sa clé, dans l'ordre
+    du modèle). `path` None : un document que le service nommera à sa création
+    (certification nouvelle)."""
+
+    kind: str
+    identity: dict[str, Any]
+    path: str | None
+    entry: tuple[Any, ...] | None = None
+
+
+@dataclass(frozen=True)
+class Document:
+    """Un document lu : son contenu (objet pour le YAML/JSON, texte pour le XML), sa
+    version (à rendre pour le remplacer, le modifier ou le supprimer) et son fichier."""
+
+    content: Any
+    version: str
+    path: str
+
+
+class Store(Protocol):
+    """Le validateur d'un genre : **le service de l'écran**, mêmes contrôles et mêmes
+    refus nommés. Rien n'est validé ici qui ne le soit déjà par le service ; un
+    validateur ne fait que traduire le document en appel du service."""
+
+    def read(self, root: Path, location: Location) -> Document | None: ...
+
+    def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
+        """Écrit (création ou remplacement complet) ; rend les avertissements."""
+        ...
+
+    def delete(self, root: Path, location: Location) -> None: ...

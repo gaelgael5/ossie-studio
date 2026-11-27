@@ -18,6 +18,11 @@ prévu : les datasets, le jour où les domaines deviendront des répertoires).
 
 Une identité invalide (slug mal formé, type inconnu, clé vide…) est refusée avec une
 erreur qui nomme le champ (`write_identity_invalid`).
+
+Décisions de Gael (27 novembre) : un processus BPMN s'identifie par **sa** clé (celle de
+son fichier ; un processus métier peut en avoir plusieurs) ; une certification par son
+**slug** — son fichier porte un identifiant interne, retrouvé dans l'espace, et c'est le
+service qui le nomme à la création, comme à l'écran (`Location.path` vaut alors None).
 """
 
 from __future__ import annotations
@@ -31,7 +36,15 @@ from ossie_studio.cartographie.diagram import diagram_path, graphic_path, rules_
 from ossie_studio.cartographie.model import is_valid_key, object_path, type_path
 from ossie_studio.cartographie.process import process_path
 from ossie_studio.cartographie.space import read_cartographie
-from ossie_studio.governance.repo import InvalidGovernanceId, cert_path, scheme_path, tag_path
+from ossie_studio.governance.repo import (
+    InvalidGovernanceId,
+    cert_path,
+    read_certs,
+    scheme_path,
+    tag_path,
+)
+from ossie_studio.mcp_surface import kind_stores as stores
+from ossie_studio.mcp_surface.kind_base import IdentityField, KindError, Location, Store
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import load_model, model_key
 from ossie_studio.referentiels.repo import model_path, values_path
@@ -39,36 +52,6 @@ from ossie_studio.slugs import is_valid_slug
 
 PathRule = Literal["forbidden", "allowed"]
 Syntax = Literal["jsonpath", "xpath"]
-
-
-class KindError(Exception):
-    """Un refus du registre : le code, le champ en cause et un message en français."""
-
-    def __init__(self, code: str, field: str, message: str, **extra: Any) -> None:
-        super().__init__(code)
-        self.code = code
-        self.field = field
-        self.message = message
-        self.extra = extra
-
-
-@dataclass(frozen=True)
-class IdentityField:
-    name: str
-    description: str  # en anglais, pour l'agent
-    format: str  # la forme attendue, en clair
-
-
-@dataclass(frozen=True)
-class Location:
-    """Où vit un document : le fichier de l'espace et, pour une valeur de
-    référentiel, la valeur visée dans ce fichier (les valeurs de sa clé, dans l'ordre
-    du modèle)."""
-
-    kind: str
-    identity: dict[str, Any]
-    path: str
-    entry: tuple[Any, ...] | None = None
 
 
 Locator = Callable[[Path | None, Mapping[str, Any]], Location]
@@ -85,6 +68,9 @@ class WriteKind:
     capability: str  # pour écrire : la même que l'écran
     read_capability: str  # pour lire
     locator: Locator
+    store: Store  # le validateur : le service de l'écran
+    # Ce qu'une modification ne change pas (JSONPath dans le contenu).
+    frozen: tuple[str, ...] = ()
     path_rule: PathRule = "forbidden"
     path_root: str = ""  # sous laquelle doit rester un chemin autorisé
     # Le champ d'identité qui donne le schéma exact du contenu (read_schema).
@@ -105,8 +91,7 @@ class WriteKind:
             raise KindError(
                 "write_path_forbidden",
                 "path",
-                f"Le chemin est fixé par le système pour le genre {self.name} ; ne pas le "
-                f"fournir (il sera {location.path}).",
+                f"Le chemin est fixé par le système pour le genre {self.name} ; ne pas le fournir.",
                 expected=location.path,
             )
         return Location(self.name, location.identity, self._allowed(given), location.entry)
@@ -290,6 +275,14 @@ def _governance(kind: str, path_of: Callable[[str], str], example: str) -> Locat
     return locate
 
 
+def _certification(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """Une certification, par son slug : le fichier de celle qui le porte ; aucun
+    pour une nouvelle (le service le nomme)."""
+    slug = _slug("certification", "slug", identity)
+    found = next((c for c in read_certs(root) if c.slug == slug), None) if root else None
+    return Location("certification", {"slug": slug}, cert_path(found.id) if found else None)
+
+
 _SLUG = "lowercase letters, digits and dashes"
 _KEY = "uppercase letters, digits and dashes"
 
@@ -304,6 +297,7 @@ KINDS: tuple[WriteKind, ...] = (
         capability="cartographie:write",
         read_capability="cartographie:read",
         locator=_carto_type,
+        store=stores.CartoTypeStore(),
     ),
     WriteKind(
         name="carto_objet",
@@ -321,6 +315,8 @@ KINDS: tuple[WriteKind, ...] = (
         capability="cartographie:write",
         read_capability="cartographie:read",
         locator=_carto_objet,
+        store=stores.CartoObjectStore(),
+        frozen=("$.cle", "$.type", "$.source", "$.cible"),
         typed_by="type",
     ),
     WriteKind(
@@ -333,6 +329,8 @@ KINDS: tuple[WriteKind, ...] = (
         capability="cartographie:write",
         read_capability="cartographie:read",
         locator=_diagram_file("carto_modele", diagram_path),
+        store=stores.CartoModelStore(),
+        frozen=("$.id",),
     ),
     WriteKind(
         name="carto_graphique",
@@ -344,6 +342,7 @@ KINDS: tuple[WriteKind, ...] = (
         capability="cartographie:write",
         read_capability="cartographie:read",
         locator=_diagram_file("carto_graphique", graphic_path),
+        store=stores.CartoGraphicStore(),
     ),
     WriteKind(
         name="carto_regles",
@@ -355,6 +354,7 @@ KINDS: tuple[WriteKind, ...] = (
         capability="cartographie:write",
         read_capability="cartographie:read",
         locator=_diagram_file("carto_regles", rules_path),
+        store=stores.CartoRulesStore(),
     ),
     WriteKind(
         name="processus",
@@ -372,6 +372,7 @@ KINDS: tuple[WriteKind, ...] = (
         capability="cartographie:write",
         read_capability="cartographie:read",
         locator=_processus,
+        store=stores.ProcessStore(),
     ),
     WriteKind(
         name="referentiel_modele",
@@ -383,6 +384,7 @@ KINDS: tuple[WriteKind, ...] = (
         capability="referentiels:write",
         read_capability="referentiels:read",
         locator=_referentiel_modele,
+        store=stores.ReferentielModelStore(),
     ),
     WriteKind(
         name="referentiel_valeur",
@@ -403,6 +405,7 @@ KINDS: tuple[WriteKind, ...] = (
         capability="referentiels:write",
         read_capability="referentiels:read",
         locator=_referentiel_valeur,
+        store=stores.ReferentielValueStore(),
         typed_by="referentiel",
     ),
     WriteKind(
@@ -415,6 +418,8 @@ KINDS: tuple[WriteKind, ...] = (
         capability="governance:write",
         read_capability="governance:read",
         locator=_governance("tag", tag_path, "pii/email"),
+        store=stores.TagStore(),
+        frozen=("$.id",),
     ),
     WriteKind(
         name="classification",
@@ -426,17 +431,21 @@ KINDS: tuple[WriteKind, ...] = (
         capability="governance:write",
         read_capability="governance:read",
         locator=_governance("classification", scheme_path, "confidentialite"),
+        store=stores.ClassificationStore(),
+        frozen=("$.id",),
     ),
     WriteKind(
         name="certification",
         description="A certification that can be granted to assets.",
         label="certification",
-        identity=(IdentityField("id", "Id of the certification.", "a safe name"),),
+        identity=(IdentityField("slug", "Slug of the certification.", f"{_SLUG}, e.g. 'or'"),),
         standard="certification",
         syntax="jsonpath",
         capability="governance:write",
         read_capability="governance:read",
-        locator=_governance("certification", cert_path, "gold"),
+        locator=_certification,
+        store=stores.CertificationStore(),
+        frozen=("$.id", "$.slug"),
     ),
 )
 
