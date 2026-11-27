@@ -421,6 +421,37 @@ def save_object(
     return obj
 
 
+def save_objects(
+    root: Path, objects: list[tuple[CartoObject, bool]], cat: Catalog | None = None
+) -> None:
+    """Crée ou modifie un lot d'objets (un import, ticket eed2dd0d) par les règles
+    de `save_object`, en lisant la cartographie **une seule fois** : `save_object`
+    appelé par objet la relisait (et revalidait) à chaque fois, soit 44 s pour 204
+    applications. `objects` : (objet, création ?). Tout ou rien : le premier refus
+    remonte avant toute écriture. Les extrémités d'une relation peuvent être dans
+    le lot (validé comme un tout par `check_batch`), quel que soit l'ordre."""
+    cat = cat or catalog()
+    space = read_cartographie(root, cat)
+    _refuse_duplicates(space)
+    for obj, create in objects:
+        existing = space.objects.get(obj.key)
+        if create and existing is not None:
+            raise CartographieError("object_key_taken", status=409, key=obj.key)
+        if not create and existing is None:
+            raise CartographieError("object_not_found", status=404, key=obj.key)
+    batch = [obj for obj, _create in objects]
+    problems = check_batch(space, batch, cat)
+    if problems:
+        # Les problèmes du premier objet refusé, comme `save_object` sur cet objet.
+        first = min(p.index for p in problems)
+        found = [replace(p, index=-1) for p in problems if p.index == first]
+        raise CartographieError("object_invalid", problems=found)
+    for obj in batch:
+        target = root / object_path(obj.type, obj.key)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(dump_object(obj), encoding="utf-8")
+
+
 def check_batch(
     space: Cartographie, objects: list[CartoObject], cat: Catalog | None = None
 ) -> list[Problem]:

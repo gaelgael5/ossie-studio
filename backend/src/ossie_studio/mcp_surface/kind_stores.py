@@ -35,6 +35,7 @@ from ossie_studio.cartographie.space import (
     delete_type,
     read_cartographie,
     save_object,
+    save_objects,
     save_type,
 )
 from ossie_studio.drafts.store import git_blob_sha
@@ -226,6 +227,15 @@ class CartoObjectStore:
             raise refused[0][1]
         save_object(root, self._object(location, content), create=create)
         return []
+
+    def write_batch(self, root: Path, entries: Sequence[tuple[Location, Any, bool]]) -> None:
+        """Le lot d'un import (ticket eed2dd0d) : mêmes règles que `write` appelé
+        pour chaque entrée, mais la cartographie n'est lue qu'une fois
+        (`space.save_objects`). (emplacement, contenu, création ?) ; tout ou rien."""
+        save_objects(
+            root,
+            [(self._object(location, content), create) for location, content, create in entries],
+        )
 
     def delete(self, root: Path, location: Location) -> None:
         carto_diagram.delete_object(root, location.identity["key"])
