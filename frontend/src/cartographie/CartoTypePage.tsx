@@ -257,6 +257,7 @@ function TypeEditor({
         parsed.ok ? (
           <TypeRelations
             detail={detail}
+            catalog={catalog}
             deviations={readDeviations(parsed.model)}
             readOnly={readOnly}
             onChange={onRelations}

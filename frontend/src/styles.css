@@ -4365,3 +4365,57 @@ urban-bpmn {
   max-width: 480px;
   margin-block: 4px 8px;
 }
+
+/* Onglet « Relations » : source | relation | cibles acceptées (ticket 3fdb1e6e). */
+.carto-rel-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.carto-rel-middle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.carto-rel-line {
+  flex: 1 1 24px;
+  min-width: 24px;
+}
+.carto-rel-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  background: var(--bg);
+}
+.carto-rel-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.carto-rel-targets .carto-relation-targets {
+  padding-left: 0;
+}
+.carto-rel-targets select {
+  margin-left: 0;
+}
+.carto-rel-target .row {
+  align-items: center;
+  gap: 8px;
+}
+.carto-rel-target-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .carto-rel-row {
+    grid-template-columns: 1fr;
+  }
+}

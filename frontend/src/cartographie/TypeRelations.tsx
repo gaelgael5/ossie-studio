@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { CartoTypeDetail } from '../apiClient'
+import type { CartoCatalog, CartoTypeDetail } from '../apiClient'
+import { ArchimateIcon } from './ArchimateIcon'
 
 // Onglet « Relations » de la fiche d'un type (ticket 2643fd8f). Pour chaque type
 // de relation de l'espace : les cibles qu'ArchiMate permet depuis ce type
@@ -56,11 +57,14 @@ function without(list: string[] | undefined, item: string): string[] {
 
 export function TypeRelations({
   detail,
+  catalog,
   deviations,
   readOnly,
   onChange,
 }: {
   detail: CartoTypeDetail
+  /** Pour les icônes et les libellés ArchiMate (même graphisme que « + Relier… »). */
+  catalog: CartoCatalog
   deviations: Deviations
   readOnly: boolean
   onChange: (next: Deviations) => void
@@ -69,6 +73,13 @@ export function TypeRelations({
   // Relations ajoutées à l'écran, pas encore pourvues d'une cible.
   const [pending, setPending] = useState<string[]>([])
   const titleOf = new Map(detail.space_types.map((ty) => [ty.slug, ty.title]))
+  const archimateOf = new Map(detail.space_types.map((ty) => [ty.slug, ty.archimate]))
+  const byName = new Map(catalog.types.map((ty) => [ty.name, ty]))
+  const labelOf = (archimate: string | undefined) => (archimate ? (byName.get(archimate)?.label ?? archimate) : '')
+  const iconOf = (archimate: string | undefined, large = false) => {
+    const svg = archimate ? byName.get(archimate)?.icon : undefined
+    return svg ? <ArchimateIcon svg={svg} className={large ? 'archimate-icon-lg' : undefined} /> : null
+  }
   const shown = detail.relations.filter(
     (r) => r.archimate_targets.length > 0 || (deviations.added[r.relation] ?? []).length > 0 || pending.includes(r.relation),
   )
@@ -100,71 +111,85 @@ export function TypeRelations({
         const enabledCount = r.archimate_targets.filter((x) => !disabled.has(x)).length + added.length
         const listed = new Set([...r.archimate_targets, ...added])
         const candidates = detail.space_types.filter((ty) => !listed.has(ty.slug))
+        const targetRow = (target: string, origin: 'archimate' | 'added') => {
+          const off = origin === 'archimate' && disabled.has(target)
+          return (
+            <li key={`${origin}-${target}`} className={`carto-rel-target${off ? ' carto-target-off' : ''}`}>
+              <label className="row">
+                <input
+                  type="checkbox"
+                  aria-label={t('cartoTargetToggle', { relation: r.title, target: titleOf.get(target) ?? target })}
+                  checked={!off}
+                  disabled={readOnly}
+                  onChange={(e) => setTarget(r.relation, target, origin, e.target.checked)}
+                />
+                <span className="carto-icon-tile">{iconOf(archimateOf.get(target))}</span>
+                <span className="carto-rel-target-text">
+                  <strong>{titleOf.get(target) ?? target}</strong>
+                  <span className="mono muted small">{labelOf(archimateOf.get(target))}</span>
+                </span>
+                {off ? <span className="badge">{t('cartoTargetDisabled')}</span> : null}
+                {origin === 'added' ? <span className="badge badge-warn">{t('cartoOutsideArchimate')}</span> : null}
+              </label>
+            </li>
+          )
+        }
         return (
-          <div key={r.relation} className="panel carto-relation-rule">
-            <label className="row carto-relation-head">
-              <input
-                type="checkbox"
-                aria-label={t('cartoRelationToggle', { relation: r.title })}
-                checked={enabledCount > 0}
-                disabled={readOnly}
-                onChange={(e) => setRelation(r.relation, r.archimate_targets, e.target.checked)}
-              />
-              <strong>{r.title}</strong>
-              <span className="muted small mono">{r.archimate}</span>
-            </label>
-            <ul className="carto-relation-targets">
-              {r.archimate_targets.map((target) => {
-                const off = disabled.has(target)
-                return (
-                  <li key={target} className={off ? 'carto-target-off' : undefined}>
-                    <label className="row">
-                      <input
-                        type="checkbox"
-                        aria-label={t('cartoTargetToggle', { relation: r.title, target: titleOf.get(target) ?? target })}
-                        checked={!off}
-                        disabled={readOnly}
-                        onChange={(e) => setTarget(r.relation, target, 'archimate', e.target.checked)}
-                      />
-                      <span>{titleOf.get(target) ?? target}</span>
-                      {off ? <span className="badge">{t('cartoTargetDisabled')}</span> : null}
-                    </label>
-                  </li>
-                )
-              })}
-              {added.map((target) => (
-                <li key={target}>
-                  <label className="row">
-                    <input
-                      type="checkbox"
-                      aria-label={t('cartoTargetToggle', { relation: r.title, target: titleOf.get(target) ?? target })}
-                      checked
-                      disabled={readOnly}
-                      onChange={(e) => setTarget(r.relation, target, 'added', e.target.checked)}
-                    />
-                    <span>{titleOf.get(target) ?? target}</span>
-                    <span className="badge badge-warn">{t('cartoOutsideArchimate')}</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-            {!readOnly && candidates.length > 0 ? (
-              <select
-                className="input input-sm"
-                aria-label={t('cartoAddTarget', { relation: r.title })}
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) setTarget(r.relation, e.target.value, 'added', true)
-                }}
-              >
-                <option value="">{t('cartoAddTargetOption')}</option>
-                {candidates.map((ty) => (
-                  <option key={ty.slug} value={ty.slug}>
-                    {ty.title}
-                  </option>
-                ))}
-              </select>
-            ) : null}
+          <div key={r.relation} className="carto-rel-row">
+            {/* Gauche : le type source, au graphisme de la carte « SOURCE » de « + Relier… ». */}
+            <div className="carto-end">
+              <span className="carto-icon-tile carto-icon-tile-lg">{iconOf(detail.archimate, true)}</span>
+              <div className="carto-end-text">
+                <span className="carto-filter-label">{t('cartoEnd_source')}</span>
+                <strong>{detail.title}</strong>
+                <span className="mono muted small">{detail.slug}</span>
+              </div>
+              <span className="mono muted small carto-end-type">{labelOf(detail.archimate)}</span>
+            </div>
+            {/* Milieu : la relation, reliée par une flèche en tirets. */}
+            <div className="carto-rel-middle">
+              <span className="carto-arrow-line carto-rel-line" aria-hidden="true" />
+              <label className={`carto-rel-block${enabledCount === 0 ? ' carto-target-off' : ''}`}>
+                <input
+                  type="checkbox"
+                  aria-label={t('cartoRelationToggle', { relation: r.title })}
+                  checked={enabledCount > 0}
+                  disabled={readOnly}
+                  onChange={(e) => setRelation(r.relation, r.archimate_targets, e.target.checked)}
+                />
+                <span className="carto-icon-tile">{iconOf(r.archimate)}</span>
+                <span className="carto-rel-target-text">
+                  <strong>{r.title}</strong>
+                  <span className="mono muted small">{r.archimate}</span>
+                </span>
+              </label>
+              <span className="carto-arrow-line carto-rel-line" aria-hidden="true" />
+            </div>
+            {/* Droite : les types cibles acceptés. */}
+            <div className="carto-rel-targets">
+              <span className="carto-filter-label">{t('cartoRelTargets')}</span>
+              <ul className="carto-relation-targets">
+                {r.archimate_targets.map((target) => targetRow(target, 'archimate'))}
+                {added.map((target) => targetRow(target, 'added'))}
+              </ul>
+              {!readOnly && candidates.length > 0 ? (
+                <select
+                  className="input input-sm"
+                  aria-label={t('cartoAddTarget', { relation: r.title })}
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) setTarget(r.relation, e.target.value, 'added', true)
+                  }}
+                >
+                  <option value="">{t('cartoAddTargetOption')}</option>
+                  {candidates.map((ty) => (
+                    <option key={ty.slug} value={ty.slug}>
+                      {ty.title}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
           </div>
         )
       })}

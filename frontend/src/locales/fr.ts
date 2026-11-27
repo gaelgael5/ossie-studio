@@ -1134,6 +1134,7 @@ export const fr = {
     cartoBandNote: 'notation et relations permises : celles de {{type}}',
     cartoTypeTab_properties: 'Propriétés',
     cartoTypeLabel: 'Libellé',
+    cartoRelTargets: 'Cibles acceptées',
     cartoTypeTab_imports: 'Imports',
     cartoTypeTab_relations: 'Relations',
     cartoRelationsIntro: 'Relations que les objets de type « {{type}} » peuvent avoir vers d’autres types. Les cibles d’ArchiMate sont cochées par défaut ; décochées, elles restent visibles et désactivées.',

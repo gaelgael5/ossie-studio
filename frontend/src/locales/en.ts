@@ -1132,6 +1132,7 @@ export const en = {
     cartoBandNote: 'notation and allowed relationships: those of {{type}}',
     cartoTypeTab_properties: 'Properties',
     cartoTypeLabel: 'Label',
+    cartoRelTargets: 'Accepted targets',
     cartoTypeTab_imports: 'Imports',
     cartoTypeTab_relations: 'Relationships',
     cartoRelationsIntro: 'Relationships that objects of type “{{type}}” may have towards other types. ArchiMate targets are checked by default; unchecked, they stay visible and disabled.',
