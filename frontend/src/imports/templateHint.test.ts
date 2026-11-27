@@ -24,10 +24,10 @@ describe('explainProblem', () => {
     expect(e.hints).toEqual(['quotes'])
   })
 
-  it('hors du profil : opérateur non pris en charge', () => {
-    const e = explainProblem({ code: 'template_outside_profile', message: 'operateur : equal', line: 2, column: 7 }, source)
-    expect(e.reason).toEqual({ key: 'outside_profile', token: 'operateur : equal' })
-    expect(e.hints).toEqual(['outside_profile'])
+  it('fonction inconnue : nommée, avec la piste du catalogue', () => {
+    const e = explainProblem({ code: 'template_unknown_function', message: 'today', line: 2, column: 7 }, source)
+    expect(e.reason).toEqual({ key: 'unknown_function', token: 'today' })
+    expect(e.hints).toEqual(['unknown_function'])
   })
 
   it('la ligne de la capture de Gael : apostrophes', () => {
