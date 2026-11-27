@@ -157,15 +157,15 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
     expect(lastPut(calls)).toEqual({ ...documentOf(), properties: { canal: CANAL } })
   })
 
-  it('renommer change le libellé, pas le slug ni le type ArchiMate (critère 3)', async () => {
+  it('changer le libellé dans son champ, pas le slug ni le type ArchiMate (critère 3, ticket 96f508e9)', async () => {
     const calls = setup()
     await screen.findByRole('heading', { name: 'Processus de vente' })
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Renommer' }))
-    const input = screen.getByLabelText('Nouveau libellé du type')
+    const input = screen.getByLabelText('Libellé')
+    expect(input).toHaveValue('Processus de vente')
     await user.clear(input)
+    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled() // libellé vide : refusé
     await user.type(input, 'Vente')
-    await user.click(screen.getByRole('button', { name: 'Appliquer' }))
     expect(screen.getByRole('heading', { name: 'Vente' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
     await waitFor(() => expect(lastPut(calls)).not.toBeNull())
@@ -228,6 +228,7 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
     for (const name of ['Enregistrer', 'Renommer', 'Supprimer le type']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
+    expect(screen.queryByLabelText('Libellé')).not.toBeInTheDocument()
   })
 })
 

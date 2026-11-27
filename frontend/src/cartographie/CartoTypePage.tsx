@@ -130,7 +130,6 @@ function TypeEditor({
   const info = catalog.types.find((ty) => ty.name === detail.archimate)
   const layer = catalog.layers.find((l) => l.key === info?.layer)?.label ?? (info?.kind === 'relation' ? t('cartoLayerRelations') : '')
   const [text, setText] = useState(detail.yaml)
-  const [renaming, setRenaming] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('properties')
   const parsed = useMemo(() => parseModel(text), [text])
   const saved = detail.document as RefModel
@@ -176,9 +175,10 @@ function TypeEditor({
     else next[RELATIONS] = value
     setText(modelText(next))
   }
-  const rename = (value: string) => {
-    if (parsed.ok && value.trim()) setText(modelText({ ...parsed.model, title: value.trim() }))
-    setRenaming(null)
+  // Le libellé se modifie dans un champ toujours visible, enregistré avec le reste
+  // (ticket 96f508e9) ; le slug et le type ArchiMate restent figés.
+  const setLabel = (value: string) => {
+    if (parsed.ok) setText(modelText({ ...parsed.model, title: value }))
   }
   const saveProblems =
     save.error instanceof ApiRequestError && Array.isArray(save.error.body.error_args?.problems)
@@ -192,39 +192,8 @@ function TypeEditor({
         </div>
         <div className="page-head">
           <div className="carto-type-head">
-            {renaming !== null ? (
-              <form
-                className="row"
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  rename(renaming)
-                }}
-              >
-                <input
-                  className="input"
-                  aria-label={t('cartoRenameLabel')}
-                  value={renaming}
-                  onChange={(e) => setRenaming(e.target.value)}
-                  autoFocus
-                />
-                <button type="submit" className="btn btn-sm btn-primary" disabled={!renaming.trim()}>
-                  {t('cartoRenameApply')}
-                </button>
-                <button type="button" className="btn btn-sm" onClick={() => setRenaming(null)}>
-                  {t('cancelEdit')}
-                </button>
-              </form>
-            ) : (
-              <>
-                <h1 className="page-title">{title}</h1>
-                {layer ? <span className="carto-layer-chip">{layer}</span> : null}
-                {!readOnly && parsed.ok ? (
-                  <button type="button" className="btn btn-sm" onClick={() => setRenaming(title)}>
-                    {t('cartoRename')}
-                  </button>
-                ) : null}
-              </>
-            )}
+            <h1 className="page-title">{title || detail.slug}</h1>
+            {layer ? <span className="carto-layer-chip">{layer}</span> : null}
           </div>
           {!readOnly ? (
             <div className="page-actions">
@@ -252,6 +221,12 @@ function TypeEditor({
             </div>
           ) : null}
         </div>
+        {!readOnly && parsed.ok ? (
+          <label className="field carto-type-label">
+            <span className="field-label">{t('cartoTypeLabel')}</span>
+            <input className="input" value={title} onChange={(e) => setLabel(e.target.value)} />
+          </label>
+        ) : null}
         <p className="muted mono small">
           {t('cartoTypeBasedOn', { type: info?.label ?? detail.archimate })} · {detail.path} ·{' '}
           {t('cartoObjectsCount', { count: detail.objects })}
