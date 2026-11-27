@@ -13,8 +13,10 @@ does: never give a `path` (it is refused for every kind today).
 - No `version`: the entry **creates** the document; it is refused if the document already exists
   (`write_exists`, with `current_version`).
 - With `version`: the entry **replaces** the whole document, or **deletes** it (`delete: true`).
-  Take the version from `read_document`. A stale version is refused (`write_version_stale`, with
-  `current_version`): read the document again before writing.
+  Take the version from `read_document` (same kind and identity), read with `branch: draft`:
+  writes go to the user's draft, so the draft holds the version to give. A stale version is
+  refused (`write_version_stale`, with `current_version`): read the document again before
+  writing.
 - Sending a document identical to the stored one changes nothing (`action: unchanged`).
 
 ## A batch is checked on its final state

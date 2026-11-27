@@ -1404,6 +1404,7 @@ export const fr = {
       accept_validation_warning: 'Accepter un avertissement de validation',
       write_documents: 'Écrire des documents de tout genre (en bloc)',
       patch_document: 'Modifier un document (JSONPath ou XPath)',
+      read_document: 'Lire un document de tout genre (par son identité)',
       list_write_kinds: 'Lister les genres de documents à écrire',
       describe_standard: 'Décrire un standard (format, syntaxe, règles)',
       read_schema: 'Lire un schéma (brut, asset, référentiel, type de cartographie)',

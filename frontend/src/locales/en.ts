@@ -1402,6 +1402,7 @@ export const en = {
       accept_validation_warning: 'Accept a validation warning',
       write_documents: 'Write documents of any kind (all together)',
       patch_document: 'Modify a document (JSONPath or XPath)',
+      read_document: 'Read a document of any kind (by its identity)',
       list_write_kinds: 'List the kinds of documents to write',
       describe_standard: 'Describe a standard (format, syntax, rules)',
       read_schema: 'Read a schema (raw, asset, reference data, cartography type)',

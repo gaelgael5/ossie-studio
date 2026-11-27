@@ -52,8 +52,10 @@ class Settings(BaseSettings):
     # Taille maximale d'un document écrit par un agent (octets), tel qu'il est écrit :
     # chaque entrée de write_documents, le document obtenu par patch_document, une
     # valeur de référentiel seule (epic « Primitives MCP — écriture commune par genre » ;
-    # le réglage sur une page viendra avec son propre ticket). Variable DOCUMENT_MAX_BYTES.
-    document_max_bytes: int = 5 * 1024
+    # le réglage sur une page viendra avec son propre ticket). Une seule limite pour tous
+    # les genres, BPMN compris : 200 Ko (décision de Gael, pour ne pas refuser les
+    # processus). Variable DOCUMENT_MAX_BYTES.
+    document_max_bytes: int = 200 * 1024
 
     @field_validator("session_secret")
     @classmethod

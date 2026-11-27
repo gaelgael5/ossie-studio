@@ -188,9 +188,13 @@ CATALOG: tuple[Primitive, ...] = (
         # l'appel, sur l'espace visé.
         capability="spaces:read",
         description=(
-            "Read any schema of the space by its path, as the lists give it ('schema_path' "
-            "of list_raw_schemas and list_assets, 'path' of list_referentiels and "
-            "list_carto_types). Returns kind ('raw', 'asset', 'referentiel', 'carto_type'), "
+            "Read a schema of the space. For the content of a kind of document, by kind and "
+            "what types it, never a path: kind='carto_objet' + type (schema of an object of "
+            "that map type), kind='referentiel_valeur' + referentiel (model of the reference "
+            "list). A kind whose content depends on no type (models, processes, tags...) is "
+            "described by describe_standard instead. For a raw or asset schema, by path, as "
+            "the lists give it ('schema_path' of list_raw_schemas and list_assets). Returns "
+            "kind ('raw', 'asset', 'referentiel', 'carto_type'), "
             "version (content id in the branch read), unpublished, schema and extras. By "
             "default (resolved=true) the effective schema: a raw schema as collected "
             "(references resolved); an asset merged with its human work, extras carrying "
@@ -634,6 +638,24 @@ CATALOG: tuple[Primitive, ...] = (
         ),
         person_only=True,
         destructive=True,
+    ),
+    Primitive(
+        id="read_document",
+        domain="documents",
+        access="read",
+        # Visible de qui lit un espace ; la capacité de lecture du genre (celle de
+        # l'écran) est vérifiée à l'appel, sur l'espace visé.
+        capability="spaces:read",
+        description=(
+            "Read one document of any kind by its kind and identity (list_write_kinds), never "
+            "a path: its raw content (an object for YAML/JSON; the XML text for a BPMN "
+            "process; for a reference-list value, that value alone), its real path and its "
+            "version, to give as is to write_documents or patch_document. Read with "
+            "branch='draft' a document you are about to modify: writes go to the user's "
+            "draft. Unknown identity: document_not_found. Needs the screen's right to read "
+            "that kind." + _DRAFT_NOTE
+        ),
+        idempotent=True,
     ),
     Primitive(
         id="list_write_kinds",

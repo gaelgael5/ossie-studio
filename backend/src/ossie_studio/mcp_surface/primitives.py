@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from ossie_studio.mcp_surface import application as app_map
 from ossie_studio.mcp_surface import cartographie as carto
 from ossie_studio.mcp_surface import (
+    document_reads,
     document_writes,
     reads,
     references,
@@ -69,6 +70,7 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "patch_document": Implementation(
         document_writes.PatchDocumentArgs, document_writes.patch_document
     ),
+    "read_document": Implementation(document_reads.ReadDocumentArgs, document_reads.read_document),
     "list_write_kinds": Implementation(
         write_guide.ListWriteKindsArgs, write_guide.list_write_kinds
     ),

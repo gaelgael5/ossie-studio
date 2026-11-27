@@ -78,8 +78,11 @@ class WriteKind:
     list_filters: tuple[str, ...] = ()
     path_rule: PathRule = "forbidden"
     path_root: str = ""  # sous laquelle doit rester un chemin autorisé
-    # Le champ d'identité qui donne le schéma exact du contenu (read_schema).
+    # Le champ d'identité qui donne le schéma exact du contenu (read_schema), et le
+    # genre du document qui porte ce schéma : son identité (un seul champ) prend la
+    # valeur de ce champ (le type d'un objet → le document carto_type de ce slug).
     typed_by: str | None = None
+    schema_kind: str | None = None
 
     def locate(
         self, root: Path | None, identity: Mapping[str, Any], path: str | None = None
@@ -324,6 +327,7 @@ KINDS: tuple[WriteKind, ...] = (
         identity_paths=("$.cle", "$.type"),
         frozen=("$.source", "$.cible"),
         typed_by="type",
+        schema_kind="carto_type",
     ),
     WriteKind(
         name="carto_modele",
@@ -413,6 +417,7 @@ KINDS: tuple[WriteKind, ...] = (
         locator=_referentiel_valeur,
         store=stores.ReferentielValueStore(),
         typed_by="referentiel",
+        schema_kind="referentiel_modele",
     ),
     WriteKind(
         name="tag",

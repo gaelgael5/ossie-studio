@@ -678,9 +678,13 @@ async def test_type_et_objets_dans_le_meme_lot(app: FastAPI, space: ApiSpace) ->
     assert {d["action"] for d in body["documents"]} == {"created"}
 
 
-async def test_taille_maximale_d_un_document(app: FastAPI, space: ApiSpace) -> None:
+async def test_taille_maximale_d_un_document(
+    app: FastAPI, space: ApiSpace, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Critère 8 : une entrée trop grande est refusée avec sa taille, la limite, son chemin
-    et « aide » ; rien n'est écrit. Idem pour le résultat d'un patch_document."""
+    et « aide » ; rien n'est écrit. Idem pour le résultat d'un patch_document. La limite
+    vient du réglage (200 Ko par défaut) ; le test la baisse pour rester léger."""
+    monkeypatch.setattr(app.state.settings, "document_max_bytes", 5 * 1024)
     big = _obj(
         "role",
         "ROL-BAVARD",

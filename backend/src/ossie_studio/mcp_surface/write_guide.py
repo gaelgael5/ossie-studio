@@ -156,6 +156,7 @@ _BY_CODE: dict[str, dict[str, str]] = {
     "write_path_forbidden": _standard("writing-rules"),
     "branch_unsupported": _standard("writing-rules"),
     "schema_path_unknown": _KINDS_AIDE,
+    "schema_designation_invalid": _KINDS_AIDE,
     "carto_model_invalid": _standard("carto-modele"),
     "standard_unknown": {"primitive": "describe_standard"},
 }
