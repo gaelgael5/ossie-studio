@@ -15,6 +15,8 @@ import { fromVisual, modelText, parseModel } from '../referentiels/modelRules'
 import type { RefModel } from '../referentiels/modelRules'
 import { UnsavedProvider, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
 import { ArchimateIcon } from './ArchimateIcon'
+import { RELATIONS, TypeRelations, readDeviations, writeDeviations } from './TypeRelations'
+import type { Deviations } from './TypeRelations'
 
 // Fenêtre d'édition d'un type de cartographie (ticket 5c39d4df), sur le modèle de
 // l'onglet Modèle des Référentiels : propriétés de base ArchiMate en lecture
@@ -27,7 +29,9 @@ const EDITOR_ID = 'carto-type'
 const ARCHIMATE = 'x-archimate'
 // Ce que le fichier d'un type garde (format f8167ae1) : le reste serait perdu,
 // le serveur le refuse ; on le dit avant l'envoi.
-const TYPE_KEYS = new Set(['$schema', 'title', ARCHIMATE, 'type', 'properties', 'required'])
+const TYPE_KEYS = new Set(['$schema', 'title', ARCHIMATE, 'type', 'properties', 'required', RELATIONS])
+type Tab = 'properties' | 'relations'
+
 
 export function CartoTypePage() {
   const { t } = useTranslation()
@@ -126,6 +130,7 @@ function TypeEditor({
   const layer = catalog.layers.find((l) => l.key === info?.layer)?.label ?? (info?.kind === 'relation' ? t('cartoLayerRelations') : '')
   const [text, setText] = useState(detail.yaml)
   const [renaming, setRenaming] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>('properties')
   const parsed = useMemo(() => parseModel(text), [text])
   const saved = detail.document as RefModel
   const dirty = parsed.ok ? JSON.stringify(parsed.model) !== JSON.stringify(saved) : text !== detail.yaml
@@ -157,6 +162,17 @@ function TypeEditor({
     // ArchiMate du document courant sont gardés.
     const next = fromVisual(parsed.model, schema)
     next[ARCHIMATE] = parsed.model[ARCHIMATE]
+    // Les écarts de relations (onglet « Relations ») ne passent pas par l'éditeur
+    // visuel : on les garde tels quels.
+    if (parsed.model[RELATIONS] !== undefined) next[RELATIONS] = parsed.model[RELATIONS]
+    setText(modelText(next))
+  }
+  const onRelations = (dev: Deviations) => {
+    if (!parsed.ok) return
+    const next: RefModel = { ...parsed.model }
+    const value = writeDeviations(dev)
+    if (value === undefined) delete next[RELATIONS]
+    else next[RELATIONS] = value
     setText(modelText(next))
   }
   const rename = (value: string) => {
@@ -165,7 +181,7 @@ function TypeEditor({
   }
   const saveProblems =
     save.error instanceof ApiRequestError && Array.isArray(save.error.body.error_args?.problems)
-      ? (save.error.body.error_args.problems as { path: string; code: string; field: string }[])
+      ? (save.error.body.error_args.problems as { path: string; code: string; field: string; detail?: string }[])
       : []
   return (
     <>
@@ -247,7 +263,33 @@ function TypeEditor({
       </div>
       <ArchimateBand info={info} archimate={detail.archimate} title={title} />
       <ErrorList messages={detail.problems.map((p) => t('cartoFileProblem', { code: p.code, field: p.field || p.detail }))} />
-      {guard ? (
+      <div className="tabs" role="tablist">
+        {(['properties', 'relations'] as Tab[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            className={`tab${tab === key ? ' active' : ''}`}
+            onClick={() => setTab(key)}
+          >
+            {t(`cartoTypeTab_${key}`)}
+          </button>
+        ))}
+      </div>
+      {tab === 'relations' ? (
+        parsed.ok ? (
+          <TypeRelations
+            detail={detail}
+            deviations={readDeviations(parsed.model)}
+            readOnly={readOnly}
+            onChange={onRelations}
+          />
+        ) : (
+          <p className="empty-note text-danger">{t('cartoRelationsUnreadable')}</p>
+        )
+      ) : null}
+      {tab === 'properties' && guard ? (
         <p className="empty-note text-danger" role="alert">
           {guard.kind === 'in_use'
             ? t('cartoGuard_in_use', { property: guard.property, count: guard.count })
@@ -256,6 +298,7 @@ function TypeEditor({
               : t(`cartoGuard_${guard.kind}`)}
         </p>
       ) : null}
+      {tab === 'properties' ? (
       <SchemaEditor
         path={detail.path}
         text={text}
@@ -277,13 +320,24 @@ function TypeEditor({
           </button>
         }
       />
+      ) : null}
       <ErrorList messages={save.error ? errorMessages(t, save.error) : []} />
+      {save.error instanceof ApiRequestError && Array.isArray(save.error.body.error_args?.relations) ? (
+        <ul className="carto-problems">
+          {(save.error.body.error_args.relations as { key: string; source: string; target: string }[]).map((r) => (
+            <li key={r.key} className="mono small">
+              {r.key} : {r.source} → {r.target}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {saveProblems.length > 0 ? (
         <ul className="carto-problems">
           {saveProblems.map((p, i) => (
             <li key={i} className="mono small">
               {p.field ? `${p.field} · ` : ''}
               {t(`cartoProblem_${p.code}`, { defaultValue: p.code })}
+              {p.detail && p.code.startsWith('relations_') ? ` : ${p.detail}` : ''}
               {p.path !== detail.path ? ` (${p.path})` : ''}
             </li>
           ))}

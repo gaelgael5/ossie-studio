@@ -204,6 +204,7 @@ ERROR_CODES: tuple[str, ...] = (
     "carto_path_mismatch",
     "carto_jsonpath_invalid",
     "carto_write_refused",
+    "carto_type_relations_in_use",
     "carto_model_not_found",
     "carto_model_exists",
     "carto_model_id_taken",

@@ -1597,6 +1597,10 @@ export interface CartoTypeDetail {
   object_schema: Record<string, unknown>
   state: 'created' | 'modified' | null
   problems: { path: string; code: string; detail: string; field: string }[]
+  /** Onglet « Relations » : chaque type de relation de l'espace et les types
+   * cibles qu'ArchiMate permet depuis ce type (les écarts sont dans `document`). */
+  relations: { relation: string; title: string; archimate: string; archimate_targets: string[] }[]
+  space_types: { slug: string; title: string; archimate: string }[]
 }
 
 export interface CartoDates {
