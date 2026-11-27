@@ -1240,6 +1240,8 @@ export const fr = {
     refImportRename: 'Renommer',
     refImportDeleteConfirm: 'Supprimer l’import « {{label}} » (déclaration, template et fichier d’exemple) ?',
     refImportSub_example: 'Fichier d’exemple',
+    refImportSub_preview: 'Aperçu',
+    refImportPreviewEmpty: 'Aucune ligne à afficher : déposez un fichier d’exemple dans l’onglet « Fichier d’exemple ».',
     refImportSub_template: 'Template JSLT',
     refImportExampleCurrent: 'Fichier d’exemple : {{name}} ({{size}} octets)',
     refImportExampleNone: 'Aucun fichier d’exemple déposé.',

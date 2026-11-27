@@ -1238,6 +1238,8 @@ export const en = {
     refImportRename: 'Rename',
     refImportDeleteConfirm: 'Delete the import “{{label}}” (declaration, template and sample file)?',
     refImportSub_example: 'Sample file',
+    refImportSub_preview: 'Preview',
+    refImportPreviewEmpty: 'No rows to show: drop a sample file in the “Sample file” tab.',
     refImportSub_template: 'JSLT template',
     refImportExampleCurrent: 'Sample file: {{name}} ({{size}} bytes)',
     refImportExampleNone: 'No sample file uploaded.',

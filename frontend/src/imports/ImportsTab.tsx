@@ -18,7 +18,7 @@ import { TemplateEditor } from './TemplateEditor'
 // deuxième pour éditer le template. » L'essai n'écrit rien ; « Importer », au pied du
 // sous-onglet Template, écrit les valeurs dans les modifications (ticket a909dc66).
 
-type Sub = 'example' | 'template'
+type Sub = 'example' | 'preview' | 'template'
 const SEPARATORS = [';', ',', '\t', '|']
 // utf-16 : ce qu'Excel écrit en « Texte Unicode » ; détecté au dépôt par son BOM (ticket 123631e5).
 const ENCODINGS = ['utf-8', 'cp1252', 'latin-1', 'utf-16']
@@ -394,39 +394,48 @@ function ExampleTab({
           ) : null}
         </div>
       ) : null}
-      {preview && preview.count > 0 ? (
-        <div className="stack">
-          <h4>{t('refImportPreview', { count: preview.count })}</h4>
-          <div className="panel table-wrap">
-            <table className="table" aria-label={t('refImportPreviewTable')}>
-              <thead>
-                <tr>
-                  {preview.columns.map((c) => (
-                    <th key={c}>{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {preview.rows.map((row, i) => (
-                  <tr key={i}>
-                    {preview.columns.map((c) => (
-                      <td key={c}>{shownCell(row[c])}</td>
-                    ))}
-                  </tr>
+    </div>
+  )
+}
+
+// L'aperçu des premières lignes et les chemins détectés, dans leur propre onglet
+// (ticket c2e5078c) : l'onglet « Fichier d'exemple » garde le dépôt, la lecture et
+// les colonnes du modèle.
+function PreviewTab({ preview, unreadable }: { preview: ImportPreview | undefined; unreadable: boolean }) {
+  const { t } = useTranslation()
+  if (unreadable) return <p className="muted" role="note">{t('refImportPathsUnreadable')}</p>
+  if (!preview || preview.count === 0) return <p className="empty-note">{t('refImportPreviewEmpty')}</p>
+  return (
+    <div className="stack">
+      <h4>{t('refImportPreview', { count: preview.count })}</h4>
+      <div className="panel table-wrap">
+        <table className="table" aria-label={t('refImportPreviewTable')}>
+          <thead>
+            <tr>
+              {preview.columns.map((c) => (
+                <th key={c}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {preview.rows.map((row, i) => (
+              <tr key={i}>
+                {preview.columns.map((c) => (
+                  <td key={c}>{shownCell(row[c])}</td>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          <h4>{t('refImportPaths')}</h4>
-          <ul className="plain-list mono small" aria-label={t('refImportPaths')}>
-            {preview.paths.map((p) => (
-              <li key={p.path}>
-                {p.path} <span className="muted">{p.kind}</span>
-              </li>
+              </tr>
             ))}
-          </ul>
-        </div>
-      ) : null}
+          </tbody>
+        </table>
+      </div>
+      <h4>{t('refImportPaths')}</h4>
+      <ul className="plain-list mono small" aria-label={t('refImportPaths')}>
+        {preview.paths.map((p) => (
+          <li key={p.path}>
+            {p.path} <span className="muted">{p.kind}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -596,7 +605,7 @@ function ImportView({
         </div>
       ) : null}
       <div className="tabs" role="tablist">
-        {(['example', 'template'] as Sub[]).map((key, index) => (
+        {(['example', 'preview', 'template'] as Sub[]).map((key, index) => (
           <button
             key={key}
             type="button"
@@ -620,6 +629,8 @@ function ImportView({
           onReading={setReading}
           mapping={mapping}
         />
+      ) : sub === 'preview' ? (
+        <PreviewTab preview={preview.data} unreadable={preview.isError} />
       ) : (
         // Disposition (ticket e2b9d7de) : l'éditeur à gauche, jusqu'au bas de la
         // fenêtre ; à droite, les boutons empilés, le panneau « Importer » puis le

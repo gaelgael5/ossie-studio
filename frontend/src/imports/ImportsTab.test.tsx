@@ -168,13 +168,19 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
   it('fichier d’exemple : aperçu, chemins, et le séparateur met l’aperçu à jour', async () => {
     const calls = setup()
     expect(await screen.findByText('jamais importé', { exact: false })).toBeInTheDocument()
+    // L'aperçu a son onglet (ticket c2e5078c) ; il n'est plus sous le fichier d'exemple.
+    expect(screen.queryByText('Aperçu (4 ligne(s))')).not.toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: '2. Aperçu' }))
     expect(await screen.findByText('Aperçu (4 ligne(s))')).toBeInTheDocument()
     const table = screen.getByRole('table', { name: 'Aperçu du fichier d’exemple' })
     expect(within(table).getByText('Delai')).toBeInTheDocument()
     expect(within(screen.getByRole('list', { name: 'Chemins détectés' })).getByText('$.Pays')).toBeInTheDocument()
-    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: '1. Fichier d’exemple' }))
     await user.selectOptions(screen.getByLabelText('Séparateur'), ',')
+    await user.click(screen.getByRole('tab', { name: '2. Aperçu' }))
     expect(await screen.findByText('Pays;Mode;Delai')).toBeInTheDocument()
+    await user.click(screen.getByRole('tab', { name: '1. Fichier d’exemple' }))
     expect(calls.some((c) => c.path.endsWith('/apercu') && String(c.body).includes('","'))).toBe(true)
     // Les réglages changés s'enregistrent sur demande.
     await user.click(screen.getByRole('button', { name: 'Enregistrer les réglages' }))
@@ -183,7 +189,7 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
 
   it('déposer un fichier d’exemple (envoi multipart)', async () => {
     const calls = setup()
-    await screen.findByText('Aperçu (4 ligne(s))')
+    await screen.findByRole('table', { name: /Colonnes du fichier/ })
     const user = userEvent.setup()
     const file = new File(['Pays;Mode\nFR;site\n'], 'transporteur.csv', { type: 'text/csv' })
     await user.upload(screen.getByLabelText('Remplacer le fichier d’exemple'), file)
@@ -194,7 +200,7 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
   it('exécuter le template : compteurs, erreurs rattachées à la ligne, différences', async () => {
     const calls = setup()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('tab', { name: '2. Template JSLT' }))
+    await user.click(await screen.findByRole('tab', { name: '3. Template JSLT' }))
     await waitFor(() => expect(screen.getByTestId('paths')).toHaveTextContent('$.Pays,$.Delai'))
     const editor = screen.getByLabelText('Template JSLT')
     await user.clear(editor)
@@ -223,7 +229,7 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     setup({ previewFails: true })
     expect(await screen.findByText('Le fichier ne se lit pas avec cet encodage.')).toBeInTheDocument()
     const user = userEvent.setup()
-    await user.click(screen.getByRole('tab', { name: '2. Template JSLT' }))
+    await user.click(screen.getByRole('tab', { name: '3. Template JSLT' }))
     expect(screen.getByRole('note')).toHaveTextContent('Pas de complétion des colonnes')
     expect(screen.getByTestId('paths')).toHaveTextContent('')
   })
@@ -238,7 +244,7 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
       },
     })
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('tab', { name: '2. Template JSLT' }))
+    await user.click(await screen.findByRole('tab', { name: '3. Template JSLT' }))
     await user.click(screen.getByRole('button', { name: 'Ctrl+F5' }))
     expect(await screen.findByText(/Ligne 2 :/)).toHaveTextContent('mismatched input')
     expect(screen.getByTestId('error-line')).toHaveTextContent('2')
@@ -265,12 +271,12 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
 
   it('lecture seule : ni ajout, ni dépôt, ni enregistrement', async () => {
     setup({ readOnly: true })
-    await screen.findByText('Aperçu (4 ligne(s))')
+    await screen.findByRole('table', { name: /Colonnes du fichier/ })
     expect(screen.queryByRole('button', { name: '+ Ajouter' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Remplacer le fichier d’exemple')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Supprimer' })).not.toBeInTheDocument()
     const user = userEvent.setup()
-    await user.click(screen.getByRole('tab', { name: '2. Template JSLT' }))
+    await user.click(screen.getByRole('tab', { name: '3. Template JSLT' }))
     expect(screen.queryByRole('button', { name: 'Enregistrer le template' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Importer' })).not.toBeInTheDocument()
     // La documentation du langage reste accessible en lecture seule (ticket 35342e93).
@@ -287,7 +293,7 @@ describe('Référentiels — importer des valeurs (ticket a909dc66)', () => {
 
   async function openTemplate() {
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('tab', { name: '2. Template JSLT' }))
+    await user.click(await screen.findByRole('tab', { name: '3. Template JSLT' }))
     return user
   }
 
@@ -421,7 +427,7 @@ describe('Imports — « Résoudre le template » (ticket 0598c41b)', () => {
   it('met le template résolu dans l’éditeur, sans l’enregistrer', async () => {
     const calls = setup()
     const user = userEvent.setup()
-    await user.click(await screen.findByRole('tab', { name: '2. Template JSLT' }))
+    await user.click(await screen.findByRole('tab', { name: '3. Template JSLT' }))
     await user.click(screen.getByRole('button', { name: 'Résoudre le template' }))
     await waitFor(() => expect(screen.getByLabelText('Template JSLT')).toHaveValue('{"pays": $.Pays}\n'))
     expect(calls.some((c) => c.method === 'POST' && c.path === `${BASE}/transporteur/resoudre`)).toBe(true)
@@ -430,7 +436,7 @@ describe('Imports — « Résoudre le template » (ticket 0598c41b)', () => {
 
   it('sans le droit de modifier : pas de bouton', async () => {
     setup({ readOnly: true })
-    await userEvent.setup().click(await screen.findByRole('tab', { name: '2. Template JSLT' }))
+    await userEvent.setup().click(await screen.findByRole('tab', { name: '3. Template JSLT' }))
     expect(screen.queryByRole('button', { name: 'Résoudre le template' })).not.toBeInTheDocument()
   })
 })
