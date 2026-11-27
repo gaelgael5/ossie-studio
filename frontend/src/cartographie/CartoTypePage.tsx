@@ -439,13 +439,20 @@ function ArchimateBand({ info, archimate, title }: { info: ArchimateTypeInfo | u
 
 function BaseProperties({ catalog, info }: { catalog: CartoCatalog; info: ArchimateTypeInfo | undefined }) {
   const { t } = useTranslation()
+  // Une relation porte aussi ses deux extrémités, `source` et `cible`, champs de
+  // chaque objet comme `cle` et `nom` (bug c5cf543c : un type Flow ne les montrait
+  // pas). Elles se choisissent sur l'objet ; les types reliables, dans « Relations ».
+  const base =
+    info?.kind === 'relation'
+      ? [...catalog.base, { name: 'source', type: 'string', required: true }, { name: 'cible', type: 'string', required: true }]
+      : catalog.base
   return (
     <div className="stack carto-base">
       <div className="panel carto-base-panel">
         <div className="carto-detail-title">{t('cartoBaseTitle')}</div>
         <table className="table">
           <tbody>
-            {catalog.base.map((b) => (
+            {base.map((b) => (
               <tr key={b.name}>
                 <td className="mono">
                   <span aria-label={t('cartoLocked')} title={t('cartoLocked')}>

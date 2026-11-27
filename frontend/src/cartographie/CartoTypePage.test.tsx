@@ -58,6 +58,7 @@ const CATALOG = {
   ],
   types: [
     { name: 'BusinessProcess', kind: 'element', layer: 'business', label: 'Processus métier', definition: 'Déf.', icon: ICON, attributes: [], relations: [] },
+    { name: 'Flow', kind: 'relation', layer: 'relationship', label: 'Flux', definition: 'Déf.', icon: ICON, attributes: [], relations: [] },
   ],
 }
 const CANAL = { type: 'string', enum: ['site', 'magasin'], description: 'Canal de la vente' }
@@ -178,7 +179,18 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
     expect(screen.getByRole('link', { name: '← Retour aux types' })).toHaveAttribute('href', '/cartographie/types')
     const base = screen.getByText('Propriétés de base ArchiMate · lecture seule').closest('.panel') as HTMLElement
     for (const name of ['cle', 'nom', 'documentation']) expect(within(base).getByText(name)).toBeInTheDocument()
+    expect(within(base).queryByText('source')).not.toBeInTheDocument()
     expect(within(base).queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it('type de relation : source et cible parmi les propriétés de base (bug c5cf543c)', async () => {
+    const flow = detailOf()
+    setup({ detail: { ...flow, archimate: 'Flow', document: { ...flow.document, 'x-archimate': 'Flow' } } })
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    await openProperties()
+    const base = screen.getByText('Propriétés de base ArchiMate · lecture seule').closest('.panel') as HTMLElement
+    expect(within(base).getByText('source').closest('tr')).toHaveTextContent('clé de l’objet de départ')
+    expect(within(base).getByText('cible').closest('tr')).toHaveTextContent('clé de l’objet d’arrivée')
   })
 
   it('ajouter canal (énumération) : le YAML et l’enregistrement le portent (critère 1)', async () => {

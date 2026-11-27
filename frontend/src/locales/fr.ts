@@ -894,6 +894,8 @@ export const fr = {
     cartoRequiredYes: 'oui',
     cartoBaseRole_cle: 'Clé fonctionnelle saisie, unique, figée',
     cartoBaseRole_nom: 'Libellé affiché',
+    cartoBaseRole_source: 'Relation : clé de l’objet de départ',
+    cartoBaseRole_cible: 'Relation : clé de l’objet d’arrivée',
     cartoBaseRole_documentation: 'Description libre (markdown)',
     cartoOwnProps: 'Propriétés propres à ce type ArchiMate',
     cartoOwnNone: 'Aucune pour {{type}}.',

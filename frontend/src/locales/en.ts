@@ -892,6 +892,8 @@ export const en = {
     cartoRequiredYes: 'yes',
     cartoBaseRole_cle: 'Functional key, typed in, unique, frozen',
     cartoBaseRole_nom: 'Displayed label',
+    cartoBaseRole_source: 'Relation: key of the start object',
+    cartoBaseRole_cible: 'Relation: key of the end object',
     cartoBaseRole_documentation: 'Free description (markdown)',
     cartoOwnProps: 'Properties of this ArchiMate type',
     cartoOwnNone: 'None for {{type}}.',
