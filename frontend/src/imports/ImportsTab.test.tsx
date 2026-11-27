@@ -77,6 +77,9 @@ const DONE = {
   last_import: '2026-11-24T10:00:00+00:00',
 }
 
+// Une valeur de plus de 50 caractères pour l'aperçu (ticket 49f41fa2).
+const LONG_MODE = 'livraison en point relais avec signature et contrôle d’identité'
+
 function setup(
   options: {
     imports?: unknown[]
@@ -108,7 +111,10 @@ function setup(
           reading.separator === ';'
             ? {
                 columns: ['Pays', 'Mode', 'Delai'],
-                rows: [{ Pays: 'FR', Mode: 'site', Delai: '2' }],
+                rows: [
+                  { Pays: 'FR', Mode: 'site', Delai: '2' },
+                  { Pays: 'BE', Mode: LONG_MODE, Delai: '3' },
+                ],
                 count: 4,
                 paths: [{ path: '$.Pays', kind: 'string', description: '' }, { path: '$.Delai', kind: 'string', description: '' }],
                 comparison: [
@@ -175,6 +181,17 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     expect(await screen.findByText('Aperçu (4 ligne(s))')).toBeInTheDocument()
     const table = screen.getByRole('table', { name: 'Aperçu du fichier d’exemple' })
     expect(within(table).getByText('Delai')).toBeInTheDocument()
+    // Numéros de ligne (ticket 49f41fa2).
+    expect(within(table).getByRole('columnheader', { name: '#' })).toBeInTheDocument()
+    expect(within(table).getAllByRole('row')[1].firstChild).toHaveTextContent('1')
+    // Plus de 50 caractères : le début et « … », tout au clic, replié au suivant.
+    const long = within(table).getByRole('button', { expanded: false })
+    expect(long).toHaveTextContent(`${LONG_MODE.slice(0, 50)}…`)
+    await user.click(long)
+    expect(long).toHaveAttribute('aria-expanded', 'true')
+    expect(long).toHaveTextContent(LONG_MODE)
+    await user.click(long)
+    expect(long).toHaveTextContent(`${LONG_MODE.slice(0, 50)}…`)
     expect(within(screen.getByRole('list', { name: 'Chemins détectés' })).getByText('$.Pays')).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: '1. Fichier d’exemple' }))
     await user.selectOptions(screen.getByLabelText('Séparateur'), ',')
