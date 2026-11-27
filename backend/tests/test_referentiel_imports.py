@@ -348,9 +348,9 @@ async def test_choisir_la_propriete_d_une_colonne(space: ApiSpace) -> None:
         f"{base}/mapping/exemple", files={"file": ("c.csv", csv.encode(), "text/csv")}
     )
     url = f"{base}/mapping/correspondances"
-    for column, prop in (("Transport", "mode"), ("Durée", "delai"), ("Pays", "")):
-        r = await space.client.put(url, json={"column": column, "property": prop})
-        assert r.status_code == 200, r.text
+    choice = {"Transport": "mode", "Durée": "delai", "Pays": ""}
+    r = await space.client.put(url, json={"mapping": choice})
+    assert r.status_code == 200, r.text
     preview = (await space.client.post(f"{base}/mapping/apercu")).json()
     assert {r["column"]: r["property"] for r in preview["comparison"]} == {
         "Pays": None,
@@ -362,18 +362,21 @@ async def test_choisir_la_propriete_d_une_colonne(space: ApiSpace) -> None:
     assert resolved == (
         '{\n  "pays": null,\n  "mode": $.Transport,\n  "delai": $["Durée"]#integer\n}\n'
     )
-    unknown = await space.client.put(url, json={"column": "Pays", "property": "absente"})
+    unknown = await space.client.put(url, json={"mapping": {"Pays": "absente"}})
     assert (unknown.status_code, unknown.json()["error"]) == (400, "import_mapping_unknown")
-    taken = await space.client.put(url, json={"column": "Pays", "property": "mode"})
+    taken = await space.client.put(url, json={"mapping": {"Pays": "mode"}})
     assert (taken.status_code, taken.json()["error"]) == (409, "import_mapping_duplicate")
     # Revenir à la correspondance par nom : le choix n'est plus gardé.
-    back = await space.client.put(url, json={"column": "Pays", "property": "pays"})
+    back = await space.client.put(url, json={"mapping": {"Pays": "pays"}})
     assert back.status_code == 200
     again = (await space.client.post(f"{base}/mapping/apercu")).json()["comparison"]
     assert [r["chosen"] for r in again] == [False, True, True]
     # Une colonne ignorée puis ajoutée au modèle va à sa nouvelle propriété.
-    await space.client.put(url, json={"column": "Transport", "property": ""})
+    await space.client.put(url, json={"mapping": {"Transport": ""}})
     added = await space.client.post(f"{base}/mapping/proprietes", json={"column": "Transport"})
     assert added.status_code == 200, added.text
     last = (await space.client.post(f"{base}/mapping/apercu")).json()["comparison"]
     assert {r["column"]: r["property"] for r in last}["Transport"] == "transport"
+    # Échanger deux propriétés en un seul envoi.
+    swap = await space.client.put(url, json={"mapping": {"Transport": "delai", "Durée": "mode"}})
+    assert swap.status_code == 200, swap.text

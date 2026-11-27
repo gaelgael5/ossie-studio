@@ -1,6 +1,7 @@
 // Repris de Miles (`portail/frontend/src/dataModels/TemplateEditor.tsx`, commit aa88631) pour
 // l'onglet Imports des référentiels (ticket cda9c43a). Toute correction est à reporter.
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 
 import {
   type EditorMetrics,
@@ -103,6 +104,21 @@ export function TemplateEditor({
     };
   }, [area, measure]);
 
+  // L'éditeur descend jusqu'au bas de la fenêtre (ticket e2b9d7de) : on relève la
+  // hauteur minimum du composant (`--jslt-ed-min-height`, 180 px par défaut) plutôt
+  // que de fixer une hauteur, pour garder l'étirement à la main au-delà.
+  const [fill, setFill] = useState<number | null>(null);
+  useEffect(() => {
+    const place = () => {
+      if (frame.current === null) return;
+      const top = frame.current.getBoundingClientRect().top + window.scrollY;
+      setFill(Math.max(180, Math.floor(window.innerHeight - top - 24)));
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, []);
+
   const lines = lineCount(value);
   const marked = errorLine !== null && errorLine !== undefined && errorLine >= 1;
 
@@ -138,7 +154,11 @@ export function TemplateEditor({
           ))}
         </div>
       </div>
-      <div className="template-frame" ref={frame}>
+      <div
+        className="template-frame"
+        ref={frame}
+        style={fill === null ? undefined : ({ "--jslt-ed-min-height": `${fill}px` } as CSSProperties)}
+      >
         {marked && (
           // Le surlignement est posé PAR-DESSUS, sans toucher au texte : teinter le
           // texte lui-même voudrait dire réécrire la coloration du composant.

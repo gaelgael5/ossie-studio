@@ -92,6 +92,39 @@ function AddImportDialog({
   )
 }
 
+interface MappingState {
+  pending: Record<string, string>
+  setPending: (next: Record<string, string>) => void
+  dirty: boolean
+  save: { mutate: () => void; reset: () => void; isPending: boolean; error: unknown }
+}
+
+// Les choix de propriété des colonnes (ticket 47716786) restent en attente jusqu'à
+// « Enregistrer les correspondances » (Gael : le choix doit se voir comme une
+// modification à enregistrer) ; tenus par l'import, ils survivent au passage sur
+// l'onglet JSLT, et quitter l'écran avec des choix en attente le demande.
+function useMapping(imports: ImportsApi, slug: string, label: string, preview: ImportPreview | undefined, readOnly: boolean): MappingState {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const comparison = preview?.comparison ?? []
+  const [pending, setPending] = useState<Record<string, string>>({})
+  const changed = comparison.filter((c) => c.column in pending && pending[c.column] !== (c.property ?? ''))
+  const dirty = !readOnly && changed.length > 0
+  const save = useMutation({
+    mutationFn: () => imports.setMapping(slug, Object.fromEntries(changed.map((c) => [c.column, pending[c.column]]))),
+    onSuccess: async () => {
+      await Promise.all(['referentielImport', 'referentielImportPreview', 'draft', 'draftChanges'].map((k) =>
+        queryClient.invalidateQueries({ queryKey: [k] }),
+      ))
+      setPending({})
+    },
+  })
+  useUnsaved(`import-mapping:${slug}`, { label: `${t('refImportColumns')} · ${label}`, dirty, saveable: true }, () =>
+    save.mutateAsync(),
+  )
+  return { pending, setPending, dirty, save }
+}
+
 function ExampleTab({
   imports,
   detail,
@@ -100,6 +133,7 @@ function ExampleTab({
   previewError,
   reading,
   onReading,
+  mapping,
 }: {
   imports: ImportsApi
   detail: ReferentielImportDetail
@@ -109,6 +143,8 @@ function ExampleTab({
   previewError: unknown
   reading: ImportReading
   onReading: (next: ImportReading) => void
+  /** Les choix de propriété en attente, tenus par l'import (survivent au changement d'onglet). */
+  mapping: MappingState
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -142,16 +178,9 @@ function ExampleTab({
   })
   // La propriété de chaque colonne, choisie à la main (ticket 47716786) : enregistrée
   // dans la déclaration, reprise par « Résoudre le template ».
-  const setMapping = useMutation({
-    mutationFn: ({ column, property }: { column: string; property: string }) =>
-      imports.setMapping(detail.slug, column, property),
-    onSuccess: () =>
-      Promise.all(['referentielImport', 'referentielImportPreview', 'draft', 'draftChanges'].map((k) =>
-        queryClient.invalidateQueries({ queryKey: [k] }),
-      )),
-  })
   const comparison = preview?.comparison ?? []
   const properties = preview?.properties ?? []
+  const { pending, setPending, dirty: mappingDirty, save: setMapping } = mapping
   return (
     <div className="stack">
       <ErrorList messages={[upload.error, saveReading.error, previewError].flatMap((e) => (e ? errorMessages(t, e) : []))} />
@@ -307,9 +336,9 @@ function ExampleTab({
                       <select
                         className="input"
                         aria-label={t('refImportMappingFor', { column: c.column })}
-                        value={c.property ?? ''}
+                        value={pending[c.column] ?? c.property ?? ''}
                         disabled={readOnly || setMapping.isPending}
-                        onChange={(e) => setMapping.mutate({ column: c.column, property: e.target.value })}
+                        onChange={(e) => setPending({ ...pending, [c.column]: e.target.value })}
                       >
                         <option value="">{t('refImportMappingNone')}</option>
                         {properties.map((p) => (
@@ -322,7 +351,7 @@ function ExampleTab({
                     </span>
                   </td>
                   <td>
-                    {!c.property && !readOnly && !properties.includes(c.proposed) ? (
+                    {!(pending[c.column] ?? c.property) && !readOnly && !properties.includes(c.proposed) ? (
                       <button
                         type="button"
                         className="btn btn-sm"
@@ -338,6 +367,30 @@ function ExampleTab({
               ))}
             </tbody>
           </table>
+          {mappingDirty ? (
+            <div className="row">
+              <BusyButton
+                type="button"
+                className="btn btn-primary btn-sm"
+                busy={setMapping.isPending}
+                busyText={t('refSaveBusy')}
+                onClick={() => setMapping.mutate()}
+              >
+                {t('refImportMappingSave')}
+              </BusyButton>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={setMapping.isPending}
+                onClick={() => {
+                  setPending({})
+                  setMapping.reset()
+                }}
+              >
+                {t('refCancel')}
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
       {preview && preview.count > 0 ? (
@@ -424,6 +477,7 @@ function ImportView({
       imports.preview(slug, data?.format === 'csv' || data?.format === 'xlsx' ? effective ?? undefined : undefined),
     enabled: data !== undefined && data.example_size > 0,
   })
+  const mapping = useMapping(imports, slug, data?.label ?? slug, preview.data, readOnly)
   const refresh = () =>
     Promise.all(
       ['referentielImport', 'referentielImports', 'draft', 'draftChanges'].map((k) =>
@@ -557,10 +611,13 @@ function ImportView({
           previewError={preview.error}
           reading={effective}
           onReading={setReading}
+          mapping={mapping}
         />
       ) : (
-        <>
-        <div className="ref-import-result">
+        // Disposition (ticket e2b9d7de) : l'éditeur à gauche, jusqu'au bas de la
+        // fenêtre ; à droite, les boutons empilés, le panneau « Importer » puis le
+        // résultat de l'essai.
+        <div className="ref-template-layout">
           <div className="stack">
             {preview.isError ? (
               // Sans lecture du fichier, l'éditeur n'a aucune colonne à proposer après « $. » :
@@ -580,7 +637,9 @@ function ImportView({
               errorLine={errorLine}
               loading={t('loading')}
             />
-            <div className="row">
+          </div>
+          <div className="stack ref-template-side">
+            <div className="stack ref-template-actions">
               <BusyButton type="button" className="btn" busy={run.isPending} busyText={t('refImportRunBusy')} onClick={() => run.mutate()}>
                 {t('refImportRun', { keys: t(isMac() ? 'refImportRunKeysMac' : 'refImportRunKeys') })}
               </BusyButton>
@@ -608,24 +667,23 @@ function ImportView({
                 </BusyButton>
               ) : null}
             </div>
-          </div>
-          <div className="stack">
-            <h4>{t('refImportResult')}</h4>
-            {data.example_size === 0 ? <p className="empty-note">{t('refImportExampleNone')}</p> : null}
-            {trial ? <ImportReport report={trial} /> : <p className="muted">{t('refImportResultHint')}</p>}
+            {!readOnly ? (
+              <ImportRunPanel
+                name={name}
+                imports={imports}
+                detail={data}
+                mode={mode}
+                onMode={setMode}
+                templateSaved={template === data.template}
+              />
+            ) : null}
+            <div className="stack">
+              <h4>{t('refImportResult')}</h4>
+              {data.example_size === 0 ? <p className="empty-note">{t('refImportExampleNone')}</p> : null}
+              {trial ? <ImportReport report={trial} /> : <p className="muted">{t('refImportResultHint')}</p>}
+            </div>
           </div>
         </div>
-        {!readOnly ? (
-          <ImportRunPanel
-            name={name}
-            imports={imports}
-            detail={data}
-            mode={mode}
-            onMode={setMode}
-            templateSaved={template === data.template}
-          />
-        ) : null}
-        </>
       )}
     </div>
   )

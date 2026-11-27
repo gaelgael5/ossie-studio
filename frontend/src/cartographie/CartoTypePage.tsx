@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -31,7 +31,7 @@ const ARCHIMATE = 'x-archimate'
 // Ce que le fichier d'un type garde (format f8167ae1) : le reste serait perdu,
 // le serveur le refuse ; on le dit avant l'envoi.
 const TYPE_KEYS = new Set(['$schema', 'title', ARCHIMATE, 'type', 'properties', 'required', RELATIONS])
-type Tab = 'properties' | 'relations' | 'imports'
+type Tab = 'summary' | 'properties' | 'relations' | 'imports'
 
 
 export function CartoTypePage() {
@@ -139,7 +139,7 @@ function TypeEditor({
     setShown(detail.yaml)
     setText(detail.yaml)
   }
-  const [tab, setTab] = useState<Tab>('properties')
+  const [tab, setTab] = useState<Tab>('summary')
   const parsed = useMemo(() => parseModel(text), [text])
   const saved = detail.document as RefModel
   const dirty = parsed.ok ? JSON.stringify(parsed.model) !== JSON.stringify(saved) : text !== detail.yaml
@@ -184,10 +184,20 @@ function TypeEditor({
     else next[RELATIONS] = value
     setText(modelText(next))
   }
-  // Le libellé se modifie dans un champ toujours visible, enregistré avec le reste
-  // (ticket 96f508e9) ; le slug et le type ArchiMate restent figés.
+  // Le libellé s'enregistre avec le reste (ticket 96f508e9) ; le slug et le type
+  // ArchiMate restent figés. Il s'édite derrière un crayon à droite du titre : le
+  // champ n'apparaît que le temps de la saisie (ticket 1ad51345).
   const setLabel = (value: string) => {
     if (parsed.ok) setText(modelText({ ...parsed.model, title: value }))
+  }
+  const [labelDraft, setLabelDraft] = useState<string | null>(null)
+  // Échap referme le champ : le blur que le navigateur peut émettre au retrait du
+  // champ ne doit pas valider la saisie abandonnée.
+  const labelCancelled = useRef(false)
+  const commitLabel = () => {
+    if (labelDraft !== null && !labelCancelled.current && labelDraft !== title) setLabel(labelDraft)
+    labelCancelled.current = false
+    setLabelDraft(null)
   }
   const saveProblems =
     save.error instanceof ApiRequestError && Array.isArray(save.error.body.error_args?.problems)
@@ -201,7 +211,41 @@ function TypeEditor({
         </div>
         <div className="page-head">
           <div className="carto-type-head">
-            <h1 className="page-title">{title || detail.slug}</h1>
+            {labelDraft !== null ? (
+              <input
+                className="input page-title carto-type-label-input"
+                aria-label={t('cartoTypeLabel')}
+                autoFocus
+                value={labelDraft}
+                onChange={(e) => setLabelDraft(e.target.value)}
+                onBlur={commitLabel}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitLabel()
+                  if (e.key === 'Escape') {
+                    labelCancelled.current = true
+                    setLabelDraft(null)
+                  }
+                }}
+              />
+            ) : (
+              <>
+                <h1 className="page-title">{title || detail.slug}</h1>
+                {!readOnly && parsed.ok ? (
+                  <button
+                    type="button"
+                    className="carto-type-label-edit"
+                    aria-label={t('cartoTypeLabelEdit')}
+                    title={t('cartoTypeLabelEdit')}
+                    onClick={() => {
+                      labelCancelled.current = false
+                      setLabelDraft(title)
+                    }}
+                  >
+                    {'✎'}
+                  </button>
+                ) : null}
+              </>
+            )}
             {layer ? <span className="carto-layer-chip">{layer}</span> : null}
           </div>
           {!readOnly ? (
@@ -227,15 +271,12 @@ function TypeEditor({
               >
                 {t('refSave')}
               </BusyButton>
+              {/* À droite d'« Enregistrer » (ticket e2b9d7de) : la suppression
+                  garde sa confirmation et son motif de refus. */}
+              <DeleteType objects={detail.objects} busy={remove.isPending} onDelete={() => remove.mutate()} />
             </div>
           ) : null}
         </div>
-        {!readOnly && parsed.ok ? (
-          <label className="field carto-type-label">
-            <span className="field-label">{t('cartoTypeLabel')}</span>
-            <input className="input" value={title} onChange={(e) => setLabel(e.target.value)} />
-          </label>
-        ) : null}
         <p className="muted mono small">
           {t('cartoTypeBasedOn', { type: info?.label ?? detail.archimate })} · {detail.path} ·{' '}
           {t('cartoObjectsCount', { count: detail.objects })}
@@ -246,10 +287,9 @@ function TypeEditor({
           {t('cartoBackToTypes')}
         </Link>
       </div>
-      <ArchimateBand info={info} archimate={detail.archimate} title={title} />
       <ErrorList messages={detail.problems.map((p) => t('cartoFileProblem', { code: p.code, field: p.field || p.detail }))} />
       <div className="tabs" role="tablist">
-        {(['properties', 'relations', 'imports'] as Tab[]).map((key) => (
+        {(['summary', 'properties', 'relations', 'imports'] as Tab[]).map((key) => (
           <button
             key={key}
             type="button"
@@ -262,6 +302,9 @@ function TypeEditor({
           </button>
         ))}
       </div>
+      {/* Le bandeau ArchiMate vit dans l'onglet « Résumé », ouvert en premier
+          (ticket e2b9d7de). */}
+      {tab === 'summary' ? <ArchimateBand info={info} archimate={detail.archimate} title={title} /> : null}
       {tab === 'relations' ? (
         parsed.ok ? (
           <TypeRelations
@@ -304,7 +347,10 @@ function TypeEditor({
         onVisual={onVisual}
         onYaml={setText}
         visualTitle={t('cartoProperties')}
-        before={<BaseProperties catalog={catalog} info={info} />}
+        // Les propriétés ajoutées d'abord, celles d'ArchiMate (lecture seule) en
+        // dessous (ticket e2b9d7de).
+        before={<div className="carto-detail-title">{t('cartoAddedTitle')}</div>}
+        after={<BaseProperties catalog={catalog} info={info} />}
         yamlActions={
           <button
             type="button"
@@ -340,7 +386,6 @@ function TypeEditor({
           ))}
         </ul>
       ) : null}
-      {!readOnly ? <DeleteType objects={detail.objects} busy={remove.isPending} onDelete={() => remove.mutate()} /> : null}
       <ErrorList messages={remove.error ? errorMessages(t, remove.error) : []} />
     </>
   )
@@ -404,7 +449,6 @@ function BaseProperties({ catalog, info }: { catalog: CartoCatalog; info: Archim
           </tbody>
         </table>
       </div>
-      <div className="carto-detail-title">{t('cartoAddedTitle')}</div>
     </div>
   )
 }
@@ -412,26 +456,25 @@ function BaseProperties({ catalog, info }: { catalog: CartoCatalog; info: Archim
 function DeleteType({ objects, busy, onDelete }: { objects: number; busy: boolean; onDelete: () => void }) {
   const { t } = useTranslation()
   const [confirming, setConfirming] = useState(false)
+  const refused = objects > 0 ? t('cartoDeleteInUse', { count: objects }) : undefined
   return (
-    <section className="panel carto-danger" aria-label={t('cartoDelete')}>
-      <div className="row">
-        {confirming ? (
-          <>
-            <span>{t('cartoDeleteConfirm')}</span>
-            <BusyButton type="button" className="btn btn-danger" busy={busy} busyText={t('cartoDeleteBusy')} onClick={onDelete}>
-              {t('cartoDeleteYes')}
-            </BusyButton>
-            <button type="button" className="btn" onClick={() => setConfirming(false)}>
-              {t('cancelEdit')}
-            </button>
-          </>
-        ) : (
-          <button type="button" className="btn" disabled={objects > 0} onClick={() => setConfirming(true)}>
-            {t('cartoDelete')}
+    <span className="row carto-delete" role="group" aria-label={t('cartoDelete')}>
+      {confirming ? (
+        <>
+          <span>{t('cartoDeleteConfirm')}</span>
+          <BusyButton type="button" className="btn btn-danger" busy={busy} busyText={t('cartoDeleteBusy')} onClick={onDelete}>
+            {t('cartoDeleteYes')}
+          </BusyButton>
+          <button type="button" className="btn" onClick={() => setConfirming(false)}>
+            {t('cancelEdit')}
           </button>
-        )}
-        {objects > 0 ? <span className="muted">{t('cartoDeleteInUse', { count: objects })}</span> : null}
-      </div>
-    </section>
+        </>
+      ) : (
+        <button type="button" className="btn" disabled={objects > 0} title={refused} onClick={() => setConfirming(true)}>
+          {t('cartoDelete')}
+        </button>
+      )}
+      {refused && !confirming ? <span className="muted small carto-delete-note">{refused}</span> : null}
+    </span>
   )
 }

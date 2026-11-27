@@ -3027,7 +3027,9 @@ td.cell-error {
 /* Onglet Imports. */
 .ref-imports-layout {
   display: grid;
-  grid-template-columns: minmax(200px, 260px) 1fr;
+  /* minmax(0, 1fr) : un aperçu de nombreuses colonnes défile dans son cadre au lieu
+     d'élargir la page (le bouton « Ajouter au modèle » sortait de l'écran). */
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -3035,6 +3037,22 @@ td.cell-error {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
+}
+/* Onglet « Template JSLT » : éditeur à gauche, colonne d'actions à droite
+   (ticket e2b9d7de). */
+.ref-template-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+.ref-template-actions > .btn {
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .ref-template-layout {
+    grid-template-columns: 1fr;
+  }
 }
 .ref-counters {
   display: flex;
@@ -3645,8 +3663,18 @@ td.cell-error {
   margin: 0;
   padding-left: 20px;
 }
-.carto-danger {
-  padding: 10px 16px;
+/* « Supprimer le type » dans les actions du haut, à droite d'« Enregistrer »
+   (ticket e2b9d7de). */
+.carto-delete {
+  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.carto-delete-note {
+  max-width: 220px;
+}
+.carto-base {
+  margin-top: 16px;
 }
 
 /* Onglet Objets et fiche d'un objet de cartographie (ticket 6f71bcba). */
@@ -4354,10 +4382,29 @@ urban-bpmn {
   margin-left: 28px;
 }
 
-/* Libellé d'un type, modifiable dans sa fiche (ticket 96f508e9). */
-.carto-type-label {
-  max-width: 480px;
-  margin-block: 4px 8px;
+/* Libellé d'un type, édité derrière un crayon à droite du titre (ticket 1ad51345). */
+/* Le champ prend la taille du titre qu'il remplace : l'en-tête ne saute pas. */
+.carto-type-label-input.input {
+  flex: none;
+  width: min(560px, 60vw);
+  font-size: 2.1rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  padding: 0 8px;
+}
+.carto-type-label-edit {
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 4px;
+  cursor: pointer;
+}
+.carto-type-label-edit:hover,
+.carto-type-label-edit:focus-visible {
+  color: var(--link);
 }
 
 /* Onglet « Relations » : source | relation | cibles acceptées (ticket 3fdb1e6e). */
