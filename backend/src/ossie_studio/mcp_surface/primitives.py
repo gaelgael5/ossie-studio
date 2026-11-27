@@ -83,7 +83,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "delete_source": Implementation(writes.SourceWriteArgs, source_writes.delete_source_primitive),
     "collect_source": Implementation(source_writes.CollectSourceArgs, source_writes.collect_source),
     "get_collect_status": Implementation(writes.SourceWriteArgs, source_writes.get_collect_status),
-    "list_contracts": Implementation(SourceArgs, source_writes.list_contracts),
     "deposit_contract": Implementation(
         source_writes.DepositContractArgs, source_writes.deposit_contract
     ),

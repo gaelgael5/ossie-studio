@@ -58,15 +58,18 @@ from ossie_studio.mcp_surface.kind_base import (
     Location,
     Store,
 )
+from ossie_studio.parsers.openapi import is_valid_version_name
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import load_model, model_key
 from ossie_studio.referentiels.repo import model_path, values_path
 from ossie_studio.slugs import is_valid_slug
 from ossie_studio.sources.asset_files import is_extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
+from ossie_studio.sources.contracts import read_contracts_view
 from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.paths import (
     ASSETS_DIR,
+    CONTRATS_DIR,
     MANIFEST_FILENAME,
     is_valid_source_slug,
     source_rel_dir,
@@ -331,6 +334,21 @@ def _source(root: Path | None, identity: Mapping[str, Any]) -> Location:
     if not isinstance(source, str) or not is_valid_source_slug(source):
         raise _bad("source", "source", source, "le slug d'une source (list_documents)")
     return Location("source", {"source": source}, f"{source_rel_dir(source)}/{MANIFEST_FILENAME}")
+
+
+def _contract(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """Un contrat OpenAPI déposé : le fichier que l'index `contrats.yaml` de la source
+    range pour cette version (aucun si la version n'y est pas)."""
+    source = identity["source"]
+    if not isinstance(source, str) or not is_valid_source_slug(source):
+        raise _bad("contrat", "source", source, "le slug d'une source (list_documents)")
+    version = identity["version"]
+    if not isinstance(version, str) or not is_valid_version_name(version):
+        raise _bad("contrat", "version", version, "une version déposée (ex. « v1 »)")
+    views = read_contracts_view(root, source) if root else []
+    found = next((v.entry for v in views if v.entry.version == version), None)
+    path = f"{source_rel_dir(source)}/{CONTRATS_DIR}/{found.file}" if found else None
+    return Location("contrat", {"source": source, "version": version}, path)
 
 
 def _schema_file(kind: str, folder: str) -> Locator:
@@ -730,6 +748,7 @@ _SCHEMA_NAME = IdentityField(
     "name", "Name of the schema file, as list_documents gives it.", "the listed file name"
 )
 _SOURCE_ACTIONS = ("declare_source", "update_source", "delete_source")
+_CONTRACT_ACTIONS = ("deposit_contract", "remove_contract")
 KINDS = (
     *KINDS,
     WriteKind(
@@ -752,6 +771,27 @@ KINDS = (
         list_filters=(lists.SOURCE_TYPE,),
         writable=False,
         produced_by=_SOURCE_ACTIONS,
+    ),
+    WriteKind(
+        name="contrat",
+        description=(
+            "An OpenAPI contract deposited on an OpenAPI source, one per version: its content "
+            "as deposited. Read-only: produced by deposit_contract and remove_contract."
+        ),
+        label="contrat",
+        identity=(
+            _SOURCE_FIELD,
+            IdentityField("version", "Version name the contract was deposited under.", "e.g. 'v1'"),
+        ),
+        standard="contrat",
+        syntax="jsonpath",
+        capability="sources:declare",
+        read_capability="sources:read",
+        locator=_contract,
+        store=stores.ReadOnlyStore("contrat", _CONTRACT_ACTIONS),
+        lister=lists.contracts,
+        writable=False,
+        produced_by=_CONTRACT_ACTIONS,
     ),
     WriteKind(
         name="schema_raw",

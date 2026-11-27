@@ -1389,7 +1389,6 @@ export const fr = {
       get_module: 'Lire un module : ses objets, ses fonctions libres, ses points d’entrée',
       get_functions: 'Lire les méthodes d’un objet raw',
       list_entry_points: 'Lister les points d’entrée (et ceux absents du contrat)',
-      list_contracts: 'Lister les contrats OpenAPI d’une source',
       get_collect_status: 'Suivre une collecte',
       declare_source: 'Déclarer une source',
       update_source: 'Modifier une source',

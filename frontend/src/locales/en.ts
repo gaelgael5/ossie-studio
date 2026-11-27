@@ -1387,7 +1387,6 @@ export const en = {
       get_module: 'Read a module: its objects, free functions and entry points',
       get_functions: 'Read the methods of a raw object',
       list_entry_points: 'List entry points (and those missing from the contract)',
-      list_contracts: 'List the OpenAPI contracts of a source',
       get_collect_status: 'Follow a collection',
       declare_source: 'Declare a source',
       update_source: 'Edit a source',

@@ -1,6 +1,8 @@
 """Les sources et ce qu'elles portent, lues par les primitives communes (epic
 « Primitives MCP — lectures communes »). Genre `source` (ticket 88fd2cc5) : le
-manifeste d'une source, en lecture seule, à la place de `list_sources`."""
+manifeste d'une source, en lecture seule, à la place de `list_sources`. Genre
+`contrat` (ticket e806a6b4) : les contrats OpenAPI déposés, à la place de
+`list_contracts`, avec en plus la lecture de leur contenu."""
 
 from __future__ import annotations
 
@@ -23,6 +25,19 @@ from tests.space_fixture import ApiSpace, admin_workdir, forge_edit, make_api_sp
 KEY = "sources-key"
 AGENT = "sources-agent"
 SECRET = "valeur-secrete-7f3a91"
+CONTRACT = "openapi: 3.0.3\ninfo:\n  title: API boutique\n  version: 1.0.0\npaths: {}\n"
+CONTRACT_INDEX = """version: 2
+contracts:
+- version: v1
+  file: v1.yaml
+  original_file: boutique.yaml
+  openapi: 3.0.3
+  declared_version: 1.0.0
+  schema_count: 0
+  operation_count: 0
+  uploaded_at: '2026-11-27T10:00:00+00:00'
+  author: gael@example.org
+"""
 MIGRATIONS = Path(__file__).resolve().parents[1] / "src/ossie_studio/db/migrations"
 
 
@@ -52,6 +67,11 @@ async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
                 "entrepot", "postgres", "pg-entrepot", database="appdb", schemas=["public"]
             ),
             "sources/casse/manifest.yaml": "slug: casse\nlabel: [\n",
+            "sources/boutique/manifest.yaml": dump_manifest(
+                SourceManifest("boutique", "Boutique", "openapi", "", {})
+            ),
+            "sources/boutique/contrats/contrats.yaml": CONTRACT_INDEX,
+            "sources/boutique/contrats/v1.yaml": CONTRACT,
         },
     )
     # Un secret bien réel dans le coffre : il ne doit jamais ressortir.
@@ -114,7 +134,7 @@ async def test_lister_les_sources(app: FastAPI, space: ApiSpace) -> None:
     error, listed = await _call(app, KEY, "list_documents", space, kind="source")
     assert not error, listed
     by_slug = {d["identity"]["source"]: d for d in listed["documents"]}
-    assert set(by_slug) == {"casse", "entrepot", "ventes"}
+    assert set(by_slug) == {"boutique", "casse", "entrepot", "ventes"}
     ventes = by_slug["ventes"]
     assert ventes["ok"] is True
     assert (ventes["label"], ventes["type"], ventes["connection"]) == ("Ventes", "git", "gh")
@@ -213,3 +233,94 @@ async def test_list_sources_retiree(app: FastAPI, space: ApiSpace) -> None:
             "SELECT primitives FROM agent_profiles WHERE id = $1", profile
         )
     assert sorted(primitives) == ["list_documents", "list_spaces", "read_document"]
+
+
+# --- Genre « contrat » (ticket e806a6b4) ----------------------------------------------------
+
+
+async def test_lister_et_lire_les_contrats(app: FastAPI, space: ApiSpace) -> None:
+    """Critères 1 et 2 : les champs de `list_contracts`, avec chemin et version ; le
+    contenu d'un contrat se lit ; version inconnue → document_not_found ; source
+    inconnue → refus nommé."""
+    boutique = {"source": "boutique"}
+    error, listed = await _call(
+        app, KEY, "list_documents", space, kind="contrat", identity=boutique
+    )
+    assert not error, listed
+    [v1] = listed["documents"]
+    assert v1["identity"] == {"source": "boutique", "version": "v1"}
+    assert v1["path"] == "sources/boutique/contrats/v1.yaml" and v1["version"]
+    assert (v1["original_file"], v1["openapi"], v1["declared_version"]) == (
+        "boutique.yaml",
+        "3.0.3",
+        "1.0.0",
+    )
+    assert v1["author"] == "gael@example.org" and v1["collected"] is False
+    error, read = await _call(
+        app, KEY, "read_document", space, kind="contrat", identity={**boutique, "version": "v1"}
+    )
+    assert not error, read
+    assert read["content"]["info"]["title"] == "API boutique"
+    assert read["version"] == v1["version"]
+    error, missing = await _call(
+        app, KEY, "read_document", space, kind="contrat", identity={**boutique, "version": "v9"}
+    )
+    assert error and missing["error"] == "document_not_found"
+    error, unknown = await _call(
+        app, KEY, "list_documents", space, kind="contrat", identity={"source": "inconnue"}
+    )
+    assert error and unknown["error"] == "write_identity_invalid"
+
+
+async def test_source_non_openapi_sans_contrat(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 3."""
+    _, listed = await _call(
+        app, KEY, "list_documents", space, kind="contrat", identity={"source": "ventes"}
+    )
+    assert listed["documents"] == []
+
+
+async def test_un_contrat_ne_s_ecrit_pas(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 4 : refus qui nomme deposit_contract et remove_contract."""
+    identity = {"source": "boutique", "version": "v2"}
+    document = {"kind": "contrat", "identity": identity, "content": {"openapi": "3.0.3"}}
+    error, body = await _call(
+        app, AGENT, "write_documents", space, message="contrat", documents=[document]
+    )
+    assert error
+    [refusal] = body["errors"]
+    assert refusal["code"] == "write_kind_read_only"
+    assert "deposit_contract" in refusal["message"] and "remove_contract" in refusal["message"]
+
+
+async def test_contrat_du_brouillon(app: FastAPI, space: ApiSpace) -> None:
+    """Critère 5 : un contrat déposé dans le brouillon apparaît, marqué non publié ;
+    une clé d'API ne le voit pas."""
+    index = CONTRACT_INDEX + CONTRACT_INDEX.split("contracts:\n", 1)[1].replace("v1", "v2")
+    await _draft_text(app, space, "sources/boutique/contrats/contrats.yaml", index)
+    await _draft_text(app, space, "sources/boutique/contrats/v2.yaml", CONTRACT)
+    args = {"kind": "contrat", "identity": {"source": "boutique"}}
+    _, draft = await _call(app, AGENT, "list_documents", space, branch="draft", **args)
+    by_version = {d["identity"]["version"]: d for d in draft["documents"]}
+    assert set(by_version) == {"v1", "v2"} and by_version["v2"]["unpublished"] is True
+    _, published = await _call(app, KEY, "list_documents", space, **args)
+    assert [d["identity"]["version"] for d in published["documents"]] == ["v1"]
+
+
+async def test_list_contracts_retiree(app: FastAPI, space: ApiSpace) -> None:
+    """Critères 6 et 7."""
+    assert "list_contracts" not in {p.id for p in CATALOG}
+    result = await call_tool(app, KEY, "list_write_kinds", {})
+    contrat = next(k for k in result.structured_content["kinds"] if k["kind"] == "contrat")
+    assert contrat["writable"] is False
+    assert contrat["produced_by"] == ["deposit_contract", "remove_contract"]
+    async with app.state.pool.acquire() as conn:
+        profile = await conn.fetchval(
+            "INSERT INTO agent_profiles (name, primitives) VALUES ('ancien', $1) RETURNING id",
+            ["list_contracts"],
+        )
+        await conn.execute(_migration("0048_list_contracts_removed.sql"))
+        primitives = await conn.fetchval(
+            "SELECT primitives FROM agent_profiles WHERE id = $1", profile
+        )
+    assert sorted(primitives) == ["list_documents", "read_document"]

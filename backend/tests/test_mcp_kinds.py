@@ -65,6 +65,7 @@ def test_le_registre_declare_les_genres_du_tableau() -> None:
         "relation_dataset",
         "reference_dataset",
         "source",
+        "contrat",
         "schema_raw",
         "schema_asset",
     ]

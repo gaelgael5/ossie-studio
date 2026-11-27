@@ -58,9 +58,11 @@ from ossie_studio.referentiels.repo import list_referentiels, model_path, values
 from ossie_studio.referentiels.values import key_of
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
+from ossie_studio.sources.contracts import read_contracts_view
 from ossie_studio.sources.curation import list_curation, read_tri_rules, read_tri_rules_raw
 from ossie_studio.sources.paths import (
     ASSETS_DIR,
+    CONTRATS_DIR,
     MANIFEST_FILENAME,
     SOURCES_DIR,
     is_valid_source_slug,
@@ -340,6 +342,31 @@ def sources(root: Path, query: ListQuery) -> list[Item]:
                 changes_under=directory,
             )
         )
+    return out
+
+
+def contracts(root: Path, query: ListQuery) -> list[Item]:
+    """Ce que rendait `list_contracts` : chaque version déposée d'un contrat OpenAPI,
+    ses faits de dépôt (index `contrats.yaml`) et si la collecte l'a pris."""
+    out = []
+    for source in _sources(root, query):
+        base = f"{source_rel_dir(source)}/{CONTRATS_DIR}"
+        for view in read_contracts_view(root, source):
+            entry = view.entry
+            out.append(
+                Item(
+                    {"source": source, "version": entry.version},
+                    f"{source} {entry.version}",
+                    f"{base}/{entry.file}",
+                    # La version déposée est dans l'identité : « version » reste celle du
+                    # document (à donner telle quelle à une écriture).
+                    {
+                        **{k: v for k, v in entry.to_mapping().items() if k != "version"},
+                        "collected": view.collected,
+                    },
+                    text=f"{entry.original_file} {entry.declared_version}",
+                )
+            )
     return out
 
 

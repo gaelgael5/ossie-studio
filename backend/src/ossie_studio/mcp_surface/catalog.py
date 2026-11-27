@@ -360,13 +360,6 @@ CATALOG: tuple[Primitive, ...] = (
     ),
     # --- Sources (lectures, puis écritures dans le brouillon de la personne)
     Primitive(
-        id="list_contracts",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description="List the OpenAPI contract versions deposited on an OpenAPI source.",
-    ),
-    Primitive(
         id="get_collect_status",
         domain="sources",
         access="read",

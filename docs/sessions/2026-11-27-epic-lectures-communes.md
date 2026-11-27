@@ -25,7 +25,7 @@ les référentiels, la gouvernance, les règles, les domaines et les schémas.
 | Ticket | Sujet | Statut |
 |---|---|---|
 | 88fd2cc5 | Genre `source` en lecture seule, retrait de `list_sources` | en revue |
-| e806a6b4 | Genre `contrat` en lecture seule, retrait de `list_contracts` | prêt pour dev |
+| e806a6b4 | Genre `contrat` en lecture seule, retrait de `list_contracts` | en revue |
 | dcc52af7 | Modules par `schema_raw`, retrait de `list_modules` | prêt pour dev |
 | 2c069134 | Genre `extension_raw`, retrait de `get_functions` | prêt pour dev |
 | 15c43ed1 | Genre `point_entree`, retrait de `list_entry_points` et `get_module` | prêt pour dev |
@@ -42,3 +42,6 @@ Catalogue : 38 primitives sur `dev`, **32 visées**.
   publiés (`unpublished_changes`), comme le faisait `list_sources`.
 - Migration `0047` : un profil agent qui avait `list_sources` reçoit `list_documents` et
   `read_document`.
+- Genre `contrat` : l'emplacement vient de l'index `contrats.yaml` de la source ;
+  la version déposée est dans l'identité, `version` reste celle du document. Migration
+  `0048` (`list_contracts`).
