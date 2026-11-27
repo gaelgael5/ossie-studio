@@ -1256,6 +1256,8 @@ export const fr = {
     refImportAddPropertyFor: 'Ajouter la colonne {{column}} au modèle',
     refImportFormatXlsx: 'Excel (xlsx)',
     refImportReadingXlsx: 'Lecture du classeur',
+    refImportResolve: 'Résoudre le template',
+    refImportResolveBusy: 'Résolution…',
     refImportPreview: 'Aperçu ({{count}} ligne(s))',
     refImportPreviewTable: 'Aperçu du fichier d’exemple',
     refImportPaths: 'Chemins détectés',

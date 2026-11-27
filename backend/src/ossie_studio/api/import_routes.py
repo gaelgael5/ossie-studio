@@ -30,7 +30,7 @@ from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
 from ossie_studio.deps import ConnDep
 from ossie_studio.errors import ApiError
 from ossie_studio.imports import files
-from ossie_studio.imports.columns import compare, infer_type, property_name
+from ossie_studio.imports.columns import compare, infer_type, property_name, resolve_template
 from ossie_studio.imports.declaration import TABULAR, Import, ImportDeclaration, example_name
 from ossie_studio.imports.engine import (
     MERGE,
@@ -101,6 +101,10 @@ class TrialBody(TemplateBody):
     mode: Mode = MERGE
 
 
+Field_ = tuple[str, str | None]
+Skeleton = tuple[list[Field_], tuple[str, list[Field_]] | None]
+
+
 class Handle(Protocol):
     """Une branche ouverte pour une personne : lire, écrire dans son brouillon
     (les refus de la cible y sont déjà traduits en ApiError)."""
@@ -135,6 +139,9 @@ class ImportAdapter:
     properties: Callable[[Path, str], list[str]]
     # Ajoute une propriété au modèle (nom normalisé, type JSON Schema).
     add_property: Callable[[Path, str, str, str], None]
+    # La forme d'un élément pour « Résoudre le template » (ticket 0598c41b) : les
+    # champs de premier niveau (nom, type JSON Schema) et un groupe imbriqué éventuel.
+    skeleton: Callable[[Path, str], Skeleton]
 
 
 def _summary(imp: Import, last: LastImport | None) -> dict[str, Any]:
@@ -453,6 +460,39 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             else []
         )
         return {**result, **out, "comparison": comparison}
+
+    @router.post("/{slug}/resoudre")
+    async def resolve(
+        request: Request,
+        conn: ConnDep,
+        crypto: CryptoDep,
+        user: Reader,
+        workdir: DraftWorkdirDep,
+        space_id: uuid.UUID,
+        branch_id: uuid.UUID,
+        slug: str,
+        body: ReadingBody | None = None,
+    ) -> dict[str, object]:
+        """« Résoudre le template » (ticket 0598c41b) : un template écrit d'après le
+        modèle (toutes ses propriétés) et les colonnes du fichier d'exemple lues avec
+        les réglages donnés. Rien n'est écrit : l'écran le met dans l'éditeur."""
+        owner = owner_of(request)
+        handle = await adapter.open(conn, crypto, workdir, space_id, branch_id, user)
+
+        def read(root: Path) -> tuple[Import, Skeleton]:
+            return read_one(owner, slug)(root), adapter.skeleton(root, owner)
+
+        imp, (fields, group) = await handle.read(read)
+        try:
+            example = _example_of(imp, body)
+        except ApiError:
+            example = Example([])
+        columns: dict[str, list[Any]] = {c: [] for c in example.columns}
+        for record in example.records[:200]:
+            if isinstance(record.data, dict):
+                for key, value in record.data.items():
+                    columns.setdefault(str(key), []).append(value)
+        return {"template": resolve_template(fields, group, columns)}
 
     @router.post("/{slug}/proprietes")
     async def add_model_property(

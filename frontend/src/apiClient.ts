@@ -3156,6 +3156,8 @@ export interface ImportsApi {
   list: () => Promise<{ imports: ReferentielImportSummary[] }>
   get: (slug: string) => Promise<ReferentielImportDetail>
   create: (body: { label: string; slug: string; format: 'csv' | 'json' | 'xlsx' }) => Promise<ReferentielImportDetail>
+  /** « Résoudre le template » d'après le modèle et les colonnes (ticket 0598c41b). */
+  resolve: (slug: string, reading?: ImportReading) => Promise<{ template: string }>
   /** « Ajouter au modèle » une colonne sans propriété (ticket 221d832b). */
   addProperty: (slug: string, column: string) => Promise<{ property: string; type: string; revision: string | null }>
   rename: (slug: string, label: string) => Promise<ReferentielImportDetail>
@@ -3200,6 +3202,8 @@ export function importsApi(
       return apiUpload(one(slug, '/import'), form, 'POST')
     },
     saveTemplate: (slug, template) => apiFetch(one(slug, '/template'), { method: 'PUT', body: JSON.stringify({ template }) }),
+    resolve: (slug, reading) =>
+      apiFetch(one(slug, '/resoudre'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
     addProperty: (slug, column) => apiFetch(one(slug, '/proprietes'), { method: 'POST', body: JSON.stringify({ column }) }),
   }
 }

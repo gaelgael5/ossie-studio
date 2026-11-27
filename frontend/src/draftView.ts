@@ -67,7 +67,7 @@ export function withDraftView(path: string, method: string | undefined): string 
 // se relisent (les abonnés de `onAutoMerged`).
 
 // Les POST qui ne modifient rien : aperçus, essais, prévisualisations.
-const READ_ONLY_POST = /\/(apercu|essai|preview)(?:\?|$)/
+const READ_ONLY_POST = /\/(apercu|essai|preview|resoudre)(?:\?|$)/
 const autoMergedListeners = new Set<(branchId: string) => void>()
 
 /** S'abonner au retour automatique en vue fusionnée (relire les écrans). */

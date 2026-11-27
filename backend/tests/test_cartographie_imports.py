@@ -244,3 +244,24 @@ async def test_import_xlsx_d_un_type(space: ApiSpace) -> None:
     )
     assert run.status_code == 200, run.text
     assert run.json()["new"] == 1
+
+
+async def test_resoudre_le_template_d_un_type(space: ApiSpace) -> None:
+    """Ticket 0598c41b, critère 2."""
+    await _declare(space, "application", APP_TEMPLATE)
+    await space.client.put(
+        _url(space, "application", "/fichier/exemple"),
+        files={"file": ("e.csv", b"cle;Nom\nAPP-1;Un\n", "text/csv")},
+    )
+    resolved = await space.client.post(_url(space, "application", "/fichier/resoudre"))
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["template"] == (
+        "{\n"
+        '  "cle": $.cle,\n'
+        '  "nom": $.Nom,\n'
+        '  "documentation": null,\n'
+        '  "proprietes": {\n'
+        '    "criticite": null\n'
+        "  }\n"
+        "}\n"
+    )

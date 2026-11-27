@@ -406,6 +406,12 @@ function ImportView({
     mutationFn: () => imports.trial(slug, template ?? '', mode),
     onSuccess: setTrial,
   })
+  // « Résoudre le template » (ticket 0598c41b) : écrit d'après le modèle et les
+  // colonnes du fichier d'exemple ; le texte va dans l'éditeur, non enregistré.
+  const resolve = useMutation({
+    mutationFn: () => imports.resolve(slug, data?.format === 'csv' || data?.format === 'xlsx' ? effective ?? undefined : undefined),
+    onSuccess: (result) => setTemplate(result.template),
+  })
   const saveTemplate = useMutation({
     mutationFn: () => imports.saveTemplate(slug, template ?? ''),
     onSuccess: refresh,
@@ -475,7 +481,7 @@ function ImportView({
           </>
         ) : null}
       </div>
-      <ErrorList messages={[rename.error, remove.error, saveTemplate.error, run.error].flatMap((e) => (e ? errorMessages(t, e) : []))} />
+      <ErrorList messages={[rename.error, remove.error, saveTemplate.error, run.error, resolve.error].flatMap((e) => (e ? errorMessages(t, e) : []))} />
       {renaming !== null ? (
         <div className="row">
           <input className="input" aria-label={t('fieldLabel')} value={renaming} onChange={(e) => setRenaming(e.target.value)} />
@@ -550,6 +556,17 @@ function ImportView({
               <BusyButton type="button" className="btn" busy={run.isPending} busyText={t('refImportRunBusy')} onClick={() => run.mutate()}>
                 {t('refImportRun', { keys: t(isMac() ? 'refImportRunKeysMac' : 'refImportRunKeys') })}
               </BusyButton>
+              {!readOnly ? (
+                <BusyButton
+                  type="button"
+                  className="btn"
+                  busy={resolve.isPending}
+                  busyText={t('refImportResolveBusy')}
+                  onClick={() => resolve.mutate()}
+                >
+                  {t('refImportResolve')}
+                </BusyButton>
+              ) : null}
               {!readOnly ? (
                 <BusyButton
                   type="button"

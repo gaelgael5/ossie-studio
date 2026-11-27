@@ -320,3 +320,18 @@ async def test_ajouter_une_colonne_au_modele_du_referentiel(space: ApiSpace) -> 
     added = await space.client.post(f"{base}/colonnes/proprietes", json={"column": "Délai (jours)"})
     assert added.status_code == 200, added.text
     assert (added.json()["property"], added.json()["type"]) == ("delai_jours", "integer")
+
+
+async def test_resoudre_le_template_du_referentiel(space: ApiSpace) -> None:
+    """Ticket 0598c41b, critère 1 : le modèle `delais` et le CSV `Pays;Mode;Delai`."""
+    base = f"{space.base}/referentiels/delais/imports"
+    body = {"label": "R", "slug": "resolu", "format": "csv"}
+    assert (await space.client.post(base, json=body)).status_code == 201
+    await space.client.put(
+        f"{base}/resolu/exemple", files={"file": ("c.csv", CSV.encode(), "text/csv")}
+    )
+    resolved = await space.client.post(f"{base}/resolu/resoudre")
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["template"] == (
+        '{\n  "pays": $.Pays,\n  "mode": $.Mode,\n  "delai": $.Delai#integer\n}\n'
+    )

@@ -118,7 +118,8 @@ function setup(
                 ],
               }
             : { columns: ['Pays;Mode;Delai'], rows: [{ 'Pays;Mode;Delai': 'FR;site;2' }], count: 4, paths: [] }
-      } else if (path === `${BASE}/transporteur/proprietes`) body = { property: 'delai', type: 'integer', revision: 'draft:9' }
+      } else if (path === `${BASE}/transporteur/resoudre`) body = { template: '{"pays": $.Pays}\n' }
+      else if (path === `${BASE}/transporteur/proprietes`) body = { property: 'delai', type: 'integer', revision: 'draft:9' }
       else if (path === `${BASE}/transporteur/essai`) body = options.trial ?? TRIAL
       else if (path === `${BASE}/transporteur/import`) {
         status = options.run?.status ?? 200
@@ -388,6 +389,24 @@ describe('Imports — colonnes et modèle (ticket 221d832b)', () => {
     const table = await screen.findByRole('table', { name: 'Colonnes du fichier et propriétés du modèle' })
     expect(within(table).queryByRole('button')).not.toBeInTheDocument()
     expect(within(table).getByText('aucune propriété')).toBeInTheDocument()
+  })
+})
+
+describe('Imports — « Résoudre le template » (ticket 0598c41b)', () => {
+  it('met le template résolu dans l’éditeur, sans l’enregistrer', async () => {
+    const calls = setup()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: '2. Template JSLT' }))
+    await user.click(screen.getByRole('button', { name: 'Résoudre le template' }))
+    await waitFor(() => expect(screen.getByLabelText('Template JSLT')).toHaveValue('{"pays": $.Pays}\n'))
+    expect(calls.some((c) => c.method === 'POST' && c.path === `${BASE}/transporteur/resoudre`)).toBe(true)
+    expect(calls.some((c) => c.method === 'PUT' && c.path.endsWith('/template'))).toBe(false)
+  })
+
+  it('sans le droit de modifier : pas de bouton', async () => {
+    setup({ readOnly: true })
+    await userEvent.setup().click(await screen.findByRole('tab', { name: '2. Template JSLT' }))
+    expect(screen.queryByRole('button', { name: 'Résoudre le template' })).not.toBeInTheDocument()
   })
 })
 
