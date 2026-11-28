@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { buildTree, DraftTree } from './DraftTree'
+import { buildTree, DraftBlocks, DraftTree } from './DraftTree'
 
 const objets = Array.from({ length: 25 }, (_, i) => ({
   path: `cartographie/objets/composant-applicatif/app-${String(i).padStart(2, '0')}.yaml`,
@@ -50,5 +50,38 @@ describe('Arbre des fichiers du brouillon (ticket 8810604c)', () => {
     expect(screen.getByText('app-00.yaml')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Replier cartographie' }))
     expect(screen.queryByText('flux.jslt')).not.toBeInTheDocument()
+  })
+})
+
+describe('Blocs de l’écran de publication (ticket 9774a263)', () => {
+  const files = [
+    ...FILES,
+    { path: 'sources/colis/raw/a.schema.yaml', state: 'created' },
+    { path: 'governance/classifications/x.yaml', state: 'deleted' },
+  ]
+
+  it('un bloc par domaine, dans l’ordre, tous repliés ; « Autres » pour le reste', () => {
+    render(<DraftBlocks files={files} conflicts={new Set()} onOpen={() => undefined} />)
+    const heads = screen.getAllByRole('button', { name: /^Déplier / })
+    expect(heads.map((h) => h.getAttribute('aria-label'))).toEqual([
+      'Déplier Cartographie',
+      'Déplier Gouvernance',
+      'Déplier Sources',
+      'Déplier Autres',
+    ])
+    expect(heads[0]).toHaveTextContent('28 fichiers · 27 créé · 1 modifié')
+    expect(screen.queryByText('flux.jslt')).not.toBeInTheDocument()
+  })
+
+  it('déplié : l’arbre du bloc, sans répéter son répertoire', async () => {
+    const onOpen = vi.fn()
+    render(<DraftBlocks files={files} conflicts={new Set()} onOpen={onOpen} />)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Déplier Cartographie' }))
+    const tree = screen.getByRole('list', { name: 'Cartographie' })
+    expect(within(tree).getByRole('button', { name: 'Replier imports/communique' })).toBeInTheDocument()
+    expect(within(tree).queryByText('cartographie/')).not.toBeInTheDocument()
+    await user.click(within(tree).getByText('flux.jslt'))
+    expect(onOpen).toHaveBeenCalledWith('cartographie/imports/communique/flux.jslt')
   })
 })

@@ -13,7 +13,7 @@ from httpx import AsyncClient
 from ossie_studio.drafts.workdir import DraftWorkdir
 from tests.space_fixture import ApiSpace, forge_edit, make_api_space
 
-OBJ = "sources/s/raw/O.schema.yaml"
+OBJ = "sources/s/assets/O.schema.yaml"
 
 
 @pytest.fixture
@@ -225,3 +225,25 @@ async def test_accepter_une_erreur_refuse(app: FastAPI, sp: ApiSpace) -> None:
     # Refus dédié : une erreur se corrige, elle ne s'accepte pas.
     assert response.status_code == 409
     assert response.json()["error"] == "validation_error_not_acceptable"
+
+
+COLLECTED = "sources/s/raw/R.schema.yaml"
+
+
+async def test_objet_raw_fusion_en_lecture_seule_meme_en_conflit(
+    app: FastAPI, sp: ApiSpace
+) -> None:
+    """Ticket 173c6ed6 (Gael : « sur la partie source il faut ouvrir la fusion mais
+    elle est en read only ») : l'objet raw se consulte, le serveur refuse de le
+    réconcilier. Les assets se résolvent : voir les tests ci-dessus (OBJ)."""
+    forge_edit(sp, {COLLECTED: json.dumps({"a": 1, "b": 1})})
+    await _draft_write(app, sp, COLLECTED, {"a": 2, "b": 1})
+    forge_edit(sp, {COLLECTED: json.dumps({"a": 3, "b": 1})})
+    view = (await sp.client.get(f"{sp.base}/draft/merge", params={"path": COLLECTED})).json()
+    assert (view["kind"], view["readonly"], view["collected"]) == ("conflict", True, True)
+    refused = await sp.client.post(
+        f"{sp.base}/draft/merge", json={"path": COLLECTED, "resolutions": {"/a": "theirs"}}
+    )
+    assert refused.status_code == 409
+    assert refused.json()["error"] == "merge_collected_readonly"
+    assert (await _draft_content(sp))["changed_upstream_count"] == 1

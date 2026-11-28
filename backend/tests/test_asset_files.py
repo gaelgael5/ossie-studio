@@ -192,6 +192,11 @@ def test_modifications_rattachent_extend_a_son_asset() -> None:
         ("commande.schema.yaml", "modified"),
     ]
     assert api.other == []
+    # La fusion ouvre le schéma de l'asset s'il est au brouillon, sinon son extend.
+    assert sorted((o.file, o.path) for o in api.assets) == [
+        ("client.schema.yaml", "sources/api/assets/client.schema.yaml"),
+        ("commande.schema.yaml", "sources/api/assets/commande.extend.yaml"),
+    ]
 
 
 def test_tags_du_extend_comptent_dans_les_impacts_de_gouvernance(tmp_path: Path) -> None:

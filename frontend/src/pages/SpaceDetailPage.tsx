@@ -294,11 +294,11 @@ export function SpaceDetailPage() {
               </div>
               <p className="muted">{t('draftIntro')}</p>
               {draft.data && draft.data.count > 0 ? (
-                // La liste brute des chemins est remplacée par la vue « Modifications »
-                // (ticket docflow aad1d3c6), rangée par source et par nature.
+                // Le détail est sur l'écran de publication, qui a absorbé la vue
+                // « Modifications » (tickets aad1d3c6, 173c6ed6).
                 <div className="row">
                   <span>{t('draftCount', { count: draft.data.count })}</span>
-                  <Link to={`/spaces/${spaceId}/branches/${viewedId}/changes`} className="btn btn-sm">
+                  <Link to={`/spaces/${spaceId}/branches/${viewedId}/publish`} className="btn btn-sm">
                     {t('changesLink')}
                   </Link>
                 </div>

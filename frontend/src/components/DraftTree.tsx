@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Fichiers du brouillon en arbre de répertoires (ticket 8810604c, Gael : « regrouper
@@ -23,10 +23,12 @@ export interface DirNode {
 /** Au-delà, un répertoire est replié à l'ouverture : ses fichiers ne noient pas la liste. */
 export const FOLDED_ABOVE = 20
 
-export function buildTree(files: readonly DraftFile[]): DirNode {
-  const root: DirNode = { name: '', path: '', dirs: [], files: [] }
+/** `base` : répertoire déjà nommé par le bloc qui contient l'arbre, retiré des
+ * chemins affichés (ticket 9774a263) ; les fichiers gardent leur chemin complet. */
+export function buildTree(files: readonly DraftFile[], base = ''): DirNode {
+  const root: DirNode = { name: '', path: base, dirs: [], files: [] }
   for (const file of files) {
-    const parts = file.path.split('/')
+    const parts = (base && file.path.startsWith(`${base}/`) ? file.path.slice(base.length + 1) : file.path).split('/')
     let node = root
     for (const part of parts.slice(0, -1)) {
       const path = node.path ? `${node.path}/${part}` : part
@@ -45,7 +47,7 @@ export function buildTree(files: readonly DraftFile[]): DirNode {
 function sortAndFold(node: DirNode): DirNode {
   let current = node
   // La racine ne se fusionne pas : elle n'est pas affichée.
-  while (current.path !== '' && current.files.length === 0 && current.dirs.length === 1) {
+  while (current.name !== '' && current.files.length === 0 && current.dirs.length === 1) {
     const only = current.dirs[0]
     current = { ...only, name: `${current.name}/${only.name}` }
   }
@@ -68,15 +70,19 @@ export function DraftTree({
   files,
   conflicts,
   onOpen,
+  base = '',
+  label,
 }: {
   files: readonly DraftFile[]
   conflicts: ReadonlySet<string>
   onOpen: (path: string) => void
+  base?: string
+  label?: string
 }) {
   const { t } = useTranslation()
-  const root = buildTree(files)
+  const root = buildTree(files, base)
   return (
-    <ul className="draft-tree" aria-label={t('draftTreeLabel')}>
+    <ul className="draft-tree" aria-label={label ?? t('draftTreeLabel')}>
       <Children node={root} conflicts={conflicts} onOpen={onOpen} />
     </ul>
   )
@@ -105,10 +111,6 @@ function Children({ node, conflicts, onOpen }: { node: DirNode; conflicts: Reado
 function Dir({ node, conflicts, onOpen }: { node: DirNode; conflicts: ReadonlySet<string>; onOpen: (path: string) => void }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(node.files.length <= FOLDED_ABOVE)
-  const inside = allFiles(node)
-  const counts = new Map<string, number>()
-  for (const f of inside) counts.set(f.state, (counts.get(f.state) ?? 0) + 1)
-  const conflicted = inside.some((f) => conflicts.has(f.path))
   return (
     <li className="draft-tree-dir">
       <button
@@ -122,14 +124,7 @@ function Dir({ node, conflicts, onOpen }: { node: DirNode; conflicts: ReadonlySe
           {open ? '▾' : '▸'}
         </span>
         <code className="draft-tree-name">{node.name}/</code>
-        <span className="muted small">
-          {t('draftTreeCount', { count: inside.length })}
-          {[...counts.entries()]
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([state, n]) => ` · ${n} ${t(`draftState_${state}`)}`)
-            .join('')}
-        </span>
-        {conflicted ? <span className="badge-warn">{t('publishConflict')}</span> : null}
+        <Summary files={allFiles(node)} conflicts={conflicts} />
       </button>
       {open ? (
         <ul>
@@ -137,5 +132,117 @@ function Dir({ node, conflicts, onOpen }: { node: DirNode; conflicts: ReadonlySe
         </ul>
       ) : null}
     </li>
+  )
+}
+
+/** Nombre de fichiers, décompte par état, et conflit (visible même replié). */
+function Summary({ files, conflicts }: { files: readonly DraftFile[]; conflicts: ReadonlySet<string> }) {
+  const { t } = useTranslation()
+  const counts = new Map<string, number>()
+  for (const f of files) counts.set(f.state, (counts.get(f.state) ?? 0) + 1)
+  const conflicted = files.some((f) => conflicts.has(f.path))
+  return (
+    <>
+      <span className="muted small">
+        {t('draftTreeCount', { count: files.length })}
+        {[...counts.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([state, n]) => ` · ${n} ${t(`draftState_${state}`)}`)
+          .join('')}
+      </span>
+      {conflicted ? <span className="badge-warn">{t('publishConflict')}</span> : null}
+    </>
+  )
+}
+
+// Blocs de l'écran de publication (ticket 9774a263, Gael : « couper l'arbre en
+// blocs avec chacun son arbre ; quand tu ouvres la page chaque bloc est
+// collapsé »), d'après le premier répertoire du chemin.
+const BLOCKS: readonly { key: string; dir: string | null }[] = [
+  { key: 'cartographie', dir: 'cartographie' },
+  { key: 'domaines', dir: 'domaines' },
+  { key: 'governance', dir: 'governance' },
+  { key: 'referentiels', dir: 'referentiels' },
+  { key: 'sources', dir: 'sources' },
+  { key: 'other', dir: null },
+]
+
+export function DraftBlocks({
+  files,
+  conflicts,
+  onOpen,
+  content,
+}: {
+  files: readonly DraftFile[]
+  conflicts: ReadonlySet<string>
+  onOpen: (path: string) => void
+  /** Contenu propre d'un bloc à la place de son arbre, rendu à l'ouverture
+   * seulement (ticket 173c6ed6 : la vue par source des « Sources ») ; reçoit
+   * l'arbre, comme repli. */
+  content?: Partial<Record<string, (tree: ReactNode) => ReactNode>>
+}) {
+  // Un fichier à la racine du dépôt, ou sous un répertoire non listé : « Autres ».
+  const blockOf = (path: string) =>
+    BLOCKS.find((b) => b.dir !== null && path.startsWith(`${b.dir}/`))?.key ?? 'other'
+  return (
+    <div className="stack stack-tight draft-blocks">
+      {BLOCKS.map((b) => {
+        const mine = files.filter((f) => blockOf(f.path) === b.key)
+        return mine.length > 0 ? (
+          <Block
+            key={b.key}
+            name={b.key}
+            dir={b.dir ?? ''}
+            files={mine}
+            conflicts={conflicts}
+            onOpen={onOpen}
+            content={content?.[b.key]}
+          />
+        ) : null
+      })}
+    </div>
+  )
+}
+
+function Block({
+  name,
+  dir,
+  files,
+  conflicts,
+  onOpen,
+  content,
+}: {
+  name: string
+  dir: string
+  files: readonly DraftFile[]
+  conflicts: ReadonlySet<string>
+  onOpen: (path: string) => void
+  content?: (tree: ReactNode) => ReactNode
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const title = t(`draftBlock_${name}`)
+  return (
+    <section className="panel draft-block">
+      <button
+        type="button"
+        className="draft-tree-toggle draft-block-head row"
+        aria-expanded={open}
+        aria-label={t(open ? 'draftTreeFold' : 'draftTreeUnfold', { name: title })}
+        onClick={() => setOpen(!open)}
+      >
+        <span className="draft-tree-caret" aria-hidden="true">
+          {open ? '▾' : '▸'}
+        </span>
+        <span className="draft-block-title">{title}</span>
+        <Summary files={files} conflicts={conflicts} />
+      </button>
+      {open
+        ? (() => {
+            const tree = <DraftTree files={files} conflicts={conflicts} onOpen={onOpen} base={dir} label={title} />
+            return content ? <div className="draft-block-body">{content(tree)}</div> : tree
+          })()
+        : null}
+    </section>
   )
 }

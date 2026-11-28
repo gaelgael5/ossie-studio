@@ -139,6 +139,8 @@ export interface MergeView {
   state: 'created' | 'modified' | 'deleted'
   changed_upstream: boolean
   readonly: boolean
+  /** Objet raw d'une source : lecture seule même en conflit (ticket 173c6ed6). */
+  collected?: boolean
   kind: 'none' | 'auto' | 'conflict' | 'text' | 'text_conflict' | 'deleted_upstream' | 'deleted_in_draft'
   structured: boolean
   base: unknown
@@ -1046,6 +1048,8 @@ export interface DraftChangedObject {
   state: 'created' | 'modified' | 'deleted' | 'orphan'
   /** Dossier dans l'explorateur (mode `mode` de la réponse) ; null : plus d'objet à ouvrir. */
   folder: string | null
+  /** Fichier du brouillon que la fusion ouvre (ticket 173c6ed6) ; null : hors du brouillon. */
+  path: string | null
 }
 
 export interface DraftChangedFile {

@@ -14,7 +14,6 @@ import { ForgesPage } from './pages/ForgesPage'
 import { SpacesPage } from './pages/SpacesPage'
 import { SpaceDetailPage } from './pages/SpaceDetailPage'
 import { PublishPage } from './pages/PublishPage'
-import { DraftChangesPage } from './pages/DraftChangesPage'
 import { GovernanceTagsPage } from './pages/GovernanceTagsPage'
 import { GovernanceTagRulesPage } from './pages/GovernanceTagRulesPage'
 import { GovernanceRelationProfilesPage } from './pages/GovernanceRelationProfilesPage'
@@ -47,6 +46,12 @@ import { loginWithNext, safeNext } from './safeNext'
 import { StatusPage } from './StatusPage'
 
 /** Déjà connecté sur /login : on va là où la connexion devait ramener. */
+/** Ancienne adresse de l'écran « Modifications » : la publication l'a absorbé. */
+function ChangesToPublish() {
+  const { pathname } = useLocation()
+  return <Navigate to={pathname.replace(/\/changes$/, '/publish')} replace />
+}
+
 function AfterLogin() {
   const [params] = useSearchParams()
   return <Navigate to={safeNext(params.get('next')) ?? '/'} replace />
@@ -164,7 +169,8 @@ function AppRoutes() {
         />
         <Route
           path="/spaces/:spaceId/branches/:branchId/changes"
-          element={gate('sources:read', <DraftChangesPage />)}
+          // L'écran « Modifications » est entré dans la publication (ticket 173c6ed6).
+          element={<ChangesToPublish />}
         />
         <Route path="/governance/tags" element={gate('governance:read', <GovernanceTagsPage />)} />
         <Route

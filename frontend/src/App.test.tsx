@@ -409,7 +409,7 @@ test('détail espace : liste les commits non publiés et les publie', async () =
   )
   expect(within(section).getByRole('link', { name: 'Voir les modifications' })).toHaveAttribute(
     'href',
-    '/spaces/s1/branches/b1/changes',
+    '/spaces/s1/branches/b1/publish',
   )
 })
 

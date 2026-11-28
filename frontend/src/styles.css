@@ -4655,3 +4655,24 @@ urban-bpmn {
 .draft-tree-name {
   font-weight: 600;
 }
+/* Blocs de l'écran de publication (ticket 9774a263). */
+.draft-block {
+  padding: 10px 14px;
+}
+.draft-block-head {
+  width: 100%;
+}
+.draft-block-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.draft-block .draft-tree {
+  margin-top: 8px;
+}
+/* Bloc « Sources » de la publication : la vue par source (ticket 173c6ed6). */
+.draft-block-body {
+  margin-top: 10px;
+}
+.source-changes + .source-changes {
+  margin-top: 18px;
+}

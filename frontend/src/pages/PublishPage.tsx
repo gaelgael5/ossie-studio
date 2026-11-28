@@ -5,7 +5,8 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { CredentialBlock } from '../components/CredentialBlock'
-import { DraftTree } from '../components/DraftTree'
+import { DraftBlocks } from '../components/DraftTree'
+import { SourceChanges } from '../components/SourceChanges'
 import { ErrorList } from '../components/ErrorList'
 import { ImpactsSection } from '../components/ImpactsSection'
 import { MergeDialog } from '../components/MergeDialog'
@@ -59,11 +60,6 @@ export function PublishPage() {
         }
         title={t('publishTitle')}
         subtitle={t('publishIntro')}
-        actions={
-          <Link to={`/spaces/${spaceId}/branches/${branchId}/changes`} className="btn">
-            {t('changesLink')}
-          </Link>
-        }
       />
       <ErrorList messages={messages} />
       {notice ? <div className="banner">{notice}</div> : null}
@@ -71,7 +67,16 @@ export function PublishPage() {
         {objects.length === 0 ? (
           <div className="empty-note">{t('draftEmpty')}</div>
         ) : (
-          <DraftTree files={objects} conflicts={conflicts} onOpen={setOpened} />
+          <DraftBlocks
+            files={objects}
+            conflicts={conflicts}
+            onOpen={setOpened}
+            content={{
+              sources: (tree) => (
+                <SourceChanges spaceId={spaceId} branchId={branchId} onOpen={setOpened} fallback={tree} />
+              ),
+            }}
+          />
         )}
         {opened ? <MergeDialog spaceId={spaceId} branchId={branchId} path={opened} onClose={() => setOpened(null)} /> : null}
         <ImpactsSection spaceId={spaceId} branchId={branchId} />
