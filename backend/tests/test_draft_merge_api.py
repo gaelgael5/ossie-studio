@@ -304,3 +304,35 @@ async def test_texte_retouche_illisible_refuse(app: FastAPI, sp: ApiSpace) -> No
         json={"path": path, "resolutions": {"": {"value": "a: 1\nligne: les deux\n"}}},
     )
     assert fixed.status_code == 200, fixed.text
+
+
+async def test_fenetre_graphique_textes_et_marque_de_conflit(app: FastAPI, sp: ApiSpace) -> None:
+    """Feature fcf32f4a : la vue porte les fichiers entiers et, au milieu, la
+    fusion proposée avec une marque par conflit ; le texte validé est enregistré
+    tel quel, refusé tant qu'une marque y reste."""
+    forge_edit(sp, {OBJ: json.dumps({"a": 1, "b": 1, "c": 1})})
+    await _draft_write(app, sp, OBJ, {"a": 2, "b": 1, "c": 1})
+    forge_edit(sp, {OBJ: json.dumps({"a": 3, "b": 1, "c": 5})})
+    view = (await sp.client.get(f"{sp.base}/draft/merge", params={"path": OBJ})).json()
+    assert view["auto"] == 1
+    texts = view["texts"]
+    assert texts["base"] is not None and texts["theirs"] is not None and texts["mine"] is not None
+    marker = view["marker"]
+    assert marker in texts["proposed"]
+    # Écrit sur le brouillon (ici du YAML en ligne) : seule la valeur fusionnée change.
+    assert '"c": 5' in texts["proposed"]
+    refused = await sp.client.post(
+        f"{sp.base}/draft/merge", json={"path": OBJ, "content": texts["proposed"]}
+    )
+    assert refused.status_code == 400
+    assert refused.json()["error"] == "merge_unresolved"
+    broken = await sp.client.post(
+        f"{sp.base}/draft/merge", json={"path": OBJ, "content": "a: [1\n"}
+    )
+    assert broken.json()["error"] == "merge_value_invalid"
+    final = texts["proposed"].replace(marker, "42").rstrip("\n") + "\n# relu\n"
+    done = await sp.client.post(f"{sp.base}/draft/merge", json={"path": OBJ, "content": final})
+    assert done.status_code == 200, done.text
+    after = (await sp.client.get(f"{sp.base}/draft/merge", params={"path": OBJ})).json()
+    assert after["texts"]["mine"] == final
+    assert after["mine"] == {"a": 42, "b": 1, "c": 5}

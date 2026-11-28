@@ -1,17 +1,65 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MergeDialog } from './MergeDialog'
+import { MergeDialog, remainingConflicts } from './MergeDialog'
 
+// Le composant graphique (CodeMirror 5) ne se dessine pas dans jsdom : une doublure
+// rend ses panneaux en zones de texte, et ses flèches en boutons qui recopient le
+// panneau entier dans le résultat. Le rendu réel est vérifié au navigateur.
+vi.mock('./CodeMerge', () => ({
+  CodeMerge: (props: {
+    left?: string | null
+    value: string
+    right?: string | null
+    readOnly?: boolean
+    onChange?: (text: string) => void
+    takeLeft?: string
+    takeRight?: string
+    label: string
+  }) => {
+    const [text, setText] = useState(props.value)
+    const put = (value: string) => {
+      setText(value)
+      props.onChange?.(value)
+    }
+    return (
+      <div data-testid="code-merge">
+        {props.left != null ? <pre data-testid="pane-left">{props.left}</pre> : null}
+        {props.left != null && !props.readOnly ? (
+          <button type="button" aria-label={props.takeLeft} onClick={() => put(props.left ?? '')}>
+            →
+          </button>
+        ) : null}
+        <textarea aria-label={props.label} readOnly={props.readOnly} value={text} onChange={(e) => put(e.target.value)} />
+        {props.right != null && !props.readOnly ? (
+          <button type="button" aria-label={props.takeRight} onClick={() => put(props.right ?? '')}>
+            ←
+          </button>
+        ) : null}
+        {props.right != null ? <pre data-testid="pane-right">{props.right}</pre> : null}
+      </div>
+    )
+  },
+}))
+
+const MARKER = '⟨ à choisir ⟩'
 const BASE = {
-  path: 'sources/s/raw/O.schema.yaml',
+  path: 'modeles/client.modele.yaml',
   state: 'modified',
   changed_upstream: true,
   readonly: false,
   structured: true,
   theirs_absent: false,
   mine_absent: false,
+  base: null,
+  theirs: null,
+  mine: null,
+  proposed: null,
+  conflicts: [],
+  marker: MARKER,
+  auto: 0,
 }
 
 function mockApi(view: unknown) {
@@ -37,120 +85,118 @@ function renderDialog(onClose = () => {}) {
   )
 }
 
+const GRID = 'Fusion : version publiée, résultat, votre brouillon'
+
 afterEach(() => vi.unstubAllGlobals())
 
-describe('MergeDialog', () => {
-  it('lecture seule : montre la correspondance, sans bouton de validation', async () => {
-    mockApi({ ...BASE, changed_upstream: false, readonly: true, kind: 'none', base: { a: 1 }, theirs: { a: 1 }, mine: { a: 2 }, proposed: null, conflicts: [] })
-    renderDialog()
-    await waitFor(() => expect(screen.getByText('/a')).toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: 'Valider la fusion' })).not.toBeInTheDocument()
+describe('remainingConflicts', () => {
+  it('compte les marques du serveur et les blocs de git merge-file', () => {
+    expect(remainingConflicts(`a: ${MARKER}\nb: ${MARKER}\n`, MARKER)).toBe(2)
+    expect(remainingConflicts('<<<<<<< brouillon\na\n=======\nb\n>>>>>>> publié\n', MARKER)).toBe(1)
+    expect(remainingConflicts('a: 1\n', MARKER)).toBe(0)
   })
+})
 
-  it('trois colonnes publiée | résultat | brouillon ; conflit « à choisir », puis bascule par les flèches (d727680a)', async () => {
+describe('MergeDialog', () => {
+  it('trois panneaux publiée | résultat | brouillon ; badge ; validation bloquée tant qu’une marque reste ; texte envoyé tel quel (fcf32f4a)', async () => {
     const calls = mockApi({
       ...BASE,
       kind: 'conflict',
-      base: { a: 1, b: 1 },
-      theirs: { a: 3, b: 5 },
-      mine: { a: 2, b: 1 },
-      proposed: { a: 2, b: 5 },
-      conflicts: [{ pointer: '/a', base: 1, theirs: 3, mine: 2 }],
+      auto: 2,
+      texts: {
+        base: 'segment: Segment\n',
+        theirs: 'segment: Niveau\npays: FR\n',
+        mine: 'segment: Commercial\nemail: x\n',
+        proposed: `segment: ${MARKER}\npays: FR\nemail: x\n`,
+      },
     })
     const onClose = vi.fn()
     const user = userEvent.setup()
     renderDialog(onClose)
-    const grid = await screen.findByRole('table', { name: 'Fusion : version publiée, résultat, votre brouillon' })
-    expect(within(grid).getAllByRole('row')).toHaveLength(2) // /a et /b
+    const middle = await screen.findByLabelText(GRID)
     expect(screen.getByText('Publiée')).toBeInTheDocument()
     expect(screen.getByText('Résultat')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('1 conflit à trancher')
-    // Bloc fusionné automatiquement : /b vient du côté publié, sa flèche est appliquée.
-    expect(screen.getByRole('button', { name: 'Prendre la version publiée (/b)' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('Résultat pour /b')).toHaveValue('5')
-    // Conflit : à choisir, aucune flèche appliquée, validation désactivée.
-    expect(screen.getByLabelText('Résultat pour /a')).toHaveValue('')
-    expect(screen.getByRole('button', { name: 'Valider la fusion' })).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: 'Prendre la version publiée (/a)' }))
-    expect(screen.getByLabelText('Résultat pour /a')).toHaveValue('3')
-    await user.click(screen.getByRole('button', { name: 'Prendre votre version (/a)' }))
-    expect(screen.getByLabelText('Résultat pour /a')).toHaveValue('2')
-    expect(screen.getByRole('button', { name: 'Prendre votre version (/a)' })).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('status')).toHaveTextContent('Résolu')
-    await user.click(screen.getByRole('button', { name: 'Valider la fusion' }))
-    await waitFor(() => expect(onClose).toHaveBeenCalled())
-    const post = calls.find((c) => c.method === 'POST')
-    expect(JSON.parse(post?.body ?? '{}')).toEqual({ path: BASE.path, resolutions: { '/a': { value: 2 } } })
-  })
-
-  it('bloc ajouté d’un seul côté : un nouveau clic sur la flèche appliquée le retire, un autre le remet (critère 5)', async () => {
-    const calls = mockApi({
-      ...BASE,
-      kind: 'auto',
-      base: { a: 1 },
-      theirs: { a: 1 },
-      mine: { a: 1, c: 9 },
-      proposed: { a: 1, c: 9 },
-      conflicts: [],
-    })
-    const user = userEvent.setup()
-    renderDialog()
-    const arrow = await screen.findByRole('button', { name: 'Prendre votre version (/c)' })
-    expect(arrow).toHaveAttribute('aria-pressed', 'true')
-    await user.click(arrow)
-    // Retiré : le résultat rejoint la version publiée, où `c` est absent.
-    expect(arrow).toHaveAttribute('aria-pressed', 'false')
-    expect(screen.getByRole('button', { name: 'Prendre la version publiée (/c)' })).toHaveAttribute('aria-pressed', 'true')
-    await user.click(arrow) // remis
-    expect(arrow).toHaveAttribute('aria-pressed', 'true')
-    await user.click(arrow) // retiré de nouveau
-    await user.click(screen.getByRole('button', { name: 'Valider la fusion' }))
+    expect(screen.getByText('Mon brouillon')).toBeInTheDocument()
+    expect(screen.getByTestId('pane-left')).toHaveTextContent('segment: Niveau')
+    expect(screen.getByTestId('pane-right')).toHaveTextContent('segment: Commercial')
+    expect(middle).toHaveValue(`segment: ${MARKER}\npays: FR\nemail: x\n`)
+    expect(screen.getByRole('status')).toHaveTextContent('1 conflit à trancher · 2 fusions auto')
+    const validate = screen.getByRole('button', { name: 'Valider la fusion' })
+    expect(validate).toBeDisabled()
+    await user.clear(middle)
+    await user.type(middle, 'segment: Niveau commercial\npays: FR\nemail: x\n')
+    expect(screen.getByRole('status')).toHaveTextContent('Conflits résolus · 2 fusions auto')
+    expect(validate).toBeEnabled()
+    await user.click(validate)
     await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
     expect(JSON.parse(calls.find((c) => c.method === 'POST')?.body ?? '{}')).toEqual({
       path: BASE.path,
-      resolutions: { '/c': { remove: true } },
+      content: 'segment: Niveau commercial\npays: FR\nemail: x\n',
     })
+    await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 
-  it('colonne du milieu modifiable : saisie libre, type vérifié, flèche qui remplace la retouche (edaddc6d)', async () => {
-    const calls = mockApi({
+  it('flèches libellées ; un YAML cassé ne se valide pas', async () => {
+    mockApi({
       ...BASE,
       kind: 'conflict',
-      base: { n: 1, nom: 'a' },
-      theirs: { n: 3, nom: 'b' },
-      mine: { n: 2, nom: 'c' },
-      proposed: { n: 2, nom: 'c' },
-      conflicts: [
-        { pointer: '/n', base: 1, theirs: 3, mine: 2 },
-        { pointer: '/nom', base: 'a', theirs: 'b', mine: 'c' },
-      ],
+      texts: { base: 'a: 1\n', theirs: 'a: 3\n', mine: 'a: 2\n', proposed: `a: ${MARKER}\n` },
     })
     const user = userEvent.setup()
     renderDialog()
-    const n = await screen.findByLabelText('Résultat pour /n')
-    await user.type(n, 'abc')
-    expect(screen.getByText('Un nombre est attendu.')).toBeInTheDocument()
-    await user.clear(n)
-    await user.type(n, '42')
-    expect(screen.queryByText('Un nombre est attendu.')).not.toBeInTheDocument()
-    expect(screen.getAllByText('Modifié à la main').length).toBeGreaterThan(0)
-    // Saisie identique à un côté : la flèche de ce côté apparaît appliquée.
-    const nom = screen.getByLabelText('Résultat pour /nom')
-    await user.type(nom, 'b')
-    expect(screen.getByRole('button', { name: 'Prendre la version publiée (/nom)' })).toHaveAttribute('aria-pressed', 'true')
-    await user.click(screen.getByRole('button', { name: 'Valider la fusion' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
-    expect(JSON.parse(calls.find((c) => c.method === 'POST')?.body ?? '{}')).toEqual({
-      path: BASE.path,
-      resolutions: { '/n': { value: 42 }, '/nom': { value: 'b' } },
-    })
+    const middle = await screen.findByLabelText(GRID)
+    await user.click(screen.getByRole('button', { name: 'Prendre la version publiée' }))
+    expect(middle).toHaveValue('a: 3\n')
+    const validate = screen.getByRole('button', { name: 'Valider la fusion' })
+    expect(validate).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Prendre votre version' }))
+    expect(middle).toHaveValue('a: 2\n')
+    await user.clear(middle)
+    await user.type(middle, 'a: {[}cassé')
+    expect(validate).toBeDisabled()
   })
 
-  it('objet raw : deux colonnes en lecture seule, ni flèche ni validation (critère 13)', async () => {
+  it('« Afficher la base » montre l’ancêtre commun sans perdre le résultat ; sans base, bouton désactivé', async () => {
+    mockApi({
+      ...BASE,
+      kind: 'conflict',
+      texts: { base: 'a: depart\n', theirs: 'a: 3\n', mine: 'a: 2\n', proposed: `a: ${MARKER}\n` },
+    })
+    const user = userEvent.setup()
+    const view = renderDialog()
+    const middle = await screen.findByLabelText(GRID)
+    await user.clear(middle)
+    await user.type(middle, 'a: 9\n')
+    await user.click(screen.getByRole('button', { name: 'Afficher la base' }))
+    expect(screen.getByLabelText('Départ')).toHaveValue('a: depart\n')
+    expect(screen.getByLabelText(GRID)).toHaveValue('a: 9\n')
+    await user.click(screen.getByRole('button', { name: 'Masquer la base' }))
+    expect(screen.queryByLabelText('Départ')).not.toBeInTheDocument()
+    view.unmount()
+
+    mockApi({ ...BASE, kind: 'conflict', texts: { base: null, theirs: 'a: 3\n', mine: 'a: 2\n', proposed: `a: ${MARKER}\n` } })
+    renderDialog()
+    const button = await screen.findByRole('button', { name: 'Afficher la base' })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('title', expect.stringMatching(/Pas de base/))
+  })
+
+  it('lecture seule (rien de changé côté publié) : deux panneaux, sans flèche ni validation', async () => {
+    mockApi({
+      ...BASE, changed_upstream: false, readonly: true, kind: 'none',
+      texts: { base: 'a: 1\n', theirs: 'a: 1\n', mine: 'a: 2\n', proposed: null },
+    })
+    renderDialog()
+    expect(await screen.findByText(/Rien n’a changé côté publié/)).toBeInTheDocument()
+    expect(screen.getByTestId('pane-right')).toHaveTextContent('a: 2')
+    expect(screen.queryByRole('button', { name: /Prendre/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Valider la fusion' })).not.toBeInTheDocument()
+  })
+
+  it('objet raw : deux panneaux en lecture seule, ni flèche ni validation (critère 13)', async () => {
     mockApi({
       ...BASE, collected: true, readonly: true, kind: 'conflict',
-      base: { a: 1 }, theirs: { a: 3 }, mine: { a: 2 }, proposed: { a: 2 },
-      conflicts: [{ pointer: '/a', base: 1, theirs: 3, mine: 2 }],
+      texts: { base: 'a: 1\n', theirs: 'a: 3\n', mine: 'a: 2\n', proposed: `a: ${MARKER}\n` },
     })
     renderDialog()
     expect(await screen.findByText(/Objet collecté/)).toBeInTheDocument()
@@ -158,36 +204,23 @@ describe('MergeDialog', () => {
     expect(screen.queryByRole('button', { name: 'Valider la fusion' })).not.toBeInTheDocument()
   })
 
-  it('texte en conflit : choisi par une flèche ou retouché ; un YAML cassé ne se valide pas', async () => {
+  it('supprimé côté publié : la flèche du côté absent accepte la suppression', async () => {
     const calls = mockApi({
-      ...BASE, path: 'notes/plan.yaml', structured: false, kind: 'text_conflict',
-      base: 'a: 1\n', theirs: 'a: 3\n', mine: 'a: 2\n', proposed: 'a: 2\n', conflicts: [],
+      ...BASE, kind: 'deleted_upstream', theirs_absent: true, theirs: null, mine: { a: 2 },
+      texts: { base: 'a: 1\n', theirs: null, mine: 'a: 2\n', proposed: 'a: 2\n' },
     })
     const user = userEvent.setup()
     renderDialog()
-    const validate = await screen.findByRole('button', { name: 'Valider la fusion' })
-    expect(validate).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: /Prendre la version publiée/ }))
-    const area = screen.getByLabelText(/Résultat pour/)
-    expect(area).toHaveValue('a: 3\n')
-    await user.clear(area)
-    await user.type(area, 'a: {[}cassé')
-    expect(validate).toBeDisabled()
-    await user.clear(area)
-    await user.type(area, 'a: 4')
-    expect(validate).toBeEnabled()
-    await user.click(validate)
+    await user.click(await screen.findByRole('button', { name: 'Accepter la suppression' }))
+    await user.click(screen.getByRole('button', { name: 'Valider la fusion' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
-    expect(JSON.parse(calls.find((c) => c.method === 'POST')?.body ?? '{}')).toEqual({
-      path: BASE.path, // la fenêtre est ouverte sur ce chemin (YAML)
-      resolutions: { '': { value: 'a: 4' } },
-    })
+    expect(JSON.parse(calls.find((c) => c.method === 'POST')?.body ?? '{}')).toEqual({ path: BASE.path, delete: true })
   })
 
-  it('par-dessus la page (bug d45bbc68) ; fichier créé : son contenu, rien à fusionner ; Échap ferme', async () => {
+  it('par-dessus la page (bug d45bbc68) ; fichier créé : un seul panneau ; Échap ferme', async () => {
     mockApi({
-      ...BASE, path: 'cartographie/types/flux.schema.yaml', state: 'created', changed_upstream: false, readonly: true,
-      kind: 'none', base: null, theirs: null, mine: { title: 'Flux' }, theirs_absent: true, proposed: null, conflicts: [],
+      ...BASE, state: 'created', changed_upstream: false, readonly: true, kind: 'none', theirs_absent: true,
+      texts: { base: null, theirs: null, mine: 'title: Flux\n', proposed: null },
     })
     const onClose = vi.fn()
     renderDialog(onClose)
@@ -195,6 +228,8 @@ describe('MergeDialog', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog.parentElement).toHaveClass('dialog-backdrop')
     expect(await screen.findByText(/Nouveau fichier : il n’existe pas encore côté publié/)).toBeInTheDocument()
+    expect(screen.getByLabelText(GRID)).toHaveValue('title: Flux\n')
+    expect(screen.queryByTestId('pane-right')).not.toBeInTheDocument()
     const user = userEvent.setup()
     await user.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalledTimes(1)
@@ -207,7 +242,8 @@ describe('MergeDialog', () => {
   it('fichier binaire créé : pas d’aperçu illisible', async () => {
     mockApi({
       ...BASE, path: 'cartographie/imports/t/c.exemple.xlsx', state: 'created', changed_upstream: false, readonly: true,
-      kind: 'none', structured: false, base: null, theirs: null, mine: 'PK\u0003\u0004xyz', theirs_absent: true, proposed: null, conflicts: [],
+      kind: 'none', structured: false, theirs_absent: true,
+      texts: { base: null, theirs: null, mine: 'PK\u0003\u0004xyz', proposed: null },
     })
     renderDialog()
     expect(await screen.findByText('Fichier binaire : pas d’aperçu.')).toBeInTheDocument()

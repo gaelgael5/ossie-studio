@@ -26,9 +26,101 @@ def test_meme_propriete_conflit_avec_pointeur() -> None:
     assert (conflict.base, conflict.theirs, conflict.mine) == ("string", "integer", "number")
 
 
-def test_liste_modifiee_des_deux_cotes_conflit_atomique() -> None:
+def test_liste_sans_identifiant_conflit_atomique() -> None:
+    """Éléments sans clé commune : la liste reste indivisible (f9bd4d93)."""
+    base = {"l": [{"x": 1}]}
+    result = merge3(base, {"l": [{"x": 1}, {"x": 2}]}, {"l": [{"x": 1}, {"x": 3}]})
+    assert [c.pointer for c in result.conflicts] == ["/l"]
+
+
+def test_liste_de_tags_fusionnee_comme_un_ensemble() -> None:
     result = merge3({"tags": ["a"]}, {"tags": ["a", "b"]}, {"tags": ["a", "c"]})
-    assert [c.pointer for c in result.conflicts] == ["/tags"]
+    assert result.conflicts == []
+    assert result.merged == {"tags": ["a", "b", "c"]}
+
+
+def test_identifiants_en_double_liste_atomique() -> None:
+    base = {"l": [{"name": "a"}]}
+    theirs = {"l": [{"name": "a"}, {"name": "a", "v": 1}]}
+    mine = {"l": [{"name": "a"}, {"name": "b"}]}
+    assert [c.pointer for c in merge3(base, theirs, mine).conflicts] == ["/l"]
+
+
+FIELDS_BASE = {
+    "datasets": [
+        {
+            "name": "client",
+            "fields": [
+                {"name": "id_client", "type": "string"},
+                {"name": "segment", "description": "Segment"},
+                {"name": "date_creation", "type": "date"},
+            ],
+        }
+    ]
+}
+
+
+def _fields(*items: dict[str, str]) -> dict[str, object]:
+    return {"datasets": [{"name": "client", "fields": list(items)}]}
+
+
+ID = {"name": "id_client", "type": "string"}
+DATE = {"name": "date_creation", "type": "date"}
+PAYS = {"name": "pays", "type": "string"}
+EMAIL = {"name": "email_contact", "type": "string"}
+
+
+def test_cas_de_la_maquette_un_seul_conflit_sur_segment() -> None:
+    """Maquette du 28/11 : `pays` ajouté côté publié, `email_contact` dans le
+    brouillon, `segment` modifié des deux côtés."""
+    theirs = _fields(ID, {"name": "segment", "description": "Niveau client A/B/C"}, PAYS, DATE)
+    mine = _fields(ID, {"name": "segment", "description": "Segment commercial"}, DATE, EMAIL)
+    result = merge3(FIELDS_BASE, theirs, mine)
+    assert [c.pointer for c in result.conflicts] == ["/datasets/client/fields/segment/description"]
+    names = [f["name"] for f in result.merged["datasets"][0]["fields"]]
+    assert names == ["id_client", "segment", "pays", "date_creation", "email_contact"]
+    assert sorted(result.auto) == [
+        "/datasets/client/fields/email_contact",
+        "/datasets/client/fields/pays",
+    ]
+
+
+def test_element_supprime_d_un_cote_inchange_de_l_autre() -> None:
+    theirs = _fields(ID, DATE)
+    mine = _fields(ID, {"name": "segment", "description": "Segment"}, DATE)
+    result = merge3(FIELDS_BASE, theirs, mine)
+    assert result.conflicts == []
+    assert [f["name"] for f in result.merged["datasets"][0]["fields"]] == [
+        "id_client",
+        "date_creation",
+    ]
+
+
+def test_element_supprime_d_un_cote_modifie_de_l_autre_conflit() -> None:
+    theirs = _fields(ID, DATE)
+    mine = _fields(ID, {"name": "segment", "description": "Autre"}, DATE)
+    result = merge3(FIELDS_BASE, theirs, mine)
+    assert [c.pointer for c in result.conflicts] == ["/datasets/client/fields/segment"]
+    assert result.conflicts[0].theirs is MISSING
+
+
+def test_element_ajoute_des_deux_cotes() -> None:
+    same = merge3(FIELDS_BASE, _fields(ID, DATE, PAYS), _fields(ID, DATE, PAYS))
+    assert same.conflicts == []
+    theirs = _fields(ID, DATE, {"name": "pays", "type": "string"})
+    mine = _fields(ID, DATE, {"name": "pays", "type": "code"})
+    result = merge3({"datasets": [{"name": "client", "fields": [ID, DATE]}]}, theirs, mine)
+    assert [c.pointer for c in result.conflicts] == ["/datasets/client/fields/pays/type"]
+
+
+def test_set_pointer_dans_une_liste_par_identifiant() -> None:
+    doc = _fields(ID, {"name": "segment", "description": "x"})
+    set_pointer(doc, "/datasets/client/fields/segment/description", "y")
+    assert doc["datasets"][0]["fields"][1] == {"name": "segment", "description": "y"}
+    set_pointer(doc, "/datasets/client/fields/segment", MISSING)
+    assert doc["datasets"][0]["fields"] == [ID]
+    set_pointer(doc, "/datasets/client/fields/pays", PAYS)
+    assert doc["datasets"][0]["fields"] == [ID, PAYS]
 
 
 def test_meme_changement_des_deux_cotes_sans_conflit() -> None:
@@ -99,3 +191,28 @@ def test_set_pointer_garde_le_type_des_cles_yaml() -> None:
     doc = {"responses": {200: {"description": "ok"}}}
     set_pointer(doc, "/responses/200/description", "OK")
     assert doc == {"responses": {200: {"description": "OK"}}}
+
+
+def test_choix_sur_un_pointeur_d_element_applique() -> None:
+    """Critère 6 de f9bd4d93 : `theirs` sur un conflit d'élément est appliqué."""
+    from ossie_studio.drafts.preparation import resolved_content
+
+    path = "modeles/client.json"
+    theirs_doc = _fields(ID, {"name": "segment", "description": "Niveau"}, PAYS, DATE)
+    mine_doc = _fields(ID, {"name": "segment", "description": "Commercial"}, DATE, EMAIL)
+    theirs = json.dumps(theirs_doc).encode()
+    merged = merge_object(
+        path, json.dumps(FIELDS_BASE).encode(), theirs, json.dumps(mine_doc).encode()
+    )
+    pointer = "/datasets/client/fields/segment/description"
+    content = resolved_content(path, merged, {pointer: "theirs"}, None, theirs)
+    assert content is not None
+    fields = json.loads(content)["datasets"][0]["fields"]
+    assert fields[1] == {"name": "segment", "description": "Niveau"}
+    assert [f["name"] for f in fields] == [
+        "id_client",
+        "segment",
+        "pays",
+        "date_creation",
+        "email_contact",
+    ]

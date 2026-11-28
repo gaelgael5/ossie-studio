@@ -4,7 +4,9 @@ Décision (feature « Fenêtre de fusion par propriétés ») : les objets que
 l'application connaît (YAML, JSON) se fusionnent **par propriétés**, jamais
 ligne à ligne — une fusion textuelle d'un YAML peut produire un fichier valide
 mais faux. Règles : une propriété changée d'un seul côté prend ce changement ;
-changée des deux côtés différemment → conflit, l'utilisateur choisit. Listes et
+changée des deux côtés différemment → conflit, l'utilisateur choisit. Une liste
+dont les éléments portent un identifiant commun (`name`, `key`…) se fusionne
+élément par élément (enabler f9bd4d93) ; une liste sans identifiant et les
 valeurs simples sont atomiques. Les autres fichiers se replient sur une fusion
 texte (`git merge-file`)."""
 
@@ -21,7 +23,7 @@ from typing import Any, Literal
 import yaml
 
 from ossie_studio.parsers.conventions import SCHEMA_SUFFIX, dump_schema, load_schema
-from ossie_studio.roundtrip import render
+from ossie_studio.roundtrip import default_identity, render
 from ossie_studio.sources.draft_changes import is_collected_raw
 
 
@@ -45,6 +47,15 @@ class Conflict:
 class MergeResult:
     merged: Any
     conflicts: list[Conflict] = field(default_factory=list)
+    # Blocs pris d'un seul côté sans décision (badge « N fusions auto » de la
+    # fenêtre, feature fcf32f4a).
+    auto: list[str] = field(default_factory=list)
+
+
+# Marque d'un conflit non tranché dans le texte proposé au milieu de la fenêtre de
+# fusion (maquette du 28/11). Un scalaire YAML/JSON valide : le texte reste lisible
+# tant qu'elle y est, et le serveur refuse de l'enregistrer.
+CONFLICT_MARKER = "⟨ à choisir ⟩"
 
 
 def _escape(key: str) -> str:
@@ -57,13 +68,13 @@ def merge3(base: Any, theirs: Any, mine: Any, pointer: str = "") -> MergeResult:
     if theirs == mine:
         return MergeResult(theirs)
     if mine == base:
-        return MergeResult(theirs)
+        return MergeResult(theirs, auto=[pointer] if pointer else [])
     if theirs == base:
-        return MergeResult(mine)
+        return MergeResult(mine, auto=[pointer] if pointer else [])
     if isinstance(theirs, dict) and isinstance(mine, dict):
         base_dict = base if isinstance(base, dict) else {}
         merged: dict[str, Any] = {}
-        conflicts: list[Conflict] = []
+        result = MergeResult(merged)
         keys = list(dict.fromkeys([*base_dict, *theirs, *mine]))
         for key in keys:
             sub = merge3(
@@ -72,11 +83,72 @@ def merge3(base: Any, theirs: Any, mine: Any, pointer: str = "") -> MergeResult:
                 mine.get(key, MISSING),
                 f"{pointer}/{_escape(str(key))}",
             )
-            conflicts.extend(sub.conflicts)
+            _absorb(result, sub)
             if sub.merged is not MISSING:
                 merged[key] = sub.merged
-        return MergeResult(merged, conflicts)
+        return result
+    if isinstance(theirs, list) and isinstance(mine, list):
+        keyed = _merge_list(base if isinstance(base, list) else [], theirs, mine, pointer)
+        if keyed is not None:
+            return keyed
     return MergeResult(mine, [Conflict(pointer, base, theirs, mine)])
+
+
+def _absorb(into: MergeResult, sub: MergeResult) -> None:
+    into.conflicts.extend(sub.conflicts)
+    into.auto.extend(sub.auto)
+
+
+def _merge_list(
+    base: list[Any], theirs: list[Any], mine: list[Any], pointer: str
+) -> MergeResult | None:
+    """Fusion élément par élément d'une liste dont les éléments s'identifient
+    (enabler f9bd4d93) ; None si aucun identifiant fiable : la liste reste alors
+    atomique. Raison : sans clé, rapprocher par position ferait fusionner deux
+    éléments différents, un résultat valide mais faux."""
+    identity = default_identity(base, theirs, mine)
+    ids = [[identity(item) for item in lst] for lst in (base, theirs, mine)]
+    if any(i is None for lst in ids for i in lst):
+        return None
+    by_id = [
+        dict(zip(lst_ids, lst, strict=True))
+        for lst_ids, lst in zip(ids, (base, theirs, mine), strict=True)
+    ]
+    merged: list[Any] = []
+    result = MergeResult(merged)
+    for key in _list_order(ids[1], ids[2]):
+        sub = merge3(
+            by_id[0].get(key, MISSING),
+            by_id[1].get(key, MISSING),
+            by_id[2].get(key, MISSING),
+            f"{pointer}/{_escape(_element_name(key))}",
+        )
+        _absorb(result, sub)
+        if sub.merged is not MISSING:
+            merged.append(sub.merged)
+    return result
+
+
+def _element_name(key: Any) -> str:
+    """Segment de pointeur d'un élément : son identifiant (« segment »), ou sa
+    valeur pour une liste de scalaires."""
+    return key if isinstance(key, str) and not key.startswith("'") else str(key).strip("'\"")
+
+
+def _list_order(theirs: list[Any], mine: list[Any]) -> list[Any]:
+    """Ordre du brouillon ; un élément ajouté côté publié se place après son
+    prédécesseur dans la version publiée (en tête s'il n'en a pas)."""
+    order = list(mine)
+    for index, key in enumerate(theirs):
+        if key in order:
+            continue
+        position = 0
+        for previous in reversed(theirs[:index]):
+            if previous in order:
+                position = order.index(previous) + 1
+                break
+        order.insert(position, key)
+    return order
 
 
 Kind = Literal["auto", "conflict", "text", "text_conflict", "deleted_upstream", "deleted_in_draft"]
@@ -91,6 +163,10 @@ class ObjectMerge:
     theirs: Any = None
     mine: Any = None
     structured: bool = False
+    auto: list[str] = field(default_factory=list)
+    # Repli texte en conflit : la sortie de `git merge-file` avec ses marques, pour
+    # le milieu de la fenêtre de fusion (feature fcf32f4a).
+    marked: bytes | None = None
 
 
 def is_structured(path: str) -> bool:
@@ -157,7 +233,7 @@ def merge_object(
     result = merge3({} if b is MISSING else b, t, m)
     merged = serialize(path, result.merged, like=mine)
     kind: Kind = "conflict" if result.conflicts else "auto"
-    return ObjectMerge(kind, merged, result.conflicts, b, t, m, structured=True)
+    return ObjectMerge(kind, merged, result.conflicts, b, t, m, structured=True, auto=result.auto)
 
 
 def _structured_or_text(
@@ -191,28 +267,71 @@ def _merge_text(base: bytes | None, theirs: bytes | None, mine: bytes | None) ->
             target.write_bytes(data or b"")
             files[name] = str(target)
         proc = subprocess.run(  # noqa: S603 — arguments fixes, aucune saisie
-            ["git", "merge-file", "-p", files["mine"], files["base"], files["theirs"]],  # noqa: S607
+            [  # noqa: S607
+                "git",
+                "merge-file",
+                "-p",
+                "-L",
+                "brouillon",
+                "-L",
+                "base",
+                "-L",
+                "publié",
+                files["mine"],
+                files["base"],
+                files["theirs"],
+            ],
             capture_output=True,
             check=False,
         )
     if proc.returncode == 0:
         return ObjectMerge("text", proc.stdout, [], _text(base), _text(theirs), _text(mine))
-    return ObjectMerge("text_conflict", mine, [], _text(base), _text(theirs), _text(mine))
+    return ObjectMerge(
+        "text_conflict", mine, [], _text(base), _text(theirs), _text(mine), marked=proc.stdout
+    )
 
 
 def set_pointer(document: Any, pointer: str, value: Any) -> Any:
-    """Pose `value` au pointeur (MISSING = supprimer la clé) ; rend le document."""
+    """Pose `value` au pointeur (MISSING = supprimer) ; rend le document. Dans une
+    liste, un segment désigne l'élément par son identifiant (enabler f9bd4d93)."""
     if pointer == "":
         return value
     parts = [p.replace("~1", "/").replace("~0", "~") for p in pointer.lstrip("/").split("/")]
     node = document
     for part in parts[:-1]:
-        node = node.setdefault(_key(node, part), {})
-    if value is MISSING:
-        node.pop(_key(node, parts[-1]), None)
+        if isinstance(node, list):
+            index = _index(node, part)
+            if index is None:
+                node.append({})
+                index = len(node) - 1
+            node = node[index]
+        else:
+            node = node.setdefault(_key(node, part), {})
+    last = parts[-1]
+    if isinstance(node, list):
+        index = _index(node, last)
+        if value is MISSING:
+            if index is not None:
+                del node[index]
+        elif index is None:
+            node.append(value)
+        else:
+            node[index] = value
+    elif value is MISSING:
+        node.pop(_key(node, last), None)
     else:
-        node[_key(node, parts[-1])] = value
+        node[_key(node, last)] = value
     return document
+
+
+def _index(items: list[Any], part: str) -> int | None:
+    """Position de l'élément nommé `part` dans une liste fusionnée par clé."""
+    identity = default_identity(items)
+    for index, item in enumerate(items):
+        key = identity(item)
+        if key is not None and _element_name(key) == part:
+            return index
+    return None
 
 
 def _key(node: dict[Any, Any], part: str) -> Any:

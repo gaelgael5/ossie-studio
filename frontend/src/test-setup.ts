@@ -25,3 +25,11 @@ if (typeof Blob.prototype.text !== 'function') {
     })
   }
 }
+
+// CodeMirror 5 (fenêtre de fusion, feature fcf32f4a) mesure le texte par des Range,
+// que jsdom ne sait pas mesurer : des mesures nulles suffisent pour qu'il se monte.
+if (typeof Range !== 'undefined' && typeof Range.prototype.getBoundingClientRect !== 'function') {
+  const empty = { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, toJSON: () => ({}) }
+  Range.prototype.getBoundingClientRect = () => empty as DOMRect
+  Range.prototype.getClientRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList
+}

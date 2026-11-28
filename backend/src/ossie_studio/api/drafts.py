@@ -88,6 +88,9 @@ class MergeBody(BaseModel):
     # Objet supprimé d'un côté : True = accepter la suppression, False = garder
     # l'objet (version du brouillon, ou version publiée).
     delete: bool | None = None
+    # Fenêtre graphique (feature fcf32f4a) : le texte final du milieu, enregistré
+    # tel quel une fois vérifié (lisible, sans conflit restant).
+    content: str | None = None
 
 
 @router.get("/merge")
@@ -120,7 +123,15 @@ async def post_merge(
     """Enregistre la version réconciliée dans le brouillon ; sa base devient la
     version publiée actuelle (l'objet n'est plus en conflit)."""
     draft, merged = await preparation.resolve_merge(
-        conn, crypto, workdir, space_id, branch_id, body.path, body.resolutions, body.delete
+        conn,
+        crypto,
+        workdir,
+        space_id,
+        branch_id,
+        body.path,
+        body.resolutions,
+        body.delete,
+        content=body.content,
     )
     log.info("draft_object_merged", draft_id=str(draft.id), kind=merged.kind)
     return {"path": body.path, "merged": True}
