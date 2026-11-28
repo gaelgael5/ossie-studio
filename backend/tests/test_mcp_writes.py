@@ -114,7 +114,7 @@ def _assets_args(space: ApiSpace, **extra: Any) -> dict[str, Any]:
     return {
         "space_id": space.space_id,
         "branch_id": space.branch_id,
-        "kind": "schema_asset",
+        "document_type": "schema_asset",
         "identity": {"source": "ventes"},
         **extra,
     }

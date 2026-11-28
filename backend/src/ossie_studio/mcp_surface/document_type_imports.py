@@ -1,10 +1,10 @@
-"""L'import écrit par le registre des genres (epic « Primitives MCP — écriture commune
-par genre », ticket 1612cce4).
+"""L'import écrit par le registre des types de document (epic « Primitives MCP — écriture commune
+par type de document », ticket 1612cce4).
 
 Gael : « il faut que le validateur appelle la même méthode ». La cible d'un import est
-un genre du registre (`carto_objet`, `referentiel_valeur`) : chaque ligne produite par
-le template devient un document de ce genre (identité + contenu), validé par la
-méthode `check` du validateur du genre — celle que `write_documents` appelle pour
+un type de document du registre (`carto_objet`, `referentiel_valeur`) : chaque ligne produite par
+le template devient un document de ce type (identité + contenu), validé par la
+méthode `check` du validateur du type de document — celle que `write_documents` appelle pour
 chaque document —, et ses refus sont traduits par la même fonction (`translate`) :
 même code, même message que par MCP. Ce qui reste propre à l'import (lecture du
 fichier, JSLT, fusion ou remplacement, essai, tout ou rien, journal, compte rendu)
@@ -18,8 +18,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ossie_studio.cartographie.space import Cartographie
-from ossie_studio.mcp_surface.kind_base import CheckingStore, KindError, Location
-from ossie_studio.mcp_surface.kinds import WriteKind, write_kind
+from ossie_studio.mcp_surface.document_type_base import CheckingStore, DocumentError, Location
+from ossie_studio.mcp_surface.document_types import DocumentType, get_document_type
 from ossie_studio.mcp_surface.write_errors import DOMAIN_ERRORS, translate
 
 
@@ -34,39 +34,39 @@ class ImportRefusal:
     path: str
 
 
-def checking_store(kind: WriteKind) -> CheckingStore:
-    store = kind.store
+def checking_store(doc_type: DocumentType) -> CheckingStore:
+    store = doc_type.store
     if not isinstance(store, CheckingStore):
-        raise TypeError(f"le genre {kind.name} n'est pas une cible d'import")
+        raise TypeError(f"le type de document {doc_type.name} n'est pas une cible d'import")
     return store
 
 
-def _location(kind: WriteKind, identity: Mapping[str, Any]) -> Location:
+def _location(doc_type: DocumentType, identity: Mapping[str, Any]) -> Location:
     """L'emplacement d'une ligne. Une ligne qui ne porte pas son identité (clé
     absente) est validée quand même : c'est son contenu qui dit ce qui manque."""
     if any(value is None or value == "" for value in identity.values()):
-        return Location(kind.name, dict(identity), None)
-    return kind.locate(None, identity)
+        return Location(doc_type.name, dict(identity), None)
+    return doc_type.locate(None, identity)
 
 
 def check_import(
-    kind_name: str,
+    type_name: str,
     scope: Any,
     entries: Sequence[tuple[Mapping[str, Any], Any]],
     space: Cartographie | None = None,
 ) -> list[ImportRefusal]:
     """Les refus des lignes (identité, contenu) d'un import, par le validateur du
-    genre ; vide : toutes valides. Rien n'est écrit."""
-    kind = write_kind(kind_name)
-    store = checking_store(kind)
+    type de document ; vide : toutes valides. Rien n'est écrit."""
+    doc_type = get_document_type(type_name)
+    store = checking_store(doc_type)
     refusals: list[tuple[int, Exception, Any]] = []
     located: list[tuple[Location, Any]] = []
     ranks: list[int] = []
     for rank, (identity, content) in enumerate(entries):
         try:
-            located.append((_location(kind, identity), content))
+            located.append((_location(doc_type, identity), content))
             ranks.append(rank)
-        except KindError as exc:
+        except DocumentError as exc:
             refusals.append((rank, exc, content))
     for index, failure in store.check(scope, located):
         refusals.append((ranks[index], failure, located[index][1]))
@@ -79,7 +79,7 @@ def check_import(
             base="$",
             content_path="$",
             content=content,
-            standard=kind.standard,
+            standard=doc_type.standard,
             space=space,
         ):
             out.append(ImportRefusal(rank, refusal.code, refusal.message, refusal.path))

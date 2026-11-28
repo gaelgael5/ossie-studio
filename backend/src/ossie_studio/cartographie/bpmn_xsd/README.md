@@ -10,5 +10,5 @@ joignable depuis l'environnement de développement.
 
 Usage : `cartographie/process.py` vérifie qu'un fichier BPMN est conforme à BPMN 2.0
 avant de l'écrire (décision de Gael, 27 novembre 2026, epic « Primitives MCP — écriture
-commune par genre »). Les extensions d'autres outils (`bpmn:extensionElements`, attributs
+commune par type de document »). Les extensions d'autres outils (`bpmn:extensionElements`, attributs
 d'un autre espace de noms) sont permises par ces schémas.

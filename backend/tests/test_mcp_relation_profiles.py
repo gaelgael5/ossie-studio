@@ -25,7 +25,7 @@ AGENT = "profils-agent"
 READER = "profils-lecteur"
 DATAVAULT = "ossie-datavault"
 ETOILE = {
-    "kind": "profil_relation",
+    "document_type": "profil_relation",
     "identity": {"id": "etoile"},
     "content": {
         "name": "Étoile",
@@ -85,7 +85,7 @@ async def _call(app: FastAPI, space: ApiSpace, tool: str, token: str = AGENT, **
 
 async def _profiles(app: FastAPI, space: ApiSpace, token: str = AGENT) -> dict[str, Any]:
     error, listed = await _call(
-        app, space, "list_documents", token, kind="profil_relation", branch="draft"
+        app, space, "list_documents", token, document_type="profil_relation", branch="draft"
     )
     assert not error, listed
     return {d["identity"]["id"]: d for d in listed["documents"]}
@@ -96,7 +96,7 @@ async def _read(app: FastAPI, space: ApiSpace, profile_id: str) -> dict[str, Any
         app,
         space,
         "read_document",
-        kind="profil_relation",
+        document_type="profil_relation",
         identity={"id": profile_id},
         branch="draft",
     )
@@ -159,7 +159,7 @@ async def test_personnaliser_puis_retablir_le_profil_fourni(app: FastAPI, space:
         app,
         space,
         "patch_document",
-        kind="profil_relation",
+        document_type="profil_relation",
         identity={"id": DATAVAULT},
         version=read["version"],
         operations=operations,
@@ -171,7 +171,7 @@ async def test_personnaliser_puis_retablir_le_profil_fourni(app: FastAPI, space:
     assert await _virtual(space) == []
     customized = await _read(app, space, DATAVAULT)
     delete = {
-        "kind": "profil_relation",
+        "document_type": "profil_relation",
         "identity": {"id": DATAVAULT},
         "version": customized["version"],
         "delete": True,
@@ -188,7 +188,7 @@ async def test_le_profil_fourni_ne_se_supprime_pas(app: FastAPI, space: ApiSpace
     """Critère 4."""
     read = await _read(app, space, DATAVAULT)
     delete = {
-        "kind": "profil_relation",
+        "document_type": "profil_relation",
         "identity": {"id": DATAVAULT},
         "version": read["version"],
         "delete": True,
@@ -215,8 +215,10 @@ async def test_droits_de_l_ecran(app: FastAPI, space: ApiSpace) -> None:
 async def test_le_genre_est_declare(app: FastAPI, space: ApiSpace) -> None:
     """Critère 7 (les exemples du standard passent le validateur : test commun des
     standards)."""
-    kinds = (await call_tool(app, AGENT, "list_write_kinds", {})).structured_content["kinds"]
-    profile = next(k for k in kinds if k["kind"] == "profil_relation")
+    kinds = (await call_tool(app, AGENT, "list_document_types", {})).structured_content[
+        "document_types"
+    ]
+    profile = next(k for k in kinds if k["document_type"] == "profil_relation")
     assert profile["writable"] is True
     assert (profile["write_capability"], profile["read_capability"]) == (
         "governance:write",

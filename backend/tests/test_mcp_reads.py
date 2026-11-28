@@ -133,15 +133,17 @@ async def test_sans_branch_l_agent_lit_le_publie_avec_draft_aussi_le_brouillon(
     # Source déclarée dans le brouillon de la personne seulement.
     await _draft_text(app, space, "sources/achats/manifest.yaml", _manifest("achats"))
 
-    published = await _ok(app, KEY, "list_documents", _ids(space, kind="source"))
+    published = await _ok(app, KEY, "list_documents", _ids(space, document_type="source"))
     assert published["view"] == "published"
     assert [s["identity"]["source"] for s in published["documents"]] == ["ventes"]
 
-    by_default = await _ok(app, AGENT, "list_documents", _ids(space, kind="source"))
+    by_default = await _ok(app, AGENT, "list_documents", _ids(space, document_type="source"))
     assert by_default["view"] == "published"
     assert [s["identity"]["source"] for s in by_default["documents"]] == ["ventes"]
 
-    draft = await _ok(app, AGENT, "list_documents", _ids(space, kind="source", branch="draft"))
+    draft = await _ok(
+        app, AGENT, "list_documents", _ids(space, document_type="source", branch="draft")
+    )
     assert draft["view"] == "draft"
     by_slug = {s["identity"]["source"]: s for s in draft["documents"]}
     assert set(by_slug) == {"ventes", "achats"}
@@ -151,13 +153,13 @@ async def test_sans_branch_l_agent_lit_le_publie_avec_draft_aussi_le_brouillon(
     assert by_slug["ventes"]["connection"] == "gh"
 
     # Vide : comme absent.
-    empty = await _ok(app, AGENT, "list_documents", _ids(space, kind="source", branch=""))
+    empty = await _ok(app, AGENT, "list_documents", _ids(space, document_type="source", branch=""))
     assert empty["view"] == "published"
 
 
 async def test_branch_autre_que_draft_refusee(app: FastAPI, space: ApiSpace) -> None:
     result = await call_tool(
-        app, AGENT, "list_documents", _ids(space, kind="source", branch="main")
+        app, AGENT, "list_documents", _ids(space, document_type="source", branch="main")
     )
     assert result.is_error
     body = json.loads(result.content[0].text)
@@ -169,13 +171,13 @@ async def test_branch_autre_que_draft_refusee(app: FastAPI, space: ApiSpace) -> 
     )
     # L'ancien paramètre `view` n'existe plus.
     assert await _refusal(
-        app, AGENT, "list_documents", _ids(space, kind="source", view="draft")
+        app, AGENT, "list_documents", _ids(space, document_type="source", view="draft")
     ) == ("invalid_arguments")
 
 
 async def test_cle_ne_peut_pas_demander_le_brouillon(app: FastAPI, space: ApiSpace) -> None:
     assert await _refusal(
-        app, KEY, "list_documents", _ids(space, kind="source", branch="draft")
+        app, KEY, "list_documents", _ids(space, document_type="source", branch="draft")
     ) == ("draft_requires_person")
     # Les primitives du brouillon ne sont même pas proposées à une clé.
     assert await _refusal(app, KEY, "get_my_draft", _ids(space)) == "primitive_forbidden"
@@ -192,7 +194,7 @@ async def test_schemas_bruts_listes_et_lus_avec_la_marque_du_brouillon(
     await draft_write(app, space, "sources/ventes/raw/customer.schema.yaml", changed)
 
     # Ticket 56f3784a : ce que rendait list_raw_schemas, par list_documents.
-    raw = {"kind": "schema_raw", "identity": {"source": "ventes"}}
+    raw = {"document_type": "schema_raw", "identity": {"source": "ventes"}}
     listed = await _ok(app, AGENT, "list_documents", _ids(space, branch="draft", **raw))
     by_name = {s["identity"]["name"]: s for s in listed["documents"]}
     assert set(by_name) == {"customer.schema.yaml", "order.schema.yaml"}
@@ -206,7 +208,7 @@ async def test_schemas_bruts_listes_et_lus_avec_la_marque_du_brouillon(
     assert schema_path == "sources/ventes/raw/customer.schema.yaml"
     by_kind = _ids(
         space,
-        kind="schema_raw",
+        document_type="schema_raw",
         identity={"source": "ventes", "name": "customer.schema.yaml"},
     )
     assert (await _ok(app, KEY, "read_schema", by_kind))["schema"] == CUSTOMER
@@ -223,7 +225,7 @@ async def test_schemas_bruts_listes_et_lus_avec_la_marque_du_brouillon(
 
 async def test_schema_et_source_introuvables_nommes(app: FastAPI, space: ApiSpace) -> None:
     for source in ("inconnue", "../etc"):
-        unknown = _ids(space, kind="schema_raw", identity={"source": source})
+        unknown = _ids(space, document_type="schema_raw", identity={"source": source})
         assert await _refusal(app, KEY, "list_documents", unknown) == "write_identity_invalid"
     for name in ("absent.schema.yaml", "a/b.schema.yaml"):
         path = f"sources/ventes/raw/{name}"
@@ -245,7 +247,7 @@ async def test_assets_listes_et_lus_avec_leur_enrichissement(app: FastAPI, space
         app,
         KEY,
         "list_documents",
-        _ids(space, kind="schema_asset", identity={"source": "ventes"}),
+        _ids(space, document_type="schema_asset", identity={"source": "ventes"}),
     )
     docs = listed["documents"]
     assert [(a["identity"]["name"], a["retained"], a["orphan"]) for a in docs] == [
@@ -258,7 +260,7 @@ async def test_assets_listes_et_lus_avec_leur_enrichissement(app: FastAPI, space
         "read_schema",
         _ids(
             space,
-            kind="schema_asset",
+            document_type="schema_asset",
             identity={"source": "ventes", "name": "customer.schema.yaml"},
         ),
     )
@@ -287,7 +289,10 @@ async def test_assets_listes_et_lus_avec_leur_enrichissement(app: FastAPI, space
 
 async def test_regles_de_tri_et_revue(app: FastAPI, space: ApiSpace) -> None:
     rules = await _ok(
-        app, KEY, "read_document", _ids(space, kind="regles_tri", identity={"source": "ventes"})
+        app,
+        KEY,
+        "read_document",
+        _ids(space, document_type="regles_tri", identity={"source": "ventes"}),
     )
     assert rules["content"][0]["pattern"] == "*Dto"
 
@@ -334,13 +339,15 @@ async def test_gouvernance_lue_avec_le_brouillon(
     created = await client.post(f"{space.base}/governance/tags", json={"id": "gouvernance/pii"})
     assert created.status_code == 201, created.text
 
-    draft = await _ok(app, AGENT, "list_documents", _ids(space, kind="tag", branch="draft"))
+    draft = await _ok(
+        app, AGENT, "list_documents", _ids(space, document_type="tag", branch="draft")
+    )
     assert [t["identity"]["id"] for t in draft["documents"]] == ["gouvernance/pii"]
     assert draft["documents"][0]["unpublished"] is True
-    published = await _ok(app, KEY, "list_documents", _ids(space, kind="tag"))
+    published = await _ok(app, KEY, "list_documents", _ids(space, document_type="tag"))
     assert published["documents"] == []
 
-    schemes = await _ok(app, KEY, "list_documents", _ids(space, kind="classification"))
+    schemes = await _ok(app, KEY, "list_documents", _ids(space, document_type="classification"))
     assert schemes["view"] == "published" and isinstance(schemes["documents"], list)
 
 
@@ -349,10 +356,10 @@ async def test_gouvernance_lue_avec_le_brouillon(
 
 async def test_branche_introuvable_ou_d_un_autre_espace(app: FastAPI, space: ApiSpace) -> None:
     assert await _refusal(
-        app, KEY, "list_documents", _ids(space, kind="source", branch_id=str(uuid.uuid4()))
+        app, KEY, "list_documents", _ids(space, document_type="source", branch_id=str(uuid.uuid4()))
     ) == ("branch_not_found")
     assert await _refusal(
-        app, KEY, "list_documents", _ids(space, kind="source", space_id=str(uuid.uuid4()))
+        app, KEY, "list_documents", _ids(space, document_type="source", space_id=str(uuid.uuid4()))
     ) == ("space_not_found")
 
 
@@ -364,13 +371,13 @@ async def test_acces_au_depot_perdu_erreur_nommee(app: FastAPI, space: ApiSpace)
         )
     # Copie locale oubliée : la lecture doit retourner au dépôt.
     shutil.rmtree(app.state.settings.work_volume_path, ignore_errors=True)
-    error = await _refusal(app, KEY, "list_documents", _ids(space, kind="source"))
+    error = await _refusal(app, KEY, "list_documents", _ids(space, document_type="source"))
     assert error == "repo_access_lost"
 
 
 async def test_arguments_invalides_refuses(app: FastAPI, space: ApiSpace) -> None:
     assert await _refusal(
-        app, KEY, "list_documents", {"space_id": "pas-un-uuid", "kind": "source"}
+        app, KEY, "list_documents", {"space_id": "pas-un-uuid", "document_type": "source"}
     ) == ("invalid_arguments")
 
 
@@ -416,6 +423,6 @@ async def test_capacite_d_un_autre_espace_ne_vaut_pas_ici(app: FastAPI, space: A
 
     app.state.mcp_resolvers.append(resolver)
     assert (
-        await _refusal(app, "ana", "list_documents", _ids(space, kind="source"))
+        await _refusal(app, "ana", "list_documents", _ids(space, document_type="source"))
         == "primitive_forbidden"
     )

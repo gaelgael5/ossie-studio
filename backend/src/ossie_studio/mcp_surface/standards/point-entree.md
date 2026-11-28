@@ -4,7 +4,7 @@ An entry point found in the code by the collection: an HTTP route (verb and rout
 background task or a message consumer, carried by a method of a class, by a free function of
 a module (minimal API, module-level function), or by the class itself. **Read-only**: produced
 by the collection (`collect_source`). `write_documents` and `patch_document` refuse it
-(`write_kind_read_only`, naming `collect_source`).
+(`document_type_read_only`, naming `collect_source`).
 
 Identity — copy it from `list_documents`; it never contains a file path and stays the same
 from one collection to the next while the code does not change:
@@ -16,7 +16,7 @@ from one collection to the next while the code does not change:
 - `endpoint`: `VERB /route` for an HTTP entry point (e.g. `GET /api/commandes/{id}`); `task`
   or `message` otherwise.
 
-Ossie computes where it is: an entry of the `.extend.yaml` of its owner (kind
+Ossie computes where it is: an entry of the `.extend.yaml` of its owner (document type
 `extension_raw`). Its `version` is the version of its content.
 
 Content:
@@ -31,22 +31,22 @@ Content:
 
 Reading:
 
-- `list_documents(kind: point_entree, identity: {source})`: the entry points of a source.
+- `list_documents(document_type: point_entree, identity: {source})`: the entry points of a source.
   Filters: `module` (a module, by its name or title), `contract_status`, `kind`. Which routes
   of the code are missing from the contract? `filters: {contract_status: absent}`;
-- `read_document(kind: point_entree, identity: {source, owner, method, endpoint})`: one entry
+- `read_document(document_type: point_entree, identity: {source, owner, method, endpoint})`: one entry
   point.
 
 ## Reading a whole module
 
 Everything about one module takes four reads, all with `identity.source`:
 
-1. `read_document(kind: schema_raw, identity: {source, name: <module>})`: the module and its
+1. `read_document(document_type: schema_raw, identity: {source, name: <module>})`: the module and its
    facts (`x-module`: project file, nature, targets, dependencies);
-2. `list_documents(kind: schema_raw, filters: {module: <module>})`: its objects;
-3. `read_document(kind: extension_raw, identity: {source, name: <module>})`: its free
+2. `list_documents(document_type: schema_raw, filters: {module: <module>})`: its objects;
+3. `read_document(document_type: extension_raw, identity: {source, name: <module>})`: its free
    functions (none: `document_not_found`);
-4. `list_documents(kind: point_entree, filters: {module: <module>})`: its entry points.
+4. `list_documents(document_type: point_entree, filters: {module: <module>})`: its entry points.
 
 The module list with its counts and dependencies in both directions:
-`list_documents(kind: schema_raw, filters: {kind: module})`.
+`list_documents(document_type: schema_raw, filters: {kind: module})`.

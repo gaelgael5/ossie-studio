@@ -11,7 +11,7 @@ Content:
   `tag` (required: the tag id it grants), `description`, `criteria`, `icon`, `restricted`.
 
 ```yaml example
-kind: certification
+document_type: certification
 identity: {slug: or}
 content:
   name: Or

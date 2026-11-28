@@ -16,7 +16,7 @@ Content:
   in the object (`$.nom`, `$.proprietes.acces`) or a literal.
 
 ```yaml example
-kind: carto_regles
+document_type: carto_regles
 identity: {slug: metier}
 content:
   lang: fr

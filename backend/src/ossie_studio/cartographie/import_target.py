@@ -13,9 +13,9 @@ ou la cible d'une relation) ; **aucune suppression** (« On voit les suppression
 après. C'est tout un sujet qu'on traitera d'un bloc. ») ; écriture dans le
 brouillon, tout ou rien, un seul enregistrement.
 
-**Validation et écriture** (epic « Primitives MCP — écriture commune par genre »,
-ticket 1612cce4) : la cible est le genre `carto_objet` du registre. Chaque ligne est
-validée par la méthode du validateur de ce genre — celle de `write_documents`, qui
+**Validation et écriture** (epic « Primitives MCP — écriture commune par type de document »,
+ticket 1612cce4) : la cible est le type de document `carto_objet` du registre. Chaque ligne est
+validée par la méthode du validateur de ce type de document — celle de `write_documents`, qui
 applique les règles du service (`space.check_batch`) — et écrite par lui ; ses refus
 portent le même code et le même message que par MCP. Aucune validation n'est propre
 à l'import.
@@ -32,12 +32,12 @@ from ossie_studio.cartographie.catalog import Catalog, catalog
 from ossie_studio.cartographie.model import CartoObject, is_empty
 from ossie_studio.cartographie.space import Cartographie
 from ossie_studio.imports.target import ItemProblem
-from ossie_studio.mcp_surface.kind_imports import check_import, checking_store
-from ossie_studio.mcp_surface.kind_stores import CartoObjectStore
-from ossie_studio.mcp_surface.kinds import write_kind
+from ossie_studio.mcp_surface.document_type_imports import check_import, checking_store
+from ossie_studio.mcp_surface.document_type_stores import CartoObjectStore
+from ossie_studio.mcp_surface.document_types import get_document_type
 
 JOURNAL_TYPE = "carto_import"
-KIND = "carto_objet"
+DOCUMENT_TYPE = "carto_objet"
 IMPORTS_DIR = "cartographie/imports"
 # Ce qu'une ligne rend (format du fichier d'un objet, sans le type).
 FIELDS = ("cle", "type", "source", "cible", "nom", "documentation", "proprietes")
@@ -95,7 +95,7 @@ class CartoImportTarget:
         entries = [(self._identity(item), item) for item in produced]
         return [
             ItemProblem(r.index, r.code, r.message, r.path, self.label(produced[r.index], r.index))
-            for r in check_import(KIND, self.space, entries, space=self.space)
+            for r in check_import(DOCUMENT_TYPE, self.space, entries, space=self.space)
         ]
 
     def key(self, item: Any) -> Hashable | None:
@@ -107,16 +107,18 @@ class CartoImportTarget:
         return str(key) if key is not None else f"#{index + 1}"
 
     def write(self, root: Path, items: list[Any]) -> None:
-        """Crée ou modifie, par le validateur du genre (celui de write_documents), les
+        """Crée ou modifie, par le validateur du type de document (celui de write_documents), les
         objets qui changent ; aucun n'est supprimé (fusion seulement). Le lot est
         écrit d'un bloc (ticket eed2dd0d) : la cartographie est lue une fois, et
         une relation qui vise un objet (ou une relation) du lot passe quel que soit
         l'ordre des lignes — l'écriture objet par objet relisait tout trois fois
         par objet et rejouait les refus d'ordre. Tout ou rien."""
-        kind = write_kind(KIND)
-        store = checking_store(kind)
+        doc_type = get_document_type(DOCUMENT_TYPE)
+        store = checking_store(doc_type)
         if not isinstance(store, CartoObjectStore):
-            raise TypeError(f"le genre {kind.name} n'écrit pas d'objets de cartographie")
+            raise TypeError(
+                f"le type de document {doc_type.name} n'écrit pas d'objets de cartographie"
+            )
         before = {d["cle"]: d for d in self.current()}
         pending = [item for item in items if before.get(item.get("cle")) != item]
         if not pending:
@@ -127,7 +129,7 @@ class CartoImportTarget:
             root,
             [
                 (
-                    kind.locate(None, self._identity(item)),
+                    doc_type.locate(None, self._identity(item)),
                     item,
                     item["cle"] not in self.space.objects,
                 )

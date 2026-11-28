@@ -276,7 +276,7 @@ async def test_mcp_meme_lecture_que_l_api(
         return data
 
     # La liste : ce que rend l'API, avec le chemin et la version du modèle.
-    listing = await mcp("list_documents", kind="referentiel_modele")
+    listing = await mcp("list_documents", document_type="referentiel_modele")
     api_listing = (await space.client.get(_base(space))).json()
     [item] = listing["documents"]
     assert item["identity"] == {"referentiel": "delais"}
@@ -285,7 +285,7 @@ async def test_mcp_meme_lecture_que_l_api(
     assert api_listing["referentiels"] == [{"name": "delais", **{f: item[f] for f in fields}}]
 
     # Le modèle se lit par read_schema, avec sa clé.
-    model = await mcp("read_schema", kind="referentiel_valeur", referentiel="delais")
+    model = await mcp("read_schema", document_type="referentiel_valeur", referentiel="delais")
     api_model = (await space.client.get(f"{_base(space)}/delais/modele")).json()
     assert model["kind"] == "referentiel" and model["schema"] == api_model["model"]
     assert model["schema"]["x-key"] == ["pays", "mode"]
@@ -294,7 +294,9 @@ async def test_mcp_meme_lecture_que_l_api(
     # Une valeur par sa clé composée : read_document.
     key = {"pays": "FR", "mode": "site"}
     value = await mcp(
-        "read_document", kind="referentiel_valeur", identity={"referentiel": "delais", "key": key}
+        "read_document",
+        document_type="referentiel_valeur",
+        identity={"referentiel": "delais", "key": key},
     )
     assert value["content"] == VALUES[0]
 
@@ -303,7 +305,7 @@ async def test_mcp_meme_lecture_que_l_api(
     by_ref = {"referentiel": "delais"}
     found = await mcp(
         "list_documents",
-        kind="referentiel_valeur",
+        document_type="referentiel_valeur",
         identity=by_ref,
         filters={"equals": {"mode": "site"}},
         limit=1,
@@ -311,7 +313,7 @@ async def test_mcp_meme_lecture_que_l_api(
     assert (len(found["documents"]), found["total"], found["has_more"]) == (1, 3, True)
     every = await mcp(
         "list_documents",
-        kind="referentiel_valeur",
+        document_type="referentiel_valeur",
         identity=by_ref,
         filters={"equals": {"mode": "site"}},
     )
@@ -322,13 +324,20 @@ async def test_mcp_meme_lecture_que_l_api(
     assert every["documents"][0]["identity"]["key"] == {"pays": "BE", "mode": "site"}
 
     # Recherche texte sur les propriétés simples des valeurs.
-    text = await mcp("list_documents", kind="referentiel_valeur", identity=by_ref, search="domi")
+    text = await mcp(
+        "list_documents", document_type="referentiel_valeur", identity=by_ref, search="domi"
+    )
     assert [d["value"] for d in text["documents"]] == [VALUES[1]]
     unknown = await call_tool(
         app,
         reader,
         "list_documents",
-        {**ids, "kind": "referentiel_valeur", "identity": by_ref, "filters": {"equals": {"x": 1}}},
+        {
+            **ids,
+            "document_type": "referentiel_valeur",
+            "identity": by_ref,
+            "filters": {"equals": {"x": 1}},
+        },
     )
     assert unknown.is_error
 
@@ -338,7 +347,7 @@ async def test_mcp_meme_lecture_que_l_api(
         "read_document",
         {
             **ids,
-            "kind": "referentiel_valeur",
+            "document_type": "referentiel_valeur",
             "identity": {"referentiel": "delais", "key": {"pays": "FR"}},
         },
     )
@@ -354,7 +363,11 @@ async def test_mcp_profil_sans_acces_ne_voit_rien(
         app,
         other,
         "list_documents",
-        {"space_id": space.space_id, "branch_id": space.branch_id, "kind": "referentiel_modele"},
+        {
+            "space_id": space.space_id,
+            "branch_id": space.branch_id,
+            "document_type": "referentiel_modele",
+        },
     )
     assert refused.is_error
 

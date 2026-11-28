@@ -16,7 +16,7 @@ Content — a JSON Schema 2020-12 of one value:
   write.
 
 ```yaml example
-kind: referentiel_modele
+document_type: referentiel_modele
 identity: {referentiel: pays}
 content:
   title: Pays

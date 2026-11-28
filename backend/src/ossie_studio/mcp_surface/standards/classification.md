@@ -17,7 +17,7 @@ used), and the levels take the order of the list. To add a level with `patch_doc
 `{op: add, path: "$.levels[0]", value: {name: Interne, short_name: INT}}`.
 
 ```yaml example
-kind: classification
+document_type: classification
 identity: {id: sensibilite}
 content:
   name: Sensibilité

@@ -4,7 +4,7 @@ An object of the map, or a relationship (an object of a relationship type, with 
 
 Identity: `type` (slug of an existing type of the map) and `key` (uppercase letters, digits,
 dashes: `APP-CAISSE`). The key is unique in the space whatever the type, and frozen; the type is
-frozen. The exact schema of `proprietes` for a type: `read_schema(kind: carto_objet, type: ...)`.
+frozen. The exact schema of `proprietes` for a type: `read_schema(document_type: carto_objet, type: ...)`.
 
 Content — the object's file, keys in this order:
 
@@ -21,7 +21,7 @@ An object used by a relationship or kept by a model cannot be deleted: delete th
 the same batch, or remove it from the models first.
 
 ```yaml example
-- kind: carto_objet
+- document_type: carto_objet
   identity: {type: role, key: ROL-PREPARATEUR}
   content:
     cle: ROL-PREPARATEUR
@@ -29,7 +29,7 @@ the same batch, or remove it from the models first.
     nom: Préparateur de commandes
     documentation: |
       Prépare les colis en entrepôt.
-- kind: carto_objet
+- document_type: carto_objet
   identity: {type: affectation, key: REL-PREPARATEUR-PRISE-COMMANDE}
   content:
     cle: REL-PREPARATEUR-PRISE-COMMANDE
@@ -37,7 +37,7 @@ the same batch, or remove it from the models first.
     source: ROL-PREPARATEUR
     cible: PRC-PRISE-COMMANDE
     nom: Prépare
-- kind: carto_objet
+- document_type: carto_objet
   identity: {type: acces, key: REL-PRISE-COMMANDE-ECRIT-COMMANDE}
   content:
     cle: REL-PRISE-COMMANDE-ECRIT-COMMANDE

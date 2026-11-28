@@ -55,6 +55,7 @@ from ossie_studio.api.relation_profiles import router as api_relation_profiles_r
 from ossie_studio.api.secrets import router as api_secrets_router
 from ossie_studio.api.session import router as api_session_router
 from ossie_studio.api.sources import router as api_sources_router
+from ossie_studio.api.sources import source_error_handler
 from ossie_studio.api.space_plugins import router as api_space_plugins_router
 from ossie_studio.api.space_teams import router as api_space_teams_router
 from ossie_studio.api.spaces import router as api_spaces_router
@@ -80,6 +81,7 @@ from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.sources.jobs import CollectJobs
+from ossie_studio.sources.source_error import SourceError
 from ossie_studio.spaces.git_probe import prove_five_rights
 from ossie_studio.spaces.views import DraftViewManager
 from ossie_studio.spaces.workdir import WorkdirManager
@@ -147,6 +149,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # L'API renvoie des codes d'erreur traduits par l'interface, jamais un
     # message rédigé côté backend.
     app.add_exception_handler(ApiError, api_error_handler)
+    # Refus du service des sources, commun à l'écran et à l'agent (ticket 1920df67).
+    app.add_exception_handler(SourceError, source_error_handler)
     app.state.settings = settings
     app.state.bootstrap_done = False
     app.state.crypto = CryptoService(settings.master_key_bytes())

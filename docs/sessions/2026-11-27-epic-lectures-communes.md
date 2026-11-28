@@ -61,3 +61,23 @@ Catalogue : 38 primitives sur `dev`, **32 visées**.
   le refus pointe la règle fautive, retrouvée par le même service. Le profil fourni
   `ossie-datavault` existe sans fichier (version de son contenu) ; l'écrire le
   personnalise, supprimer la personnalisation le rétablit, le supprimer lui est refusé.
+
+## 28 novembre — « genre » devient « type de document » (ticket b90fcc85)
+
+Gael : « document_type ». Le mot **type** seul reste aux types de la cartographie.
+Renommage sans changement de comportement ; ce qui précède garde le mot « genre » tel
+qu'il était employé au moment de l'écrire.
+
+- Paramètre et champ `genre` → **`document_type`** dans toutes les primitives communes
+  (`write_documents`, `patch_document`, `read_document`, `read_schema`, `list_documents`),
+  sans alias : `genre` est refusé comme argument inconnu, avec `aide`.
+- `list_write_kinds` → **`list_document_types`** (clé `document_types`) ; migration `0052`
+  pour les profils agents. Toujours 32 primitives.
+- Code : `mcp_surface/document_types.py` (registre, `DocumentType`, `get_document_type`),
+  `document_type_base.py`, `document_type_lists.py`, `document_type_stores.py`,
+  `document_type_domains.py`, `document_type_imports.py` ; `schema_document_type`
+  (ex-`schema_kind`). Codes d'erreur `document_type_unknown`, `document_type_read_only`,
+  `schema_document_type_untyped`.
+- Gardent leur nom (autre sens) : le filtre `kind` de `schema_raw` et de `point_entree`
+  (nature de l'objet), la catégorie `kind` rendue par `read_schema` (`raw`, `asset`,
+  `referentiel`, `carto_type`, `document`).

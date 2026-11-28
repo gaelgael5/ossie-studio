@@ -19,7 +19,7 @@ Content — the type's schema file:
 - `x-relations` (optional): relationships disabled or added for this type.
 
 ```yaml example
-kind: carto_type
+document_type: carto_type
 identity: {slug: application}
 content:
   title: Application

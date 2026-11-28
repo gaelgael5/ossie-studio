@@ -11,10 +11,10 @@ Content: `name` (optional, must match the identity), `from` (dataset), `field` (
 `cardinality` (optional, for display: `n:1`, `1:n`...).
 
 ```yaml example
-- kind: domaine
+- document_type: domaine
   identity: {name: catalogue}
   content: {label: Catalogue}
-- kind: dataset
+- document_type: dataset
   identity: {domain: catalogue, name: produit}
   content:
     ossie:
@@ -23,14 +23,14 @@ Content: `name` (optional, must match the identity), `from` (dataset), `field` (
       fields:
         - {name: categorie, expression: {dialects: [{dialect: ANSI_SQL, expression: Categorie}]}}
     extension: {consultable: false, derived: false}
-- kind: dataset
+- document_type: dataset
   identity: {domain: catalogue, name: categorie}
   content:
     ossie:
       name: categorie
       source: Catalogue.Categorie
     extension: {consultable: false, derived: false}
-- kind: reference_dataset
+- document_type: reference_dataset
   identity: {domain: catalogue, name: produit-categorie}
   content: {from: produit, field: categorie, to: categorie, kind: field, cardinality: "n:1"}
 ```

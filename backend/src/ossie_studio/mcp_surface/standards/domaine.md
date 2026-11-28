@@ -11,7 +11,7 @@ Identity: `name` (lowercase letters, digits, dashes): the domain's name and the 
 semantic model. Frozen.
 
 Content: `label` (free label shown on screen, extension), `description` (Ossie). Its datasets,
-relationships and references are kinds of their own: `dataset`, `relation_dataset`,
+relationships and references are document types of their own: `dataset`, `relation_dataset`,
 `reference_dataset`.
 
 A domain is created, with its datasets and relationships, in one `write_documents`: the order
@@ -19,10 +19,10 @@ of the list is free. It is deleted only when it has no dataset left (delete them
 batch).
 
 ```yaml example
-- kind: domaine
+- document_type: domaine
   identity: {name: ventes}
   content: {label: Ventes, description: Les ventes de la boutique.}
-- kind: dataset
+- document_type: dataset
   identity: {domain: ventes, name: client}
   content:
     ossie:

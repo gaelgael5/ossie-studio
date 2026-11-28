@@ -114,11 +114,11 @@ async def _refusal(app: FastAPI, token: str, name: str, args: dict[str, Any]) ->
 
 
 def _contracts(space: ApiSpace) -> dict[str, Any]:
-    return _branch(space, branch="draft", kind="contrat", identity={"source": "boutique"})
+    return _branch(space, branch="draft", document_type="contrat", identity={"source": "boutique"})
 
 
 async def _sources(app: FastAPI, space: ApiSpace, branch: str = "draft") -> dict[str, Any]:
-    args = _branch(space, branch=branch, kind="source")
+    args = _branch(space, branch=branch, document_type="source")
     listed = await _ok(app, AGENT, "list_documents", args)
     return {s["identity"]["source"]: s for s in listed["documents"]}
 
@@ -232,7 +232,7 @@ async def test_parcours_openapi_jusqu_a_la_collecte(
 
     collected = await _ok(app, AGENT, "collect_source", _branch(space, source="boutique"))
     assert collected["state"] == "done", collected
-    raw = {"kind": "schema_raw", "identity": {"source": "boutique"}}
+    raw = {"document_type": "schema_raw", "identity": {"source": "boutique"}}
     schemas = await _ok(app, AGENT, "list_documents", _branch(space, branch="draft", **raw))
     assert {s["identity"]["name"] for s in schemas["documents"]} == {
         "v1-commande.schema.yaml",

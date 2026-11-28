@@ -1,8 +1,8 @@
-"""Registre des genres d'écriture (epic « Primitives MCP — écriture commune par genre »,
-enabler 7b4b8f3a).
+"""Registre des types de document (epic « Primitives MCP — écriture commune par type
+de document », enabler 7b4b8f3a).
 
 Les primitives communes (`write_documents`, `patch_document`, `read_document`,
-`read_schema`, `list_write_kinds`) savent toutes, pour un genre, la même chose :
+`read_schema`, `list_document_types`) savent toutes, pour un type de document, la même chose :
 quelle identité demander, où ranger, si un chemin peut être fourni, quel standard
 suit le contenu, quelle syntaxe sert à le modifier et quelle capacité il faut. Cette
 déclaration vit **ici, une seule fois** ; les primitives la lisent, aucune ne la
@@ -10,10 +10,10 @@ recopie.
 
 Décision de Gael : l'agent ne choisit pas l'emplacement d'un document (« pour écrire un
 objet Application Component, il y a une place dédiée dans le repo. L'agent n'a pas son
-mot à dire »). Le chemin se déduit du genre et de l'identité, par **les fonctions des
+mot à dire »). Le chemin se déduit du type de document et de l'identité, par **les fonctions des
 services** — celles qu'utilise l'écran : aucune constante d'emplacement n'est recopiée.
-Le paramètre `path` reste possible, mais chaque genre déclare s'il est interdit ou
-autorisé ; il est interdit pour tous les genres aujourd'hui (le premier cas autorisé
+Le paramètre `path` reste possible, mais chaque type de document déclare s'il est interdit ou
+autorisé ; il est interdit pour tous les types de document aujourd'hui (le premier cas autorisé
 prévu : les datasets, le jour où les domaines deviendront des répertoires).
 
 Une identité invalide (slug mal formé, type inconnu, clé vide…) est refusée avec une
@@ -48,12 +48,12 @@ from ossie_studio.governance.repo import (
     scheme_path,
     tag_path,
 )
-from ossie_studio.mcp_surface import kind_domains as domains
-from ossie_studio.mcp_surface import kind_lists as lists
-from ossie_studio.mcp_surface import kind_stores as stores
-from ossie_studio.mcp_surface.kind_base import (
+from ossie_studio.mcp_surface import document_type_domains as domains
+from ossie_studio.mcp_surface import document_type_lists as lists
+from ossie_studio.mcp_surface import document_type_stores as stores
+from ossie_studio.mcp_surface.document_type_base import (
+    DocumentError,
     IdentityField,
-    KindError,
     Lister,
     ListFilter,
     Location,
@@ -85,7 +85,7 @@ Locator = Callable[[Path | None, Mapping[str, Any]], Location]
 
 
 @dataclass(frozen=True)
-class WriteKind:
+class DocumentType:
     name: str
     description: str  # en anglais, pour l'agent
     label: str  # en français, pour l'écran et les messages
@@ -96,37 +96,37 @@ class WriteKind:
     read_capability: str  # pour lire
     locator: Locator
     store: Store  # le validateur : le service de l'écran
-    lister: Lister  # la liste du genre (list_documents), par le service de l'écran
+    lister: Lister  # la liste du type de document (list_documents), par le service de l'écran
     # Les champs du contenu qui portent l'identité : ils ne changent jamais (Gael :
     # « il faut recréer un objet et supprimer le précédent »).
     identity_paths: tuple[str, ...] = ()
     # Les autres champs figés (JSONPath dans le contenu).
     frozen: tuple[str, ...] = ()
-    # Les filtres propres au genre que list_documents accepte (en plus de l'identité
+    # Les filtres propres au type de document que list_documents accepte (en plus de l'identité
     # partielle et de la recherche texte, communes).
     list_filters: tuple[ListFilter, ...] = ()
     path_rule: PathRule = "forbidden"
     path_root: str = ""  # sous laquelle doit rester un chemin autorisé
-    # Écriture permise, ou interdite (ticket 56f3784a) : un genre en lecture seule est
+    # Écriture permise, ou interdite (ticket 56f3784a) : un type de document en lecture seule est
     # produit par une action, que nomme le refus (`produced_by`).
     writable: bool = True
     produced_by: tuple[str, ...] = ()
     # Le document est lui-même un schéma : read_schema le lit par son identité.
     is_schema: bool = False
-    # Le schéma du contenu, défini par le code (ticket b4aeae83) : read_schema(kind) le
+    # Le schéma du contenu, défini par le code (ticket b4aeae83) : read_schema(document_type) le
     # rend tel quel (un dataset : la part Ossie 0.1.1 officielle et la part extension).
     content_schema: Callable[[], dict[str, Any]] | None = None
     # Le champ d'identité qui donne le schéma exact du contenu (read_schema), et le
-    # genre du document qui porte ce schéma : son identité (un seul champ) prend la
+    # type de document du document qui porte ce schéma : son identité (un seul champ) prend la
     # valeur de ce champ (le type d'un objet → le document carto_type de ce slug).
     typed_by: str | None = None
-    schema_kind: str | None = None
+    schema_document_type: str | None = None
 
     def locate(
         self, root: Path | None, identity: Mapping[str, Any], path: str | None = None
     ) -> Location:
-        """L'emplacement d'un document de ce genre, calculé depuis son identité ; un
-        `path` fourni est soumis à la règle du genre. `root` (l'espace) sert aux
+        """L'emplacement d'un document de ce type de document, calculé depuis son identité ; un
+        `path` fourni est soumis à la règle du type de document. `root` (l'espace) sert aux
         contrôles qui le lisent : type de cartographie connu, clé d'un référentiel."""
         self._check_fields(identity)
         location = self.locator(root, identity)
@@ -134,10 +134,11 @@ class WriteKind:
         if not given:
             return location
         if self.path_rule == "forbidden":
-            raise KindError(
+            raise DocumentError(
                 "write_path_forbidden",
                 "path",
-                f"Le chemin est fixé par le système pour le genre {self.name} ; ne pas le fournir.",
+                f"Le chemin est fixé par le système pour le type de document {self.name} ; ne pas "
+                f"le fournir.",
                 expected=location.path,
             )
         return Location(self.name, location.identity, self._allowed(given), location.entry)
@@ -147,18 +148,19 @@ class WriteKind:
         for f in self.identity:
             value = identity.get(f.name)
             if value is None or (isinstance(value, str) and not value.strip()):
-                raise KindError(
+                raise DocumentError(
                     "write_identity_invalid",
                     f.name,
-                    f"Le champ « {f.name} » est obligatoire pour le genre {self.name} "
+                    f"Le champ « {f.name} » est obligatoire pour le type de document {self.name} "
                     f"({f.format}).",
                 )
         for name in identity:
             if name not in names:
-                raise KindError(
+                raise DocumentError(
                     "write_identity_invalid",
                     name,
-                    f"Le genre {self.name} ne connaît pas le champ « {name} » ; son identité "
+                    f"Le type de document {self.name} ne connaît pas le champ « {name} » ; son "
+                    f"identité "
                     f"est : {', '.join(names)}.",
                 )
 
@@ -166,10 +168,11 @@ class WriteKind:
         pure = PurePosixPath(given)
         root = PurePosixPath(self.path_root)
         if pure.is_absolute() or ".." in pure.parts or not pure.is_relative_to(root):
-            raise KindError(
+            raise DocumentError(
                 "write_path_outside_root",
                 "path",
-                f"Le chemin d'un document du genre {self.name} reste sous {self.path_root}/, "
+                f"Le chemin d'un document du type de document {self.name} reste sous "
+                f"{self.path_root}/, "
                 "sans « .. » ni chemin absolu.",
                 received=given,
             )
@@ -179,26 +182,27 @@ class WriteKind:
 # --- Contrôles d'identité (ceux des services, jamais recopiés) ---------------------------
 
 
-def _bad(kind: str, field: str, value: Any, expected: str) -> KindError:
-    return KindError(
+def _bad(doc_type: str, field: str, value: Any, expected: str) -> DocumentError:
+    return DocumentError(
         "write_identity_invalid",
         field,
-        f"« {field} » invalide pour le genre {kind} : {expected} ; reçu « {value} ».",
+        f"« {field} » invalide pour le type de document {doc_type} : {expected} ; reçu « {value} "
+        f"».",
         received=value,
     )
 
 
-def _slug(kind: str, field: str, identity: Mapping[str, Any]) -> str:
+def _slug(doc_type: str, field: str, identity: Mapping[str, Any]) -> str:
     value = identity[field]
     if not isinstance(value, str) or not is_valid_slug(value):
-        raise _bad(kind, field, value, "minuscules, chiffres et tirets (ex. « application »)")
+        raise _bad(doc_type, field, value, "minuscules, chiffres et tirets (ex. « application »)")
     return value
 
 
-def _key(kind: str, field: str, identity: Mapping[str, Any]) -> str:
+def _key(doc_type: str, field: str, identity: Mapping[str, Any]) -> str:
     value = identity[field]
     if not isinstance(value, str) or not is_valid_key(value):
-        raise _bad(kind, field, value, "majuscules, chiffres et tirets (ex. « APP-CAISSE »)")
+        raise _bad(doc_type, field, value, "majuscules, chiffres et tirets (ex. « APP-CAISSE »)")
     return value
 
 
@@ -206,7 +210,7 @@ def _ids(identity: Mapping[str, Any], *names: str) -> dict[str, Any]:
     return {name: identity[name] for name in names}
 
 
-# --- Les genres ------------------------------------------------------------------------
+# --- Les types de document ------------------------------------------------------------------------
 
 
 def _carto_type(root: Path | None, identity: Mapping[str, Any]) -> Location:
@@ -218,19 +222,22 @@ def _carto_objet(root: Path | None, identity: Mapping[str, Any]) -> Location:
     type_slug = _slug("carto_objet", "type", identity)
     key = _key("carto_objet", "key", identity)
     if root is not None and type_slug not in read_cartographie(root).types:
-        raise KindError(
+        raise DocumentError(
             "write_identity_invalid",
             "type",
             f"Le type « {type_slug} » n'existe pas dans la cartographie de l'espace ; un objet "
-            "(ou une relation) prend un type existant (list_documents, genre carto_type).",
+            "(ou une relation) prend un type existant (list_documents, type de document "
+            "carto_type).",
             received=type_slug,
         )
     return Location("carto_objet", _ids(identity, "type", "key"), object_path(type_slug, key))
 
 
-def _diagram_file(kind: str, path_of: Callable[[str], str]) -> Locator:
+def _diagram_file(doc_type: str, path_of: Callable[[str], str]) -> Locator:
     def locate(root: Path | None, identity: Mapping[str, Any]) -> Location:
-        return Location(kind, _ids(identity, "slug"), path_of(_slug(kind, "slug", identity)))
+        return Location(
+            doc_type, _ids(identity, "slug"), path_of(_slug(doc_type, "slug", identity))
+        )
 
     return locate
 
@@ -241,12 +248,14 @@ def _processus(root: Path | None, identity: Mapping[str, Any]) -> Location:
     )
 
 
-def _referentiel(kind: str, identity: Mapping[str, Any]) -> str:
+def _referentiel(doc_type: str, identity: Mapping[str, Any]) -> str:
     name = identity["referentiel"]
     try:
         model_path(str(name))
     except ReferentielError:
-        raise _bad(kind, "referentiel", name, "le slug d'un référentiel (ex. « pays »)") from None
+        raise _bad(
+            doc_type, "referentiel", name, "le slug d'un référentiel (ex. « pays »)"
+        ) from None
     return str(name)
 
 
@@ -258,26 +267,26 @@ def _referentiel_modele(root: Path | None, identity: Mapping[str, Any]) -> Locat
 def _referentiel_valeur(root: Path | None, identity: Mapping[str, Any]) -> Location:
     """Une valeur dans `valeurs.json` : sa clé suit le modèle du référentiel (un champ,
     ou plusieurs pour une clé composée)."""
-    kind = "referentiel_valeur"
-    name = _referentiel(kind, identity)
+    doc_type = "referentiel_valeur"
+    name = _referentiel(doc_type, identity)
     given = identity["key"]
     fields: list[str] | None = None
     if root is not None:
         file = root / model_path(name)
         if not file.is_file():
-            raise KindError(
+            raise DocumentError(
                 "write_identity_invalid",
                 "referentiel",
                 f"Le référentiel « {name} » n'existe pas dans l'espace (list_documents, "
-                "genre referentiel_modele).",
+                "type de document referentiel_modele).",
                 received=name,
             )
         fields = model_key(load_model(file.read_bytes()))
-    entry = _entry(kind, given, fields)
-    return Location(kind, _ids(identity, "referentiel", "key"), values_path(name), entry)
+    entry = _entry(doc_type, given, fields)
+    return Location(doc_type, _ids(identity, "referentiel", "key"), values_path(name), entry)
 
 
-def _entry(kind: str, given: Any, fields: list[str] | None) -> tuple[Any, ...]:
+def _entry(doc_type: str, given: Any, fields: list[str] | None) -> tuple[Any, ...]:
     """Les valeurs de la clé, dans l'ordre du modèle. Une clé d'un seul champ peut se
     donner seule ; une clé composée se donne en objet {champ: valeur}."""
     if isinstance(given, Mapping):
@@ -286,7 +295,7 @@ def _entry(kind: str, given: Any, fields: list[str] | None) -> tuple[Any, ...]:
         missing = [f for f in fields if f not in given]
         extra = [f for f in given if f not in fields]
         if missing or extra:
-            raise KindError(
+            raise DocumentError(
                 "write_identity_invalid",
                 "key",
                 f"« key » : la clé d'une valeur de ce référentiel est faite de : "
@@ -299,7 +308,7 @@ def _entry(kind: str, given: Any, fields: list[str] | None) -> tuple[Any, ...]:
             )
         return tuple(given[f] for f in fields)
     if fields is not None and len(fields) != 1:
-        raise KindError(
+        raise DocumentError(
             "write_identity_invalid",
             "key",
             f"« key » : la clé de ce référentiel est composée ({', '.join(fields)}) : la donner "
@@ -310,14 +319,14 @@ def _entry(kind: str, given: Any, fields: list[str] | None) -> tuple[Any, ...]:
     return (given,)
 
 
-def _governance(kind: str, path_of: Callable[[str], str], example: str) -> Locator:
+def _governance(doc_type: str, path_of: Callable[[str], str], example: str) -> Locator:
     def locate(root: Path | None, identity: Mapping[str, Any]) -> Location:
         value = identity["id"]
         try:
             path = path_of(str(value))
         except InvalidGovernanceId:
-            raise _bad(kind, "id", value, f"un identifiant sûr (ex. « {example} »)") from None
-        return Location(kind, _ids(identity, "id"), path)
+            raise _bad(doc_type, "id", value, f"un identifiant sûr (ex. « {example} »)") from None
+        return Location(doc_type, _ids(identity, "id"), path)
 
     return locate
 
@@ -369,7 +378,7 @@ def _entry_point(root: Path | None, identity: Mapping[str, Any]) -> Location:
         carrier = _schema_file("point_entree", RAW_DIR)(
             root, {**identity, "name": identity["owner"]}
         )
-    except KindError as exc:
+    except DocumentError as exc:
         if exc.field != "name":
             raise
         raise _bad(
@@ -400,7 +409,7 @@ def _relation_profile(root: Path | None, identity: Mapping[str, Any]) -> Locatio
     return Location("profil_relation", _ids(identity, "id"), path)
 
 
-def _schema_file(kind: str, folder: str) -> Locator:
+def _schema_file(doc_type: str, folder: str) -> Locator:
     """Un schéma d'une source : `<source>/<folder>/<nom>` (raw/ ou assets/). Le nom est
     celui que rend la liste (un fichier de schéma, jamais « .. »)."""
 
@@ -408,7 +417,10 @@ def _schema_file(kind: str, folder: str) -> Locator:
         source = identity["source"]
         if not isinstance(source, str) or not is_valid_source_slug(source):
             raise _bad(
-                kind, "source", source, "le slug d'une source (list_documents, genre « source »)"
+                doc_type,
+                "source",
+                source,
+                "le slug d'une source (list_documents, type de document « source »)",
             )
         name = identity["name"]
         pure = PurePosixPath(str(name))
@@ -420,19 +432,19 @@ def _schema_file(kind: str, folder: str) -> Locator:
             and not (folder == ASSETS_DIR and is_extend_name(name))
         )
         if not valid:
-            raise _bad(kind, "name", name, "le nom d'un schéma, tel que la liste le rend")
+            raise _bad(doc_type, "name", name, "le nom d'un schéma, tel que la liste le rend")
         path = f"{source_rel_dir(source)}/{folder}/{pure.as_posix()}"
-        return Location(kind, _ids(identity, "source", "name"), path)
+        return Location(doc_type, _ids(identity, "source", "name"), path)
 
     return locate
 
 
 _SLUG = "lowercase letters, digits and dashes"
-_SOURCE_SLUG = "Slug of the source (list_documents, kind 'source')."
+_SOURCE_SLUG = "Slug of the source (list_documents, document type 'source')."
 _KEY = "uppercase letters, digits and dashes"
 
-KINDS: tuple[WriteKind, ...] = (
-    WriteKind(
+DOCUMENT_TYPES: tuple[DocumentType, ...] = (
+    DocumentType(
         name="carto_type",
         description="A type of the map: its ArchiMate type and its added properties.",
         label="type de cartographie",
@@ -446,7 +458,7 @@ KINDS: tuple[WriteKind, ...] = (
         lister=lists.carto_types,
         list_filters=(lists.NATURE, lists.ARCHIMATE),
     ),
-    WriteKind(
+    DocumentType(
         name="carto_objet",
         description=(
             "An object of the map, or a relationship (an object of a relationship type, "
@@ -468,9 +480,9 @@ KINDS: tuple[WriteKind, ...] = (
         identity_paths=("$.cle", "$.type"),
         frozen=("$.source", "$.cible"),
         typed_by="type",
-        schema_kind="carto_type",
+        schema_document_type="carto_type",
     ),
-    WriteKind(
+    DocumentType(
         name="carto_modele",
         description="A model of the map: the objects it keeps and its views.",
         label="modèle de cartographie",
@@ -485,7 +497,7 @@ KINDS: tuple[WriteKind, ...] = (
         list_filters=(lists.CONTAINS,),
         identity_paths=("$.id",),
     ),
-    WriteKind(
+    DocumentType(
         name="carto_graphique",
         description="The drawing of a model: positions and sizes per view.",
         label="graphique d'un modèle",
@@ -498,7 +510,7 @@ KINDS: tuple[WriteKind, ...] = (
         store=stores.CartoGraphicStore(),
         lister=lists.carto_graphics,
     ),
-    WriteKind(
+    DocumentType(
         name="carto_regles",
         description="A rules file: how the types of the space translate to ArchiMate.",
         label="règles de cartographie",
@@ -511,7 +523,7 @@ KINDS: tuple[WriteKind, ...] = (
         store=stores.CartoRulesStore(),
         lister=lists.carto_rules,
     ),
-    WriteKind(
+    DocumentType(
         name="processus",
         description=(
             "A BPMN 2.0 process (XML, diagram included) detailing a business process of the map."
@@ -531,7 +543,7 @@ KINDS: tuple[WriteKind, ...] = (
         lister=lists.processes,
         list_filters=(lists.DETAIL_OF,),
     ),
-    WriteKind(
+    DocumentType(
         name="referentiel_modele",
         description="The model (JSON Schema) of a reference list.",
         label="modèle de référentiel",
@@ -544,7 +556,7 @@ KINDS: tuple[WriteKind, ...] = (
         store=stores.ReferentielModelStore(),
         lister=lists.referentiel_models,
     ),
-    WriteKind(
+    DocumentType(
         name="referentiel_valeur",
         description=(
             "One value of a reference list, designated by its key (never the whole values file)."
@@ -567,9 +579,9 @@ KINDS: tuple[WriteKind, ...] = (
         lister=lists.referentiel_values,
         list_filters=(lists.EQUALS,),
         typed_by="referentiel",
-        schema_kind="referentiel_modele",
+        schema_document_type="referentiel_modele",
     ),
-    WriteKind(
+    DocumentType(
         name="tag",
         description="A governance tag (hierarchy by '/').",
         label="tag",
@@ -583,7 +595,7 @@ KINDS: tuple[WriteKind, ...] = (
         lister=lists.tags,
         identity_paths=("$.id",),
     ),
-    WriteKind(
+    DocumentType(
         name="classification",
         description="A classification scheme with its ordered levels.",
         label="classification",
@@ -597,7 +609,7 @@ KINDS: tuple[WriteKind, ...] = (
         lister=lists.classifications,
         identity_paths=("$.id",),
     ),
-    WriteKind(
+    DocumentType(
         name="certification",
         description="A certification that can be granted to assets.",
         label="certification",
@@ -616,17 +628,17 @@ KINDS: tuple[WriteKind, ...] = (
 # --- Les règles (ticket 71347227) -----------------------------------------------------------
 
 
-def _rule(kind: str, service: Any, builtin_ids: Callable[[], set[str]]) -> Locator:
+def _rule(doc_type: str, service: Any, builtin_ids: Callable[[], set[str]]) -> Locator:
     """Une règle de tags ou de classification, par son identifiant : son fichier, ou,
     pour une règle native (fournie par Ossie), le fichier d'état des natives."""
 
     def locate(root: Path | None, identity: Mapping[str, Any]) -> Location:
         rule_id = identity["id"]
         if not isinstance(rule_id, str) or not service.is_valid_rule_id(rule_id):
-            raise _bad(kind, "id", rule_id, "minuscules, chiffres, « _ » et « - »")
+            raise _bad(doc_type, "id", rule_id, "minuscules, chiffres, « _ » et « - »")
         if rule_id in builtin_ids():
-            return Location(kind, {"id": rule_id}, service.BUILTIN_STATE_FILE)
-        return Location(kind, {"id": rule_id}, service.rule_path(rule_id))
+            return Location(doc_type, {"id": rule_id}, service.BUILTIN_STATE_FILE)
+        return Location(doc_type, {"id": rule_id}, service.rule_path(rule_id))
 
     return locate
 
@@ -638,7 +650,7 @@ def _tri_rules(root: Path | None, identity: Mapping[str, Any]) -> Location:
             "regles_tri",
             "source",
             source,
-            "le slug d'une source (list_documents, genre « source »)",
+            "le slug d'une source (list_documents, type de document « source »)",
         )
     return Location(
         "regles_tri", {"source": source}, f"{source_rel_dir(source)}/{MANIFEST_FILENAME}"
@@ -656,9 +668,9 @@ def _classification_rule_ids() -> set[str]:
 _RULE_ID = IdentityField(
     "id", "Id of the rule.", "lowercase letters, digits, '_' and '-'; 'ossie-…' for native rules"
 )
-KINDS = (
-    *KINDS,
-    WriteKind(
+DOCUMENT_TYPES = (
+    *DOCUMENT_TYPES,
+    DocumentType(
         name="regle_tag",
         description=(
             "A tag rule: puts governed tags on raw objects from what the code says of them. "
@@ -675,7 +687,7 @@ KINDS = (
         lister=lists.tag_rule_items,
         identity_paths=("$.id",),
     ),
-    WriteKind(
+    DocumentType(
         name="regle_classification",
         description=(
             "A classification rule: gives a classification level to fields or objects. "
@@ -694,7 +706,7 @@ KINDS = (
         lister=lists.classification_rule_items,
         identity_paths=("$.id",),
     ),
-    WriteKind(
+    DocumentType(
         name="regles_tri",
         description=(
             "The sorting rules of a source (they set noise aside in the curation): the "
@@ -710,7 +722,7 @@ KINDS = (
         store=stores.TriRulesStore(),
         lister=lists.tri_rules,
     ),
-    WriteKind(
+    DocumentType(
         name="profil_relation",
         description=(
             "A relation profile: naming conventions that give the virtual relations of SQL "
@@ -737,15 +749,17 @@ KINDS = (
 
 # --- Le modèle sémantique Ossie (ticket b4aeae83) -------------------------------------------
 
-_DOMAIN_FIELD = IdentityField("domain", "Name of the domain (list_documents, kind domaine).", _SLUG)
+_DOMAIN_FIELD = IdentityField(
+    "domain", "Name of the domain (list_documents, document type 'domaine').", _SLUG
+)
 _MEMBER_NAME = IdentityField("name", "Name, unique in its domain.", "e.g. 'client'")
-KINDS = (
-    *KINDS,
-    WriteKind(
+DOCUMENT_TYPES = (
+    *DOCUMENT_TYPES,
+    DocumentType(
         name="domaine",
         description=(
             "A domain: an Ossie semantic model (its datasets, relationships and references "
-            "are kinds of their own). Its label and description."
+            "are document types of their own). Its label and description."
         ),
         label="domaine",
         identity=(IdentityField("name", "Name of the domain.", f"{_SLUG}, e.g. 'ventes'"),),
@@ -759,7 +773,7 @@ KINDS = (
         identity_paths=("$.name",),
         content_schema=domains.domain_schema,
     ),
-    WriteKind(
+    DocumentType(
         name="dataset",
         description=(
             "A dataset of a domain: its Ossie 0.1.1 part (as the Ossie document writes it) "
@@ -776,7 +790,7 @@ KINDS = (
         lister=domains.dataset_items,
         content_schema=domains.dataset_schema,
     ),
-    WriteKind(
+    DocumentType(
         name="relation_dataset",
         description=(
             "An Ossie relationship (foreign key) between two datasets of a domain, "
@@ -794,7 +808,7 @@ KINDS = (
         identity_paths=("$.name",),
         content_schema=domains.relation_schema,
     ),
-    WriteKind(
+    DocumentType(
         name="reference_dataset",
         description=(
             "An object link between two datasets without key columns (a property pointing "
@@ -821,15 +835,15 @@ _SCHEMA_NAME = IdentityField(
 )
 _SOURCE_ACTIONS = ("declare_source", "update_source", "delete_source")
 _CONTRACT_ACTIONS = ("deposit_contract", "remove_contract")
-KINDS = (
-    *KINDS,
-    WriteKind(
+DOCUMENT_TYPES = (
+    *DOCUMENT_TYPES,
+    DocumentType(
         name="source",
         description=(
             "A data source declared in the space: its manifest (label, type, connection name, "
             "parameters, relation profiles, sorting rules). Read-only: produced by "
             "declare_source, update_source and delete_source; the sorting rules are the "
-            "kind 'regles_tri'."
+            "document type 'regles_tri'."
         ),
         label="source",
         identity=(_SOURCE_FIELD,),
@@ -844,7 +858,7 @@ KINDS = (
         writable=False,
         produced_by=_SOURCE_ACTIONS,
     ),
-    WriteKind(
+    DocumentType(
         name="contrat",
         description=(
             "An OpenAPI contract deposited on an OpenAPI source, one per version: its content "
@@ -865,7 +879,7 @@ KINDS = (
         writable=False,
         produced_by=_CONTRACT_ACTIONS,
     ),
-    WriteKind(
+    DocumentType(
         name="schema_raw",
         description=(
             "A raw schema collected from a source (one per object: table, entity, API "
@@ -885,7 +899,7 @@ KINDS = (
         produced_by=("collect_source",),
         is_schema=True,
     ),
-    WriteKind(
+    DocumentType(
         name="extension_raw",
         description=(
             "The extension of a raw object, written by the parser next to its schema: the "
@@ -906,7 +920,7 @@ KINDS = (
         writable=False,
         produced_by=("collect_source",),
     ),
-    WriteKind(
+    DocumentType(
         name="point_entree",
         description=(
             "An entry point of the code: an HTTP route (verb and route), a background task or "
@@ -944,7 +958,7 @@ KINDS = (
         writable=False,
         produced_by=("collect_source",),
     ),
-    WriteKind(
+    DocumentType(
         name="schema_asset",
         description=(
             "The schema of an asset retained from a raw object for the semantic layer. "
@@ -967,17 +981,17 @@ KINDS = (
     ),
 )
 
-_BY_NAME = {k.name: k for k in KINDS}
+_BY_NAME = {k.name: k for k in DOCUMENT_TYPES}
 
 
-def write_kind(name: str) -> WriteKind:
-    """Le genre de ce nom ; refus nommé s'il n'existe pas."""
+def get_document_type(name: str) -> DocumentType:
+    """Le type de document de ce nom ; refus nommé s'il n'existe pas."""
     found = _BY_NAME.get(name)
     if found is None:
-        raise KindError(
-            "write_kind_unknown",
-            "kind",
-            f"Genre inconnu « {name} » ; genres possibles : {', '.join(_BY_NAME)}.",
+        raise DocumentError(
+            "document_type_unknown",
+            "document_type",
+            f"Type de document inconnu « {name} » ; types possibles : {', '.join(_BY_NAME)}.",
             received=name,
             expected=list(_BY_NAME),
         )

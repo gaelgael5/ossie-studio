@@ -1,9 +1,9 @@
-"""Les validateurs des genres d'écriture (enabler 7b4b8f3a) : pour chaque genre, la
-lecture, l'écriture et la suppression d'un document **par le service de l'écran**,
+"""Les validateurs des types de document (enabler 7b4b8f3a) : pour chaque type de
+document, la lecture, l'écriture et la suppression d'un document **par le service de l'écran**,
 avec ses contrôles et ses refus nommés. Aucune règle de domaine n'est écrite ici :
 un validateur traduit le document (tel qu'il est rangé dans l'espace) en appel du
 service, vérifie seulement que l'identité donnée concorde avec le contenu
-(`write_identity_mismatch`) et que le contenu a la forme d'un document de ce genre
+(`write_identity_mismatch`) et que le contenu a la forme d'un document de ce type de document
 (`write_content_invalid`).
 
 Les refus des services remontent tels quels (CartographieError, ReferentielError,
@@ -43,7 +43,7 @@ from ossie_studio.governance import actions, classification_rules, relation_prof
 from ossie_studio.governance import repo as governance_repo
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
-from ossie_studio.mcp_surface.kind_base import Document, KindError, Location
+from ossie_studio.mcp_surface.document_type_base import Document, DocumentError, Location
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.problems import Problem
 from ossie_studio.referentiels.errors import ReferentielError
@@ -93,7 +93,7 @@ def _dump(content: Mapping[str, Any]) -> str:
 
 def _mapping(content: Any, label: str) -> dict[str, Any]:
     if not isinstance(content, Mapping):
-        raise KindError(
+        raise DocumentError(
             "write_content_invalid",
             "$",
             f"Le contenu d'un document « {label} » est un objet (YAML/JSON) ; reçu "
@@ -106,7 +106,7 @@ def _mapping(content: Any, label: str) -> dict[str, Any]:
 def _unknown(content: Mapping[str, Any], allowed: tuple[str, ...], label: str) -> None:
     for name in content:
         if name not in allowed:
-            raise KindError(
+            raise DocumentError(
                 "write_content_invalid",
                 f"$.{name}",
                 f"Champ inconnu « {name} » pour un document « {label} » ; champs possibles : "
@@ -119,7 +119,7 @@ def _unknown(content: Mapping[str, Any], allowed: tuple[str, ...], label: str) -
 def _same(field: str, given: Any, expected: Any, label: str) -> None:
     """L'identité donnée et le contenu disent la même chose."""
     if given is not None and given != expected:
-        raise KindError(
+        raise DocumentError(
             "write_identity_mismatch",
             f"$.{field}",
             f"Le contenu dit « {field}: {given} » mais l'identité désigne « {expected} » : un "
@@ -130,8 +130,8 @@ def _same(field: str, given: Any, expected: Any, label: str) -> None:
         )
 
 
-def _unsupported(label: str) -> KindError:
-    return KindError(
+def _unsupported(label: str) -> DocumentError:
+    return DocumentError(
         "write_delete_unsupported",
         "delete",
         f"Un document « {label} » ne se supprime pas seul (l'écran ne le permet pas non plus).",
@@ -163,7 +163,7 @@ def carto_object(content: Any) -> CartoObject:
     for name in ("cle", "type", "nom", "documentation", "source", "cible"):
         value = data.get(name)
         if value is not None and not isinstance(value, str):
-            raise KindError(
+            raise DocumentError(
                 "write_content_invalid",
                 f"$.{name}",
                 f"{name} doit être un texte ; reçu {json.dumps(value, ensure_ascii=False)}.",
@@ -172,7 +172,7 @@ def carto_object(content: Any) -> CartoObject:
             )
     properties = data.get("proprietes")
     if properties is not None and not isinstance(properties, dict):
-        raise KindError(
+        raise DocumentError(
             "write_content_invalid",
             "$.proprietes",
             "proprietes doit être un objet.",
@@ -223,7 +223,7 @@ class CartoObjectStore:
             try:
                 objects.append(self._object(location, content))
                 ranks.append(rank)
-            except KindError as exc:
+            except DocumentError as exc:
                 refused.append((rank, exc))
         for index, problems in _by_index(check_batch(scope, objects)).items():
             refused.append((ranks[index], CartographieError("object_invalid", problems=problems)))
@@ -318,7 +318,7 @@ class ProcessStore:
 
     def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
         if not isinstance(content, str):
-            raise KindError(
+            raise DocumentError(
                 "write_content_invalid",
                 "$",
                 "Le contenu d'un processus BPMN est le XML, en texte.",
@@ -326,7 +326,7 @@ class ProcessStore:
             )
         process = parse_process(content)
         if process.detail_of is None:
-            raise KindError(
+            raise DocumentError(
                 "write_process_unattached",
                 "$",
                 "Un processus écrit par un agent détaille un processus métier : poser "
@@ -407,7 +407,7 @@ class ReferentielValueStore:
             try:
                 values.append(self._value(location, content, fields))
                 ranks.append(rank)
-            except KindError as exc:
+            except DocumentError as exc:
                 refused.append((rank, exc))
         for index, problems in _by_index(check_values(scope, values)).items():
             if 0 <= index < len(ranks):
@@ -476,10 +476,10 @@ _RULE_FIELDS = {
 }
 
 
-def _rule_refused(label: str, errors: list[str]) -> KindError:
+def _rule_refused(label: str, errors: list[str]) -> DocumentError:
     """Les refus d'un service de règles, au champ du premier en cause."""
     suffix = errors[0].split("_rule_", 1)[-1]
-    return KindError(
+    return DocumentError(
         "write_content_invalid",
         _RULE_FIELDS.get(suffix, "$"),
         f"Règle « {label} » refusée par le service : {', '.join(errors)}.",
@@ -487,8 +487,8 @@ def _rule_refused(label: str, errors: list[str]) -> KindError:
     )
 
 
-def _native_frozen(label: str) -> KindError:
-    return KindError(
+def _native_frozen(label: str) -> DocumentError:
+    return DocumentError(
         "write_content_invalid",
         "$",
         f"Une règle native ({label}) est fournie par Ossie : seul « enabled » change "
@@ -496,8 +496,8 @@ def _native_frozen(label: str) -> KindError:
     )
 
 
-def _native_delete(label: str) -> KindError:
-    return KindError(
+def _native_delete(label: str) -> DocumentError:
+    return DocumentError(
         "write_delete_unsupported",
         "delete",
         f"Une règle native ({label}) ne se supprime pas : la désactiver (enabled: false), "
@@ -637,7 +637,7 @@ class TriRulesStore:
     def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
         source = location.identity["source"]
         if not isinstance(content, list) or not all(isinstance(r, Mapping) for r in content):
-            raise KindError(
+            raise DocumentError(
                 "write_content_invalid",
                 "$",
                 "Les règles de tri d'une source sont une liste d'objets (target, pattern, "
@@ -648,24 +648,25 @@ class TriRulesStore:
         errors = validate_tri_rules(cleaned)
         if errors:
             index = errors[0].split("]", 1)[0].removeprefix("triage[")
-            raise KindError(
+            raise DocumentError(
                 "write_content_invalid",
                 f"$[{index}]" if index.isdigit() else "$",
                 f"Règles de tri refusées : {', '.join(errors)}.",
                 problems=errors,
             )
         if location.path is None or not (root / location.path).is_file():
-            raise KindError(
+            raise DocumentError(
                 "write_identity_invalid",
                 "source",
-                f"La source « {source} » n'existe pas (list_documents, genre « source »).",
+                f"La source « {source} » n'existe pas (list_documents, type de document « source "
+                f"»).",
                 received=source,
             )
         set_tri_rules_fn(source, cleaned)(root)
         return []
 
     def delete(self, root: Path, location: Location) -> None:
-        raise KindError(
+        raise DocumentError(
             "write_delete_unsupported",
             "delete",
             "Les règles de tri d'une source ne se suppriment pas : écrire une liste vide "
@@ -673,7 +674,8 @@ class TriRulesStore:
         )
 
 
-# --- Genres en lecture seule (ticket 56f3784a) ----------------------------------------------
+# --- Types de document en lecture seule (ticket 56f3784a)
+# ----------------------------------------------
 
 
 class ReadOnlyStore:
@@ -689,7 +691,7 @@ class ReadOnlyStore:
     def read(self, root: Path, location: Location) -> Document | None:
         return _file_document(root, location.path, _readable)
 
-    def _refused(self) -> KindError:
+    def _refused(self) -> DocumentError:
         return read_only(self.label, self.actions)
 
     def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
@@ -699,11 +701,11 @@ class ReadOnlyStore:
         raise self._refused()
 
 
-def read_only(label: str, actions: tuple[str, ...]) -> KindError:
-    """Le refus d'écrire un genre en lecture seule : il nomme l'action à utiliser."""
-    return KindError(
-        "write_kind_read_only",
-        "kind",
+def read_only(label: str, actions: tuple[str, ...]) -> DocumentError:
+    """Le refus d'écrire un type de document en lecture seule : il nomme l'action à utiliser."""
+    return DocumentError(
+        "document_type_read_only",
+        "document_type",
         f"Un document « {label} » ne s'écrit pas directement : il est produit par "
         f"{' / '.join(actions)}. Utiliser cette action à la place.",
         actions=list(actions),
@@ -723,7 +725,7 @@ _PROFILE_RULE_FIELDS = {
 }
 
 
-def _profile_refused(profile_id: str, data: Mapping[str, Any], errors: list[str]) -> KindError:
+def _profile_refused(profile_id: str, data: Mapping[str, Any], errors: list[str]) -> DocumentError:
     """Les refus du service des profils (`parse_profile`, celui de l'écran), au champ en
     cause : pour une règle, la première refusée, retrouvée par le même service."""
     path = _PROFILE_FIELDS.get(errors[0], "$")
@@ -736,7 +738,7 @@ def _profile_refused(profile_id: str, data: Mapping[str, Any], errors: list[str]
             if own:
                 path = f"$.rules[{index}]{_PROFILE_RULE_FIELDS.get(own[0], '')}"
                 break
-    return KindError(
+    return DocumentError(
         "write_content_invalid",
         path,
         f"Profil de relations refusé par le service : {', '.join(errors)}.",
@@ -779,7 +781,7 @@ class RelationProfileStore:
     def delete(self, root: Path, location: Location) -> None:
         profile_id = location.identity["id"]
         if not relation_profiles.delete_profile(root, profile_id):
-            raise KindError(
+            raise DocumentError(
                 "write_delete_unsupported",
                 "delete",
                 f"Le profil fourni « {profile_id} » ne se supprime pas : seule sa version "
@@ -810,7 +812,9 @@ class TagStore:
         _same("id", data.get("id"), tag_id, "tag")
         info = data.get("info") or {}
         if not isinstance(info, Mapping):
-            raise KindError("write_content_invalid", "$.info", "info est un objet.", received=info)
+            raise DocumentError(
+                "write_content_invalid", "$.info", "info est un objet.", received=info
+            )
         values = {
             "owner": info.get("owner") or "",
             "description": info.get("description") or "",
@@ -842,7 +846,7 @@ class ClassificationStore:
         _same("id", data.get("id"), scheme_id, "classification")
         levels = data.get("levels") or []
         if not isinstance(levels, list) or not all(isinstance(lv, Mapping) for lv in levels):
-            raise KindError(
+            raise DocumentError(
                 "write_content_invalid",
                 "$.levels",
                 "levels est une liste d'objets.",
@@ -851,7 +855,7 @@ class ClassificationStore:
         for i, level in enumerate(levels):
             for name in level:
                 if name not in LEVEL_DOCUMENT:
-                    raise KindError(
+                    raise DocumentError(
                         "write_content_invalid",
                         f"$.levels[{i}].{name}",
                         f"Champ inconnu « {name} » pour un niveau ; champs possibles : "

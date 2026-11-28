@@ -399,7 +399,7 @@ def test_ecriture_d_un_import_sans_relire_par_objet(
     applications), et écrit les mêmes fichiers que l'écriture objet par objet."""
     from ossie_studio.cartographie import space as carto_space
     from ossie_studio.cartographie.import_target import target_of
-    from ossie_studio.mcp_surface import kind_stores, kinds
+    from ossie_studio.mcp_surface import document_type_stores, document_types
 
     root = _carto_root(tmp_path)
     items = [
@@ -416,7 +416,7 @@ def test_ecriture_d_un_import_sans_relire_par_objet(
         return real(*args, **kwargs)
 
     target = target_of(real(root), "application")
-    for module in (carto_space, kind_stores, kinds):
+    for module in (carto_space, document_type_stores, document_types):
         monkeypatch.setattr(module, "read_cartographie", counted)
     target.write(root, items)
     assert reads["n"] <= 1
