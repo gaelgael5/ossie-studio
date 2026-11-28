@@ -2973,12 +2973,6 @@ td .raw-ref-menu {
   flex-wrap: wrap;
   gap: 8px;
 }
-.ref-values-layout.with-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 46%);
-  gap: 16px;
-  align-items: start;
-}
 .ref-panel .ref-panel-crumbs .link-button {
   background: none;
   border: 0;
@@ -3013,11 +3007,6 @@ td.cell-error {
 .badge-danger {
   background: var(--danger-bg);
   color: var(--danger-fg);
-}
-@media (max-width: 1100px) {
-  .ref-values-layout.with-panel {
-    grid-template-columns: 1fr;
-  }
 }
 /* Éditeur de template JSLT, repris de Miles : gouttière et ligne fautive. */
 .template-editor {
@@ -4634,18 +4623,69 @@ urban-bpmn {
   margin: 0;
 }
 
+/* Barre de séparation entre une liste et son détail (ticket f74c8e74) : discrète au
+   repos (trois points), un trait fin de la couleur primaire au survol, au focus et
+   pendant le glissement. */
+.split-pane {
+  display: grid;
+  align-items: start;
+}
+.split-pane-side {
+  min-width: 0;
+}
+.split-pane-stacked {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.split-pane-bar {
+  align-self: stretch;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  cursor: col-resize;
+  touch-action: none;
+  border-radius: var(--radius-sm);
+}
+.split-pane-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+}
+.split-pane-bar:hover::before,
+.split-pane-bar:focus-visible::before,
+.split-pane-bar-active::before {
+  background: var(--primary);
+}
+.split-pane-bar:focus-visible {
+  outline: none;
+}
+.split-pane-grip {
+  position: sticky;
+  top: 50%;
+  width: 4px;
+  height: 18px;
+  background-image: radial-gradient(circle, var(--border-strong) 1.5px, transparent 1.6px);
+  background-size: 4px 6px;
+  background-repeat: repeat-y;
+}
+body.split-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
 /* Onglet « Résumé » d'un type : ses objets et le YAML de l'objet choisi (ticket 7dc220a4). */
 .carto-type-objects {
   margin-top: 16px;
 }
 .carto-type-objects-search {
   max-width: 420px;
-}
-.carto-type-objects-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
 }
 .carto-type-objects-list {
   max-height: 70vh;
@@ -4667,11 +4707,6 @@ urban-bpmn {
 }
 .carto-type-object-actions .btn + .btn {
   margin-left: 4px;
-}
-@media (max-width: 900px) {
-  .carto-type-objects-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 /* « Publier mon brouillon » : fichiers en arbre de répertoires (ticket 8810604c). */

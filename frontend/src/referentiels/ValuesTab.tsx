@@ -9,6 +9,7 @@ import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 import type { RefModel } from './modelRules'
 import { type FieldProblems, ValuePanel } from './ValuePanel'
+import { SplitPane } from '../components/SplitPane'
 import {
   type Value,
   compareByKey,
@@ -196,6 +197,55 @@ export function ValuesTab({
   }
   const changes = rows.filter((r) => r.modified || r.deleted || r.origin === null).length
 
+  const table =
+    rows.length > 0 ? (
+      <div className="panel table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              {columns.map(([c]) => (
+                <th key={c}>
+                  {c} {key.includes(c) ? <span className="badge">{t('refKeyBadge')}</span> : null}
+                </th>
+              ))}
+              {complex.map(([c]) => (
+                <th key={c}>{c}</th>
+              ))}
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {shownRows.map((row) => {
+              const errors = problems.get(row.uid)
+              return (
+                <tr
+                  key={row.uid}
+                  className={`row-clickable${row.deleted ? ' row-deleted' : ''}${errors ? ' row-error' : ''}`}
+                  onClick={() => !row.deleted && setPanel({ uid: row.uid, draft: row.value })}
+                >
+                  {columns.map(([c]) => (
+                    <td key={c} className={errors?.has(c) ? 'cell-error' : undefined}>
+                      {shown(row.value[c])}
+                    </td>
+                  ))}
+                  {complex.map(([c, s]) => (
+                    <td key={c} className="muted">
+                      {summary(row.value[c], kindOf(s))}
+                    </td>
+                  ))}
+                  <td>
+                    {row.origin === null ? <span className="badge badge-warn">{t('refRowNew')}</span> : null}
+                    {row.modified && row.origin !== null ? <span className="badge badge-warn">{t('refRowModified')}</span> : null}
+                    {row.deleted ? <span className="badge badge-muted">{t('refRowDeleted')}</span> : null}
+                    {errors ? <span className="badge badge-danger">{t('refRowError')}</span> : null}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    ) : null
   return (
     <div className="stack">
       <ErrorList messages={loaded.error ? errorMessages(t, loaded.error) : save.error ? errorMessages(t, save.error) : []} />
@@ -243,70 +293,32 @@ export function ValuesTab({
       ) : null}
       {loaded.isLoading ? <p className="muted">{t('loading')}</p> : null}
       {loaded.data && rows.length === 0 ? <p className="empty-note">{t('refValuesEmpty')}</p> : null}
-      <div className={panel ? 'ref-values-layout with-panel' : 'ref-values-layout'}>
-        {rows.length > 0 ? (
-          <div className="panel table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  {columns.map(([c]) => (
-                    <th key={c}>
-                      {c} {key.includes(c) ? <span className="badge">{t('refKeyBadge')}</span> : null}
-                    </th>
-                  ))}
-                  {complex.map(([c]) => (
-                    <th key={c}>{c}</th>
-                  ))}
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {shownRows.map((row) => {
-                  const errors = problems.get(row.uid)
-                  return (
-                    <tr
-                      key={row.uid}
-                      className={`row-clickable${row.deleted ? ' row-deleted' : ''}${errors ? ' row-error' : ''}`}
-                      onClick={() => !row.deleted && setPanel({ uid: row.uid, draft: row.value })}
-                    >
-                      {columns.map(([c]) => (
-                        <td key={c} className={errors?.has(c) ? 'cell-error' : undefined}>
-                          {shown(row.value[c])}
-                        </td>
-                      ))}
-                      {complex.map(([c, s]) => (
-                        <td key={c} className="muted">
-                          {summary(row.value[c], kindOf(s))}
-                        </td>
-                      ))}
-                      <td>
-                        {row.origin === null ? <span className="badge badge-warn">{t('refRowNew')}</span> : null}
-                        {row.modified && row.origin !== null ? <span className="badge badge-warn">{t('refRowModified')}</span> : null}
-                        {row.deleted ? <span className="badge badge-muted">{t('refRowDeleted')}</span> : null}
-                        {errors ? <span className="badge badge-danger">{t('refRowError')}</span> : null}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-        {panel ? (
-          <ValuePanel
-            key={panel.uid ?? 'new'}
-            model={model}
-            draft={panel.draft}
-            isNew={panel.uid === null || rows.find((r) => r.uid === panel.uid)?.origin === null}
-            readOnly={readOnly}
-            problems={problems.get(panel.uid ?? 'new') ?? new Map()}
-            onChange={(draft) => setPanel((p) => (p ? { ...p, draft } : p))}
-            onApply={apply}
-            onCancel={() => setPanel(null)}
-            onDelete={remove}
-          />
-        ) : null}
-      </div>
+      {/* Barre de séparation entre la table et la valeur ouverte (ticket f74c8e74). */}
+      {panel ? (
+        <SplitPane
+          id="ref-values"
+          defaultRatio={0.54}
+          left={table}
+          right={
+            <ValuePanel
+              key={panel.uid ?? 'new'}
+              model={model}
+              draft={panel.draft}
+              isNew={panel.uid === null || rows.find((r) => r.uid === panel.uid)?.origin === null}
+              readOnly={readOnly}
+              problems={problems.get(panel.uid ?? 'new') ?? new Map()}
+              onChange={(draft) => setPanel((p) => (p ? { ...p, draft } : p))}
+              onApply={apply}
+              onCancel={() => setPanel(null)}
+              onDelete={remove}
+            />
+          }
+        />
+      ) : (
+        <div className="ref-values-layout">
+          {table}
+        </div>
+      )}
       {pages > 1 ? (
         <div className="row">
           <button type="button" className="btn btn-sm" disabled={current === 0} onClick={() => setPage(current - 1)}>

@@ -373,6 +373,8 @@ export const fr = {
     mergeSide_theirs: 'Publiée',
     mergeSide_mine: 'Mon brouillon',
     mergeOpen: 'Ouvrir',
+    splitLabel: 'Largeur de la liste et du détail',
+    splitHint: 'Glisser pour redimensionner ; flèches gauche / droite ; double-clic : largeur par défaut',
     close: 'Fermer',
     impactsTitle: 'Impacts à traiter : {{count}}',
     impactReads: 'lit {{reads}}',

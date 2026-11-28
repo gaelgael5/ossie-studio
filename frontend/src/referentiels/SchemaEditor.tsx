@@ -1,6 +1,7 @@
 import { type JsonSchema, SchemaFieldsEditor, en, fr } from 'jsonjoy-builder'
 import 'jsonjoy-builder/styles.css'
 import { lazy, Suspense, type ReactNode } from 'react'
+import { SplitPane } from '../components/SplitPane'
 import { useTranslation } from 'react-i18next'
 
 import type { Parsed } from './modelRules'
@@ -31,6 +32,7 @@ export default function SchemaEditor({
   before,
   after,
   yamlActions,
+  splitId,
 }: {
   path: string
   text: string
@@ -43,10 +45,12 @@ export default function SchemaEditor({
   /** Sous l'éditeur visuel (propriétés de base d'un type, ticket e2b9d7de). */
   after?: ReactNode
   yamlActions?: ReactNode
+  /** Barre de séparation entre l'éditeur visuel et le YAML (ticket f74c8e74) :
+   * l'identifiant de l'écran, sous lequel la largeur est retenue. */
+  splitId?: string
 }) {
   const { t, i18n } = useTranslation()
-  return (
-    <div className="model-editor">
+  const visual = (
       <section aria-label={visualTitle ?? t('refModelVisual')} className={after ? 'model-editor-with-after' : undefined}>
         <h2>{visualTitle ?? t('refModelVisual')}</h2>
         {before}
@@ -64,6 +68,8 @@ export default function SchemaEditor({
         )}
         {after}
       </section>
+  )
+  const yaml = (
       <section aria-label={t('refModelYaml')}>
         <div className="row model-editor-head">
           <h2>{t('refModelYaml')}</h2>
@@ -73,6 +79,12 @@ export default function SchemaEditor({
           <YamlEditor path={path} value={text} onChange={onYaml} readOnly={readOnly} />
         </Suspense>
       </section>
+  )
+  if (splitId) return <SplitPane id={splitId} left={visual} right={yaml} />
+  return (
+    <div className="model-editor">
+      {visual}
+      {yaml}
     </div>
   )
 }

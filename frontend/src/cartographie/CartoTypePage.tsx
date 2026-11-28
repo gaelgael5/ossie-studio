@@ -396,6 +396,7 @@ function TypeEditor({
         onVisual={onVisual}
         onYaml={setText}
         visualTitle={t('cartoProperties')}
+        splitId="carto-type-properties"
         // Les propriétés ajoutées d'abord, celles d'ArchiMate (lecture seule) en
         // dessous (ticket e2b9d7de).
         before={<div className="carto-detail-title">{t('cartoAddedTitle')}</div>}

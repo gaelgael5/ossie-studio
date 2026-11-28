@@ -372,6 +372,8 @@ export const en = {
     mergeSide_theirs: 'Published',
     mergeSide_mine: 'My draft',
     mergeOpen: 'Open',
+    splitLabel: 'Width of the list and the detail',
+    splitHint: 'Drag to resize; left / right arrows; double-click: default width',
     close: 'Close',
     impactsTitle: 'Impacts to handle: {{count}}',
     impactReads: 'reads {{reads}}',

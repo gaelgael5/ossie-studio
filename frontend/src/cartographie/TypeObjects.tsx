@@ -8,6 +8,7 @@ import { BusyButton } from '../components/BusyButton'
 import { cartoObjectPath } from './ObjectsTab'
 import { asciiLower } from '../slug'
 import { IconButton, IconLink } from '../components/IconButton'
+import { SplitPane } from '../components/SplitPane'
 
 // Onglet « Résumé » d'un type (ticket 7dc220a4) : ses objets, clé et nom ; la ligne
 // cliquée montre à droite le fichier YAML de l'objet tel qu'il est stocké. Gael :
@@ -94,93 +95,97 @@ export function TypeObjects({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="carto-type-objects-layout">
-            {/* La liste défile seule : avec plusieurs centaines d'objets, le YAML
-                reste à côté de la ligne choisie. */}
-            <div className="panel table-wrap carto-type-objects-list">
-              <table className="table" aria-label={t('cartoTypeObjects')}>
-                <thead>
-                  <tr>
-                    <th>{t('cartoTypeObjectKey')}</th>
-                    <th>{t('cartoTypeObjectName')}</th>
-                    <th>
-                      <span className="sr-only">{t('cartoTypeObjectActions')}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {shown.length === 0 ? (
+          {/* Barre de séparation entre la liste et l'objet (ticket f74c8e74). */}
+          <SplitPane
+            id="carto-type-summary"
+            left={
+              <div className="panel table-wrap carto-type-objects-list">
+                <table className="table" aria-label={t('cartoTypeObjects')}>
+                  <thead>
                     <tr>
-                      <td colSpan={3} className="muted">
-                        {t('cartoTypeObjectsNoMatch')}
-                      </td>
+                      <th>{t('cartoTypeObjectKey')}</th>
+                      <th>{t('cartoTypeObjectName')}</th>
+                      <th>
+                        <span className="sr-only">{t('cartoTypeObjectActions')}</span>
+                      </th>
                     </tr>
-                  ) : null}
-                  {shown.map((o) => (
-                    <tr
-                      key={o.ref}
-                      className={`row-clickable${selected === o.ref ? ' selected' : ''}`}
-                      tabIndex={0}
-                      aria-selected={selected === o.ref}
-                      onClick={() => setSelected(o.ref)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && e.target === e.currentTarget) setSelected(o.ref)
-                      }}
-                    >
-                      <td className="mono">{o.key}</td>
-                      <td>{o.name}</td>
-                      {/* Les boutons arrêtent le clic : ouvrir ou supprimer ne sélectionne pas la ligne. */}
-                      <td className="carto-type-object-actions" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                        {confirming === o.ref ? (
-                          <>
-                            <BusyButton
-                              type="button"
-                              className="btn btn-sm btn-danger"
-                              busy={remove.isPending}
-                              busyText={t('cartoDeleteBusy')}
-                              onClick={() => remove.mutate(o.ref)}
-                            >
-                              {t('cartoDeleteObjectYes')}
-                            </BusyButton>
-                            <button type="button" className="btn btn-sm" onClick={() => setConfirming(null)}>
-                              {t('cancelEdit')}
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <IconLink icon="edit" label={t('cartoTypeObjectEdit', { key: o.key })} to={cartoObjectPath(o.ref)} />
-                            {writable ? (
-                              <IconButton
-                                icon="delete"
-                                label={t('cartoTypeObjectDelete', { key: o.key })}
-                                onClick={() => {
-                                  remove.reset()
-                                  setConfirming(o.ref)
-                                }}
-                              />
-                            ) : null}
-                          </>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="carto-type-objects-yaml">
-              {selected === null ? (
-                <p className="muted">{t('cartoTypeObjectsPick')}</p>
-              ) : detail.isPending ? (
-                <p className="muted">{t('loading')}</p>
-              ) : detail.error ? (
-                <ErrorList messages={errorMessages(t, detail.error)} />
-              ) : (
-                <pre className="code-block carto-type-object-yaml" aria-label={t('cartoTypeObjectYaml', { key: selected.split('/').pop() })}>
-                  {detail.data?.yaml ?? ''}
-                </pre>
-              )}
-            </div>
-          </div>
+                  </thead>
+                  <tbody>
+                    {shown.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="muted">
+                          {t('cartoTypeObjectsNoMatch')}
+                        </td>
+                      </tr>
+                    ) : null}
+                    {shown.map((o) => (
+                      <tr
+                        key={o.ref}
+                        className={`row-clickable${selected === o.ref ? ' selected' : ''}`}
+                        tabIndex={0}
+                        aria-selected={selected === o.ref}
+                        onClick={() => setSelected(o.ref)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && e.target === e.currentTarget) setSelected(o.ref)
+                        }}
+                      >
+                        <td className="mono">{o.key}</td>
+                        <td>{o.name}</td>
+                        {/* Les boutons arrêtent le clic : ouvrir ou supprimer ne sélectionne pas la ligne. */}
+                        <td className="carto-type-object-actions" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                          {confirming === o.ref ? (
+                            <>
+                              <BusyButton
+                                type="button"
+                                className="btn btn-sm btn-danger"
+                                busy={remove.isPending}
+                                busyText={t('cartoDeleteBusy')}
+                                onClick={() => remove.mutate(o.ref)}
+                              >
+                                {t('cartoDeleteObjectYes')}
+                              </BusyButton>
+                              <button type="button" className="btn btn-sm" onClick={() => setConfirming(null)}>
+                                {t('cancelEdit')}
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <IconLink icon="edit" label={t('cartoTypeObjectEdit', { key: o.key })} to={cartoObjectPath(o.ref)} />
+                              {writable ? (
+                                <IconButton
+                                  icon="delete"
+                                  label={t('cartoTypeObjectDelete', { key: o.key })}
+                                  onClick={() => {
+                                    remove.reset()
+                                    setConfirming(o.ref)
+                                  }}
+                                />
+                              ) : null}
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            }
+            right={
+              <div className="carto-type-objects-yaml">
+                {selected === null ? (
+                  <p className="muted">{t('cartoTypeObjectsPick')}</p>
+                ) : detail.isPending ? (
+                  <p className="muted">{t('loading')}</p>
+                ) : detail.error ? (
+                  <ErrorList messages={errorMessages(t, detail.error)} />
+                ) : (
+                  <pre className="code-block carto-type-object-yaml" aria-label={t('cartoTypeObjectYaml', { key: selected.split('/').pop() })}>
+                    {detail.data?.yaml ?? ''}
+                  </pre>
+                )}
+              </div>
+            }
+          />
         </>
       )}
     </section>
