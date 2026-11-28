@@ -155,3 +155,39 @@ dans le registre (`mcp_surface/document_types.py`, champ `validation`).
 - Supprimés : l'erreur « préexistante » qui ne bloquait pas, l'acceptation d'un
   avertissement (route, primitive `accept_validation_warning`, ligne du commit ;
   migration `0056`).
+
+## Page de publication et état de validation (ticket 48618517)
+
+Gael : « Quand on arrive sur la page de publication […] tu regardes en asynchrone les
+fichiers qui nécessitent d'être revalidés et tu le fais. Puis tu checks que tous les
+fichiers présents sur le disque sont bien dans l'index et validés. Tout ça en
+asynchrone. Le bouton publier ne s'active que quand tout est validé. »
+
+- **Lecture sans attente** : `doc_index/state.py` (`view_state`) lit l'état de la vue
+  dans l'index : chaque fichier (document, état dans le brouillon, statut `valid` /
+  `error` / `warning` / `to_validate` / `deleted`, « nouveau sur le disque », problèmes),
+  les comptes par filtre, la comparaison disque / index, la dernière passe complète
+  (date, déclencheur, échec) et la place de la vue dans la file.
+- **Routes** : `POST …/draft/validation/passes` demande une passe (ouverture de la
+  page) ; `GET …/draft/validation/state?filter=&q=&limit=` lit l'état. Filtres : `all`,
+  `problems`, `errors`, `warnings`, `to_validate`, `mine`. La page relit l'état toutes
+  les 1,5 s tant que la passe de la vue est dans la file.
+- **« Déjà en erreur dans la version publiée »** : le même problème (règle, code,
+  arguments), au même chemin, dans la vue publiée validée. Il bloque quand même.
+- **Comparaison** : `doc_index_view.disk_files` (fichiers sur le disque) et `detected`
+  (fichiers que la dernière comparaison a trouvés nouveaux ou changés : modifiés hors
+  de l'application ; vide au premier remplissage) ; `validated_trigger` : déclencheur
+  de la dernière passe complète (migration `0057`).
+- **Conditions de publication** (`publish_readiness`) : lues dans le même état, sans
+  attendre. `validation_errors` (une erreur, n'importe où dans la vue),
+  `validation_pending` (vue jamais comparée, fichiers à valider, ou passe dans la file),
+  `validation_failed` (la dernière passe a échoué). La réponse porte aussi
+  `validation` : erreurs, dont hors brouillon, fichiers à valider, place dans la file.
+- **Publier** : le serveur fait une passe à jour (`Validation.ensure`) après la fusion
+  automatique, puis relit les conditions ; il ne se fie pas à l'écran.
+- **Agents** : `get_publish_readiness` rend la même réponse que la page, au même moment.
+  `get_validation_log` demande une passe sans l'attendre et rend le même état que la
+  page (arguments `filter`, `search`, `limit`) ; on le rappelle tant que `queue.state`
+  est posé.
+- `GET …/draft/validation` (journal après une passe à jour, qui attend) reste pour les
+  usages qui veulent un verdict final ; l'écran ne l'appelle plus.

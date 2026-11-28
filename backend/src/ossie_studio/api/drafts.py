@@ -9,14 +9,15 @@ import uuid
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import SpacesRead
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
-from ossie_studio.doc_index.queue import queue_state
+from ossie_studio.doc_index.queue import PUBLICATION_PAGE, queue_state, request_pass
+from ossie_studio.doc_index.state import DEFAULT_LIMIT, FILTERS, MAX_LIMIT
 from ossie_studio.doc_index.store import ViewKey, db_view_summary
 from ossie_studio.drafts import preparation
 from ossie_studio.drafts.preparation import changed_upstream
@@ -205,6 +206,50 @@ async def get_validation(
         "entries": [e.payload() for e in log_entries],
         "blocking": len(blocking(log_entries)),
     }
+
+
+@router.get("/validation/state")
+async def get_validation_state(
+    conn: ConnDep,
+    _: SpacesRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+    filter_name: Annotated[str, Query(alias="filter")] = "problems",
+    q: str = "",
+    limit: Annotated[int, Query(ge=0, le=MAX_LIMIT)] = DEFAULT_LIMIT,
+) -> dict[str, Any]:
+    """L'état de validation de la vue de la personne, lu dans l'index sans attendre de
+    passe (page de publication, ticket 48618517) : comptes par filtre, comparaison
+    disque / index, dernière passe, place dans la file, et les fichiers du filtre
+    choisi (au plus `limit`) avec leurs problèmes."""
+    if filter_name not in FILTERS:
+        raise ApiError("invalid_request", status_code=400, fields=["filter"])
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    state = await preparation.draft_state(conn, workdir.user_id, space_id, branch_id)
+    return state.payload(filter_name, q.strip(), limit)
+
+
+@router.post("/validation/passes")
+async def request_validation_pass(
+    conn: ConnDep,
+    _: SpacesRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    """Demande une passe de validation de la vue de la personne, sans l'attendre :
+    l'ouverture de la page de publication (ticket 48618517). Une demande déjà en
+    attente pour la vue n'est pas doublée."""
+    branch = await db_get_branch(conn, branch_id)
+    if branch is None or branch.space_id != space_id:
+        raise ApiError("branch_not_found", status_code=404)
+    queued = await request_pass(
+        conn, ViewKey(space_id, branch_id, workdir.user_id), PUBLICATION_PAGE
+    )
+    return {"queued": queued}
 
 
 @router.get("/validation/file")

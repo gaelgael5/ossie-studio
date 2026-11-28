@@ -5,7 +5,7 @@ import { api } from '../apiClient'
 import { useDraftView, writeDraftView, type DraftViewMode } from '../draftView'
 import { ImpactsSection } from './ImpactsSection'
 import { MergeDialog } from './MergeDialog'
-import { ValidationLog } from './ValidationLog'
+import { ValidationSummary } from './PublicationValidation'
 
 const MODES: DraftViewMode[] = ['merged', 'published', 'draft']
 
@@ -102,7 +102,7 @@ export function DraftBar({ spaceId, branchId }: { spaceId: string; branchId: str
         </ul>
       ) : null}
       {mode === 'draft' ? <ImpactsSection spaceId={spaceId} branchId={branchId} /> : null}
-      {mode === 'draft' ? <ValidationLog spaceId={spaceId} branchId={branchId} /> : null}
+      {mode === 'draft' ? <ValidationSummary spaceId={spaceId} branchId={branchId} /> : null}
       {opened ? (
         <MergeDialog spaceId={spaceId} branchId={branchId} path={opened} onClose={() => setOpened(null)} />
       ) : null}

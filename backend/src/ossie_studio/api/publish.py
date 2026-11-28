@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Annotated
+from typing import Annotated, Any
 
 import asyncpg
 import structlog
@@ -24,13 +24,13 @@ from ossie_studio.connections.service import db_get_connection
 from ossie_studio.credentials.service import STATUS_VALID, resolve_personal_token
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
-from ossie_studio.doc_index.passes import Validation
 from ossie_studio.doc_index.queue import PUBLISH, request_pass
-from ossie_studio.doc_index.store import ViewKey, db_view_summary
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.drafts.preparation import (
     auto_merge,
     draft_impacts,
-    draft_validation,
+    draft_state,
+    ensure_validated,
     merge_context,
     pending_merges,
 )
@@ -41,7 +41,6 @@ from ossie_studio.drafts.store import (
     db_remove_published,
     git_blob_sha,
 )
-from ossie_studio.drafts.validation import blocking
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.forges.registry import get_strategy
@@ -67,10 +66,20 @@ class PublishBody(BaseModel):
 class Readiness:
     reasons: list[str] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
+    # Ce que la validation de la vue en dit (comptes, place dans la file).
+    validation: dict[str, Any] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
         return not self.reasons
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "ok": self.ok,
+            "reasons": self.reasons,
+            "conflicts": self.conflicts,
+            "validation": self.validation,
+        }
 
 
 def _lock_key(branch_id: uuid.UUID) -> str:
@@ -110,7 +119,6 @@ async def _credential_reason(
 
 async def publish_readiness(
     pool: asyncpg.Pool,
-    validation: Validation,
     conn: asyncpg.Connection,
     crypto: CryptoService,
     workdir: DraftWorkdir,
@@ -118,9 +126,14 @@ async def publish_readiness(
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
 ) -> Readiness:
+    """Ce qui bloque la publication du brouillon de `user`, lu sans attendre de passe
+    de validation : la page de publication et l'agent (`get_publish_readiness`) disent
+    la même chose au même instant (ticket 48618517)."""
     ready = Readiness()
     if "spaces:publish" not in await load_capabilities(conn, user, space_id):
         ready.reasons.append("no_publish_right")
+    state = await draft_state(conn, workdir.user_id, space_id, branch_id)
+    ready.validation = state.summary()
     draft = await db_get_draft(conn, user.id, branch_id)
     if draft is None or draft.space_id != space_id:
         ready.reasons.append("empty_draft")
@@ -133,15 +146,9 @@ async def publish_readiness(
     if any(not i.verified for i in impacts):
         ready.reasons.append("impacts_pending")
     # Règle d'or (ticket d7139b17) : toute erreur de la vue bloque, et rien ne se
-    # publie tant que la vue a des fichiers à valider ou n'a pas été comparée au disque.
-    _d3, log_entries = await draft_validation(
-        conn, crypto, workdir, validation, space_id, branch_id
-    )
-    if blocking(log_entries):
-        ready.reasons.append("validation_errors")
-    summary = await db_view_summary(conn, ViewKey(space_id, branch_id, workdir.user_id))
-    if summary is None or not summary.compared or summary.to_validate:
-        ready.reasons.append("validation_pending")
+    # publie tant que la vue a des fichiers à valider, n'a pas été comparée au disque
+    # ou a une passe dans la file (ticket 48618517).
+    ready.reasons += state.reasons()
     space = await conn.fetchrow("SELECT connection_id FROM git_spaces WHERE id = $1", space_id)
     reason = await _credential_reason(conn, user, space["connection_id"])
     if reason:
@@ -163,16 +170,9 @@ async def get_readiness(
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
     ready = await publish_readiness(
-        request.app.state.pool,
-        request.app.state.validation,
-        conn,
-        crypto,
-        workdir,
-        user,
-        space_id,
-        branch_id,
+        request.app.state.pool, conn, crypto, workdir, user, space_id, branch_id
     )
-    return {"ok": ready.ok, "reasons": ready.reasons, "conflicts": ready.conflicts}
+    return ready.payload()
 
 
 async def _automerge(
@@ -261,15 +261,11 @@ async def _publish_locked(
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
     await _automerge(conn, crypto, workdir, space_id, branch_id, branch.git_ref)
+    # Le serveur revérifie : une passe à jour sur la vue, après la fusion automatique,
+    # avant de lire ce qui bloque (on ne se fie pas à l'écran, ticket 48618517).
+    await ensure_validated(request.app.state.validation, ViewKey(space_id, branch_id, user.id))
     ready = await publish_readiness(
-        request.app.state.pool,
-        request.app.state.validation,
-        conn,
-        crypto,
-        workdir,
-        user,
-        space_id,
-        branch_id,
+        request.app.state.pool, conn, crypto, workdir, user, space_id, branch_id
     )
     # Le verrou est le nôtre : « publication en cours » ne bloque pas ici.
     reasons = [r for r in ready.reasons if r != "publish_in_progress"]

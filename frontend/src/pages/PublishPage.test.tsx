@@ -32,7 +32,48 @@ const CHANGES = {
   other: [],
 }
 
-function mockApi(readiness: { ok: boolean; reasons: string[]; conflicts: string[] }, options: { changesFail?: boolean } = {}) {
+const QUEUE_IDLE = { state: null, position: null, ahead: 0, done: 0, total: 0 }
+
+export const STATE = {
+  view: 'draft',
+  counts: { all: 3, problems: 2, errors: 1, warnings: 1, to_validate: 0, mine: 1, valid: 1 },
+  errors_outside_draft: 1,
+  comparison: { compared: true, disk_files: 3, index_files: 3, detected: 0 },
+  last_pass: { at: '2026-11-28T10:00:00+00:00', trigger: 'import', error: null },
+  queue: QUEUE_IDLE,
+  files: [
+    {
+      path: 'referentiels/pays/valeurs.json',
+      document_type: 'referentiel_valeur',
+      identity: { referentiel: 'pays' },
+      name: 'pays',
+      draft: null,
+      status: 'error',
+      detected: false,
+      problems: [
+        { level: 'error', rule: 'referentiel', message_code: 'value_invalid', args: {}, blocking: true, published: true },
+      ],
+    },
+    {
+      path: 'sources/s/raw/O.schema.yaml',
+      document_type: 'schema_raw',
+      identity: { source: 's', name: 'O' },
+      name: 'O',
+      draft: 'modified',
+      status: 'warning',
+      detected: false,
+      problems: [
+        { level: 'warning', rule: 'parseable', message_code: 'file_unreadable', args: {}, blocking: false, published: false },
+      ],
+    },
+  ],
+  total: 2,
+  limit: 200,
+}
+
+type Readiness = { ok: boolean; reasons: string[]; conflicts: string[] }
+
+function mockApi(readiness: Readiness, options: { changesFail?: boolean; state?: unknown } = {}) {
   const calls: { method: string; path: string; body?: string }[] = []
   vi.stubGlobal(
     'fetch',
@@ -50,10 +91,12 @@ function mockApi(readiness: { ok: boolean; reasons: string[]; conflicts: string[
           mine_absent: false, proposed: null, conflicts: [{ pointer: '/a', base: 1, theirs: 3, mine: 2 }],
         }
       else if (path.endsWith('/draft')) body = DRAFT
-      else if (path.endsWith('/readiness')) body = readiness
+      else if (path.endsWith('/readiness'))
+        body = { ...readiness, validation: { errors: 1, errors_outside_draft: 1, to_validate: 0, queue: QUEUE_IDLE } }
+      else if (path.includes('/draft/validation/state')) body = options.state ?? STATE
+      else if (path.endsWith('/draft/validation/passes')) body = { queued: true }
       else if (path.endsWith('/publish')) body = { commit: 'abc', published: 1 }
       else if (path.endsWith('/impacts')) body = { impacts: [], pending: 0 }
-      else if (path.endsWith('/validation')) body = { entries: [], blocking: 0 }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
   )
@@ -122,6 +165,32 @@ describe('PublishPage', () => {
     await user.click(screen.getByRole('button', { name: 'Commande' }))
     expect(await screen.findByText(/Objet collecté : sa fusion se consulte sans se modifier/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Valider la fusion' })).not.toBeInTheDocument()
+  })
+
+  it('ouvrir la page demande une passe ; progression, filtre et lignes à problème (ticket 48618517)', async () => {
+    const calls = mockApi({ ok: false, reasons: ['validation_errors'], conflicts: [] })
+    const user = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/validation/passes'))).toBe(true))
+    expect(await screen.findByText('1 fichier en erreur')).toBeInTheDocument()
+    expect(screen.getByText(/dernière passe complète : .* \(après un import\)/)).toBeInTheDocument()
+    // Filtre « À problème » par défaut, avec ses comptes.
+    expect(screen.getByRole('button', { name: 'À problème 2' })).toHaveAttribute('aria-pressed', 'true')
+    expect(calls.some((c) => c.path.includes('/validation/state?filter=problems'))).toBe(true)
+    // Une erreur hors brouillon, déjà publiée : mentionnée, et elle bloque.
+    expect(screen.getAllByText('déjà en erreur dans la version publiée').length).toBeGreaterThan(0)
+    expect(screen.getByText('hors brouillon')).toBeInTheDocument()
+    expect(screen.getByText('ne bloque pas (raw)')).toBeInTheDocument()
+    expect(
+      screen.getByText('1 fichier en erreur, dont 1 hors de votre brouillon : il faut le corriger pour publier.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Publier' })).toBeDisabled()
+    // Déplier une ligne : le message et le lien vers le document.
+    await user.click(screen.getByRole('button', { name: 'Détail des problèmes de referentiels/pays/valeurs.json' }))
+    expect(screen.getByRole('link', { name: 'Ouvrir le document' })).toHaveAttribute('href', '/referentiels/pays')
+    // Changer de filtre relit la liste.
+    await user.click(screen.getByRole('button', { name: 'En erreur 1' }))
+    await waitFor(() => expect(calls.some((c) => c.path.includes('/validation/state?filter=errors'))).toBe(true))
   })
 
   it('bloc Sources : sans la vue par source (droit absent), l’arbre des fichiers', async () => {

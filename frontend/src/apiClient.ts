@@ -161,18 +161,61 @@ export interface ImpactItem {
   verified: boolean
 }
 
-/** Une entrée du journal de validation (ticket d7139b17) : `error` bloque, où qu'elle
- * soit et même si elle existait avant le brouillon ; `warning` informe seulement. Le
- * document en cause (type et identité) permet un lien vers lui. */
-export interface ValidationEntry {
+/** Un problème d'un fichier de la vue (page de publication, ticket 48618517). Règle
+ * d'or : `blocking` dès que `level` vaut `error`, même s'il existait déjà dans la
+ * version publiée (`published`). */
+export interface PublicationProblem {
   level: 'error' | 'warning'
-  path: string
   rule: string
   message_code: string
   args: Record<string, string>
   blocking: boolean
-  document_type?: string | null
-  identity?: Record<string, unknown> | null
+  published: boolean
+}
+
+export type PublicationFilter = 'all' | 'problems' | 'errors' | 'warnings' | 'to_validate' | 'mine'
+
+/** Un fichier de la vue : son document, son état dans le brouillon, son statut de
+ * validation et ses problèmes. */
+export interface PublicationFile {
+  path: string
+  document_type: string | null
+  identity: Record<string, unknown> | null
+  name: string | null
+  draft: 'created' | 'modified' | 'deleted' | null
+  status: 'valid' | 'error' | 'warning' | 'to_validate' | 'deleted'
+  detected: boolean
+  problems: PublicationProblem[]
+}
+
+/** La passe de validation de la vue dans la file. */
+export interface PublicationQueue {
+  state: 'running' | 'pending' | null
+  position: number | null
+  ahead: number
+  done: number
+  total: number
+}
+
+/** L'état de validation de la vue de la personne, tel que la page de publication et
+ * les agents le lisent (`get_validation_log`). */
+export interface PublicationState {
+  view: 'draft'
+  counts: Record<PublicationFilter | 'valid', number>
+  errors_outside_draft: number
+  comparison: { compared: boolean; disk_files: number | null; index_files: number; detected: number }
+  last_pass: { at: string | null; trigger: string | null; error: string | null }
+  queue: PublicationQueue
+  files: PublicationFile[]
+  total: number
+  limit: number
+}
+
+export interface PublishReadiness {
+  ok: boolean
+  reasons: string[]
+  conflicts: string[]
+  validation: { errors: number; errors_outside_draft: number; to_validate: number; queue: PublicationQueue }
 }
 
 export interface DraftSummary {
@@ -2984,14 +3027,24 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/draft/impacts/verify`,
       { method: 'POST', body: JSON.stringify({ path }) },
     ),
-  draftValidation: (spaceId: string, branchId: string) =>
-    apiFetch<{ entries: ValidationEntry[]; blocking: number }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/draft/validation`,
-    ),
+  publicationState: (
+    spaceId: string,
+    branchId: string,
+    params: { filter: PublicationFilter; q?: string; limit?: number },
+  ) => {
+    const query = new URLSearchParams({ filter: params.filter })
+    if (params.q) query.set('q', params.q)
+    if (params.limit !== undefined) query.set('limit', String(params.limit))
+    return apiFetch<PublicationState>(
+      `/api/spaces/${spaceId}/branches/${branchId}/draft/validation/state?${query.toString()}`,
+    )
+  },
+  requestValidationPass: (spaceId: string, branchId: string) =>
+    apiFetch<{ queued: boolean }>(`/api/spaces/${spaceId}/branches/${branchId}/draft/validation/passes`, {
+      method: 'POST',
+    }),
   publishReadiness: (spaceId: string, branchId: string) =>
-    apiFetch<{ ok: boolean; reasons: string[]; conflicts: string[] }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/draft/readiness`,
-    ),
+    apiFetch<PublishReadiness>(`/api/spaces/${spaceId}/branches/${branchId}/draft/readiness`),
   publishDraft: (spaceId: string, branchId: string, comment: string) =>
     apiFetch<{ commit: string; published: number }>(`/api/spaces/${spaceId}/branches/${branchId}/draft/publish`, {
       method: 'POST',

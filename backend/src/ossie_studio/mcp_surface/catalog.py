@@ -86,8 +86,10 @@ CATALOG: tuple[Primitive, ...] = (
         capability="spaces:read",
         description=(
             "Tell whether the user's draft on a branch can be published now, and if not why "
-            "(conflicts, impacts to check, validation errors, missing credential, no right). "
-            "Only when acting for a user."
+            "(conflicts, impacts to check, validation errors or validation still running, "
+            "missing credential, no right), with the validation counts and the place of the "
+            "user's validation pass in the queue: the same answer as the publication page, at "
+            "the same moment. Only when acting for a user."
         ),
         person_only=True,
     ),
@@ -160,9 +162,12 @@ CATALOG: tuple[Primitive, ...] = (
         access="read",
         capability="spaces:read",
         description=(
-            "Validation log of the branch as the user sees it (with the draft), after an "
-            "up-to-date validation pass: errors (blocking, wherever they are, even if they "
-            "existed before the draft) and warnings (informative), each with its document."
+            "Validation state of the branch as the user sees it (with the draft), the same as "
+            "the publication page: asks for a validation pass without waiting for it, then "
+            "returns each file's status (valid, error, warning, to_validate, deleted), its "
+            "problems (errors block wherever they are, even if already in the published "
+            "version; warnings inform), the counts, the progress and the place of the pass in "
+            "the queue. Call again while queue.state is set to follow the pass."
         ),
         person_only=True,
     ),

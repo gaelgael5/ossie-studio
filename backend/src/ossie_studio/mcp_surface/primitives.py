@@ -36,7 +36,7 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "auto_merge": Implementation(BranchArgs, prep.auto_merge),
     "list_impacts": Implementation(BranchArgs, prep.list_impacts),
     "verify_impact": Implementation(prep.ImpactArgs, prep.verify_impact),
-    "get_validation_log": Implementation(BranchArgs, prep.get_validation_log),
+    "get_validation_log": Implementation(prep.ValidationLogArgs, prep.get_validation_log),
     # Lire un schéma, quel que soit son domaine (ticket 06ef8679)
     "read_schema": Implementation(schemas.ReadSchemaArgs, schemas.read_schema),
     "get_reference_graph": Implementation(

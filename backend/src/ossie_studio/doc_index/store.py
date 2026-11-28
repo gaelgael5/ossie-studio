@@ -90,9 +90,28 @@ async def db_ensure_view(conn: asyncpg.Connection, key: ViewKey) -> View:
     return _view(row, key)
 
 
-async def db_mark_compared(conn: asyncpg.Connection, view_id: int, head: str | None) -> None:
+async def db_mark_compared(
+    conn: asyncpg.Connection,
+    view_id: int,
+    head: str | None,
+    disk_files: int | None = None,
+    detected: Iterable[str] = (),
+) -> None:
+    """La vue est d'accord avec le disque sur `head`. `disk_files` : les fichiers sur
+    le disque (par défaut, ceux de la vue) ; `detected` : ceux que la comparaison a
+    trouvés nouveaux ou changés, c'est-à-dire modifiés hors de l'application
+    (ticket 48618517)."""
     await conn.execute(
-        "UPDATE doc_index_view SET head = $2, compared_at = now() WHERE id = $1", view_id, head
+        """
+        UPDATE doc_index_view SET head = $2, compared_at = now(),
+            disk_files = coalesce($3, (SELECT count(*) FROM doc_index_file WHERE view_id = $1)),
+            detected = $4::text[]
+        WHERE id = $1
+        """,
+        view_id,
+        head,
+        disk_files,
+        sorted(detected),
     )
 
 
@@ -331,10 +350,15 @@ async def db_set_statuses(
     )
 
 
-async def db_mark_validated(conn: asyncpg.Connection, view_id: int) -> None:
+async def db_mark_validated(
+    conn: asyncpg.Connection, view_id: int, trigger: str | None = None
+) -> None:
+    """Une passe complète vient de valider la vue ; `trigger` : ce qui l'a demandée."""
     await conn.execute(
-        "UPDATE doc_index_view SET validated_at = now(), validation_error = NULL WHERE id = $1",
+        "UPDATE doc_index_view SET validated_at = now(), validation_error = NULL, "
+        "validated_trigger = $2 WHERE id = $1",
         view_id,
+        trigger,
     )
 
 

@@ -89,7 +89,9 @@ def _blocking(problems: list[Problem]) -> bool:
 _FULL_PASS_DONE: set[ViewKey] = set()
 
 
-async def _unchanged(conn: asyncpg.Connection, key: ViewKey, touched: int) -> PassResult | None:
+async def _unchanged(
+    conn: asyncpg.Connection, key: ViewKey, touched: int, trigger: str | None = None
+) -> PassResult | None:
     """Le résultat inchangé de la vue si rien n'est à revalider ; sinon None."""
     if touched or key not in _FULL_PASS_DONE:
         return None
@@ -97,7 +99,7 @@ async def _unchanged(conn: asyncpg.Connection, key: ViewKey, touched: int) -> Pa
     files = await store.db_view_files(conn, view.id)
     if any(row.status == store.A_VALIDER for row in files.values()):
         return None
-    await store.db_mark_validated(conn, view.id)
+    await store.db_mark_validated(conn, view.id, trigger)
     errors = sum(row.status == EN_ERREUR for row in files.values())
     return PassResult(key, len(files), 0, errors)
 
@@ -111,10 +113,16 @@ class PassResult:
 
 
 async def validate_view(
-    conn: asyncpg.Connection, view: View, root: Path, findings: list[Finding], progress: Progress
+    conn: asyncpg.Connection,
+    view: View,
+    root: Path,
+    findings: list[Finding],
+    progress: Progress,
+    trigger: str | None = None,
 ) -> PassResult:
     """Étapes 2 et 3 d'une passe, une fois la vue comparée au disque : `root` est la
-    vue sur disque, `findings` ce que les règles entre fichiers y ont trouvé."""
+    vue sur disque, `findings` ce que les règles entre fichiers y ont trouvé, `trigger`
+    ce qui a demandé la passe."""
     files = await store.db_view_files(conn, view.id)
     todo = sorted(p for p, row in files.items() if row.status == store.A_VALIDER)
     results = await store.db_document_results(conn, (row.content_id for row in files.values()))
@@ -148,7 +156,7 @@ async def validate_view(
         errors += blocking
         statuses[path] = (EN_ERREUR if blocking else VALIDE, problems)
     await store.db_set_statuses(conn, view.id, statuses)
-    await store.db_mark_validated(conn, view.id)
+    await store.db_mark_validated(conn, view.id, trigger)
     return PassResult(view.key, len(files), total, errors)
 
 
@@ -199,7 +207,7 @@ class Validation:
                 comparison = await compare_view(
                     conn, key, head, listing, blob_reader(root, env), known
                 )
-                unchanged = await _unchanged(conn, key, comparison.touched)
+                unchanged = await _unchanged(conn, key, comparison.touched, request.trigger)
             if unchanged is not None:
                 # Rien n'a bougé depuis la dernière passe complète de ce processus :
                 # les règles rendraient le même verdict. Sans ce raccourci, une passe
@@ -209,7 +217,9 @@ class Validation:
             findings = await asyncio.to_thread(run_rules, root, view_rules())
             async with self.pool.acquire() as conn, conn.transaction():
                 view = await store.db_ensure_view(conn, key)
-                result = await validate_view(conn, view, root, findings, progress)
+                result = await validate_view(
+                    conn, view, root, findings, progress, request.trigger
+                )
             _FULL_PASS_DONE.add(key)
             return result
 

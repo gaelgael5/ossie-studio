@@ -320,7 +320,7 @@ async def test_brouillon_et_preparation_de_la_publication(app: FastAPI, space: A
     ]
 
     readiness = await _ok(app, AGENT, "get_publish_readiness", _ids(space))
-    assert set(readiness) == {"ok", "reasons", "conflicts"}
+    assert set(readiness) == {"ok", "reasons", "conflicts", "validation"}
     # Sans identifiant personnel saisi, la publication n'est pas prête.
     assert readiness["ok"] is False and "credential_missing" in readiness["reasons"]
 

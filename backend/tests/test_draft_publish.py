@@ -20,6 +20,7 @@ from tests.space_fixture import (
     forge_edit,
     forge_read,
     make_api_space,
+    run_passes,
     set_credential,
 )
 
@@ -31,7 +32,11 @@ async def sp(client: AsyncClient, app: FastAPI, tmp_path: Path) -> ApiSpace:
     return await make_api_space(client, app, tmp_path)
 
 
-async def _readiness(sp: ApiSpace) -> list[str]:
+async def _readiness(app: FastAPI, sp: ApiSpace) -> list[str]:
+    """Comme la page de publication : une passe de validation demandée et faite, puis
+    ce qui bloque (ticket 48618517)."""
+    await sp.client.post(f"{sp.base}/draft/validation/passes")
+    await run_passes(app)
     response = await sp.client.get(f"{sp.base}/draft/readiness")
     assert response.status_code == 200, response.text
     reasons: list[str] = response.json()["reasons"]
@@ -68,7 +73,7 @@ async def test_publication_un_commit_auteur_utilisateur(app: FastAPI, sp: ApiSpa
     await set_credential(app, sp)
     async with app.state.pool.acquire() as conn:
         await conn.execute("UPDATE users SET display_name = 'Gaël Admin' WHERE is_bootstrap")
-    assert await _readiness(sp) == []
+    assert await _readiness(app, sp) == []
     response = await _publish(sp)
     assert response.status_code == 200, response.text
     assert load_schema(forge_read(sp, OBJ) or "{}") == {"a": 1}
@@ -84,8 +89,8 @@ async def test_sans_nom_l_auteur_est_l_email(app: FastAPI, sp: ApiSpace) -> None
     assert "@" in _log(sp, "%an")
 
 
-async def test_brouillon_vide(sp: ApiSpace) -> None:
-    assert "empty_draft" in await _readiness(sp)
+async def test_brouillon_vide(app: FastAPI, sp: ApiSpace) -> None:
+    assert "empty_draft" in await _readiness(app, sp)
 
 
 @pytest.mark.parametrize(
@@ -103,7 +108,7 @@ async def test_identifiant_absent_ou_non_valide(
     await draft_write(app, sp, OBJ, {"a": 1})
     if status is not None:
         await set_credential(app, sp, status)
-    assert reason in await _readiness(sp)
+    assert reason in await _readiness(app, sp)
     refused = await _publish(sp)
     assert refused.status_code == 409
     assert reason in refused.json()["error_args"]["reasons"]
@@ -114,7 +119,7 @@ async def test_conflit_bloque_et_brouillon_intact(app: FastAPI, sp: ApiSpace) ->
     await draft_write(app, sp, OBJ, {"a": 2})
     forge_edit(sp, {OBJ: json.dumps({"a": 3})})
     await set_credential(app, sp)
-    assert "conflicts" in await _readiness(sp)
+    assert "conflicts" in await _readiness(app, sp)
     refused = await _publish(sp)
     assert refused.status_code == 409
     assert (await sp.client.get(f"{sp.base}/draft")).json()["count"] == 1
@@ -125,7 +130,7 @@ async def test_fusion_auto_pendant_la_publication(app: FastAPI, sp: ApiSpace) ->
     await draft_write(app, sp, OBJ, {"a": 1, "b": 2})
     forge_edit(sp, {OBJ: json.dumps({"a": 9, "b": 1})})
     await set_credential(app, sp)
-    assert "conflicts" not in await _readiness(sp)
+    assert "conflicts" not in await _readiness(app, sp)
     assert (await _publish(sp)).status_code == 200
     assert load_schema(forge_read(sp, OBJ) or "{}") == {"a": 9, "b": 2}
 
@@ -134,12 +139,10 @@ async def test_impact_en_attente_bloque(app: FastAPI, sp: ApiSpace) -> None:
     forge_edit(sp, {"sources/s/raw/U.schema.yaml": "{}", "sources/s/assets/U.schema.yaml": "{}"})
     await draft_write(app, sp, "sources/s/raw/U.schema.yaml", {"v": 2})
     await set_credential(app, sp)
-    assert "impacts_pending" in await _readiness(sp)
+    assert "impacts_pending" in await _readiness(app, sp)
 
 
-async def test_regle_d_or_erreur_preexistante_bloque_raw_jamais(
-    app: FastAPI, sp: ApiSpace
-) -> None:
+async def test_regle_d_or_erreur_preexistante_bloque_raw_jamais(app: FastAPI, sp: ApiSpace) -> None:
     """Ticket d7139b17. Critère 2 : un schéma raw cassé ne bloque jamais. Critère 4 : une
     erreur présente dans la version publiée, dans un fichier que la personne n'a pas
     touché, bloque quand même sa publication."""
@@ -148,9 +151,9 @@ async def test_regle_d_or_erreur_preexistante_bloque_raw_jamais(
     await draft_write(
         app, sp, "sources/s/raw/R.schema.yaml", {"properties": {"x": {"$ref": "Nope.schema.yaml"}}}
     )
-    assert "validation_errors" not in await _readiness(sp)
+    assert "validation_errors" not in await _readiness(app, sp)
     forge_edit(sp, {"sources/vieux/manifest.yaml": "slug: [cassé"})
-    assert "validation_errors" in await _readiness(sp)
+    assert "validation_errors" in await _readiness(app, sp)
 
 
 async def test_publication_en_cours(app: FastAPI, sp: ApiSpace) -> None:
@@ -160,7 +163,7 @@ async def test_publication_en_cours(app: FastAPI, sp: ApiSpace) -> None:
         await holder.fetchval(
             "SELECT pg_advisory_lock(hashtextextended($1, 0))", f"publish:{sp.branch_id}"
         )
-        assert "publish_in_progress" in await _readiness(sp)
+        assert "publish_in_progress" in await _readiness(app, sp)
         refused = await _publish(sp)
         assert refused.status_code == 409
         assert refused.json()["error"] == "publish_in_progress"
@@ -247,7 +250,7 @@ async def test_push_exterieur_meme_objet_renvoi_fusion(
     assert response.status_code == 409
     assert response.json()["error"] == "branch_changed_conflict"
     assert (await sp.client.get(f"{sp.base}/draft")).json()["count"] == 1
-    assert "publish_in_progress" not in await _readiness(sp)
+    assert "publish_in_progress" not in await _readiness(app, sp)
 
 
 async def test_processus_interrompu_verrou_relache_brouillon_intact(
@@ -264,7 +267,7 @@ async def test_processus_interrompu_verrou_relache_brouillon_intact(
     with pytest.raises(RuntimeError):
         await _publish(sp)
     monkeypatch.undo()
-    assert "publish_in_progress" not in await _readiness(sp)
+    assert "publish_in_progress" not in await _readiness(app, sp)
     assert (await sp.client.get(f"{sp.base}/draft")).json()["count"] == 1
     assert forge_read(sp, OBJ) is None  # rien de publié à moitié
     assert (await _publish(sp)).status_code == 200
@@ -280,7 +283,7 @@ async def test_jeton_revoque_entre_test_et_publication(app: FastAPI, sp: ApiSpac
     assert response.status_code == 403
     assert response.json()["error"] == "publish_credential_rejected"
     assert (await sp.client.get(f"{sp.base}/draft")).json()["count"] == 1
-    assert "publish_in_progress" not in await _readiness(sp)
+    assert "publish_in_progress" not in await _readiness(app, sp)
 
 
 async def test_sans_droit_de_publier_refuse(app: FastAPI, sp: ApiSpace) -> None:

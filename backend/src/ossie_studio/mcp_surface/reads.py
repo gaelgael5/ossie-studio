@@ -144,7 +144,6 @@ async def get_publish_readiness(ctx: PrimitiveContext, args: BranchArgs) -> dict
     try:
         ready = await publish_readiness(
             ctx.state.pool,
-            ctx.state.validation,
             ctx.conn,
             ctx.state.crypto,
             person_workdir(ctx, user, branch),
@@ -154,7 +153,7 @@ async def get_publish_readiness(ctx: PrimitiveContext, args: BranchArgs) -> dict
         )
     except ApiError as exc:
         raise PrimitiveError(exc.code) from None
-    return {"ok": ready.ok, "reasons": ready.reasons, "conflicts": ready.conflicts}
+    return ready.payload()
 
 
 # --- Sources et schémas bruts ---------------------------------------------------------

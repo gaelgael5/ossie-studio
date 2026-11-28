@@ -7,7 +7,8 @@ brouillon que le sien. Plus strict que l'écran : résoudre un objet qui n'a pas
 bougé côté publié, ou choisir sur une propriété qui n'est pas en conflit, est
 refusé. Les décisions (impact vérifié) gardent le nom de l'agent ; il apparaît dans
 le message du commit de publication. Le journal de validation suit la règle d'or
-(ticket d7139b17) : rien ne s'y accepte.
+(ticket d7139b17) : rien ne s'y accepte. Il rend le même état que la page de
+publication (ticket 48618517) : demander une passe, sans l'attendre.
 
 Rien ne se publie ici.
 """
@@ -19,10 +20,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ossie_studio.doc_index.queue import PUBLICATION_PAGE, request_pass
+from ossie_studio.doc_index.state import DEFAULT_LIMIT, MAX_LIMIT
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.drafts import preparation
 from ossie_studio.drafts.merge import MISSING, ObjectMerge
 from ossie_studio.drafts.store import db_get_draft
-from ossie_studio.drafts.validation import blocking
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
 from ossie_studio.mcp_surface.branch import BranchArgs, branch_of
@@ -62,6 +65,20 @@ class ResolveMergeArgs(BranchArgs):
         description=(
             "Object deleted on one side only: true accepts the deletion, false keeps the object."
         ),
+    )
+
+
+class ValidationLogArgs(BranchArgs):
+    filter: Literal["all", "problems", "errors", "warnings", "to_validate", "mine"] = Field(
+        default="problems",
+        description=(
+            "Which files to list: all, problems (errors or warnings), errors, warnings, "
+            "to_validate, or mine (the user's draft)."
+        ),
+    )
+    search: str = Field(default="", description="Keep files whose path, key or name contains it.")
+    limit: int = Field(
+        default=DEFAULT_LIMIT, ge=0, le=MAX_LIMIT, description="At most this many files."
     )
 
 
@@ -224,15 +241,9 @@ async def verify_impact(ctx: PrimitiveContext, args: ImpactArgs) -> dict[str, An
 # --- Journal de validation ------------------------------------------------------------------
 
 
-async def get_validation_log(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
+async def get_validation_log(ctx: PrimitiveContext, args: ValidationLogArgs) -> dict[str, Any]:
     workdir, branch = await _workdir(ctx, args)
-    _draft, entries = await _run(
-        lambda: preparation.draft_validation(
-            ctx.conn, ctx.state.crypto, workdir, ctx.state.validation, branch.space_id, branch.id
-        )
-    )
-    return {
-        "view": "draft",
-        "entries": [e.payload() for e in entries],
-        "blocking": len(blocking(entries)),
-    }
+    key = ViewKey(branch.space_id, branch.id, workdir.user_id)
+    await request_pass(ctx.conn, key, PUBLICATION_PAGE)
+    state = await preparation.draft_state(ctx.conn, workdir.user_id, branch.space_id, branch.id)
+    return state.payload(args.filter, args.search.strip(), args.limit)

@@ -31,6 +31,7 @@ import yaml
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.crypto import CryptoService
 from ossie_studio.doc_index.passes import Validation, ValidationBusy, ValidationFailed
+from ossie_studio.doc_index.state import ValidationState, view_state
 from ossie_studio.doc_index.store import ViewKey, db_view_problems
 from ossie_studio.drafts.impacts import Impact, compute_impacts, fingerprint
 from ossie_studio.drafts.merge import (
@@ -403,6 +404,28 @@ async def verify_impact(
 # --- Journal de validation ----------------------------------------------------------------
 
 
+async def ensure_validated(validation: Validation, key: ViewKey) -> None:
+    """Une passe à jour sur la vue `key` ; ses refus deviennent des refus nommés."""
+    try:
+        await validation.ensure(key)
+    except ValidationBusy as exc:
+        raise ApiError("validation_busy", status_code=503, position=exc.position) from None
+    except ValidationFailed:
+        raise ApiError("validation_failed", status_code=502) from None
+
+
+async def draft_state(
+    conn: asyncpg.Connection, user_id: uuid.UUID, space_id: uuid.UUID, branch_id: uuid.UUID
+) -> ValidationState:
+    """L'état de validation de la vue de la personne, sans attendre de passe (page de
+    publication, conditions de publication, agent : ticket 48618517)."""
+    draft = await db_get_draft(conn, user_id, branch_id)
+    objects: dict[str, str] = {}
+    if draft is not None and draft.space_id == space_id:
+        objects = {o.path: o.state for o in await db_list_objects(conn, draft.id)}
+    return await view_state(conn, ViewKey(space_id, branch_id, user_id), objects)
+
+
 async def draft_validation(
     conn: asyncpg.Connection,
     crypto: CryptoService,
@@ -421,12 +444,7 @@ async def draft_validation(
         raise ApiError("branch_not_found", status_code=404)
     draft = await db_get_draft(conn, workdir.user_id, branch_id)
     key = ViewKey(space_id, branch_id, workdir.user_id)
-    try:
-        await validation.ensure(key)
-    except ValidationBusy as exc:
-        raise ApiError("validation_busy", status_code=503, position=exc.position) from None
-    except ValidationFailed:
-        raise ApiError("validation_failed", status_code=502) from None
+    await ensure_validated(validation, key)
     entries = [
         LoggedFinding(
             Finding(

@@ -20,7 +20,14 @@ from httpx import AsyncClient
 from ossie_studio.mcp_surface.caller import McpCaller
 from ossie_studio.mcp_surface.catalog import BY_ID
 from tests.mcp_helpers import call_tool, mcp_client, tool_names
-from tests.space_fixture import ApiSpace, draft_write, forge_edit, make_api_space, set_credential
+from tests.space_fixture import (
+    ApiSpace,
+    draft_write,
+    forge_edit,
+    make_api_space,
+    run_passes,
+    set_credential,
+)
 
 AGENT = "agent-preparation"
 KEY = "cle-preparation"
@@ -216,17 +223,23 @@ async def test_journal_regle_d_or_sans_acceptation(app: FastAPI, space: ApiSpace
         {"properties": {"u": {"$ref": "A.schema.yaml"}}},
     )
     await draft_write(app, space, "sources/s/assets/Seul.schema.yaml", {"title": "Seul"})
+    # Le journal demande une passe sans l'attendre (ticket 48618517) ; le travailleur
+    # de fond, coupé en test, la fait.
+    asked = await _ok(app, "get_validation_log", _ids(space))
+    assert asked["queue"]["state"] == "pending"
+    await run_passes(app)
     log = await _ok(app, "get_validation_log", _ids(space))
-    assert log["blocking"] == 0
-    broken = next(e for e in log["entries"] if e["rule"] == "broken_ref")
-    orphan = next(e for e in log["entries"] if e["rule"] == "orphan_asset")
-    assert (broken["level"], broken["blocking"], broken["document_type"]) == (
+    assert log["counts"]["errors"] == 0
+    problems = {p["rule"]: (f, p) for f in log["files"] for p in f["problems"]}
+    broken_file, broken = problems["broken_ref"]
+    _orphan_file, orphan = problems["orphan_asset"]
+    assert (broken["level"], broken["blocking"], broken_file["document_type"]) == (
         "warning",
         False,
         "schema_raw",
     )
     assert (orphan["level"], orphan["blocking"]) == ("warning", False)
-    assert all("accepted" not in e and "preexisting" not in e for e in log["entries"])
+    assert all("accepted" not in p and "preexisting" not in p for _f, p in problems.values())
     assert "accept_validation_warning" not in BY_ID
 
 

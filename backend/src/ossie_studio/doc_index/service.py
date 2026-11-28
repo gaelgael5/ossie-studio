@@ -165,6 +165,9 @@ async def compare_view(
     la marque comparée sur `head`."""
     view = await store.db_ensure_view(conn, key)
     indexed = await store.db_view_files(conn, view.id)
+    # Une vue déjà comparée qui trouve des fichiers nouveaux ou changés : ils ont été
+    # modifiés hors de l'application (le premier remplissage n'en détecte aucun).
+    was_compared = view.compared
     result = Comparison()
     stale = {p: b for p, b in listing.items() if p not in indexed or indexed[p].blob != b}
     gone = [p for p in indexed if p not in listing]
@@ -182,9 +185,10 @@ async def compare_view(
     await store.db_remove_files(conn, view.id, gone)
     result.removed = sorted(gone)
     result.dependents = await store.db_mark_dependents(conn, view.id, keys)
-    await store.db_mark_compared(conn, view.id, head)
     result.added.sort()
     result.changed.sort()
+    detected = [*result.added, *result.changed] if was_compared else []
+    await store.db_mark_compared(conn, view.id, head, len(listing), detected)
     return result
 
 

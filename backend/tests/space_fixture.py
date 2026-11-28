@@ -123,6 +123,13 @@ async def admin_workdir(app: FastAPI, space: ApiSpace) -> DraftWorkdir:
     )
 
 
+async def run_passes(app: FastAPI) -> None:
+    """Fait les passes de validation en attente, comme le travailleur de fond (coupé
+    dans les tests)."""
+    while await app.state.validation.run_next() is not None:
+        pass
+
+
 async def draft_write(app: FastAPI, space: ApiSpace, rel: str, value: object | None) -> None:
     """Écrit (ou supprime, None) un objet JSON dans le brouillon de l'administrateur."""
     workdir = await admin_workdir(app, space)
