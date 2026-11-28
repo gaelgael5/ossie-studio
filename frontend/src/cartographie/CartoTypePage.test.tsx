@@ -119,6 +119,13 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
             { key: 'PRC-A', type: 'processus-de-vente', name: 'Vente A' },
           ],
         }
+      else if (path === `${BASE}/objets/PRC-A` && method === 'DELETE') body = { deleted: 'PRC-A', revision: 'draft:4' }
+      else if (path === `${BASE}/objets/PRC-B` && method === 'DELETE')
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          text: () => Promise.resolve(JSON.stringify({ detail: { code: 'object_in_use', key: 'PRC-B' } })),
+        })
       else if (path === `${BASE}/objets/PRC-A`) body = { key: 'PRC-A', yaml: 'cle: PRC-A\nnom: Vente A\n' }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
@@ -129,6 +136,7 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
         <Routes>
           <Route path="/cartographie/types" element={<p>liste des types</p>} />
           <Route path="/cartographie/types/:slug" element={<CartoTypePage />} />
+          <Route path="/cartographie/objets/:key" element={<p>fiche de l’objet</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -396,11 +404,54 @@ describe('Cartographie — imports d’un type (ticket 49952be0)', () => {
     setup()
     const table = await screen.findByRole('table', { name: 'Objets de ce type' })
     const rows = within(table).getAllByRole('row').slice(1)
-    expect(rows.map((r) => r.textContent)).toEqual(['PRC-AVente A', 'PRC-BVente B'])
+    expect(rows.map((r) => [...r.querySelectorAll('td')].slice(0, 2).map((c) => c.textContent).join(' '))).toEqual([
+      'PRC-A Vente A',
+      'PRC-B Vente B',
+    ])
     expect(screen.getByText('Cliquez sur une ligne pour afficher l’objet.')).toBeInTheDocument()
     await userEvent.setup().click(rows[0])
     expect(await screen.findByLabelText('Fichier YAML de PRC-A')).toHaveTextContent('cle: PRC-A nom: Vente A')
     expect(rows[0]).toHaveClass('selected')
+  })
+
+  it('le crayon ouvre la fiche de l’objet sans sélectionner la ligne (ticket 61a24b85)', async () => {
+    setup()
+    await screen.findByRole('table', { name: 'Objets de ce type' })
+    await userEvent.setup().click(screen.getByRole('link', { name: 'Ouvrir la fiche de PRC-A' }))
+    expect(await screen.findByText('fiche de l’objet')).toBeInTheDocument()
+  })
+
+  it('la corbeille demande confirmation puis supprime l’objet (ticket 61a24b85)', async () => {
+    const calls = setup()
+    const user = userEvent.setup()
+    const table = await screen.findByRole('table', { name: 'Objets de ce type' })
+    await user.click(within(table).getAllByRole('row')[1])
+    await screen.findByLabelText('Fichier YAML de PRC-A')
+    await user.click(screen.getByRole('button', { name: 'Supprimer PRC-A' }))
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+    await user.click(screen.getByRole('button', { name: 'Confirmer la suppression' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.path === `${BASE}/objets/PRC-A`)).toBe(true))
+    expect(await screen.findByText('Cliquez sur une ligne pour afficher l’objet.')).toBeInTheDocument()
+  })
+
+  it('la corbeille : un refus du serveur s’affiche, la liste reste (ticket 61a24b85)', async () => {
+    setup()
+    const user = userEvent.setup()
+    await screen.findByRole('table', { name: 'Objets de ce type' })
+    await user.click(screen.getByRole('button', { name: 'Supprimer PRC-B' }))
+    await user.click(within(screen.getByRole('table', { name: 'Objets de ce type' })).getByRole('button', { name: 'Annuler' }))
+    expect(screen.queryByRole('button', { name: 'Confirmer la suppression' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Supprimer PRC-B' }))
+    await user.click(screen.getByRole('button', { name: 'Confirmer la suppression' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'Objets de ce type' })).toBeInTheDocument()
+  })
+
+  it('en lecture seule : le crayon, pas de corbeille (ticket 61a24b85)', async () => {
+    setup({ capabilities: ['cartographie:read'] })
+    await screen.findByRole('table', { name: 'Objets de ce type' })
+    expect(screen.getByRole('link', { name: 'Ouvrir la fiche de PRC-A' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Supprimer PRC-A' })).not.toBeInTheDocument()
   })
 
 })

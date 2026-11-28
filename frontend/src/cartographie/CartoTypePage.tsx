@@ -337,7 +337,7 @@ function TypeEditor({
       {tab === 'summary' ? (
         <>
           <ArchimateBand info={info} archimate={detail.archimate} title={title} />
-          <TypeObjects spaceId={spaceId} branchId={branchId} slug={detail.slug} />
+          <TypeObjects spaceId={spaceId} branchId={branchId} slug={detail.slug} readOnly={readOnly} />
         </>
       ) : null}
       {tab === 'relations' ? (
