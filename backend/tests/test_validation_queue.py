@@ -260,3 +260,40 @@ async def test_passe_en_echec(app: FastAPI, space: ApiSpace) -> None:
     following = await validation.run_next()
     assert following is not None and following.key.user_id == lea.user_id
     assert await _rows(app) == []
+
+
+async def test_passe_sans_changement_ne_relance_pas_les_regles(
+    app: FastAPI, space: ApiSpace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bug c6a4ab74 : une passe tient le verrou de la vue ; sans fichier changé depuis
+    la dernière passe complète, elle ne relit pas toute la vue, et l'état reste."""
+    from ossie_studio.doc_index import passes
+
+    admin = await admin_workdir(app, space)
+    forge_edit(space, {"cartographie/objets/application/app-09.yaml": "cle: [ouvert\n"})
+    calls: list[Path] = []
+    real = passes.run_rules
+
+    def counting(root: Path) -> list[Any]:
+        calls.append(root)
+        return real(root)
+
+    monkeypatch.setattr(passes, "run_rules", counting)
+    validation = _validation(app)
+    await _request(app, _key(space, admin), queue.PUBLICATION_PAGE)
+    assert await validation.run_next() is not None
+    assert len(calls) == 1
+    await _request(app, _key(space, admin), queue.PUBLICATION_PAGE)
+    assert await validation.run_next() is not None
+    assert len(calls) == 1  # rien n'a changé : règles non relancées
+    async with app.state.pool.acquire() as conn:
+        status = await conn.fetchval(
+            "SELECT f.status FROM doc_index_file f JOIN doc_index_view v ON v.id = f.view_id "
+            "WHERE v.user_id = $1 AND f.path LIKE '%app-09.yaml'",
+            admin.user_id,
+        )
+    assert status == "en_erreur"
+    forge_edit(space, {"cartographie/objets/application/app-09.yaml": "cle: APP-09\n"})
+    await _request(app, _key(space, admin), queue.PUBLICATION_PAGE)
+    assert await validation.run_next() is not None
+    assert len(calls) == 2  # un fichier a changé : passe complète

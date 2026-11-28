@@ -80,6 +80,25 @@ def _blocking(problems: list[Problem]) -> bool:
     return any(p.get("level") == "error" for p in problems)
 
 
+# Vues dont une passe complète a tourné depuis le démarrage du processus. Une passe
+# sans fichier changé n'est raccourcie que pour elles : après un déploiement, les
+# règles entre fichiers ont pu changer, la première passe relance tout.
+_FULL_PASS_DONE: set[ViewKey] = set()
+
+
+async def _unchanged(conn: asyncpg.Connection, key: ViewKey, touched: int) -> PassResult | None:
+    """Le résultat inchangé de la vue si rien n'est à revalider ; sinon None."""
+    if touched or key not in _FULL_PASS_DONE:
+        return None
+    view = await store.db_ensure_view(conn, key)
+    files = await store.db_view_files(conn, view.id)
+    if any(row.status == store.A_VALIDER for row in files.values()):
+        return None
+    await store.db_mark_validated(conn, view.id)
+    errors = sum(row.status == EN_ERREUR for row in files.values())
+    return PassResult(key, len(files), 0, errors)
+
+
 @dataclass(frozen=True)
 class PassResult:
     key: ViewKey
@@ -169,11 +188,22 @@ class Validation:
                     known[git_blob_sha(content)] = content
                     listing[path] = git_blob_sha(content)
             async with self.pool.acquire() as conn:
-                await compare_view(conn, key, head, listing, blob_reader(root, env), known)
+                comparison = await compare_view(
+                    conn, key, head, listing, blob_reader(root, env), known
+                )
+                unchanged = await _unchanged(conn, key, comparison.touched)
+            if unchanged is not None:
+                # Rien n'a bougé depuis la dernière passe complète de ce processus :
+                # les règles rendraient le même verdict. Sans ce raccourci, une passe
+                # « pour rien » relisait toute la vue (6 s pour 2 700 fichiers) en
+                # tenant le verrou de la vue, et les pages attendaient (bug c6a4ab74).
+                return unchanged
             findings = await asyncio.to_thread(run_rules, root)
             async with self.pool.acquire() as conn, conn.transaction():
                 view = await store.db_ensure_view(conn, key)
-                return await validate_view(conn, view, root, findings, progress)
+                result = await validate_view(conn, view, root, findings, progress)
+            _FULL_PASS_DONE.add(key)
+            return result
 
         if key.user_id is None:
             async with self.workdirs.read_copy(key.space_id, slug, repo_url, username, token) as (
