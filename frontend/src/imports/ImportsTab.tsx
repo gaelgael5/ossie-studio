@@ -713,6 +713,8 @@ function ImportView({
       imports.preview(slug, data?.format === 'csv' || data?.format === 'xlsx' ? effective ?? undefined : undefined, settled),
     enabled: data !== undefined && data.example_size > 0 && filtering(settled),
     placeholderData: (previous) => previous,
+    // Un refus (numéros mal écrits) ne change pas en réessayant : le dire aussitôt.
+    retry: false,
   })
   const refresh = () =>
     Promise.all(

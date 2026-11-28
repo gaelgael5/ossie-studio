@@ -3123,11 +3123,19 @@ td.cell-error {
   align-items: center;
   padding: 10px 12px;
 }
-.import-preview-filters .input[type='search'] {
+.import-preview-filters > .input,
+.import-preview-filters > .select {
+  width: auto;
+  min-width: 0;
+}
+.import-preview-filters > .input[type='search'] {
   flex: 1 1 240px;
 }
-.import-preview-lines {
+.import-preview-filters > .select {
   flex: 0 1 220px;
+}
+.import-preview-filters > .import-preview-lines {
+  flex: 0 1 240px;
 }
 .import-preview th + th,
 .import-preview td + td {
