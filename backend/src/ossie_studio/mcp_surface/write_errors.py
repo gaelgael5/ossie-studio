@@ -338,11 +338,12 @@ def _whole(
 ) -> Refusal:
     key = exc.detail.get("key", content.get("cle"))
     if exc.code == "object_key_taken":
+        type_slug = exc.detail.get("type", content.get("type"))
         return Refusal(
             jsonpath(prefix, "cle"),
             code,
-            f"La clé {key} est déjà prise dans l'espace ; une clé est unique, tous types "
-            "confondus. Pour remplacer cet objet, donner sa version.",
+            f"La clé {key} est déjà prise dans le type {type_slug} ; une clé est unique dans "
+            "son type. Pour remplacer cet objet, donner sa version.",
             received=key,
         )
     if exc.code == "object_type_frozen":
@@ -437,15 +438,17 @@ def _problem(p: Problem, prefix: str, content: dict[str, Any], space: Cartograph
             "nouvelle relation et supprimer l'ancienne",
         ),
     }
-    if p.code == "relation_endpoint_unknown":
+    if p.code in ("relation_endpoint_unknown", "relation_endpoint_ambiguous"):
         end = "source" if p.field == "source" else "cible"
         value = content.get(end)
-        return Refusal(
-            jsonpath(prefix, end),
-            code,
-            f"La {end} {value} n'existe ni dans l'espace ni dans la liste envoyée.",
-            received=value,
+        text = (
+            f"La {end} {value} n'existe ni dans l'espace ni dans la liste envoyée "
+            "(désigner un objet par type/CLÉ, ex. application/APP-01)."
+            if p.code == "relation_endpoint_unknown"
+            else f"La clé {value} existe dans plusieurs types : désigner la {end} par "
+            "type/CLÉ (ex. application/APP-01)."
         )
+        return Refusal(jsonpath(prefix, end), code, text, received=value)
     name, text = fields.get(p.code, ("", f"Refus : {p.code}"))
     if p.code == "object_type_unknown":
         code = "carto_type_not_found"

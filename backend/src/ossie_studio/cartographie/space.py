@@ -3,11 +3,18 @@
 
 À la lecture, sont signalés : un fichier illisible ; un objet rangé hors de
 `cartographie/objets/<type>/` ou sous le dossier d'un autre type ; une clé qui ne
-correspond pas au nom du fichier ; une clé en double (aucune écriture n'est
-acceptée tant qu'elle n'est pas corrigée) ; une relation dont la source ou la
-cible n'existe pas ; une relation que les règles d'ArchiMate ne permettent pas
-entre les types de ses extrémités ; des propriétés hors du schéma du type, avec la
-propriété en cause.
+correspond pas au nom du fichier ; une clé en double **dans un même type** (aucune
+écriture n'est acceptée tant qu'elle n'est pas corrigée) ; une relation dont la
+source ou la cible n'existe pas, ou désignée par une clé seule présente dans
+plusieurs types (`relation_endpoint_ambiguous`, sans bloquer le reste) ; une
+relation que les règles d'ArchiMate ne permettent pas entre les types de ses
+extrémités ; des propriétés hors du schéma du type, avec la propriété en cause.
+
+**Identité** (ticket 421832ee) : un objet est désigné par `(type, clé)`, écrit
+`<type>/<CLÉ>` (`Cartographie.objects` est indexé ainsi). Deux types peuvent avoir
+la même clé. Une extrémité de relation écrite en clé seule (forme d'avant) se lit
+quand cette clé n'existe que dans un type (`Cartographie.resolve`) ; toute écriture
+d'une relation la réécrit en `type/CLÉ`.
 
 Les écritures opèrent sur une copie de travail (`root`), dans le brouillon de la
 personne (`service`). Elles refusent de changer une clé, le slug ou le
@@ -53,6 +60,7 @@ from ossie_studio.cartographie.model import (
     parse_object,
     parse_type,
     property_renames,
+    split_ref,
     type_path,
 )
 from ossie_studio.cartographie.rules import allowed_relations
@@ -60,19 +68,69 @@ from ossie_studio.cartographie.rules import allowed_relations
 
 @dataclass
 class Cartographie:
-    """Ce que la branche contient : types (par slug), objets (par clé, avec leur
-    chemin), et les problèmes trouvés à la lecture."""
+    """Ce que la branche contient : types (par slug), objets (par `type/CLÉ`, avec
+    leur chemin), et les problèmes trouvés à la lecture."""
 
     types: dict[str, CartoType] = field(default_factory=dict)
     objects: dict[str, tuple[str, CartoObject]] = field(default_factory=dict)
     problems: list[Problem] = field(default_factory=list)
     duplicates: set[str] = field(default_factory=set)
+    # Clé seule -> identifiants `type/CLÉ` qui la portent (pour lire une clé seule).
+    _keys: dict[str, list[str]] = field(default_factory=dict, init=False, repr=False)
+    # Identifiant -> relations qui le désignent (calculé à la demande).
+    _users: dict[str, list[str]] | None = field(default=None, init=False, repr=False)
 
-    def users(self, key: str) -> list[str]:
-        """Les relations qui désignent cet objet comme source ou cible."""
-        return sorted(
-            k for k, (_p, o) in self.objects.items() if key in (o.source, o.target) and k != key
-        )
+    def __post_init__(self) -> None:
+        for ref, (_path, obj) in self.objects.items():
+            self._keys.setdefault(obj.key, []).append(ref)
+
+    def put(self, path: str, obj: CartoObject) -> None:
+        """Ajoute (ou remplace) un objet ; c'est la seule façon de modifier l'index."""
+        if obj.ref not in self.objects:
+            self._keys.setdefault(obj.key, []).append(obj.ref)
+        self.objects[obj.ref] = (path, obj)
+        self._users = None
+
+    def resolve(self, value: str | None) -> str | None:
+        """L'identifiant `type/CLÉ` de l'objet que désigne `value` : `type/CLÉ`
+        existant, ou clé seule présente dans un seul type. None sinon (inconnu, ou
+        clé seule ambiguë)."""
+        if not value:
+            return None
+        type_slug, key = split_ref(value)
+        if type_slug is not None:
+            return value if value in self.objects else None
+        refs = self._keys.get(key, [])
+        return refs[0] if len(refs) == 1 else None
+
+    def find(self, value: str | None) -> tuple[str, CartoObject] | None:
+        """(chemin, objet) que désigne `value` (voir `resolve`)."""
+        ref = self.resolve(value)
+        return self.objects[ref] if ref is not None else None
+
+    def end_problem(self, value: str) -> str:
+        """Le code d'une extrémité introuvable : une clé seule présente dans plusieurs
+        types est ambiguë ; sinon l'objet n'existe pas."""
+        type_slug, key = split_ref(value)
+        if type_slug is None and len(self._keys.get(key, [])) > 1:
+            return "relation_endpoint_ambiguous"
+        return "relation_endpoint_unknown"
+
+    def ends(self, obj: CartoObject) -> tuple[str | None, str | None]:
+        """Les identifiants de la source et de la cible d'une relation (None : pas
+        d'extrémité, ou introuvable)."""
+        return self.resolve(obj.source), self.resolve(obj.target)
+
+    def users(self, ref: str) -> list[str]:
+        """Les relations (identifiants) qui désignent cet objet comme source ou cible."""
+        if self._users is None:
+            index: dict[str, list[str]] = {}
+            for other, (_p, obj) in self.objects.items():
+                for end in set(self.ends(obj)):
+                    if end is not None and end != other:
+                        index.setdefault(end, []).append(other)
+            self._users = {k: sorted(v) for k, v in index.items()}
+        return list(self._users.get(ref, []))
 
     def objects_of(self, slug: str) -> list[tuple[str, CartoObject]]:
         """Les objets (chemin, objet) d'un type de l'espace."""
@@ -131,18 +189,21 @@ class Cartographie:
                 out.append(slug)
         return out
 
-    def _ends(self, source_key: str, target_key: str) -> tuple[str, str]:
-        for key in (source_key, target_key):
-            if key not in self.objects:
-                raise CartographieError("object_not_found", status=404, key=key)
-        return self.objects[source_key][1].type, self.objects[target_key][1].type
+    def _ends(self, source: str, target: str) -> tuple[str, str]:
+        found = []
+        for value in (source, target):
+            end = self.find(value)
+            if end is None:
+                raise CartographieError("object_not_found", status=404, key=value)
+            found.append(end[1].type)
+        return found[0], found[1]
 
     def allowed(self, source_key: str, target_key: str, cat: Catalog | None = None) -> list[str]:
         """Les types de relation ArchiMate permis de l'objet `source_key` vers
-        l'objet (ou la relation) `target_key`, dans l'ordre du catalogue : ceux des
-        types de relation que la règle effective permet, et ceux qu'ArchiMate
-        permet sans qu'aucun type de l'espace n'y repose encore (à créer). Refus
-        nommé si l'un manque."""
+        l'objet (ou la relation) `target_key` (`type/CLÉ`), dans l'ordre du
+        catalogue : ceux des types de relation que la règle effective permet, et
+        ceux qu'ArchiMate permet sans qu'aucun type de l'espace n'y repose encore
+        (à créer). Refus nommé si l'un manque."""
         cat = cat or catalog()
         source_type, target_type = self._ends(source_key, target_key)
         source, target = self.archimate(source_key), self.archimate(target_key)
@@ -161,9 +222,9 @@ class Cartographie:
         source_type, target_type = self._ends(source_key, target_key)
         return [self.types[s] for s in self.effective(source_type, target_type, cat)]
 
-    def archimate(self, key: str) -> str | None:
+    def archimate(self, key: str | None) -> str | None:
         """Le type ArchiMate d'un objet (celui de son type) ; None s'il est inconnu."""
-        found = self.objects.get(key)
+        found = self.find(key)
         ctype = self.types.get(found[1].type) if found else None
         return ctype.archimate if ctype else None
 
@@ -177,11 +238,13 @@ def _relation_not_allowed(
     base = cat.get(ctype.archimate) if ctype else None
     if base is None or not base.is_relation or not obj.source or not obj.target:
         return None
+    ends = space.find(obj.source), space.find(obj.target)
     source, target = space.archimate(obj.source), space.archimate(obj.target)
-    if source is None or target is None or not cat.get(source) or not cat.get(target):
+    if ends[0] is None or ends[1] is None or source is None or target is None:
         return None
-    source_type = space.objects[obj.source][1].type
-    target_type = space.objects[obj.target][1].type
+    if not cat.get(source) or not cat.get(target):
+        return None
+    source_type, target_type = ends[0][1].type, ends[1][1].type
     if obj.type in space.effective(source_type, target_type, cat):
         return None
     return Problem(path, "relation_not_allowed", f"{source} -> {target} : {base.name}")
@@ -252,19 +315,22 @@ def read_cartographie(root: Path, cat: Catalog | None = None) -> Cartographie:
         if folder != obj.type:
             space.problems.append(Problem(rel, "object_wrong_folder", obj.type))
         space.problems.extend(check_object(obj, rel, space.types.get(obj.type), cat))
-        seen.setdefault(obj.key, []).append(rel)
-        space.objects.setdefault(obj.key, (rel, obj))
+        seen.setdefault(obj.ref, []).append(rel)
+        if obj.ref not in space.objects:
+            space.put(rel, obj)
 
-    for key, paths in seen.items():
+    # Une clé en double est une clé vue deux fois **dans un même type** : deux types
+    # peuvent porter la même clé (ticket 421832ee).
+    for ref, paths in seen.items():
         if len(paths) > 1:
-            space.duplicates.add(key)
-            space.problems.extend(Problem(p, "object_key_duplicate", key) for p in paths)
-    for key, (rel, obj) in space.objects.items():
+            space.duplicates.add(ref)
+            space.problems.extend(Problem(p, "object_key_duplicate", ref) for p in paths)
+    for ref, (rel, obj) in space.objects.items():
         for end, value in (("source", obj.source), ("cible", obj.target)):
-            if value and value not in space.objects:
-                space.problems.append(Problem(rel, "relation_endpoint_unknown", value, field=end))
-        if obj.source == key or obj.target == key:
-            space.problems.append(Problem(rel, "relation_self", key))
+            if value and space.resolve(value) is None:
+                space.problems.append(Problem(rel, space.end_problem(value), value, field=end))
+        if ref in space.ends(obj):
+            space.problems.append(Problem(rel, "relation_self", ref))
         refused = _relation_not_allowed(space, obj, rel, cat)
         if refused:
             space.problems.append(refused)
@@ -362,13 +428,13 @@ def _refuse_breaking_relations(
     for key, (_path, obj) in sorted(before.objects.items()):
         if not obj.source or not obj.target:
             continue
-        ends = before.objects.get(obj.source), before.objects.get(obj.target)
+        ends = before.find(obj.source), before.find(obj.target)
         if ends[0] is None or ends[1] is None or ends[0][1].type != slug:
             continue
         target_type = ends[1][1].type
         was = obj.type in before.effective(slug, target_type, cat)
         if was and obj.type not in after.effective(slug, target_type, cat):
-            broken.append({"key": key, "source": obj.source, "target": obj.target})
+            broken.append({"key": obj.key, "ref": key, "source": obj.source, "target": obj.target})
     if broken:
         raise CartographieError(
             "type_relations_in_use",
@@ -390,26 +456,43 @@ def delete_type(root: Path, slug: str, cat: Catalog | None = None) -> None:
     (root / type_path(slug)).unlink()
 
 
+def _canonical_ends(
+    space: Cartographie, obj: CartoObject, path: str
+) -> tuple[CartoObject, list[Problem]]:
+    """La relation telle qu'elle s'écrit : ses extrémités en `type/CLÉ` (une clé
+    seule non ambiguë est réécrite ainsi), et les problèmes d'une extrémité
+    introuvable, ambiguë ou qui est la relation elle-même."""
+    problems: list[Problem] = []
+    ends: list[str | None] = []
+    for end, value in (("source", obj.source), ("cible", obj.target)):
+        ref = space.resolve(value)
+        if value and (ref is None or ref == obj.ref):
+            code = space.end_problem(value) if ref is None else "relation_endpoint_unknown"
+            problems.append(Problem(path, code, value, field=end))
+            ends.append(value)
+        else:
+            ends.append(ref if value else value)
+    return replace(obj, source=ends[0], target=ends[1]), problems
+
+
 def save_object(
     root: Path, obj: CartoObject, *, create: bool, cat: Catalog | None = None
 ) -> CartoObject:
-    """Crée ou modifie un objet (ou une relation). La clé est unique dans
-    l'espace et figée ; le type d'un objet existant aussi."""
+    """Crée ou modifie un objet (ou une relation). La clé est unique dans son type
+    et figée ; l'identité d'un objet est `(type, clé)`. Les extrémités d'une
+    relation sont écrites en `type/CLÉ`. Rend l'objet tel qu'il est écrit."""
     cat = cat or catalog()
     space = read_cartographie(root, cat)
     _refuse_duplicates(space)
-    existing = space.objects.get(obj.key)
-    if create and existing is not None:
-        raise CartographieError("object_key_taken", status=409, key=obj.key)
-    if not create and existing is None:
-        raise CartographieError("object_not_found", status=404, key=obj.key)
-    if existing is not None and existing[1].type != obj.type:
-        raise CartographieError("object_type_frozen", status=409, key=obj.key)
     path = object_path(obj.type, obj.key)
+    existing = space.objects.get(obj.ref)
+    if create and (existing is not None or (root / path).exists()):
+        raise CartographieError("object_key_taken", status=409, key=obj.key, type=obj.type)
+    if not create and existing is None:
+        raise CartographieError("object_not_found", status=404, key=obj.ref)
     problems = check_object(obj, path, space.types.get(obj.type), cat)
-    for end, value in (("source", obj.source), ("cible", obj.target)):
-        if value and (value == obj.key or value not in space.objects):
-            problems.append(Problem(path, "relation_endpoint_unknown", value, field=end))
+    obj, end_problems = _canonical_ends(space, obj, path)
+    problems += end_problems
     refused = _relation_not_allowed(space, obj, path, cat)
     if refused:
         problems.append(refused)
@@ -434,19 +517,18 @@ def save_objects(
     space = read_cartographie(root, cat)
     _refuse_duplicates(space)
     for obj, create in objects:
-        existing = space.objects.get(obj.key)
+        existing = space.objects.get(obj.ref)
         if create and existing is not None:
-            raise CartographieError("object_key_taken", status=409, key=obj.key)
+            raise CartographieError("object_key_taken", status=409, key=obj.key, type=obj.type)
         if not create and existing is None:
-            raise CartographieError("object_not_found", status=404, key=obj.key)
-    batch = [obj for obj, _create in objects]
-    problems = check_batch(space, batch, cat)
+            raise CartographieError("object_not_found", status=404, key=obj.ref)
+    problems, written = _check_batch(space, [obj for obj, _create in objects], cat)
     if problems:
         # Les problèmes du premier objet refusé, comme `save_object` sur cet objet.
         first = min(p.index for p in problems)
         found = [replace(p, index=-1) for p in problems if p.index == first]
         raise CartographieError("object_invalid", problems=found)
-    for obj in batch:
+    for obj in written:
         target = root / object_path(obj.type, obj.key)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(dump_object(obj), encoding="utf-8")
@@ -457,56 +539,59 @@ def check_batch(
 ) -> list[Problem]:
     """Les problèmes d'un lot d'objets à créer ou modifier ensemble (un import,
     ticket 49952be0), par les règles de `save_object` : schéma du type, clé
-    (forme, unicité dans le lot), type figé d'un objet existant, extrémités
-    existantes (dans l'espace ou dans le lot) et figées, relation permise par la
-    règle effective. Chaque problème porte le rang de l'objet dans le lot
-    (`index`). Rien n'est écrit."""
+    (forme, unicité dans son type au sein du lot), extrémités existantes (dans
+    l'espace ou dans le lot, désignées par `type/CLÉ` ou par une clé seule non
+    ambiguë) et figées, relation permise par la règle effective. Chaque problème
+    porte le rang de l'objet dans le lot (`index`). Rien n'est écrit."""
+    return _check_batch(space, objects, cat)[0]
+
+
+def _check_batch(
+    space: Cartographie, objects: list[CartoObject], cat: Catalog | None = None
+) -> tuple[list[Problem], list[CartoObject]]:
+    """`check_batch`, et les objets tels qu'ils s'écrivent (extrémités en `type/CLÉ`)."""
     cat = cat or catalog()
     merged = Cartographie(types=space.types, objects=dict(space.objects))
     problems: list[Problem] = []
     first: dict[str, int] = {}
     for index, obj in enumerate(objects):
-        path = object_path(obj.type, obj.key)
-        if obj.key in first:
+        if obj.ref in first:
+            path = object_path(obj.type, obj.key)
             problems.append(Problem(path, "object_key_duplicate", obj.key, index=index))
             continue
-        first[obj.key] = index
-        existing = space.objects.get(obj.key)
-        if existing is not None and existing[1].type != obj.type:
-            problems.append(Problem(path, "object_type_frozen", obj.key, index=index))
-            continue
-        if existing is not None and (existing[1].source, existing[1].target) != (
-            obj.source,
-            obj.target,
-        ):
-            problems.append(Problem(path, "relation_ends_frozen", obj.key, index=index))
-            continue
-        merged.objects[obj.key] = (path, obj)
+        first[obj.ref] = index
+        merged.put(object_path(obj.type, obj.key), obj)
+    written: list[CartoObject] = []
     for index, obj in enumerate(objects):
-        if first.get(obj.key) != index:
+        if first.get(obj.ref) != index:
             continue
         path = object_path(obj.type, obj.key)
+        existing = space.objects.get(obj.ref)
+        if existing is not None and space.ends(existing[1]) != merged.ends(obj):
+            problems.append(Problem(path, "relation_ends_frozen", obj.key, index=index))
+            continue
         found = check_object(obj, path, space.types.get(obj.type), cat)
-        for end, value in (("source", obj.source), ("cible", obj.target)):
-            if value and (value == obj.key or value not in merged.objects):
-                found.append(Problem(path, "relation_endpoint_unknown", value, field=end))
-        refused = _relation_not_allowed(merged, obj, path, cat)
+        canonical, end_problems = _canonical_ends(merged, obj, path)
+        found += end_problems
+        refused = _relation_not_allowed(merged, canonical, path, cat)
         if refused:
             found.append(refused)
         problems.extend(replace(p, index=index) for p in found)
-    return problems
+        written.append(canonical)
+    return problems, written
 
 
-def delete_object(root: Path, key: str, cat: Catalog | None = None) -> None:
-    """Supprime le fichier d'un objet ; refusé tant qu'une relation l'utilise."""
+def delete_object(root: Path, ref: str, cat: Catalog | None = None) -> None:
+    """Supprime le fichier d'un objet (`type/CLÉ`) ; refusé tant qu'une relation
+    l'utilise."""
     space = read_cartographie(root, cat or catalog())
     _refuse_duplicates(space)
-    found = space.objects.get(key)
+    found = space.objects.get(ref)
     if found is None:
-        raise CartographieError("object_not_found", status=404, key=key)
-    users = space.users(key)
+        raise CartographieError("object_not_found", status=404, key=ref)
+    users = space.users(ref)
     if users:
-        raise CartographieError("object_in_use", status=409, key=key, relations=users)
+        raise CartographieError("object_in_use", status=409, key=ref, relations=users)
     (root / found[0]).unlink()
 
 
@@ -514,7 +599,8 @@ def allowed_between(
     root: Path, source_key: str, target_key: str, cat: Catalog | None = None
 ) -> list[str]:
     """Les types de relation ArchiMate permis de l'objet `source_key` vers l'objet
-    (ou la relation) `target_key`. Refus nommé si l'un des deux n'existe pas."""
+    (ou la relation) `target_key` (`type/CLÉ`). Refus nommé si l'un des deux
+    n'existe pas."""
     cat = cat or catalog()
     return read_cartographie(root, cat).allowed(source_key, target_key, cat)
 

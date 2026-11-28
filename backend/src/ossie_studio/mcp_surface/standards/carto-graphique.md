@@ -17,7 +17,7 @@ Entries that match nothing in the model are dropped.
 ```yaml example
 - document_type: carto_objet
   identity: {type: acces, key: REL-PRISE-ECRIT-COMMANDE}
-  content: {cle: REL-PRISE-ECRIT-COMMANDE, type: acces, source: PRC-PRISE-COMMANDE, cible: OBJ-COMMANDE, nom: Écrit}
+  content: {cle: REL-PRISE-ECRIT-COMMANDE, type: acces, source: processus-metier/PRC-PRISE-COMMANDE, cible: document-metier/OBJ-COMMANDE, nom: Écrit}
 - document_type: carto_modele
   identity: {slug: vente}
   content:

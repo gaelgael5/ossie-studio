@@ -4,10 +4,12 @@ Gael : « Il faut la possibilité de pouvoir mettre un système d'intégration p
 alimenter les objets cartographiques. On reprend le même système que pour les
 référentiels. » **Une ligne = un objet** du type : le template rend `cle`, `nom`,
 `documentation` (facultative), `proprietes` — et, pour un type de relation,
-`source` et `cible`. Le `type` est celui du type visé (pas à écrire dans le
-template ; s'il y est, il doit être le même).
+`source` et `cible` (`type/CLÉ`, ou une clé seule si elle n'existe que dans un
+type). Le `type` est celui du type visé (pas à écrire dans le template ; s'il y
+est, il doit être le même).
 
-Décisions de Gael : comparaison par la **clé**, **fusion seulement** (un objet
+Décisions de Gael : comparaison par la **clé** (dans le type importé : deux types
+peuvent avoir la même clé, ticket 421832ee), **fusion seulement** (un objet
 absent est créé, un objet présent modifié — jamais sa clé, son type, ni la source
 ou la cible d'une relation) ; **aucune suppression** (« On voit les suppressions
 après. C'est tout un sujet qu'on traitera d'un bloc. ») ; écriture dans le
@@ -29,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from ossie_studio.cartographie.catalog import Catalog, catalog
-from ossie_studio.cartographie.model import CartoObject, is_empty
+from ossie_studio.cartographie.model import CartoObject, is_empty, object_ref
 from ossie_studio.cartographie.space import Cartographie
 from ossie_studio.imports.target import ItemProblem
 from ossie_studio.mcp_surface.document_type_imports import check_import, checking_store
@@ -47,9 +49,15 @@ def imports_dir(slug: str) -> str:
     return f"{IMPORTS_DIR}/{slug}"
 
 
-def _document(obj: CartoObject) -> dict[str, Any]:
+def _document(obj: CartoObject, space: Cartographie) -> dict[str, Any]:
+    """L'objet tel qu'une ligne le rend, extrémités en `type/CLÉ` quand on les trouve :
+    une relation inchangée se compare égale, qu'elle soit écrite en clé seule (forme
+    d'avant) ou en `type/CLÉ`."""
     doc = obj.document()
     doc.pop("type", None)
+    for end in ("source", "cible"):
+        if isinstance(doc.get(end), str):
+            doc[end] = space.resolve(doc[end]) or doc[end]
     return doc
 
 
@@ -60,7 +68,7 @@ class CartoImportTarget:
     cat: Catalog
 
     def current(self) -> list[dict[str, Any]]:
-        return [_document(o) for _p, o in self.space.objects_of(self.slug)]
+        return [_document(o, self.space) for _p, o in self.space.objects_of(self.slug)]
 
     def normalize(self, item: Any) -> Any:
         """Forme canonique, celle qu'écrirait le fichier : sans documentation ni
@@ -68,7 +76,7 @@ class CartoImportTarget:
         if not isinstance(item, dict) or set(item) - set(FIELDS):
             return item
         obj = self._object(item)
-        return item if obj is None else _document(obj)
+        return item if obj is None else _document(obj, self.space)
 
     def _object(self, item: dict[str, Any]) -> CartoObject | None:
         texts = ("cle", "nom", "documentation", "source", "cible", "type")
@@ -131,7 +139,7 @@ class CartoImportTarget:
                 (
                     doc_type.locate(None, self._identity(item)),
                     item,
-                    item["cle"] not in self.space.objects,
+                    object_ref(self.slug, item["cle"]) not in self.space.objects,
                 )
                 for item in pending
             ],

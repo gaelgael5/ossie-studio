@@ -44,7 +44,7 @@ const ICON = '<svg viewBox="0 0 16 16"></svg>'
 function summary(detail: boolean) {
   return {
     key: 'PRC-VENTE', name: 'Vente — détail', path: 'cartographie/processus/prc-vente.bpmn', errors: 0, readable: true,
-    detail_of: detail ? { key: 'PRC-PRISE-COMMANDE', name: 'Prise de commande', exists: true } : null,
+    detail_of: detail ? { key: 'PRC-PRISE-COMMANDE', ref: 'processus-metier/PRC-PRISE-COMMANDE', name: 'Prise de commande', exists: true } : null,
     participants: 0, lanes: 0, attached: 0, pools: [], preview: { boxes: [], links: [] }, dates: null, state: null,
     problems: [],
   }
@@ -54,7 +54,7 @@ const OBJECTS = [
   ['ACT-CLIENT', 'Client', 'BusinessActor', 'acteur', 'Acteur'],
   ['ROL-VENDEUR', 'Vendeur', 'BusinessRole', 'role', 'Rôle'],
 ].map(([key, name, archimate, type, type_title]) => ({
-  key, name, archimate, type, type_title, excerpt: '', properties: [], relations: 0, is_relation: false,
+  key, name, archimate, type, ref: `${type}/${key}`, type_title, excerpt: '', properties: [], relations: 0, is_relation: false,
   source: null, target: null, path: 'p', dates: null, state: null,
 }))
 const CATALOG = {
@@ -70,8 +70,8 @@ const DROPS: Record<string, unknown> = {
   'ACT-CLIENT': {
     nom: 'Client', type: 'acteur', genre: 'participant',
     avertissement: {
-      code: 'process_drop_not_linked', relation: 'Assignment', source: 'ACT-CLIENT', source_name: 'Client',
-      target: 'PRC-PRISE-COMMANDE', target_name: 'Prise de commande',
+      code: 'process_drop_not_linked', relation: 'Assignment', source: 'acteur/ACT-CLIENT', source_name: 'Client',
+      target: 'processus-metier/PRC-PRISE-COMMANDE', target_name: 'Prise de commande',
     },
   },
   'COL-VENTE-EN-LIGNE': {
@@ -101,7 +101,7 @@ function setup(options: { capabilities?: string[]; detail?: boolean; saveRefused
       if (path === '/api/session') body = { authenticated: true, capabilities }
       else if (p === `${BASE}/catalogue`) body = CATALOG
       else if (p === `${BASE}/objets` && method === 'GET') body = { readonly: false, objects: OBJECTS }
-      else if (p === `${BASE}/objets/ACT-CLIENT/relations-permises`) {
+      else if (p === `${BASE}/objets/acteur/ACT-CLIENT/relations-permises`) {
         body = {
           archimate: ['Assignment', 'Association'],
           types: [
@@ -165,7 +165,7 @@ describe('Cartographie — ouvrir et enregistrer un processus (ticket 48335b93)'
     expect(element.loaded).toEqual({ xml: XML, references: REFERENCES })
     expect(element.readOnly).toBe(false)
     expect(screen.getByRole('heading', { name: 'Vente — détail' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Prise de commande' })).toHaveAttribute('href', '/cartographie/objets/PRC-PRISE-COMMANDE')
+    expect(screen.getByRole('link', { name: 'Prise de commande' })).toHaveAttribute('href', '/cartographie/objets/processus-metier/PRC-PRISE-COMMANDE')
   })
 
   it('boîte à outils : « Liés au processus » puis « Autres objets de l’espace » (critère 1)', async () => {
@@ -200,7 +200,7 @@ describe('Cartographie — ouvrir et enregistrer un processus (ticket 48335b93)'
     expect(within(dialog).getByText('ACT-CLIENT')).toBeInTheDocument()
     expect(within(dialog).getAllByText('PRC-PRISE-COMMANDE').length).toBeGreaterThan(0)
     await waitFor(() => expect(within(dialog).getByText(/^Affectation/, { selector: '.carto-arrow span' })).toBeInTheDocument())
-    expect(calls.some((c) => c.path.includes('/objets/ACT-CLIENT/relations-permises?cible=PRC-PRISE-COMMANDE'))).toBe(true)
+    expect(calls.some((c) => c.path.includes('/objets/acteur/ACT-CLIENT/relations-permises?cible=processus-metier%2FPRC-PRISE-COMMANDE'))).toBe(true)
   })
 
   it('poser une collaboration : ses membres passent au composant ; elle compte ensuite pour la pose (critère 3)', async () => {
@@ -274,11 +274,11 @@ describe('Cartographie — ouvrir et enregistrer un processus (ticket 48335b93)'
     const prompt = await screen.findByRole('region', { name: 'Rattacher ce processus à un processus métier' })
     const user = userEvent.setup()
     await waitFor(() => expect(within(prompt).getByRole('option', { name: /Prise de commande/ })).toBeInTheDocument())
-    await user.selectOptions(within(prompt).getByLabelText('Détail du processus métier'), 'PRC-PRISE-COMMANDE')
+    await user.selectOptions(within(prompt).getByLabelText('Détail du processus métier'), 'processus-metier/PRC-PRISE-COMMANDE')
     await user.click(within(prompt).getByRole('button', { name: 'Rattacher et ouvrir' }))
     await editor()
     const attach = calls.find((c) => c.path.endsWith('/rattacher'))
-    expect(JSON.parse(attach!.body!)).toEqual({ detail_of: 'PRC-PRISE-COMMANDE' })
+    expect(JSON.parse(attach!.body!)).toEqual({ detail_of: 'processus-metier/PRC-PRISE-COMMANDE' })
   })
 
   it('sans le droit de modifier : lecture seule, sans demande de rattachement (critère 8)', async () => {

@@ -42,7 +42,7 @@ from lxml import etree
 
 from ossie_studio.cartographie.catalog import Catalog, catalog
 from ossie_studio.cartographie.errors import CartographieError, Problem
-from ossie_studio.cartographie.model import CARTO_DIR, is_valid_key
+from ossie_studio.cartographie.model import CARTO_DIR, is_valid_key, object_ref, split_ref
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
 
 PROCESSES_DIR = f"{CARTO_DIR}/processus"
@@ -104,6 +104,12 @@ class Reference:
     key: str
     type: str = ""  # slug du type de l'espace, tel que l'extension le garde
 
+    @property
+    def designation(self) -> str:
+        """L'objet désigné : `type/CLÉ`, ou la clé seule si l'extension n'a pas de
+        type (lue comme une extrémité de relation, ticket 421832ee)."""
+        return object_ref(self.type, self.key) if self.type else self.key
+
 
 @dataclass(frozen=True)
 class Shape:
@@ -148,6 +154,16 @@ class Process:
         return next((r.key for r in self.references if r.kind == "process"), None)
 
     @property
+    def detail_reference(self) -> Reference | None:
+        """La référence au processus métier détaillé."""
+        return next((r for r in self.references if r.kind == "process"), None)
+
+    def detail_in(self, space: Cartographie) -> str | None:
+        """Le processus métier détaillé (`type/CLÉ`), trouvé dans la cartographie."""
+        reference = self.detail_reference
+        return resolve_reference(space, reference) if reference is not None else None
+
+    @property
     def collaborations(self) -> list[Reference]:
         return [r for r in self.references if r.kind == "collaboration"]
 
@@ -156,13 +172,23 @@ class Process:
         return [r for r in self.references if r.kind not in ("process", "collaboration")]
 
 
+def resolve_reference(space: Cartographie, reference: Reference) -> str | None:
+    """L'objet (`type/CLÉ`) qu'une référence désigne : par son type et sa clé ; à défaut
+    (pas de type, ou un type que l'objet n'a pas — fichier venu d'un autre espace),
+    par sa clé seule si elle n'existe que dans un type (ticket 421832ee)."""
+    return space.resolve(reference.designation) or space.resolve(reference.key)
+
+
 def _reference_of(element: Element) -> tuple[str, str] | None:
     for child in element:
         if _local(child.tag) != (BPMN_NS, "extensionElements"):
             continue
         for value in child:
             if _local(value.tag) == (URBAN_NS, "reference") and value.get("cle"):
-                return str(value.get("cle")), str(value.get("type") or "")
+                # Une clé écrite `type/CLÉ` (outil d'un objet dont la clé seule serait
+                # ambiguë) se lit comme la clé et son type.
+                type_slug, key = split_ref(str(value.get("cle")))
+                return key, str(value.get("type") or type_slug or "")
     return None
 
 
@@ -255,10 +281,11 @@ def check_process(
     if process.id != key:
         add("process_id_mismatch", process.id, "definitions")
     for ref in process.references:
-        if ref.key not in space.objects:
+        target = resolve_reference(space, ref)
+        if target is None:
             add("process_reference_unknown", ref.key, ref.element)
             continue
-        archimate = space.archimate(ref.key)
+        archimate = space.archimate(target)
         if ref.kind == "process" and archimate != DETAIL_ARCHIMATE:
             add("process_detail_not_business_process", ref.key, ref.element)
         if ref.kind == "collaboration" and archimate != COLLABORATION_ARCHIMATE:
@@ -311,20 +338,22 @@ def referenced_objects(process: Process, space: Cartographie) -> list[dict[str, 
     composant à l'ouverture (`references`) pour remettre les noms des éléments."""
     out: dict[str, dict[str, Any]] = {}
     for ref in process.references:
-        found = space.objects.get(ref.key)
+        found = space.find(resolve_reference(space, ref))
         if found is None or ref.key in out:
             continue
         out[ref.key] = {"cle": ref.key, "nom": found[1].name, "type": found[1].type}
     return list(out.values())
 
 
-def processes_detailing(root: Path, key: str) -> list[str]:
-    """Les processus BPMN qui détaillent un processus métier (par sa clé)."""
+def processes_detailing(root: Path, ref: str) -> list[str]:
+    """Les processus BPMN qui détaillent un processus métier (`type/CLÉ`)."""
+    space = read_cartographie(root)
+    wanted = space.resolve(ref) or ref
     out = []
     for process_key in list_processes(root):
         try:
             text = (root / process_path(process_key)).read_text(encoding="utf-8")
-            if parse_process(text).detail_of == key:
+            if parse_process(text).detail_in(space) == wanted:
                 out.append(process_key)
         except (CartographieError, UnicodeDecodeError):
             continue
@@ -456,13 +485,14 @@ def _direct_child(text: str, start: int, position: int) -> bool:
     return between.strip() == ""
 
 
-def new_process_xml(key: str, name: str, detail_of: str | None = None) -> str:
+def new_process_xml(
+    key: str, name: str, detail_of: str | None = None, detail_type: str = ""
+) -> str:
     """Un processus neuf : un événement de début, dessiné."""
     escaped = _escape(name)
+    reference = _reference_xml(detail_of, detail_type) if detail_of else ""
     extension = (
-        f"\n    <bpmn:extensionElements>{_reference_xml(detail_of, '')}</bpmn:extensionElements>"
-        if detail_of
-        else ""
+        f"\n    <bpmn:extensionElements>{reference}</bpmn:extensionElements>" if detail_of else ""
     )
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="{BPMN_NS}" xmlns:bpmndi="{BPMNDI_NS}"
@@ -537,7 +567,7 @@ def save_process(
     if not create and not exists:
         raise CartographieError("process_not_found", status=404, key=key)
     parse_process(text)  # illisible ou pas du BPMN : refusé avec le message de l'analyseur
-    text = with_definitions_id(text, key)
+    text = with_definitions_id(_split_reference_keys(text), key)
     process = parse_process(text)
     check_bpmn_schema(text)
     problems = check_process(process, path, key, read_cartographie(root, cat), cat)
@@ -546,6 +576,27 @@ def save_process(
     (root / PROCESSES_DIR).mkdir(parents=True, exist_ok=True)
     (root / path).write_text(text, encoding="utf-8")
     return []
+
+
+# Une référence dont la clé est écrite `type/CLÉ` (l'outil d'un objet dont la clé seule
+# serait ambiguë : le composant recopie l'identifiant de l'outil) : la clé reprend sa
+# forme seule, le type reste dans son attribut (ticket 421832ee).
+_TYPED_KEY = re.compile(
+    r"(<(?:[A-Za-z_][\w.-]*:)?reference\b[^>]*?\scle\s*=\s*[\"'])"
+    r"([a-z0-9]+(?:-[a-z0-9]+)*)/([A-Z0-9]+(?:-[A-Z0-9]+)*)(?=[\"'])"
+)
+
+
+def _split_reference_keys(text: str) -> str:
+    """Le même texte, chaque clé `type/CLÉ` d'une référence typée remise en clé seule
+    (une référence sans attribut `type` garde sa forme : elle se lit quand même)."""
+
+    def fix(match: re.Match[str]) -> str:
+        tag_end = text.find(">", match.end())
+        typed = re.search(r"\stype\s*=", text[match.start() : tag_end])
+        return match.group(1) + match.group(3) if typed else match.group(0)
+
+    return _TYPED_KEY.sub(fix, text)
 
 
 def delete_process(root: Path, key: str) -> None:
@@ -583,7 +634,7 @@ def preview(process: Process, space: Cartographie) -> dict[str, Any]:
 
     def label(shape: Shape) -> str:
         ref = by_element.get(shape.element)
-        found = space.objects.get(ref.key) if ref else None
+        found = space.find(resolve_reference(space, ref)) if ref else None
         return found[1].name if found else shape.name
 
     return {

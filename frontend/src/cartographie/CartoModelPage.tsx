@@ -61,15 +61,29 @@ function ModelScreen({ spaceId, branchId, slug }: { spaceId: string; branchId: s
     // Le composant garde le dessin en cours : on ne le recharge pas dans son dos.
     refetchOnWindowFocus: false,
   })
+  // Le composant désigne un objet par sa clé seule (celle des nœuds) ; l'API par
+  // `type/CLÉ` (ticket 421832ee). Un modèle ne retient pas deux objets de même clé :
+  // ses documents (et les objets posés depuis l'ouverture) donnent le type.
+  const refs = useRef(new Map<string, string>())
+  const documents = (hydrated.data?.documents ?? []) as { data?: { cle?: string; type?: string } }[]
+  for (const d of documents) {
+    if (d.data?.cle && d.data.type) refs.current.set(d.data.cle, `${d.data.type}/${d.data.cle}`)
+  }
   const delegates = useMemo<ArchimateDelegates>(
     () => ({
       toolbox: async ({ pointDeVue }) => {
         const answer = await api.getCartoModelToolbox(spaceId, branchId, slug, pointDeVue ?? '')
         return answer.groupes.map((g) => (g.id === RELATIONS_GROUP ? { ...g, libelle: t('cartoToolboxRelations') } : g))
       },
-      drop: (cle) => api.dropCartoModelObject(spaceId, branchId, slug, cle),
+      drop: async (cle) => {
+        const dropped = await api.dropCartoModelObject(spaceId, branchId, slug, cle)
+        const data = dropped.objet.data as { cle?: string; type?: string }
+        if (data.cle && data.type) refs.current.set(data.cle, `${data.type}/${data.cle}`)
+        return dropped
+      },
       allowedRelations: async (source, target) => {
-        const answer = await api.listRelationTypes(spaceId, branchId, source, target)
+        const ref = (key: string) => refs.current.get(key) ?? key
+        const answer = await api.listRelationTypes(spaceId, branchId, ref(source), ref(target))
         return answer.types.map((ty) => ({ type: ty.slug, archimate: ty.archimate, libelle: ty.title, schema: ty.type_schema }))
       },
     }),

@@ -145,7 +145,7 @@ function AppRoutes() {
         <Route path="/cartographie/types/:slug" element={gate('cartographie:read', <CartoTypePage />)} />
         <Route path="/cartographie/objets" element={gate('cartographie:read', <CartographiePage />)} />
         <Route path="/cartographie/objets/nouveau" element={gate('cartographie:read', <CartoObjectPage />)} />
-        <Route path="/cartographie/objets/:key" element={gate('cartographie:read', <CartoObjectPage />)} />
+        <Route path="/cartographie/objets/:type/:key" element={gate('cartographie:read', <CartoObjectPage />)} />
         <Route path="/cartographie/modeles" element={gate('cartographie:read', <CartographiePage />)} />
         <Route path="/cartographie/modeles/:slug" element={gate('cartographie:read', <CartoModelPage />)} />
         <Route path="/cartographie/processus" element={gate('cartographie:read', <CartographiePage />)} />

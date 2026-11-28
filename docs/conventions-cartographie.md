@@ -119,21 +119,30 @@ proprietes:
   volume_jour: 160
 ```
 
-Une **relation** est un objet comme les autres, avec `source` et `cible` (clés
-d'objets ou de relations) :
+Une **relation** est un objet comme les autres, avec `source` et `cible` (objets ou
+relations, désignés par `<slug du type>/<CLÉ>`) :
 
 ```yaml
 cle: REL-PRISE-COMMANDE-ECRIT-COMMANDE
 type: acces
-source: PRC-PRISE-COMMANDE
-cible: OBJ-COMMANDE
+source: processus-de-vente/PRC-PRISE-COMMANDE
+cible: objet-metier/OBJ-COMMANDE
 nom: Écrit la commande
 proprietes:
   acces: Write
 ```
 
-- **clé fonctionnelle** : majuscules, chiffres et tirets, **unique dans l'espace tous
-  types confondus**, **figée** ; c'est l'identifiant de l'objet partout ;
+- **clé fonctionnelle** : majuscules, chiffres et tirets, **unique dans son type**,
+  **figée**. L'identité d'un objet est **(type, clé)**, écrite `<type>/<CLÉ>` : deux
+  types peuvent porter la même clé (ticket 421832ee, Gael : « On ne peut pas garantir
+  dans les imports que les clefs que nous définissons sont uniques à travers tous les
+  types. On assure l'unicité uniquement dans un type. »). La fiche d'un objet est
+  `/cartographie/objets/<type>/<CLÉ>` (écran et API) ;
+- **extrémités d'une relation** : `<type>/<CLÉ>`. Une clé seule (forme d'avant) se lit
+  encore quand elle n'existe que dans un type, et la relation est réécrite en
+  `type/CLÉ` à sa prochaine écriture (pas de réécriture en masse). Présente dans
+  plusieurs types, elle est signalée sur la relation (`relation_endpoint_ambiguous`),
+  sans bloquer le reste de l'espace ;
 - `documentation` : du markdown (rédigé avec BlockNote) ;
 - `proprietes` : attributs ArchiMate (valeurs ArchiMate, jamais le libellé
   français) et propriétés ajoutées, validés par le schéma du type ; rien d'autre
@@ -149,9 +158,11 @@ proprietes:
 `cartographie.space.read_cartographie` lit toute la cartographie d'une branche et
 signale : fichier illisible ; objet rangé hors de `cartographie/objets/<type>/`
 (`object_misplaced`) ou sous le dossier d'un autre type (`object_wrong_folder`) ;
-clé différente du nom du fichier (`object_key_mismatch`) ; **clé en double**
-(`object_key_duplicate` — aucune écriture n'est acceptée tant que ce n'est pas
-corrigé) ; extrémité de relation absente (`relation_endpoint_unknown`) ; relation
+clé différente du nom du fichier (`object_key_mismatch`) ; **clé en double dans un
+même type** (`object_key_duplicate` — aucune écriture n'est acceptée tant que ce
+n'est pas corrigé ; deux types qui portent la même clé n'en sont pas une) ; extrémité
+de relation absente (`relation_endpoint_unknown`) ou désignée par une clé seule
+présente dans plusieurs types (`relation_endpoint_ambiguous`) ; relation
 que les règles d'ArchiMate ne permettent pas entre les types de ses extrémités
 (`relation_not_allowed`, avec « source -> cible : relation ») ; propriété
 hors du schéma (`property_invalid`, `property_unknown`, `property_required`, avec
@@ -259,8 +270,12 @@ et ses délégués : `toolbox` → `GET …/{slug}/outils?point_de_vue=` (objets
 par type avec le pictogramme de leur type ArchiMate, puis les relations existantes ;
 le point de vue filtre ; aucun outil de création), `drop` → `GET …/{slug}/pose/{clé}`
 (objet, schéma de son type, bloc de règles), `allowedRelations` → `GET
-…/objets/{source}/relations-permises?cible=` (types de relation de l'espace avec leur
-`type_schema`). Un modèle « à nettoyer » s'ouvre sans ses documents inutiles ; tout
+…/objets/{type}/{clé}/relations-permises?cible=<type>/<CLÉ>` (types de relation de
+l'espace avec leur `type_schema`). Le composant désigne un objet par la clé de son
+nœud ; l'écran la traduit en `type/CLÉ` par les documents du modèle. Un outil de la
+boîte porte `type/CLÉ` (le composant le rend tel quel au délégué de pose). Un modèle
+ne retient pas deux objets de même clé (`model_key_ambiguous`) : son format ne change
+pas, ses clés se lisent par ses `documents`. Un modèle « à nettoyer » s'ouvre sans ses documents inutiles ; tout
 autre problème refuse l'ouverture (`model_invalid`, 409). Sans le droit
 « Cartographie : modifier », le diagramme est en lecture seule. Le thème suit Ossie
 par le raccord `urban-archimate { --ua-* }` de `styles.css` (repris du contrat).
@@ -306,7 +321,11 @@ Epic « Cartographie — processus BPMN » (docflow f97e7afe), enabler 1d35290d.
   processus métier détaillé (`BusinessProcess`) ; sur `bpmn:collaboration` : la
   collaboration métier (`BusinessCollaboration`, une seule) ; sur un participant, un
   couloir, un objet ou un stockage de données : l'objet Ossie. Quand Ossie ajoute une
-  référence, il déclare l'espace de noms sur la balise elle-même.
+  référence, il déclare l'espace de noms sur la balise elle-même. L'objet se retrouve
+  par son type et sa clé ; à défaut (pas de type, ou un type que l'objet n'a pas —
+  fichier venu d'un autre espace), par sa clé seule si elle n'existe que dans un type
+  (ticket 421832ee). Un outil de la boîte porte la clé seule, sauf si elle est ambiguë :
+  il porte alors `type/CLÉ`, et l'enregistrement remet la clé seule dans `cle`.
 - **Noms** : le XML garde le nom de chaque élément rattaché ; la source est l'objet Ossie.
   `referenced_objects` donne la liste (clé, nom à jour, type) que le composant reçoit à
   l'ouverture (`references`) et applique.

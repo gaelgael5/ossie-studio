@@ -26,8 +26,14 @@ import yaml
 
 from ossie_studio.cartographie import diagram as carto_diagram
 from ossie_studio.cartographie.errors import CartographieError
-from ossie_studio.cartographie.model import CartoObject, parse_type
-from ossie_studio.cartographie.process import delete_process, parse_process, save_process
+from ossie_studio.cartographie.model import CartoObject, object_ref, parse_type
+from ossie_studio.cartographie.process import (
+    Process,
+    delete_process,
+    parse_process,
+    resolve_reference,
+    save_process,
+)
 from ossie_studio.cartographie.process_tools import is_linked
 from ossie_studio.cartographie.space import (
     Cartographie,
@@ -246,7 +252,8 @@ class CartoObjectStore:
         )
 
     def delete(self, root: Path, location: Location) -> None:
-        carto_diagram.delete_object(root, location.identity["key"])
+        identity = location.identity
+        carto_diagram.delete_object(root, object_ref(identity["type"], identity["key"]))
 
 
 class CartoModelStore:
@@ -334,22 +341,25 @@ class ProcessStore:
                 "bpmn:process (voir describe_standard bpmn).",
             )
         save_process(root, location.identity["key"], content, create=create)
-        return _soft_warnings(root, process.detail_of, process.attached())
+        return _soft_warnings(root, process, process.attached())
 
     def delete(self, root: Path, location: Location) -> None:
         delete_process(root, location.identity["key"])
 
 
-def _soft_warnings(root: Path, detail_of: str, attached: list[Any]) -> list[str]:
+def _soft_warnings(root: Path, process: Process, attached: list[Any]) -> list[str]:
     """Les éléments rattachés à un objet que le processus métier ne relie pas
     (règle « souple » de l'epic Processus BPMN)."""
     space = read_cartographie(root)
-    detail = space.objects.get(detail_of)
-    detail_name = detail[1].name if detail else detail_of
+    detail_of = process.detail_in(space)
+    detail = space.find(detail_of)
+    detail_name = detail[1].name if detail else process.detail_of
     out = []
     for ref in attached:
-        found = space.objects.get(ref.key)
-        if found is not None and not is_linked(space, detail_of, ref.key):
+        found = space.find(resolve_reference(space, ref))
+        if found is None or detail_of is None:
+            continue
+        if not is_linked(space, detail_of, found[1].ref):
             out.append(
                 f"{found[1].name or ref.key} ({ref.key}) n'est pas relié à {detail_name} dans la "
                 "cartographie."

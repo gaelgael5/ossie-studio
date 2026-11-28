@@ -96,7 +96,7 @@ function ProcessScreen({ spaceId, branchId, processKey }: { spaceId: string; bra
   const summaries = objects.data?.objects
   const choices = (summaries ?? [])
     .filter((o) => o.archimate === 'BusinessProcess')
-    .map((o) => ({ key: o.key, name: o.name }))
+    .map((o) => ({ key: o.key, ref: o.ref, name: o.name }))
 
   const delegates = useMemo<BpmnDelegates>(
     () => ({
@@ -123,7 +123,8 @@ function ProcessScreen({ spaceId, branchId, processKey }: { spaceId: string; bra
       },
       action: (_cle, action) => {
         const [kind, archimate, source, target] = action.split('|')
-        const found = (k: string) => summaries?.find((o) => o.key === k)
+        // La relation qui manque désigne ses extrémités par `type/CLÉ` (ticket 421832ee).
+        const found = (ref: string) => summaries?.find((o) => o.ref === ref)
         const from = found(source)
         const to = found(target)
         if (kind === RELATION_ACTION && from && to) setRelating({ source: from, target: to, archimate })
@@ -178,7 +179,7 @@ function ProcessScreen({ spaceId, branchId, processKey }: { spaceId: string; bra
             {data ? (
               detail ? (
                 <span className="carto-process-detail">
-                  {t('cartoProcessDetailOf')} <Link to={cartoObjectPath(detail.key)}>{detail.name ?? detail.key}</Link>
+                  {t('cartoProcessDetailOf')} <Link to={cartoObjectPath(detail.ref)}>{detail.name ?? detail.key}</Link>
                 </span>
               ) : (
                 <span className="carto-model-warn carto-process-unattached">{t('cartoProcessUnattached')}</span>

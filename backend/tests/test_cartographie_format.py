@@ -115,13 +115,18 @@ def test_creer_un_objet(root: Path) -> None:
     save_object(root, CartoObject("APP-BOUTIQUE", "application", "Boutique"), create=True)
     path = root / "cartographie/objets/application/app-boutique.yaml"
     assert path.read_text() == "cle: APP-BOUTIQUE\ntype: application\nnom: Boutique\n"
-    # Clé unique tous types confondus, et figée.
+    # Clé unique dans son type (ticket 421832ee) : un autre type peut la porter.
     with pytest.raises(CartographieError) as taken:
-        save_object(root, CartoObject("APP-BOUTIQUE", "objet-metier", "Autre"), create=True)
-    assert taken.value.code == "object_key_taken"
-    with pytest.raises(CartographieError) as frozen:
-        save_object(root, CartoObject("APP-BOUTIQUE", "objet-metier", "Autre"), create=False)
-    assert frozen.value.code == "object_type_frozen"
+        save_object(root, CartoObject("APP-BOUTIQUE", "application", "Autre"), create=True)
+    assert (taken.value.code, taken.value.detail["type"]) == ("object_key_taken", "application")
+    save_object(root, CartoObject("APP-BOUTIQUE", "objet-metier", "Autre"), create=True)
+    assert set(read_cartographie(root).objects) == {
+        "application/APP-BOUTIQUE",
+        "objet-metier/APP-BOUTIQUE",
+    }
+    with pytest.raises(CartographieError) as missing:
+        save_object(root, CartoObject("APP-BOUTIQUE", "acces", "Autre"), create=False)
+    assert missing.value.code == "object_not_found"
     with pytest.raises(CartographieError) as invalid:
         save_object(root, CartoObject("app boutique", "application", "X"), create=True)
     assert invalid.value.code == "object_invalid"
@@ -154,6 +159,8 @@ def test_cle_et_dossier_incoherents(root: Path) -> None:
 
 
 def test_cle_en_double_bloque_les_ecritures(root: Path) -> None:
+    """Une clé en double l'est dans un même type (ici, un second fichier rangé ailleurs
+    déclare le même type) ; deux types qui portent la même clé n'en sont pas une."""
     _write(
         root,
         "cartographie/objets/application/app-a.yaml",
@@ -163,6 +170,12 @@ def test_cle_en_double_bloque_les_ecritures(root: Path) -> None:
         root,
         "cartographie/objets/objet-metier/app-a.yaml",
         "cle: APP-A\ntype: objet-metier\nnom: A bis\n",
+    )
+    assert not {c for _p, c in _codes(root)} & {"object_key_duplicate"}
+    _write(
+        root,
+        "cartographie/objets/objet-metier/app-a.yaml",
+        "cle: APP-A\ntype: application\nnom: A bis\n",
     )
     codes = _codes(root)
     assert ("cartographie/objets/application/app-a.yaml", "object_key_duplicate") in codes
@@ -223,9 +236,11 @@ def test_relation_acces_ecriture(root: Path) -> None:
     )
     save_object(root, relation, create=True)
     text = (root / "cartographie/objets/acces/rel-prise-commande-ecrit-commande.yaml").read_text()
+    # Les extrémités sont écrites `type/CLÉ` (ticket 421832ee), même données en clé seule.
     assert text == (
-        "cle: REL-PRISE-COMMANDE-ECRIT-COMMANDE\ntype: acces\nsource: PRC-PRISE-COMMANDE\n"
-        "cible: OBJ-COMMANDE\nnom: Écrit la commande\nproprietes:\n  acces: Write\n"
+        "cle: REL-PRISE-COMMANDE-ECRIT-COMMANDE\ntype: acces\n"
+        "source: processus-de-vente/PRC-PRISE-COMMANDE\ncible: objet-metier/OBJ-COMMANDE\n"
+        "nom: Écrit la commande\nproprietes:\n  acces: Write\n"
     )
     # Le libellé français vient du catalogue ; seule la valeur ArchiMate est stockée.
     access = catalog().get("Access")
@@ -245,10 +260,10 @@ def test_relation_acces_ecriture(root: Path) -> None:
         )
     # Un objet encore utilisé par une relation ne peut pas être supprimé.
     with pytest.raises(CartographieError) as used:
-        delete_object(root, "OBJ-COMMANDE")
+        delete_object(root, "objet-metier/OBJ-COMMANDE")
     assert used.value.code == "object_in_use"
-    delete_object(root, "REL-PRISE-COMMANDE-ECRIT-COMMANDE")
-    delete_object(root, "OBJ-COMMANDE")
+    delete_object(root, "acces/REL-PRISE-COMMANDE-ECRIT-COMMANDE")
+    delete_object(root, "objet-metier/OBJ-COMMANDE")
     assert not (root / object_path("objet-metier", "OBJ-COMMANDE")).exists()
 
 
@@ -257,7 +272,7 @@ def test_documentation_markdown_relue_a_l_identique(root: Path) -> None:
         "Du panier validé jusqu'à la commande **enregistrée**.\n\n- contrôle du stock ;\n- envoi.\n"
     )
     save_object(root, CartoObject("APP-DOC", "application", "Doc", documentation=doc), create=True)
-    read = read_cartographie(root).objects["APP-DOC"][1]
+    read = read_cartographie(root).objects["application/APP-DOC"][1]
     assert read.documentation == doc
 
 
@@ -319,3 +334,26 @@ def test_exemples_des_conventions() -> None:
     from ossie_studio.cartographie.model import dump_type, parse_type
 
     assert dump_type(parse_type("processus-de-vente", ctype_block)) == ctype_block
+
+
+def test_relation_en_cle_seule_ambigue_signalee_sans_bloquer(root: Path) -> None:
+    """Ticket 421832ee : une relation écrite en clé seule (forme d'avant) se lit tant
+    que la clé n'existe que dans un type ; présente dans deux types, elle est signalée
+    sur la relation, et le reste de l'espace s'écrit toujours."""
+    _write(root, "cartographie/objets/processus-de-vente/prc-a.yaml",
+           "cle: PRC-A\ntype: processus-de-vente\nnom: A\n")  # fmt: skip
+    _write(root, "cartographie/objets/objet-metier/smo.yaml",
+           "cle: SMO\ntype: objet-metier\nnom: Fiche\n")  # fmt: skip
+    _write(root, "cartographie/objets/acces/rel-lit.yaml",
+           "cle: REL-LIT\ntype: acces\nsource: PRC-A\ncible: SMO\nnom: Lit\n")  # fmt: skip
+    space = read_cartographie(root)
+    assert space.problems == []
+    assert space.users("objet-metier/SMO") == ["acces/REL-LIT"]
+    save_object(root, CartoObject("SMO", "application", "SMO"), create=True)
+    assert ("cartographie/objets/acces/rel-lit.yaml", "relation_endpoint_ambiguous") in _codes(root)
+    save_object(root, CartoObject("APP-B", "application", "B"), create=True)  # rien ne bloque
+    # Désignée par `type/CLÉ`, l'extrémité n'est plus ambiguë.
+    relation = CartoObject("REL-LIT", "acces", "Lit", source="PRC-A", target="objet-metier/SMO")
+    written = save_object(root, relation, create=False)
+    assert (written.source, written.target) == ("processus-de-vente/PRC-A", "objet-metier/SMO")
+    assert not {c for _p, c in _codes(root)} & {"relation_endpoint_ambiguous"}

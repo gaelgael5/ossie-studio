@@ -11,7 +11,9 @@ Content — the model file (never coordinates, never object content):
 - `regles`: path of its rules file, `cartographie/regles/<slug>.rules.yaml` (see `carto-regles`).
 - `graphique`: path of its drawing, `cartographie/modeles/<model slug>.graphique.yaml`.
 - `documents`: paths of the object files it loads; every kept key must have its document.
-- `elements` / `relationships`: the keys of the objects / relationships it keeps.
+- `elements` / `relationships`: the keys of the objects / relationships it keeps (the key alone:
+  its document says its type). A model cannot keep two objects with the same key
+  (`model_key_ambiguous`).
 - `vues`: list of views: `id`, `nom`, `point_de_vue` (optional ArchiMate viewpoint), `noeuds`
   (each with its own `id` and an `element` key, a `note` or a `cadre`, and `enfants`) and
   `connexions` (`id`, `relationship` key, `de` and `vers` node ids). A node or connection only
@@ -22,7 +24,7 @@ A new model gets an empty drawing; replacing a model keeps its drawing (`carto_g
 ```yaml example
 - document_type: carto_objet
   identity: {type: acces, key: REL-PRISE-ECRIT-COMMANDE}
-  content: {cle: REL-PRISE-ECRIT-COMMANDE, type: acces, source: PRC-PRISE-COMMANDE, cible: OBJ-COMMANDE, nom: Écrit}
+  content: {cle: REL-PRISE-ECRIT-COMMANDE, type: acces, source: processus-metier/PRC-PRISE-COMMANDE, cible: document-metier/OBJ-COMMANDE, nom: Écrit}
 - document_type: carto_modele
   identity: {slug: vente}
   content:

@@ -306,7 +306,7 @@ async def test_supprimer_un_objet_utilise(app: FastAPI, space: ApiSpace) -> None
     [problem] = body["errors"]
     assert problem["path"] == "$.documents[0].delete"
     assert problem["code"] == "carto_object_in_use"
-    assert problem["relations"] == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
+    assert problem["relations"] == ["acces/REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
     delete_rel = {
         "document_type": "carto_objet",
         "identity": REL_ID,

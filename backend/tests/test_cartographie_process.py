@@ -131,7 +131,7 @@ def test_le_nom_a_jour_vient_de_l_objet(root: Path) -> None:
 def test_reference_vers_une_cle_supprimee(root: Path) -> None:
     """Critère 4."""
     save_process(root, KEY, BPMN_IO, create=True)
-    delete_object(root, "OBJ-COMMANDE")
+    delete_object(root, "objet-metier/OBJ-COMMANDE")
     assert _codes(root) == {("process_reference_unknown", "OBJ-COMMANDE", "Data_1")}
 
 
@@ -231,7 +231,7 @@ def test_un_processus_neuf(root: Path) -> None:
     assert read_process(root, "PRC-NEUF").problems == []
     assert processes_detailing(root, "PRC-PRISE-COMMANDE") == ["PRC-NEUF"]
     delete_process(root, "PRC-NEUF")
-    assert list_processes(root) == [] and "ROL-VENDEUR" in read_cartographie(root).objects
+    assert list_processes(root) == [] and "role/ROL-VENDEUR" in read_cartographie(root).objects
     with pytest.raises(CartographieError) as gone:
         read_process(root, "PRC-NEUF")
     assert gone.value.code == "process_not_found"

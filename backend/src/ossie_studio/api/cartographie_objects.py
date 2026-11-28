@@ -6,6 +6,10 @@ brouillon de la personne (comme les types). Ses dates et auteurs viennent de
 l'historique Git de la branche ; un objet du seul brouillon n'en a pas encore.
 Une relation est un objet comme les autres : elle a sa fiche ; elle se crée avec
 le ticket « Relations » (b58a0a13), elle se lit ici sur la fiche de ses extrémités.
+
+Un objet est désigné par son type et sa clé (ticket 421832ee) : sa fiche est
+`/objets/<type>/<CLÉ>`, et la réponse porte son identifiant `ref` (`type/CLÉ`), celui
+qu'utilisent les extrémités d'une relation.
 """
 
 from __future__ import annotations
@@ -33,7 +37,9 @@ from ossie_studio.cartographie.model import (
     OBJECTS_DIR,
     CartoObject,
     is_empty,
+    object_ref,
     properties_schema,
+    split_ref,
 )
 from ossie_studio.cartographie.process import processes_detailing
 from ossie_studio.cartographie.service import CartographieTarget
@@ -135,15 +141,16 @@ def _summary(
     return {
         "key": obj.key,
         "type": obj.type,
+        "ref": obj.ref,
         "type_title": ctype.title if ctype else obj.type,
         "archimate": ctype.archimate if ctype else "",
         "name": obj.name,
         "excerpt": _excerpt(obj.documentation),
         "properties": shown,
-        "relations": len(space.users(obj.key)),
+        "relations": len(space.users(obj.ref)),
         "is_relation": obj.is_relation,
-        "source": obj.source,
-        "target": obj.target,
+        "source": _canonical(space, obj.source),
+        "target": _canonical(space, obj.target),
         "path": path,
         "dates": dates_payload(dates.get(path)),
     }
@@ -154,21 +161,34 @@ def _with_state(item: dict[str, Any], states: dict[str, str]) -> dict[str, Any]:
     return {**item, "state": state if state in ("created", "modified") else None}
 
 
-def _side(space: Cartographie, relation_key: str, other_key: str | None) -> dict[str, Any]:
+def _canonical(space: Cartographie, value: str | None) -> str | None:
+    """Une extrémité telle qu'elle désigne l'objet : `type/CLÉ` si on le trouve, sinon
+    telle qu'écrite."""
+    return space.resolve(value) or value
+
+
+def _key_of(space: Cartographie, value: str | None) -> str | None:
+    found = space.find(value)
+    return found[1].key if found else (split_ref(value)[1] if value else value)
+
+
+def _side(space: Cartographie, relation_ref: str, other_value: str | None) -> dict[str, Any]:
     """Une ligne du panneau Relations : la relation et l'objet à l'autre bout."""
-    _path, relation = space.objects[relation_key]
+    _path, relation = space.objects[relation_ref]
     rtype = space.types.get(relation.type)
-    other = space.objects.get(other_key or "")
+    other = space.find(other_value)
     other_type = space.types.get(other[1].type) if other else None
     return {
         "key": relation.key,
+        "ref": relation.ref,
         "name": relation.name,
         "type": relation.type,
         "type_title": rtype.title if rtype else relation.type,
         "archimate": rtype.archimate if rtype else "",
         "properties": relation.properties,
         "other": {
-            "key": other_key,
+            "key": _key_of(space, other_value),
+            "ref": _canonical(space, other_value),
             "name": other[1].name if other else None,
             "type_title": other_type.title if other_type else None,
             "exists": other is not None,
@@ -176,12 +196,13 @@ def _side(space: Cartographie, relation_key: str, other_key: str | None) -> dict
     }
 
 
-def _end(space: Cartographie, key: str | None) -> dict[str, Any]:
+def _end(space: Cartographie, value: str | None) -> dict[str, Any]:
     """Une extrémité d'une relation : l'objet (ou la relation) et son type."""
-    found = space.objects.get(key or "")
+    found = space.find(value)
     ctype = space.types.get(found[1].type) if found else None
     return {
-        "key": key,
+        "key": _key_of(space, value),
+        "ref": _canonical(space, value),
         "name": found[1].name if found else None,
         "type_title": ctype.title if ctype else None,
         "archimate": ctype.archimate if ctype else None,
@@ -203,33 +224,34 @@ def _relation_parts(space: Cartographie, obj: CartoObject) -> dict[str, Any]:
 
 def _detail(
     space: Cartographie,
-    key: str,
+    ref: str,
     dates: dict[str, FileDates],
     states: dict[str, str],
     models: list[tuple[str, str]],
     processes: list[str] | None = None,
 ) -> dict[str, Any]:
-    found = space.objects.get(key)
+    found = space.objects.get(ref)
     if found is None:
-        raise ApiError("carto_object_not_found", status_code=404, key=key)
+        raise ApiError("carto_object_not_found", status_code=404, key=ref)
     path, obj = found
     ctype = space.types.get(obj.type)
     base = catalog().get(ctype.archimate) if ctype else None
-    users = space.users(key)
-    outgoing = [k for k in users if space.objects[k][1].source == key]
-    incoming = [k for k in users if space.objects[k][1].target == key]
+    users = space.users(ref)
+    outgoing = [k for k in users if space.ends(space.objects[k][1])[0] == ref]
+    incoming = [k for k in users if space.ends(space.objects[k][1])[1] == ref]
     state = states.get(path)
     return {
         **(_relation_parts(space, obj) if obj.is_relation else {}),
         "key": obj.key,
         "type": obj.type,
+        "ref": obj.ref,
         "type_title": ctype.title if ctype else obj.type,
         "archimate": ctype.archimate if ctype else "",
         "name": obj.name,
         "documentation": obj.documentation,
         "properties": obj.properties,
-        "source": obj.source,
-        "target": obj.target,
+        "source": _canonical(space, obj.source),
+        "target": _canonical(space, obj.target),
         "path": path,
         "schema": properties_schema(ctype, base) if ctype else None,
         "relations": {
@@ -277,7 +299,7 @@ async def list_objects(
     return {"readonly": False, "objects": [_with_state(i, states) for i in items]}
 
 
-@router.get("/{key}")
+@router.get("/{type_slug}/{key}")
 async def get_object(
     conn: ConnDep,
     crypto: CryptoDep,
@@ -286,17 +308,19 @@ async def get_object(
     manager: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
+    type_slug: str,
     key: str,
 ) -> dict[str, object]:
-    """La fiche d'un objet : ses champs, le schéma de ses propriétés (attributs du
-    type ArchiMate et propriétés ajoutées), ses relations sortantes et entrantes,
-    ses dates."""
+    """La fiche d'un objet (désigné par son type et sa clé) : ses champs, le schéma
+    de ses propriétés (attributs du type ArchiMate et propriétés ajoutées), ses
+    relations sortantes et entrantes, ses dates."""
+    ref = object_ref(type_slug, key)
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     try:
         space = await target.cartographie()
-        models = await target.read(lambda root: models_retaining(root, key))
-        processes = await target.read(lambda root: processes_detailing(root, key))
-        found = space.objects.get(key)
+        models = await target.read(lambda root: models_retaining(root, ref))
+        processes = await target.read(lambda root: processes_detailing(root, ref))
+        found = space.objects.get(ref)
         # Le fichier tel qu'il est stocké (ticket 7dc220a4 : l'onglet Résumé d'un type
         # affiche « pour le moment l'objet yaml »), pas une resérialisation.
         text = (
@@ -308,7 +332,7 @@ async def get_object(
         raise ApiError(exc.code, status_code=502) from None
     dates = await carto_history(conn, crypto, manager, space_id, branch_id)
     states = await draft_states(conn, workdir, branch_id)
-    return {**_detail(space, key, dates, states, models, processes), "yaml": text}
+    return {**_detail(space, ref, dates, states, models, processes), "yaml": text}
 
 
 def _stored_text(root: Path, path: str) -> str | None:
@@ -324,21 +348,21 @@ async def _write_and_read(
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
     intent: str,
-    key: str,
+    ref: str,
     fn: Callable[[Path], CartoObject],
 ) -> dict[str, Any]:
     """Écrit dans le brouillon, puis rend la fiche relue (dates, état, relations)."""
     try:
         _result, revision = await target.write(intent, fn)
         space = await target.cartographie()
-        models = await target.read(lambda root: models_retaining(root, key))
+        models = await target.read(lambda root: models_retaining(root, ref))
     except CartographieError as exc:
         raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     dates = await carto_history(conn, crypto, manager, space_id, branch_id)
     states = await draft_states(conn, target.workdir, branch_id)
-    return {**_detail(space, key, dates, states, models), "revision": revision}
+    return {**_detail(space, ref, dates, states, models), "revision": revision}
 
 
 @router.post("", status_code=201)
@@ -352,8 +376,9 @@ async def create_object(
     branch_id: uuid.UUID,
     body: ObjectBody,
 ) -> dict[str, object]:
-    """Crée un objet dans le brouillon : clé unique dans l'espace et figée, type de
-    l'espace figé, nom obligatoire, propriétés valides pour le schéma du type."""
+    """Crée un objet dans le brouillon : clé unique dans son type et figée, type de
+    l'espace figé, nom obligatoire, propriétés valides pour le schéma du type. Les
+    extrémités d'une relation : `type/CLÉ` (ou une clé seule non ambiguë)."""
     obj = CartoObject(
         key=body.key.strip(),
         type=body.type.strip(),
@@ -364,7 +389,7 @@ async def create_object(
         target=body.target,
     )
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
-    intent = f"crée l'objet {obj.key}"
+    intent = f"crée l'objet {obj.ref}"
     return await _write_and_read(
         conn,
         crypto,
@@ -373,12 +398,12 @@ async def create_object(
         space_id,
         branch_id,
         intent,
-        obj.key,
+        obj.ref,
         lambda root: save_object(root, obj, create=True),
     )
 
 
-@router.put("/{key}")
+@router.put("/{type_slug}/{key}")
 async def save_object_route(
     conn: ConnDep,
     crypto: CryptoDep,
@@ -387,16 +412,19 @@ async def save_object_route(
     manager: WorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
+    type_slug: str,
     key: str,
     body: ObjectChange,
 ) -> dict[str, object]:
     """Modifie le nom, la documentation et les propriétés d'un objet ; la clé, le
-    type et, pour une relation, sa source et sa cible ne changent pas."""
+    type et, pour une relation, sa source et sa cible ne changent pas (une extrémité
+    écrite en clé seule est réécrite en `type/CLÉ`)."""
+    ref = object_ref(type_slug, key)
 
     def write(root: Path) -> CartoObject:
-        current = read_cartographie(root).objects.get(key)
+        current = read_cartographie(root).objects.get(ref)
         if current is None:
-            raise CartographieError("object_not_found", status=404, key=key)
+            raise CartographieError("object_not_found", status=404, key=ref)
         existing = current[1]
         obj = CartoObject(
             key=key,
@@ -411,11 +439,11 @@ async def save_object_route(
 
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     return await _write_and_read(
-        conn, crypto, target, manager, space_id, branch_id, f"modifie l'objet {key}", key, write
+        conn, crypto, target, manager, space_id, branch_id, f"modifie l'objet {ref}", ref, write
     )
 
 
-@router.delete("/{key}")
+@router.delete("/{type_slug}/{key}")
 async def delete_object_route(
     conn: ConnDep,
     crypto: CryptoDep,
@@ -423,24 +451,26 @@ async def delete_object_route(
     workdir: DraftWorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
+    type_slug: str,
     key: str,
 ) -> dict[str, object]:
     """Supprime le fichier d'un objet dans le brouillon ; refusé tant qu'un modèle le
     retient (« carto_object_in_model », avec les modèles) ou qu'une relation l'utilise
     (« carto_object_in_use », avec les relations)."""
+    ref = object_ref(type_slug, key)
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     try:
         _none, revision = await target.write(
-            f"supprime l'objet {key}", lambda root: delete_object(root, key)
+            f"supprime l'objet {ref}", lambda root: delete_object(root, ref)
         )
     except CartographieError as exc:
         raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
-    return {"deleted": key, "revision": revision}
+    return {"deleted": ref, "revision": revision}
 
 
-@router.get("/{key}/relations-permises")
+@router.get("/{type_slug}/{key}/relations-permises")
 async def allowed_relation_types(
     conn: ConnDep,
     crypto: CryptoDep,
@@ -448,18 +478,20 @@ async def allowed_relation_types(
     workdir: DraftWorkdirDep,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
+    type_slug: str,
     key: str,
     cible: str,
 ) -> dict[str, object]:
-    """Ce que « + Relier… » propose de l'objet `key` vers `cible` (objet ou
-    relation) : les types de relation ArchiMate permis, et les types de relation
-    de l'espace qui reposent sur eux, avec le schéma des propriétés d'une relation
-    de ce type."""
+    """Ce que « + Relier… » propose de l'objet `type_slug/key` vers `cible` (objet
+    ou relation, `type/CLÉ`) : les types de relation ArchiMate permis, et les types
+    de relation de l'espace qui reposent sur eux, avec le schéma des propriétés d'une
+    relation de ce type."""
+    source = object_ref(type_slug, key)
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     try:
         space = await target.cartographie()
-        archimate = space.allowed(key, cible)
-        types = space.relation_types(key, cible)
+        archimate = space.allowed(source, cible)
+        types = space.relation_types(source, cible)
     except CartographieError as exc:
         raise api_error(exc) from None
     except WorkdirError as exc:

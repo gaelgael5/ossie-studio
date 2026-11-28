@@ -70,7 +70,7 @@ async def _relate(space: ApiSpace, **body: object) -> Response:
 
 async def test_acteur_vers_processus(space: ApiSpace) -> None:
     """Critère 1 : affectation proposée, composition absente."""
-    data = await _permitted(space, "ACT-CLIENT", "PRC-PRISE-COMMANDE")
+    data = await _permitted(space, "acteur/ACT-CLIENT", "processus-de-vente/PRC-PRISE-COMMANDE")
     assert "Assignment" in data["archimate"] and "Composition" not in data["archimate"]
     slugs = [t["slug"] for t in data["types"]]
     assert "affectation" in slugs and "composition" not in slugs
@@ -80,11 +80,12 @@ async def test_acteur_vers_processus(space: ApiSpace) -> None:
 
 async def test_objet_vers_une_relation_de_flux(space: ApiSpace) -> None:
     """Critère 2 : d'un objet métier vers une relation de flux, l'association."""
-    data = await _permitted(space, "OBJ-COMMANDE", "REL-FLUX-PAIEMENT")
+    data = await _permitted(space, "document-metier/OBJ-COMMANDE", "flux/REL-FLUX-PAIEMENT")
     assert data["archimate"] == ["Association"]
     assert [t["slug"] for t in data["types"]] == ["association"]
     missing = await space.client.get(
-        _url(space, "/OBJ-COMMANDE/relations-permises"), params={"cible": "ABSENT"}
+        _url(space, "/document-metier/OBJ-COMMANDE/relations-permises"),
+        params={"cible": "document-metier/ABSENT"},
     )
     assert missing.status_code == 404 and missing.json()["error"] == "carto_object_not_found"
 
@@ -108,11 +109,11 @@ async def test_creer_un_acces_ecriture_puis_lecture(space: ApiSpace) -> None:
     assert data["ends"]["target"]["archimate"] == "BusinessObject"
     assert data["rule"] == ["Access", "Association"]
     changed = await space.client.put(
-        _url(space, "/REL-PRISE-COMMANDE-COMMANDE"),
+        _url(space, "/acces/REL-PRISE-COMMANDE-COMMANDE"),
         json={"name": "Lit la commande", "properties": {"acces": "Read"}},
     )
     assert changed.status_code == 200, changed.text
-    source = (await space.client.get(_url(space, "/PRC-PRISE-COMMANDE"))).json()
+    source = (await space.client.get(_url(space, "/processus-de-vente/PRC-PRISE-COMMANDE"))).json()
     [row] = [
         r for r in source["relations"]["outgoing"] if r["key"] == "REL-PRISE-COMMANDE-COMMANDE"
     ]
@@ -144,10 +145,10 @@ async def test_relation_cible_d_une_association_non_supprimable(space: ApiSpace)
         target="REL-FLUX-PAIEMENT",
     )
     assert created.status_code == 201, created.text
-    flux = (await space.client.get(_url(space, "/REL-FLUX-PAIEMENT"))).json()
+    flux = (await space.client.get(_url(space, "/flux/REL-FLUX-PAIEMENT"))).json()
     assert [r["key"] for r in flux["relations"]["incoming"]] == ["REL-NOTE"]
-    refused = await space.client.delete(_url(space, "/REL-FLUX-PAIEMENT"))
+    refused = await space.client.delete(_url(space, "/flux/REL-FLUX-PAIEMENT"))
     assert refused.status_code == 409
-    assert refused.json()["error_args"]["relations"] == ["REL-NOTE"]
-    assert (await space.client.delete(_url(space, "/REL-NOTE"))).status_code == 200
-    assert (await space.client.delete(_url(space, "/REL-FLUX-PAIEMENT"))).status_code == 200
+    assert refused.json()["error_args"]["relations"] == ["association/REL-NOTE"]
+    assert (await space.client.delete(_url(space, "/association/REL-NOTE"))).status_code == 200
+    assert (await space.client.delete(_url(space, "/flux/REL-FLUX-PAIEMENT"))).status_code == 200

@@ -352,7 +352,9 @@ def test_regle_du_type_puis_du_type_archimate_puis_par_defaut(root: Path) -> Non
     rules.elements.append({"type": "BusinessObject", "name": "$.cle"})
 
     def block(key: str) -> dict[str, object] | None:
-        return rule_block(rules, space.objects[key][1], space)
+        found = space.find(key)
+        assert found is not None
+        return rule_block(rules, found[1], space)
 
     assert block("APP-BOUTIQUE") == rules.elements[0]  # sa règle propre : `application`
     assert block("OBJ-COMMANDE") == {"type": "BusinessObject", "name": "$.cle"}

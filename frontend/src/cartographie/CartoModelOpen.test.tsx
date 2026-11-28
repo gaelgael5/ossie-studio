@@ -41,7 +41,12 @@ const SAVED = {
   graphique: { vues: { 'VUE-1': { noeuds: { N1: { x: 80, y: 60 } } } } },
   nouvellesRelations: [{ cle: 'REL-NOUVELLE', type: 'acces', source: 'A', cible: 'B' }],
 }
-const HYDRATED = { id: 'MOD-BOUTIQUE', regles: { chemin: 'r', data: {} }, graphique: { chemin: 'g', data: {} } }
+const HYDRATED = {
+  id: 'MOD-BOUTIQUE',
+  regles: { chemin: 'r', data: {} },
+  graphique: { chemin: 'g', data: {} },
+  documents: [{ chemin: 'c', data: { cle: 'PRC-PRISE-COMMANDE', type: 'processus-metier', nom: 'Prise de commande' } }],
+}
 const SUMMARY = {
   slug: 'boutique', id: 'MOD-BOUTIQUE', name: 'Boutique', description: '', path: 'p', graphic: 'g', rules: 'r',
   rules_name: 'standard', views: [], elements: 0, relationships: 0, keys: [], unused_documents: 0, errors: 0,
@@ -152,8 +157,13 @@ describe('Cartographie — ouvrir un modèle (ticket f5421cc7)', () => {
   it('relations permises : les types de l’espace, au format du contrat (critère 4)', async () => {
     const calls = setup()
     const diagram = await element()
-    const allowed = await diagram.delegates.allowedRelations!('PRC-PRISE-COMMANDE', 'OBJ-COMMANDE')
-    expect(calls).toContain(`${BASE}/objets/PRC-PRISE-COMMANDE/relations-permises?cible=OBJ-COMMANDE`)
+    // Le composant donne les clés des nœuds ; l'API reçoit `type/CLÉ`, d'après les
+    // documents du modèle et les objets posés (ticket 421832ee).
+    await diagram.delegates.drop!('OBJ-FACTURE')
+    const allowed = await diagram.delegates.allowedRelations!('PRC-PRISE-COMMANDE', 'OBJ-FACTURE')
+    expect(calls).toContain(
+      `${BASE}/objets/processus-metier/PRC-PRISE-COMMANDE/relations-permises?cible=document%2FOBJ-FACTURE`,
+    )
     expect(allowed).toEqual([
       { type: 'acces', archimate: 'Access', libelle: 'Accès', schema: { title: 'Accès', 'x-archimate': 'Access' } },
       { type: 'association', archimate: 'Association', libelle: 'Association', schema: { title: 'Association', 'x-archimate': 'Association' } },

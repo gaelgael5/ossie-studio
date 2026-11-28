@@ -1624,9 +1624,19 @@ export interface CartoDates {
   updated_by: string
 }
 
+/** L'identifiant d'un objet de cartographie : `<type>/<CLÉ>` (ticket 421832ee, une clé
+ *  n'est unique que dans son type). */
+export type CartoRef = string
+
+/** L'adresse d'un objet dans l'API et l'écran : `<type>/<CLÉ>`, chaque partie encodée. */
+export function cartoRefPath(ref: CartoRef): string {
+  return ref.split('/').map(encodeURIComponent).join('/')
+}
+
 export interface CartoObjectSummary {
   key: string
   type: string
+  ref: CartoRef
   type_title: string
   archimate: string
   name: string
@@ -1635,8 +1645,9 @@ export interface CartoObjectSummary {
   properties: { name: string; value: string }[]
   relations: number
   is_relation: boolean
-  source: string | null
-  target: string | null
+  /** Relation : ses extrémités, `type/CLÉ`. */
+  source: CartoRef | null
+  target: CartoRef | null
   path: string
   /** Dates et auteurs d'après les commits publiés ; null : seulement dans le brouillon. */
   dates: CartoDates | null
@@ -1645,16 +1656,18 @@ export interface CartoObjectSummary {
 
 export interface CartoRelationSide {
   key: string
+  ref: CartoRef
   name: string
   type: string
   type_title: string
   archimate: string
   properties: Record<string, unknown>
-  other: { key: string | null; name: string | null; type_title: string | null; exists: boolean }
+  other: { key: string | null; ref: CartoRef | null; name: string | null; type_title: string | null; exists: boolean }
 }
 
 export interface CartoEnd {
   key: string | null
+  ref: CartoRef | null
   name: string | null
   type_title: string | null
   archimate: string | null
@@ -1677,13 +1690,14 @@ export interface CartoObjectDetail {
   rule?: string[]
   key: string
   type: string
+  ref: CartoRef
   type_title: string
   archimate: string
   name: string
   documentation: string
   properties: Record<string, unknown>
-  source: string | null
-  target: string | null
+  source: CartoRef | null
+  target: CartoRef | null
   path: string
   /** Le fichier de l'objet tel qu'il est stocké (ticket 7dc220a4). */
   yaml?: string | null
@@ -1818,7 +1832,7 @@ export interface CartoProcessSummary {
   errors: number
   readable: boolean
   /** Le processus métier dont il est le détail ; null : non rattaché. */
-  detail_of: { key: string; name: string | null; exists: boolean } | null
+  detail_of: { key: string; ref: CartoRef; name: string | null; exists: boolean } | null
   participants: number
   lanes: number
   /** Éléments rattachés à un objet (participants, couloirs, données). */
@@ -2513,15 +2527,15 @@ export const api = {
     apiFetch<{ readonly: boolean; objects: CartoObjectSummary[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
     ),
-  getCartoObject: (spaceId: string, branchId: string, key: string) =>
-    apiFetch<CartoObjectDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`),
-  // « + Relier… » : types ArchiMate permis de `source` vers `target`, et types de
+  getCartoObject: (spaceId: string, branchId: string, ref: CartoRef) =>
+    apiFetch<CartoObjectDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${cartoRefPath(ref)}`),
+  // « + Relier… » : types ArchiMate permis de `source` vers `target` (`type/CLÉ`), et types de
   // relation de l'espace qui reposent sur eux (ticket b58a0a13).
-  listRelationTypes: (spaceId: string, branchId: string, source: string, target: string) =>
+  listRelationTypes: (spaceId: string, branchId: string, source: CartoRef, target: CartoRef) =>
     apiFetch<{ archimate: string[]; types: CartoRelationTypeChoice[] }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(source)}/relations-permises?cible=${encodeURIComponent(target)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${cartoRefPath(source)}/relations-permises?cible=${encodeURIComponent(target)}`,
     ),
-  // Clé (unique dans l'espace) et type de l'espace : saisis à la création, figés ensuite.
+  // Clé (unique dans son type) et type de l'espace : saisis à la création, figés ensuite.
   createCartoObject: (
     spaceId: string,
     branchId: string,
@@ -2531,14 +2545,14 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
-  saveCartoObject: (spaceId: string, branchId: string, key: string, body: CartoObjectBody) =>
+  saveCartoObject: (spaceId: string, branchId: string, ref: CartoRef, body: CartoObjectBody) =>
     apiFetch<CartoObjectDetail & { revision: string | null }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${cartoRefPath(ref)}`,
       { method: 'PUT', body: JSON.stringify(body) },
     ),
-  deleteCartoObject: (spaceId: string, branchId: string, key: string) =>
+  deleteCartoObject: (spaceId: string, branchId: string, ref: CartoRef) =>
     apiFetch<{ deleted: string; revision: string | null }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${cartoRefPath(ref)}`,
       { method: 'DELETE' },
     ),
   listCartoModels: (spaceId: string, branchId: string) =>
@@ -2560,7 +2574,7 @@ export const api = {
     ),
   dropCartoModelObject: (spaceId: string, branchId: string, slug: string, key: string) =>
     apiFetch<CartoDropResult>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/pose/${encodeURIComponent(key)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/pose/${cartoRefPath(key)}`,
     ),
   createCartoModel: (spaceId: string, branchId: string, body: CartoModelBody) =>
     apiFetch<CartoModelSummary & { revision: string | null }>(
@@ -2620,7 +2634,7 @@ export const api = {
     ),
   dropCartoProcessObject: (spaceId: string, branchId: string, key: string, objectKey: string, collaboration: string) =>
     apiFetch<CartoBpmnDrop>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/pose/${encodeURIComponent(objectKey)}?collaboration=${encodeURIComponent(collaboration)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/pose/${cartoRefPath(objectKey)}?collaboration=${encodeURIComponent(collaboration)}`,
     ),
   listCartoProcessAttachable: (spaceId: string, branchId: string, key: string, element: string) =>
     apiFetch<{ element: string; objets: CartoBpmnObject[] }>(

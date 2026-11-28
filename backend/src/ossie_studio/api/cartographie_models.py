@@ -381,7 +381,7 @@ async def model_toolbox(
     return await _read(conn, crypto, workdir, space_id, branch_id, user, read)
 
 
-@router.get("/{slug}/pose/{key}")
+@router.get("/{slug}/pose/{key:path}")
 async def model_drop(
     conn: ConnDep,
     crypto: CryptoDep,
@@ -392,7 +392,8 @@ async def model_drop(
     slug: str,
     key: str,
 ) -> dict[str, Any]:
-    """Le délégué de pose : l'objet posé, le schéma de son type et son bloc de règles."""
+    """Le délégué de pose (`key` : ce que porte l'outil, `type/CLÉ`) : l'objet posé, le
+    schéma de son type et son bloc de règles."""
 
     def read(root: Path) -> dict[str, Any]:
         space = read_cartographie(root)

@@ -29,6 +29,8 @@ const RESULTS = 8
 
 export interface RelateSource {
   key: string
+  /** `type/CLÉ` (ticket 421832ee) : ce que la relation écrit comme source. */
+  ref: string
   name: string
   type_title: string
   archimate: string
@@ -40,7 +42,7 @@ function stem(key: string): string {
   return parts.length > 1 ? parts.slice(1).join('-') : key
 }
 
-/** Une clé proposée à partir des deux clés, libre dans l'espace. */
+/** Une clé proposée à partir des deux clés, libre dans le type de la relation. */
 export function proposedKey(source: string, target: string, taken: Set<string>): string {
   const base = `REL-${stem(source)}-${stem(target)}`
   if (!taken.has(base)) return base
@@ -74,8 +76,8 @@ export function RelateDialog({
   initialTarget?: CartoObjectSummary | null
   /** Le type ArchiMate à choisir d'office, s'il est permis et que l'espace en a un. */
   initialArchimate?: string
-  /** Après la création, à la place d'ouvrir la fiche de la relation. */
-  onCreated?: (key: string) => void
+  /** Après la création, à la place d'ouvrir la fiche de la relation (`type/CLÉ`). */
+  onCreated?: (ref: string) => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -83,8 +85,10 @@ export function RelateDialog({
   const [search, setSearch] = useState('')
   const [target, setTarget] = useState<CartoObjectSummary | null>(initialTarget)
   const [choice, setChoice] = useState<CartoRelationTypeChoice | null>(null)
+  // Une clé est unique dans son type : la clé proposée évite celles des relations
+  // (de tous types : le type n'est pas encore choisi).
   const [key, setKey] = useState(() =>
-    initialTarget ? proposedKey(source.key, initialTarget.key, new Set(objects.map((o) => o.key))) : '',
+    initialTarget ? proposedKey(source.key, initialTarget.key, new Set(objects.filter((o) => o.is_relation).map((o) => o.key))) : '',
   )
   const [keyTouched, setKeyTouched] = useState(false)
   const [name, setName] = useState('')
@@ -92,14 +96,17 @@ export function RelateDialog({
   const [properties, setProperties] = useState<Props>({})
   const [opened, setOpened] = useState<string[]>([])
   const byName = useMemo(() => new Map(catalog.types.map((ty) => [ty.name, ty])), [catalog])
-  const taken = useMemo(() => new Set(objects.map((o) => o.key)), [objects])
+  const taken = useMemo(
+    () => new Set(objects.filter((o) => (choice ? o.type === choice.slug : o.is_relation)).map((o) => o.key)),
+    [objects, choice],
+  )
   const needle = asciiLower(search.trim())
   const results = objects
-    .filter((o) => o.key !== source.key && (!needle || asciiLower(`${o.name} ${o.key}`).includes(needle)))
+    .filter((o) => o.ref !== source.ref && (!needle || asciiLower(`${o.name} ${o.key}`).includes(needle)))
     .slice(0, RESULTS)
   const allowed = useQuery({
-    queryKey: ['carto-relation-types', spaceId, branchId, source.key, target?.key],
-    queryFn: () => api.listRelationTypes(spaceId, branchId, source.key, target!.key),
+    queryKey: ['carto-relation-types', spaceId, branchId, source.ref, target?.ref],
+    queryFn: () => api.listRelationTypes(spaceId, branchId, source.ref, target!.ref),
     enabled: target !== null,
   })
   const withoutType = (allowed.data?.archimate ?? []).filter((a) => !(allowed.data?.types ?? []).some((ty) => ty.archimate === a))
@@ -151,8 +158,8 @@ export function RelateDialog({
         name: name.trim(),
         documentation: '',
         properties,
-        source: source.key,
-        target: target!.key,
+        source: source.ref,
+        target: target!.ref,
       }),
     onSuccess: async (saved) => {
       await Promise.all(
@@ -161,8 +168,8 @@ export function RelateDialog({
         ),
       )
       onClose()
-      if (onCreated) onCreated(saved.key)
-      else navigate(cartoObjectPath(saved.key), { state: { from: { key: source.key, name: source.name } } })
+      if (onCreated) onCreated(saved.ref)
+      else navigate(cartoObjectPath(saved.ref), { state: { from: { ref: source.ref, name: source.name } } })
     },
   })
   const problems: FieldProblems = new Map(missing.map((p) => [p, ['value_required']]))
@@ -232,11 +239,11 @@ export function RelateDialog({
               {results.length === 0 ? <p className="muted">{t('cartoObjectsNone')}</p> : null}
               {results.map((o) => (
                 <button
-                  key={o.key}
+                  key={o.ref}
                   type="button"
                   role="option"
-                  aria-selected={target?.key === o.key}
-                  className={`carto-type-item carto-target-item${target?.key === o.key ? ' active' : ''}`}
+                  aria-selected={target?.ref === o.ref}
+                  className={`carto-type-item carto-target-item${target?.ref === o.ref ? ' active' : ''}`}
                   onClick={() => chooseTarget(o)}
                 >
                   {byName.get(o.archimate) ? <ArchimateIcon svg={byName.get(o.archimate)!.icon} /> : null}

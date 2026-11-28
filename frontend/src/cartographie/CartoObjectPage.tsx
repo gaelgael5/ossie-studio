@@ -73,7 +73,10 @@ function same(a: unknown, b: unknown): boolean {
 export function CartoObjectPage() {
   const { t } = useTranslation()
   const ws = useWorkspace()
-  const { key = '' } = useParams()
+  // La fiche d'un objet : son type et sa clé (ticket 421832ee, une clé n'est unique que
+  // dans son type) ; sans eux, un nouvel objet.
+  const { type = '', key = '' } = useParams()
+  const objectRef = type && key ? `${type}/${key}` : ''
   if (!ws.spaceId || !ws.branchId) {
     return (
       <main>
@@ -83,16 +86,16 @@ export function CartoObjectPage() {
   }
   return (
     <UnsavedProvider>
-      <ObjectScreen key={key || 'new'} spaceId={ws.spaceId} branchId={ws.branchId} objectKey={key} />
+      <ObjectScreen key={objectRef || 'new'} spaceId={ws.spaceId} branchId={ws.branchId} objectRef={objectRef} />
     </UnsavedProvider>
   )
 }
 
-function ObjectScreen({ spaceId, branchId, objectKey }: { spaceId: string; branchId: string; objectKey: string }) {
+function ObjectScreen({ spaceId, branchId, objectRef }: { spaceId: string; branchId: string; objectRef: string }) {
   const { t } = useTranslation()
   const session = useSession()
   const canWrite = sessionCapabilities(session.data).includes('cartographie:write')
-  const isNew = objectKey === ''
+  const isNew = objectRef === ''
   const catalog = useQuery({
     queryKey: ['carto-catalog'],
     queryFn: () => api.getCartoCatalog(spaceId, branchId),
@@ -107,8 +110,8 @@ function ObjectScreen({ spaceId, branchId, objectKey }: { spaceId: string; branc
     queryFn: () => api.listCartoObjects(spaceId, branchId),
   })
   const detail = useQuery({
-    queryKey: ['carto-object', spaceId, branchId, objectKey],
-    queryFn: () => api.getCartoObject(spaceId, branchId, objectKey),
+    queryKey: ['carto-object', spaceId, branchId, objectRef],
+    queryFn: () => api.getCartoObject(spaceId, branchId, objectRef),
     enabled: !isNew,
   })
   const errors = [catalog.error, types.error, objects.error, detail.error].flatMap((e) => (e ? errorMessages(t, e) : []))
@@ -159,8 +162,7 @@ function ObjectEditor({
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   // D'où l'on vient (fiche d'un objet → fiche d'une relation) : le retour y ramène.
-  const from = (useLocation().state as { from?: { key: string; name: string } } | null)?.from
-  const takenKeys = new Set(objects.map((o) => o.key))
+  const from = (useLocation().state as { from?: { ref: string; name: string } } | null)?.from
   const [relating, setRelating] = useState(false)
   const isNew = detail === null
   const isRelation = Boolean(detail?.ends)
@@ -168,6 +170,8 @@ function ObjectEditor({
   // Une relation se crée en reliant deux objets (ticket « Relations ») : pas ici.
   const choosable = types.filter((ty) => !relationArchimate.has(ty.archimate))
   const [type, setType] = useState(detail?.type ?? '')
+  // Une clé est unique dans son type (ticket 421832ee) : seules celles du type choisi sont prises.
+  const takenKeys = new Set(objects.filter((o) => o.type === type).map((o) => o.key))
   const [name, setName] = useState(detail?.name ?? '')
   // Clé saisie à la main ; null : elle suit le nom (création seulement, figée ensuite).
   const [manualKey, setManualKey] = useState<string | null>(null)
@@ -219,15 +223,15 @@ function ObjectEditor({
     mutationFn: () =>
       isNew
         ? api.createCartoObject(spaceId, branchId, { key, type, ...body() })
-        : api.saveCartoObject(spaceId, branchId, detail.key, body()),
+        : api.saveCartoObject(spaceId, branchId, detail.ref, body()),
     onSuccess: async (saved) => {
-      queryClient.setQueryData(['carto-object', spaceId, branchId, saved.key], saved)
+      queryClient.setQueryData(['carto-object', spaceId, branchId, saved.ref], saved)
       if (isNew) {
         // Fiche de l'objet créé tout de suite : ni garde « quitter sans
         // enregistrer » (elle relançait la création → objet en double), ni
         // attente des listes et du brouillon, rafraîchis en arrière-plan.
         release()
-        navigate(cartoObjectPath(saved.key), { replace: true })
+        navigate(cartoObjectPath(saved.ref), { replace: true })
         void invalidate()
         return
       }
@@ -235,7 +239,7 @@ function ObjectEditor({
     },
   })
   const remove = useMutation({
-    mutationFn: () => api.deleteCartoObject(spaceId, branchId, detail?.key ?? ''),
+    mutationFn: () => api.deleteCartoObject(spaceId, branchId, detail?.ref ?? ''),
     onSuccess: async () => {
       // Objet supprimé : plus rien à enregistrer, la garde ne retient pas.
       release()
@@ -266,7 +270,7 @@ function ObjectEditor({
         <div className="carto-object-bar">
           {from ? (
             <>
-              <Link to={cartoObjectPath(from.key)} className="btn btn-sm">
+              <Link to={cartoObjectPath(from.ref)} className="btn btn-sm">
                 {`← ${from.name}`}
               </Link>
               <span className="muted small">{t('cartoOpenedFrom')}</span>
@@ -499,7 +503,7 @@ function ObjectEditor({
 }
 
 function relateSource(detail: CartoObjectDetail): RelateSource {
-  return { key: detail.key, name: detail.name, type_title: detail.type_title, archimate: detail.archimate }
+  return { key: detail.key, ref: detail.ref, name: detail.name, type_title: detail.type_title, archimate: detail.archimate }
 }
 
 /** Fiche d'une relation : source → cible, reliées par le type et la valeur de son
@@ -530,8 +534,8 @@ function RelationBand({ catalog, detail, properties }: { catalog: CartoCatalog; 
               <span className="carto-icon-tile carto-icon-tile-lg">{icon ? <ArchimateIcon svg={icon} className="archimate-icon-lg" /> : null}</span>
               <div className="carto-end-text">
                 <span className="carto-filter-label">{t(`cartoEnd_${end}`)}</span>
-                {e.exists && e.key ? (
-                  <Link to={cartoObjectPath(e.key)} className="link-strong">
+                {e.exists && e.ref ? (
+                  <Link to={cartoObjectPath(e.ref)} className="link-strong">
                     {e.name}
                   </Link>
                 ) : (
@@ -691,11 +695,11 @@ function RelationsSection({
             </div>
             {rows.map((r) => (
               <RelationRow
-                key={r.key}
+                key={r.ref}
                 relation={r}
                 direction={direction}
                 info={catalog.types.find((ty) => ty.name === r.archimate)}
-                from={{ key: detail.key, name: detail.name }}
+                from={{ ref: detail.ref, name: detail.name }}
               />
             ))}
           </div>
@@ -714,11 +718,11 @@ function RelationRow({
   relation: CartoRelationSide
   direction: 'out' | 'in'
   info: ArchimateTypeInfo | undefined
-  from: { key: string; name: string }
+  from: { ref: string; name: string }
 }) {
   const navigate = useNavigate()
   // La fiche de la relation garde d'où l'on vient : son retour y ramène.
-  const open = () => navigate(cartoObjectPath(relation.key), { state: { from } })
+  const open = () => navigate(cartoObjectPath(relation.ref), { state: { from } })
   return (
     <div
       className="carto-relation-row"
@@ -735,8 +739,8 @@ function RelationRow({
         <div className="muted small">{relationLabel(relation, info, direction)}</div>
       </div>
       <div>
-        {relation.other.exists && relation.other.key ? (
-          <Link to={cartoObjectPath(relation.other.key)} className="link-strong" onClick={(e) => e.stopPropagation()}>
+        {relation.other.exists && relation.other.ref ? (
+          <Link to={cartoObjectPath(relation.other.ref)} className="link-strong" onClick={(e) => e.stopPropagation()}>
             {relation.other.name}
           </Link>
         ) : (
@@ -772,7 +776,9 @@ function BpmnDetailSection({
     queryFn: () => api.listCartoProcesses(spaceId, branchId),
     enabled: creating,
   })
-  const choices = objects.filter((o) => o.archimate === 'BusinessProcess').map((o) => ({ key: o.key, name: o.name }))
+  const choices = objects
+    .filter((o) => o.archimate === 'BusinessProcess')
+    .map((o) => ({ key: o.key, ref: o.ref, name: o.name }))
   return (
     <section className="panel carto-section" aria-label={t('cartoBpmnDetail')}>
       <h2 className="carto-detail-title">{t('cartoBpmnDetail')}</h2>
@@ -797,7 +803,7 @@ function BpmnDetailSection({
           branchId={branchId}
           choices={choices}
           taken={new Set((all.data?.processes ?? []).map((p) => p.key))}
-          initialDetail={detail.key}
+          initialDetail={detail.ref}
           onClose={() => setCreating(false)}
         />
       ) : null}

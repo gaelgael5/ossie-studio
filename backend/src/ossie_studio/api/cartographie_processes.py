@@ -25,11 +25,12 @@ from ossie_studio.api.common import CartographieRead, CartographieWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
 from ossie_studio.api.list_index import ListIndex
 from ossie_studio.cartographie.errors import CartographieError, problem_payload
-from ossie_studio.cartographie.model import CARTO_DIR
+from ossie_studio.cartographie.model import CARTO_DIR, split_ref
 from ossie_studio.cartographie.process import (
     PROCESSES_DIR,
     Process,
     ProcessRead,
+    Reference,
     check_bpmn_schema,
     delete_process,
     list_processes,
@@ -39,6 +40,7 @@ from ossie_studio.cartographie.process import (
     process_path,
     read_process,
     referenced_objects,
+    resolve_reference,
     save_process,
     with_detail,
     with_process_name,
@@ -89,11 +91,18 @@ class SaveBody(BaseModel):
     content: str = ""  # le XML BPMN rendu par le composant
 
 
-def _end(space: Cartographie, key: str | None) -> dict[str, Any] | None:
-    if key is None:
+def _end(space: Cartographie, reference: Reference | None) -> dict[str, Any] | None:
+    """Le processus métier détaillé : sa clé, son identifiant `type/CLÉ` (pour le
+    lien vers sa fiche), son nom."""
+    if reference is None:
         return None
-    found = space.objects.get(key)
-    return {"key": key, "name": found[1].name if found else None, "exists": found is not None}
+    found = space.find(resolve_reference(space, reference))
+    return {
+        "key": reference.key,
+        "ref": found[1].ref if found else reference.designation,
+        "name": found[1].name if found else None,
+        "exists": found is not None,
+    }
 
 
 def _pools(process: Process, space: Cartographie) -> list[str]:
@@ -105,7 +114,7 @@ def _pools(process: Process, space: Cartographie) -> list[str]:
         if shape.kind != "participant":
             continue
         ref = by_element.get(shape.element)
-        found = space.objects.get(ref.key) if ref else None
+        found = space.find(resolve_reference(space, ref)) if ref else None
         names.append(found[1].name if found else shape.name)
     return [n for n in names if n]
 
@@ -134,7 +143,7 @@ def _summary(read: ProcessRead, space: Cartographie) -> dict[str, Any]:
         **base,
         "name": process.name or read.key,
         "readable": True,
-        "detail_of": _end(space, process.detail_of),
+        "detail_of": _end(space, process.detail_reference),
         "participants": process.participants,
         "lanes": process.lanes,
         "attached": len(process.attached()),
@@ -267,10 +276,16 @@ async def _write(
     return {**_decorate(item, dates, states), "revision": revision}
 
 
-def _detail_type(root: Path, key: str | None) -> str:
-    """Le slug du type de l'objet détaillé, gardé dans l'extension (« processus-metier »)."""
-    found = read_cartographie(root).objects.get(key or "")
-    return found[1].type if found else ""
+def _detail(root: Path, designation: str | None) -> tuple[str | None, str]:
+    """La clé et le slug du type (« processus-metier ») du processus métier détaillé,
+    tels que l'extension les garde ; `designation` : `type/CLÉ` ou une clé seule."""
+    if designation is None:
+        return None, ""
+    found = read_cartographie(root).find(designation)
+    if found is not None:
+        return found[1].key, found[1].type
+    type_slug, key = split_ref(designation)
+    return key, type_slug or ""
 
 
 @router.post("", status_code=201)
@@ -293,7 +308,9 @@ async def create_process(
     return await _write(
         conn, crypto, workdir, manager, space_id, branch_id, user,
         f"crée le processus {key}", key,
-        lambda root: save_process(root, key, new_process_xml(key, name, detail), create=True),
+        lambda root: save_process(
+            root, key, new_process_xml(key, name, *_detail(root, detail)), create=True
+        ),
     )  # fmt: skip
 
 
@@ -321,7 +338,7 @@ async def import_process(
         if name:
             text = with_process_name(text, name)
         if detail:
-            text = with_detail(text, detail, _detail_type(root, detail))
+            text = with_detail(text, *_detail(root, detail))
         save_process(root, key, text, create=True)
 
     return await _write(
@@ -424,13 +441,15 @@ async def process_tools(
     def read(root: Path) -> dict[str, Any]:
         space = read_cartographie(root)
         found = read_process(root, key, space)
-        detail = found.process.detail_of if found.process else None
-        return {"detail_of": detail, "groupes": process_toolbox(space, detail)}
+        process = found.process
+        detail = process.detail_of if process else None
+        tools = process_toolbox(space, process.detail_in(space) if process else None)
+        return {"detail_of": detail, "groupes": tools}
 
     return await _read_space(conn, crypto, user, workdir, space_id, branch_id, read)
 
 
-@router.get("/{key}/pose/{object_key}")
+@router.get("/{key}/pose/{object_key:path}")
 async def process_drop_route(
     conn: ConnDep,
     crypto: CryptoDep,
@@ -450,8 +469,12 @@ async def process_drop_route(
         space = read_cartographie(root)
         found = read_process(root, key, space)
         process = found.process
-        detail = process.detail_of if process else None
-        collabs = [r.key for r in process.collaborations] if process else []
+        detail = process.detail_in(space) if process else None
+        collabs = (
+            [resolve_reference(space, r) or r.key for r in process.collaborations]
+            if process
+            else []
+        )
         current = collaboration.strip() or (collabs[0] if collabs else None)
         return process_drop(space, object_key, detail, current)
 
@@ -524,7 +547,7 @@ async def attach_process(
     def write(root: Path) -> None:
         read_process(root, key)  # le processus doit exister
         text = (root / process_path(key)).read_text(encoding="utf-8")
-        text = with_detail(text, detail, _detail_type(root, detail))
+        text = with_detail(text, *_detail(root, detail))
         save_process(root, key, text, create=False)
 
     return await _write(

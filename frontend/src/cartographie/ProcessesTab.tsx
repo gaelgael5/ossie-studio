@@ -168,7 +168,7 @@ function ProcessCard({
         {detail ? (
           <p className="carto-process-detail">
             {t('cartoProcessDetailOf')}{' '}
-            <Link to={cartoObjectPath(detail.key)} className="carto-over-cover">
+            <Link to={cartoObjectPath(detail.ref)} className="carto-over-cover">
               {detail.name ?? detail.key}
             </Link>
           </p>

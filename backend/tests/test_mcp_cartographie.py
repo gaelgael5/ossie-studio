@@ -176,6 +176,7 @@ async def test_lister_les_objets(app: FastAPI, space: ApiSpace) -> None:
     [relation] = relations["documents"]
     assert relation["nature"] == "relation"
     assert relation["source"] == {
+        "ref": "processus-de-vente/PRC-PRISE-COMMANDE",
         "key": "PRC-PRISE-COMMANDE",
         "name": "Prise de commande",
         "type": "processus-de-vente",
@@ -196,6 +197,7 @@ async def test_relations_d_un_objet(app: FastAPI, space: ApiSpace) -> None:
     assert _keys(outgoing) == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
     [relation] = outgoing["documents"]
     assert relation["target"] == {
+        "ref": "document-metier/OBJ-COMMANDE",
         "key": "OBJ-COMMANDE",
         "name": "Commande",
         "type": "document-metier",
@@ -205,6 +207,13 @@ async def test_relations_d_un_objet(app: FastAPI, space: ApiSpace) -> None:
     assert relation["archimate"] == "Access"
     incoming = await _list(app, space, "carto_objet", filters={"cible": "OBJ-COMMANDE"})
     assert _keys(incoming) == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
+    # Désigné par `type/CLÉ` (ticket 421832ee) : même réponse ; un autre type, aucune.
+    typed = await _list(
+        app, space, "carto_objet", filters={"cible": "document-metier/OBJ-COMMANDE"}
+    )
+    assert _keys(typed) == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
+    other = await _list(app, space, "carto_objet", filters={"cible": "application/OBJ-COMMANDE"})
+    assert other["documents"] == []
     none = await _list(app, space, "carto_objet", filters={"source": "APP-BOUTIQUE"})
     assert none["documents"] == []
 

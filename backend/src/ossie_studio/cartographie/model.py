@@ -11,8 +11,12 @@ fichier) et `x-archimate` sont figés ; renommer change le `title`.
 minuscules>.yaml` : `cle`, `type`, `nom`, `documentation` (markdown), et
 `proprietes` (attributs ArchiMate et propriétés ajoutées, validés par le schéma
 du type). Une **relation** est un objet comme les autres, avec `source` et
-`cible` (clés d'objets ou de relations). La clé fonctionnelle (majuscules,
-chiffres, tirets) est unique dans l'espace, tous types confondus, et figée.
+`cible`. La clé fonctionnelle (majuscules, chiffres, tirets) est unique **dans son
+type** et figée : l'identité d'un objet est `(type, clé)` (ticket 421832ee, Gael :
+« On assure l'unicité uniquement dans un type »). Une relation désigne ses
+extrémités par `<slug du type>/<CLÉ>` (`source: application-agent/APP-01`) ; une
+clé seule (forme d'avant) se lit encore quand elle n'existe que dans un type, et
+devient `type/CLÉ` à la prochaine écriture de la relation.
 
 Écriture déterministe : même contenu, mêmes octets.
 """
@@ -50,6 +54,10 @@ BASE_PROPERTIES: tuple[tuple[str, str, bool], ...] = (
     ("documentation", "string", False),
 )
 _KEY = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*$")
+# L'extrémité d'une relation : `<slug du type>/<CLÉ>`, ou une clé seule (forme d'avant
+# le ticket 421832ee, lue tant qu'elle n'est pas ambiguë).
+_END = re.compile(r"^(?:[a-z0-9]+(?:-[a-z0-9]+)*/)?[A-Z0-9]+(?:-[A-Z0-9]+)*$")
+REF_SEPARATOR = "/"
 _PROPERTY_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 
 
@@ -91,6 +99,17 @@ def _shape(schema: Any) -> Any:
         for k, v in schema.items()
         if k not in _ANNOTATIONS and v not in ("", None) and v != [] and v != {}
     }
+
+
+def object_ref(type_slug: str, key: str) -> str:
+    """L'identifiant d'un objet dans l'espace : `<slug du type>/<CLÉ>`."""
+    return f"{type_slug}{REF_SEPARATOR}{key}"
+
+
+def split_ref(value: str) -> tuple[str | None, str]:
+    """(type, clé) d'une désignation `type/CLÉ` ; (None, clé) pour une clé seule."""
+    type_slug, separator, key = value.rpartition(REF_SEPARATOR)
+    return (type_slug, key) if separator else (None, value)
 
 
 def type_path(slug: str) -> str:
@@ -268,8 +287,8 @@ def object_document_schema(ctype: CartoType, base: ArchimateType | None) -> dict
     }
     required = ["cle", "type", "nom"]
     if base is not None and base.is_relation:
-        properties["source"] = {"type": "string", "pattern": _KEY.pattern}
-        properties["cible"] = {"type": "string", "pattern": _KEY.pattern}
+        properties["source"] = {"type": "string", "pattern": _END.pattern}
+        properties["cible"] = {"type": "string", "pattern": _END.pattern}
         required += ["source", "cible"]
     properties["nom"] = {"type": "string", "minLength": 1}
     properties["documentation"] = {"type": "string"}
@@ -294,8 +313,13 @@ class CartoObject:
     name: str
     documentation: str = ""
     properties: dict[str, Any] = field(default_factory=dict)
-    source: str | None = None  # relation : clé de l'objet (ou de la relation) source
-    target: str | None = None  # relation : clé de la cible
+    source: str | None = None  # relation : `type/CLÉ` de l'objet (ou de la relation) source
+    target: str | None = None  # relation : `type/CLÉ` de la cible
+
+    @property
+    def ref(self) -> str:
+        """Son identifiant dans l'espace : `<type>/<CLÉ>`."""
+        return object_ref(self.type, self.key)
 
     @property
     def is_relation(self) -> bool:
