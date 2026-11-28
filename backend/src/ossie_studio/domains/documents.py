@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -474,10 +475,25 @@ def read_domain(root: Path, name: str) -> Domain | None:
     if not is_valid_domain_name(name):
         return None
     base = root / DOMAINS_DIR
-    extend_file = base / f"{name}{EXTEND_SUFFIX}"
-    if not extend_file.is_file():
+
+    def load(suffix: str) -> Any:
+        file = base / f"{name}{suffix}"
+        return _load(file) if file.is_file() else MISSING
+
+    return domain_from(name, load)
+
+
+# Un fichier du domaine absent (distinct d'un document vide).
+MISSING: Any = object()
+
+
+def domain_from(name: str, load: Callable[[str], Any]) -> Domain | None:
+    """Le domaine `name`, depuis ses fichiers lus par `load(suffixe)` (le document, ou
+    `MISSING` si le fichier manque ; lève DomainError « document_unreadable » s'il est
+    illisible). Les fichiers ou l'index des documents (ticket fc5bb3b4) : même règle."""
+    extend = load(EXTEND_SUFFIX)
+    if extend is MISSING:
         return None
-    extend = _load(extend_file)
     _check(_extend_validator(), extend, "extend_invalid")
     domain = Domain(
         name=name,
@@ -487,10 +503,9 @@ def read_domain(root: Path, name: str) -> Domain | None:
     ext_datasets: dict[str, Any] = extend.get("datasets") or {}
     seen: set[str] = set()
     for suffix, consultable in ((OSSIE_SUFFIX, True), (VIRTUAL_SUFFIX, False)):
-        file = base / f"{name}{suffix}"
-        if not file.is_file():
+        doc = load(suffix)
+        if doc is MISSING:
             continue
-        doc = _load(file)
         _check(_ossie_validator(), doc, "ossie_invalid")
         for model in doc.get("semantic_model") or []:
             if not domain.description and model.get("description"):
@@ -556,10 +571,15 @@ def read_domain(root: Path, name: str) -> Domain | None:
 def list_domains(root: Path) -> list[Domain]:
     """Tous les domaines lisibles de la copie ; un domaine illisible est rendu
     vide avec son motif dans `warnings` (l'écran le signale, rien ne casse)."""
+    return domains_of(list_domain_names(root), lambda name: read_domain(root, name))
+
+
+def domains_of(names: list[str], read: Callable[[str], Domain | None]) -> list[Domain]:
+    """`list_domains`, pour ces domaines lus par `read` (les fichiers ou l'index)."""
     out: list[Domain] = []
-    for name in list_domain_names(root):
+    for name in names:
         try:
-            domain = read_domain(root, name)
+            domain = read(name)
         except DomainError as exc:
             domain = Domain(name=name, warnings=[f"{exc.code}:{exc.detail}"])
         if domain is not None:

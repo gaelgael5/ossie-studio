@@ -43,7 +43,8 @@ _LEGACY_ENTRY_KEYS = {
     "author": "auteur",
 }
 # Les contrats sont transformés par le plugin openapi : son index technique.
-_OPENAPI_INDEX = schema_index_name(OPENAPI_PARSER_ID)
+OPENAPI_INDEX = schema_index_name(OPENAPI_PARSER_ID)
+_OPENAPI_INDEX = OPENAPI_INDEX
 
 
 class ContractExistsError(Exception):

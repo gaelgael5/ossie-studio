@@ -81,7 +81,7 @@ from ossie_studio.referentiels.repo import (
 from ossie_studio.referentiels.values import key_of
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
-from ossie_studio.sources.contracts import read_contracts_view
+from ossie_studio.sources.contracts import ContractView, read_contracts_view
 from ossie_studio.sources.curation import (
     CurationObject,
     list_curation,
@@ -103,7 +103,7 @@ from ossie_studio.sources.paths import (
     source_rel_dir,
 )
 from ossie_studio.sources.raw_facts import IndexedSource, IndexedSources
-from ossie_studio.sources.service import read_sources_tree
+from ossie_studio.sources.service import SourceEntry, read_sources_tree
 from ossie_studio.sources.tri import TriRule
 
 # --- Les filtres déclarés -----------------------------------------------------------------
@@ -519,9 +519,18 @@ def _referentiel_values(provider: _Referentiels, query: ListQuery) -> list[Item]
 def sources(root: Path, query: ListQuery) -> list[Item]:
     """Ce que rendait `list_sources` : chaque source et son manifeste ; un manifeste
     illisible est listé avec son erreur (`ok: false`), jamais ignoré en silence."""
+    return _sources_list(_FileSources(root), query)
+
+
+def sources_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    """`sources`, tirée de l'index des documents (ticket 3492625e)."""
+    return _sources_list(_IndexSources(snap), query)
+
+
+def _sources_list(provider: _Provider, query: ListQuery) -> list[Item]:
     wanted = _given(query, "type")
     out = []
-    for entry in read_sources_tree(root):
+    for entry in provider.tree():
         manifest = entry.manifest
         if wanted is not None and (manifest is None or manifest.type != wanted):
             continue
@@ -539,13 +548,15 @@ def sources(root: Path, query: ListQuery) -> list[Item]:
                 "parameters": manifest.parameters,
             }
             name, text = manifest.label or entry.slug, f"{manifest.type} {manifest.connection}"
+        path = f"{directory}/{MANIFEST_FILENAME}"
         out.append(
             Item(
                 {"source": entry.slug},
                 name,
-                f"{directory}/{MANIFEST_FILENAME}",
+                path,
                 summary,
                 text=text,
+                version=provider.version(path),
                 changes_under=directory,
             )
         )
@@ -555,10 +566,19 @@ def sources(root: Path, query: ListQuery) -> list[Item]:
 def contracts(root: Path, query: ListQuery) -> list[Item]:
     """Ce que rendait `list_contracts` : chaque version déposée d'un contrat OpenAPI,
     ses faits de dépôt (index `contrats.yaml`) et si la collecte l'a pris."""
+    return _contracts(_FileSources(root), query)
+
+
+def contracts_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    """`contracts`, tirée de l'index des documents (ticket 3492625e)."""
+    return _contracts(_IndexSources(snap), query)
+
+
+def _contracts(provider: _Provider, query: ListQuery) -> list[Item]:
     out = []
-    for source in _sources(_FileSources(root), query):
+    for source in _sources(provider, query):
         base = f"{source_rel_dir(source)}/{CONTRATS_DIR}"
-        for view in read_contracts_view(root, source):
+        for view in provider.contracts_view(source):
             entry = view.entry
             out.append(
                 Item(
@@ -572,6 +592,7 @@ def contracts(root: Path, query: ListQuery) -> list[Item]:
                         "collected": view.collected,
                     },
                     text=f"{entry.original_file} {entry.declared_version}",
+                    version=provider.version(f"{base}/{entry.file}"),
                 )
             )
     return out
@@ -588,6 +609,15 @@ class _FileSources:
 
     def slugs(self) -> list[str]:
         return [entry.slug for entry in read_sources_tree(self.root)]
+
+    def tree(self) -> list[SourceEntry]:
+        return read_sources_tree(self.root)
+
+    def contracts_view(self, source: str) -> list[ContractView]:
+        return read_contracts_view(self.root, source)
+
+    def tri_rules_raw(self, source: str) -> list[dict[str, Any]]:
+        return read_tri_rules_raw(self.root, source)
 
     def curation(self, source: str, rules: Any, show_excluded: bool) -> list[CurationObject]:
         return list_curation(self.root, source, rules, show_excluded)
@@ -616,6 +646,15 @@ class _IndexSources:
 
     def slugs(self) -> list[str]:
         return self.sources.slugs()
+
+    def tree(self) -> list[SourceEntry]:
+        return self.sources.tree()
+
+    def contracts_view(self, source: str) -> list[ContractView]:
+        return self.sources.source(source).contracts_view()
+
+    def tri_rules_raw(self, source: str) -> list[dict[str, Any]]:
+        return self.sources.source(source).tri_rules_raw()
 
     def curation(self, source: str, rules: Any, show_excluded: bool) -> list[CurationObject]:
         return self.sources.source(source).curation(list(rules), show_excluded)
@@ -1048,9 +1087,18 @@ def classification_rule_items(root: Path, query: ListQuery) -> list[Item]:
 
 def tri_rules(root: Path, query: ListQuery) -> list[Item]:
     """Les règles de tri de chaque source (la section `triage` de son manifeste)."""
+    return _tri_rules(_FileSources(root), query)
+
+
+def tri_rules_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    """`tri_rules`, tirée de l'index des documents (ticket 3492625e)."""
+    return _tri_rules(_IndexSources(snap), query)
+
+
+def _tri_rules(provider: _Provider, query: ListQuery) -> list[Item]:
     out = []
-    for source in _sources(_FileSources(root), query):
-        rules = read_tri_rules_raw(root, source)
+    for source in _sources(provider, query):
+        rules = provider.tri_rules_raw(source)
         out.append(
             Item(
                 {"source": source},

@@ -24,6 +24,8 @@ from collections.abc import Mapping
 from dataclasses import asdict
 from typing import Any
 
+import yaml
+
 from ossie_studio.parsers.conventions import (
     SCHEMA_SUFFIX,
     SchemaReadError,
@@ -32,7 +34,13 @@ from ossie_studio.parsers.conventions import (
 )
 from ossie_studio.parsers.markdown import DOCS_INDEX
 from ossie_studio.parsers.openapi_full import CONTRACTS_INDEX
-from ossie_studio.sources.collect_core import RAW_DIR, TechEntry, TechManifest
+from ossie_studio.sources.collect_core import RAW_DIR, TechEntry, TechManifest, checksum
+from ossie_studio.sources.contracts import (
+    OPENAPI_INDEX,
+    ContractEntry,
+    ContractView,
+    parse_index,
+)
 from ossie_studio.sources.curation import CurationObject, curation_objects
 from ossie_studio.sources.explorer import (
     ExplorerContract,
@@ -55,7 +63,15 @@ from ossie_studio.sources.explorer import (
     source_meta,
     tech_origins,
 )
-from ossie_studio.sources.paths import ASSETS_DIR, MANIFEST_FILENAME, SOURCES_DIR
+from ossie_studio.sources.manifest import ManifestError, SourceManifest, parse_manifest
+from ossie_studio.sources.paths import (
+    ASSETS_DIR,
+    CONTRATS_DIR,
+    CONTRATS_INDEX,
+    MANIFEST_FILENAME,
+    SOURCES_DIR,
+)
+from ossie_studio.sources.service import SourceEntry
 from ossie_studio.sources.tri import TriRule, compile_rules
 
 EXTEND_SUFFIX = ".extend.yaml"
@@ -217,6 +233,36 @@ def _source_meta_json(text: str | None) -> dict[str, Any] | None:
     }
 
 
+def _manifest_json(text: str | None) -> dict[str, Any]:
+    """Le manifeste lu strictement (`parse_manifest`, comme la liste des sources), ou
+    le motif du refus (le premier champ en cause)."""
+    if text is None:
+        return {"ok": False, "reason": "manifest_invalid"}
+    try:
+        manifest = parse_manifest(text)
+    except ManifestError as exc:
+        return {"ok": False, "reason": exc.fields[0] if exc.fields else "manifest_invalid"}
+    return {
+        "ok": True,
+        "slug": manifest.slug,
+        "label": manifest.label,
+        "type": manifest.type,
+        "connection": manifest.connection,
+        "parameters": manifest.parameters,
+        "triage": list(manifest.triage),
+    }
+
+
+def _contracts_index_json(text: str | None) -> list[dict[str, Any]] | None:
+    """Les contrats déposés (`contrats.yaml`) ; None s'il est illisible."""
+    if text is None:
+        return None
+    try:
+        return [e.to_mapping() for e in parse_index(text)]
+    except (yaml.YAMLError, KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
 def file_facts(path: str, data: bytes) -> dict[str, Any] | None:
     """Les faits d'un fichier de `sources/<source>/` que l'index garde ; None pour les
     autres fichiers. Plusieurs rôles possibles pour un même fichier (un schéma nommé
@@ -229,6 +275,12 @@ def file_facts(path: str, data: bytes) -> dict[str, Any] | None:
     out: dict[str, Any] = {}
     if rel == MANIFEST_FILENAME:
         out["source_manifest"] = _source_meta_json(_text(data))
+        out["manifest"] = _manifest_json(_text(data))
+    elif folder == CONTRATS_DIR and name:
+        if name == CONTRATS_INDEX:
+            out["contracts_index"] = _contracts_index_json(_text(data))
+        else:
+            out["contract_checksum"] = checksum(data)
     elif folder == RAW_DIR and name and "/" not in name:
         if is_schema_name(name):
             out["raw_schema"] = {
@@ -365,6 +417,59 @@ class IndexedSource:
         reprise)."""
         return build_source_entries(self.slug, self.meta(), self.layer())
 
+    def manifest(self) -> SourceManifest | None:
+        """Le manifeste lu strictement ; None s'il manque ou s'il est refusé."""
+        facts = self._facts(MANIFEST_FILENAME, "manifest")
+        if not facts or not facts.get("ok"):
+            return None
+        return SourceManifest(
+            slug=facts["slug"],
+            label=facts["label"],
+            type=facts["type"],
+            connection=facts["connection"],
+            parameters=dict(facts["parameters"]),
+            triage=list(facts["triage"]),
+        )
+
+    def entry(self) -> SourceEntry:
+        """Comme une entrée de `read_sources_tree`."""
+        if MANIFEST_FILENAME not in self.files:
+            return SourceEntry(self.slug, None, "manifest_missing")
+        facts = self._facts(MANIFEST_FILENAME, "manifest") or {}
+        if not facts.get("ok"):
+            return SourceEntry(self.slug, None, str(facts.get("reason") or "manifest_invalid"))
+        manifest = self.manifest()
+        assert manifest is not None
+        if manifest.slug != self.slug:
+            return SourceEntry(self.slug, None, "slug_mismatch")
+        return SourceEntry(self.slug, manifest, None)
+
+    def tri_rules_raw(self) -> list[dict[str, Any]]:
+        """Comme `read_tri_rules_raw` : la section `triage` d'un manifeste conforme."""
+        manifest = self.manifest()
+        return list(manifest.triage) if manifest is not None else []
+
+    def contracts_view(self) -> list[ContractView]:
+        """Comme `read_contracts_view(workdir, slug)`."""
+        index = self._facts(f"{CONTRATS_DIR}/{CONTRATS_INDEX}", "contracts_index")
+        entries = [ContractEntry(**row) for row in index or []]
+        tech_rel = f"{RAW_DIR}/{OPENAPI_INDEX}"
+        tech = (
+            _tech_from_json(self._facts(tech_rel, "tech_manifest"))
+            if tech_rel in self.files
+            else None
+        )
+        views = []
+        for entry in entries:
+            collected = False
+            contract_rel = f"{CONTRATS_DIR}/{entry.file}"
+            if tech is not None and contract_rel in self.files:
+                found = tech.entries.get(entry.file)
+                checksum_now = self._facts(contract_rel, "contract_checksum")
+                collected = found is not None and found.checksum == checksum_now
+            views.append(ContractView(entry, collected))
+        return views
+
     def tri_rules(self) -> list[TriRule]:
         """Comme `read_tri_rules` : les règles d'un manifeste conforme (un manifeste
         absent, illisible ou non conforme n'en a aucune, comme pour `source_meta`)."""
@@ -427,3 +532,7 @@ class IndexedSources:
 
     def source(self, slug: str) -> IndexedSource:
         return IndexedSource(slug, self._sources.get(slug, {}))
+
+    def tree(self) -> list[SourceEntry]:
+        """Comme `read_sources_tree`."""
+        return [self.source(slug).entry() for slug in self.slugs()]

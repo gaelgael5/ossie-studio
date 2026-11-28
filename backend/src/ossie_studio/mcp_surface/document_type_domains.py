@@ -23,13 +23,14 @@ leur contenu, et leur taille est mesurée seule (comme une valeur de référenti
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from functools import cache
 from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
 
+from ossie_studio.doc_index.search import Snapshot
 from ossie_studio.domains.documents import (
     DIALECT,
     DOMAINS_DIR,
@@ -50,10 +51,13 @@ from ossie_studio.domains.documents import (
     read_domain,
     write_domain,
 )
+from ossie_studio.domains.indexed import IndexedDomains
 from ossie_studio.mcp_surface.document_type_base import (
     Document,
     DocumentError,
+    IndexLister,
     Item,
+    Lister,
     ListQuery,
     Location,
 )
@@ -614,15 +618,31 @@ def locate_reference(root: Path | None, identity: Mapping[str, Any]) -> Location
 # --- Listes -----------------------------------------------------------------------------------
 
 
-def _domains(root: Path, query: ListQuery, field: str) -> list[Domain]:
+def _domains(found: list[Domain], query: ListQuery, field: str) -> list[Domain]:
     wanted = query.identity.get(field)
-    found = list_domains(root)
     return [d for d in found if wanted is None or d.name == wanted]
 
 
-def domain_items(root: Path, query: ListQuery) -> list[Item]:
+def _indexed(lister: Callable[[list[Domain], ListQuery], list[Item]]) -> IndexLister:
+    """La liste tirée de l'index des documents (ticket fc5bb3b4) : les domaines
+    reconstruits depuis l'index, la même liste."""
+
+    def index_lister(snap: Snapshot, query: ListQuery) -> list[Item]:
+        return lister(IndexedDomains(snap.files).domains(), query)
+
+    return index_lister
+
+
+def _from_files(lister: Callable[[list[Domain], ListQuery], list[Item]]) -> Lister:
+    def file_lister(root: Path, query: ListQuery) -> list[Item]:
+        return lister(list_domains(root), query)
+
+    return file_lister
+
+
+def _domain_items(found: list[Domain], query: ListQuery) -> list[Item]:
     out = []
-    for domain in _domains(root, query, "name"):
+    for domain in _domains(found, query, "name"):
         doc = domain_document(domain)
         summary = {
             "datasets": len(domain.datasets),
@@ -643,9 +663,9 @@ def domain_items(root: Path, query: ListQuery) -> list[Item]:
     return out
 
 
-def dataset_items(root: Path, query: ListQuery) -> list[Item]:
+def _dataset_items(found: list[Domain], query: ListQuery) -> list[Item]:
     out = []
-    for domain in _domains(root, query, "domain"):
+    for domain in _domains(found, query, "domain"):
         for ds in domain.datasets:
             doc = dataset_document(ds)
             summary = {
@@ -670,9 +690,9 @@ def dataset_items(root: Path, query: ListQuery) -> list[Item]:
     return out
 
 
-def relation_items(root: Path, query: ListQuery) -> list[Item]:
+def _relation_items(found: list[Domain], query: ListQuery) -> list[Item]:
     out = []
-    for domain in _domains(root, query, "domain"):
+    for domain in _domains(found, query, "domain"):
         for rel in domain.relationships:
             doc = relation_document(rel)
             source = domain.dataset(rel.from_dataset)
@@ -690,9 +710,9 @@ def relation_items(root: Path, query: ListQuery) -> list[Item]:
     return out
 
 
-def reference_items(root: Path, query: ListQuery) -> list[Item]:
+def _reference_items(found: list[Domain], query: ListQuery) -> list[Item]:
     out = []
-    for domain in _domains(root, query, "domain"):
+    for domain in _domains(found, query, "domain"):
         for ref in domain.references:
             doc = reference_document(ref)
             summary = {k: v for k, v in doc.items() if k != "name"}
@@ -706,3 +726,13 @@ def reference_items(root: Path, query: ListQuery) -> list[Item]:
                 )
             )
     return out
+
+
+domain_items = _from_files(_domain_items)
+domain_items_indexed = _indexed(_domain_items)
+dataset_items = _from_files(_dataset_items)
+dataset_items_indexed = _indexed(_dataset_items)
+relation_items = _from_files(_relation_items)
+relation_items_indexed = _indexed(_relation_items)
+reference_items = _from_files(_reference_items)
+reference_items_indexed = _indexed(_reference_items)

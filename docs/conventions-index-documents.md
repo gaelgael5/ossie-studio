@@ -269,3 +269,25 @@ chaque valeur en entier ; sans elles, il faudrait relire `valeurs.json`).
 - **Listes** : `referentiel_modele` et `referentiel_valeur` déclarent `index_lister` et
   `index_facts` (`referentiels/`). Coût : une copie des valeurs en base par version de
   `valeurs.json` (les versions qu'aucune vue ne lit sont purgées).
+
+## Recherche par l'index (3/6) : domaines, datasets, relations, références (ticket fc5bb3b4)
+
+- **Faits** (`domains/indexed.py`) : pour chaque fichier d'un domaine (`<nom>.extend.yaml`,
+  `<nom>.ossie.yaml`, `<nom>.virtuel.ossie.yaml`), le document lu, ou le motif de
+  l'échec (`domain_file`). Les listes montrent presque tout le contenu d'un domaine :
+  même choix que pour les valeurs d'un référentiel (contenus entiers, Gael : « oui »).
+- **Une seule règle** : `read_domain` passe par `domain_from(name, load)` et
+  `list_domains` par `domains_of` ; `IndexedDomains` les nourrit depuis l'index.
+- Listes `domaine`, `dataset`, `relation_dataset`, `reference_dataset` par l'index
+  (`index_facts` : `domaines/`). `INDEXER_VERSION` 6.
+
+## Recherche par l'index (4/6) : sources, contrats, règles de tri (ticket 3492625e)
+
+- **Faits** (`sources/raw_facts.py`) : le manifeste lu strictement (`manifest` : champs,
+  ou motif du refus), l'index des contrats déposés (`contracts_index`) et l'empreinte
+  de chaque fichier de `contrats/` (`contract_checksum`) ; le manifeste technique
+  OpenAPI de `raw/` était déjà gardé (`tech_manifest`).
+- `IndexedSource.entry()` (comme `read_sources_tree`), `contracts_view()` (comme
+  `read_contracts_view`) et `tri_rules_raw()` (comme `read_tri_rules_raw`).
+- Listes `source`, `contrat`, `regles_tri` par l'index, à travers le même fournisseur
+  que le 1/6. `INDEXER_VERSION` 7.

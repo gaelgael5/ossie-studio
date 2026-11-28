@@ -36,6 +36,7 @@ from ossie_studio.cartographie.diagram import diagram_path, graphic_path, rules_
 from ossie_studio.cartographie.model import is_valid_key, object_path, type_path
 from ossie_studio.cartographie.process import process_path
 from ossie_studio.cartographie.space import read_cartographie
+from ossie_studio.domains.documents import DOMAINS_DIR
 from ossie_studio.governance import classification_rules as classification_rule_service
 from ossie_studio.governance import tag_rules as tag_rule_service
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
@@ -773,6 +774,8 @@ DOCUMENT_TYPES = (
         locator=_tri_rules,
         store=stores.TriRulesStore(),
         lister=lists.tri_rules,
+        index_lister=lists.tri_rules_indexed,
+        index_facts=f"{SOURCES_DIR}/",
     ),
     DocumentType(
         name="profil_relation",
@@ -824,6 +827,8 @@ DOCUMENT_TYPES = (
         locator=domains.locate_domain,
         store=domains.DomainStore(),
         lister=domains.domain_items,
+        index_lister=domains.domain_items_indexed,
+        index_facts=f"{DOMAINS_DIR}/",
         identity_paths=("$.name",),
         content_schema=domains.domain_schema,
     ),
@@ -848,6 +853,8 @@ DOCUMENT_TYPES = (
         locator=domains.locate_dataset,
         store=domains.DatasetStore(),
         lister=domains.dataset_items,
+        index_lister=domains.dataset_items_indexed,
+        index_facts=f"{DOMAINS_DIR}/",
         content_schema=domains.dataset_schema,
     ),
     DocumentType(
@@ -866,6 +873,8 @@ DOCUMENT_TYPES = (
         locator=domains.locate_relation,
         store=domains.RelationStore(),
         lister=domains.relation_items,
+        index_lister=domains.relation_items_indexed,
+        index_facts=f"{DOMAINS_DIR}/",
         identity_paths=("$.name",),
         content_schema=domains.relation_schema,
     ),
@@ -885,6 +894,8 @@ DOCUMENT_TYPES = (
         locator=domains.locate_reference,
         store=domains.ReferenceStore(),
         lister=domains.reference_items,
+        index_lister=domains.reference_items_indexed,
+        index_facts=f"{DOMAINS_DIR}/",
         identity_paths=("$.name",),
         content_schema=domains.reference_schema,
     ),
@@ -917,6 +928,8 @@ DOCUMENT_TYPES = (
         locator=_source,
         store=stores.ReadOnlyStore("source", _SOURCE_ACTIONS),
         lister=lists.sources,
+        index_lister=lists.sources_indexed,
+        index_facts=f"{SOURCES_DIR}/",
         list_filters=(lists.SOURCE_TYPE,),
         writable=False,
         produced_by=_SOURCE_ACTIONS,
@@ -940,6 +953,8 @@ DOCUMENT_TYPES = (
         locator=_contract,
         store=stores.ReadOnlyStore("contrat", _CONTRACT_ACTIONS),
         lister=lists.contracts,
+        index_lister=lists.contracts_indexed,
+        index_facts=f"{SOURCES_DIR}/",
         writable=False,
         produced_by=_CONTRACT_ACTIONS,
     ),
