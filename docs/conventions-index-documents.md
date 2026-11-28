@@ -291,3 +291,23 @@ chaque valeur en entier ; sans elles, il faudrait relire `valeurs.json`).
   `read_contracts_view`) et `tri_rules_raw()` (comme `read_tri_rules_raw`).
 - Listes `source`, `contrat`, `regles_tri` par l'index, à travers le même fournisseur
   que le 1/6. `INDEXER_VERSION` 7.
+
+## Recherche par l'index (5/6) : tags, classifications, certifications, règles, profils (ticket bb279dd6)
+
+- **Faits** (`governance/files.py`, `file_facts`) : le **texte** des fichiers de
+  gouvernance que les listes lisent (`governance_text`, None s'il n'est pas en UTF-8) :
+  les `.yaml` de `tags/`, `certifications/`, `classifications/`, `tag-rules/`,
+  `classification-rules/`, `relation-profiles/`, et l'état des règles fournies
+  (`tag-rules-builtin.yaml`, `classification-rules-builtin.yaml`). Des fichiers de
+  configuration courts. Les retraits de classification (`classification-removals.yaml`,
+  qui grossissent avec l'usage) ne sont pas gardés : aucune liste ne les lit.
+- **Une seule façon de lire** : chaque lecteur (`tags_from`, `certs_from`, `schemes_from`,
+  `tag_rules_from`, `classification_rules_from`, `profile_files_from`,
+  `builtin_disabled_from`) lit par un accès `GovernanceFiles` : `DiskFiles` (la copie)
+  ou `IndexFiles` (l'index : mêmes fichiers, même ordre, mêmes erreurs). Les
+  `read_*(root)` restent, en passant par `DiskFiles`.
+- Les règles et le profil fournis par Ossie sont ajoutés par le même code, au même rang
+  (`_rule_items`, `_relation_profile_items`) ; l'état d'une règle native se calcule
+  depuis la liste des désactivées (`_RuleStore.native_with`).
+- Listes `tag`, `classification`, `certification`, `regle_tag`, `regle_classification`,
+  `profil_relation` par l'index (`index_facts` : `governance/`). `INDEXER_VERSION` 8.

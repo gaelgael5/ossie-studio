@@ -28,7 +28,8 @@ aussi ce que l'Explorateur et la curation en lisent (`sources/raw_facts.py`) ; l
 listes de schémas raw, d'assets, d'extensions et de points d'entrée se calculent sans
 relire les fichiers. Pour un référentiel (ticket c854ad1e) : le modèle, les valeurs
 entières et la lisibilité de ses déclarations d'import (`referentiels/indexed.py`).
-Pour un domaine (ticket fc5bb3b4) : ses documents lus (`domains/indexed.py`).
+Pour un domaine (ticket fc5bb3b4) : ses documents lus (`domains/indexed.py`). Pour la
+gouvernance (ticket bb279dd6) : le texte de ses fichiers (`governance/files.py`).
 
 **Cartographie** (ticket 06171fd3, la recherche passe par l'index) : un type et un objet
 sont aussi lus par le service de la cartographie (`parse_type`, `parse_object`), aux
@@ -51,7 +52,7 @@ from ossie_studio.cartographie.model import parse_object, parse_type
 from ossie_studio.cartographie.summary import excerpt, shown_properties
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 
-INDEXER_VERSION = 7
+INDEXER_VERSION = 8
 
 ANY_TYPE = "*"
 
@@ -465,8 +466,14 @@ def index_file(path: str, data: bytes) -> IndexedFile:
     # Import local : les faits viennent des services des sources, qui importent
     # eux-mêmes des modules proches de l'index.
     from ossie_studio.domains.indexed import file_facts as domain_facts
+    from ossie_studio.governance.files import file_facts as governance_facts
     from ossie_studio.referentiels.indexed import file_facts as referentiel_facts
     from ossie_studio.sources.raw_facts import file_facts as source_facts
 
-    facts = source_facts(path, data) or referentiel_facts(path, data) or domain_facts(path, data)
+    facts = (
+        source_facts(path, data)
+        or referentiel_facts(path, data)
+        or domain_facts(path, data)
+        or governance_facts(path, data)
+    )
     return IndexedFile(found.documents, list(dict.fromkeys(keys)), refs, facts)

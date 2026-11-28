@@ -43,6 +43,7 @@ from ossie_studio.governance.builtin_classification_rules import builtin_classif
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
 from ossie_studio.governance.relation_profiles import profile_path as relation_profile_path
 from ossie_studio.governance.repo import (
+    GOVERNANCE_DIR,
     InvalidGovernanceId,
     cert_path,
     read_certs,
@@ -641,6 +642,8 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
         locator=_governance("tag", tag_path, "pii/email"),
         store=stores.TagStore(),
         lister=lists.tags,
+        index_lister=lists.tags_indexed,
+        index_facts=f"{GOVERNANCE_DIR}/",
         identity_paths=("$.id",),
     ),
     DocumentType(
@@ -656,6 +659,8 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
         locator=_governance("classification", scheme_path, "confidentialite"),
         store=stores.ClassificationStore(),
         lister=lists.classifications,
+        index_lister=lists.classifications_indexed,
+        index_facts=f"{GOVERNANCE_DIR}/",
         identity_paths=("$.id",),
     ),
     DocumentType(
@@ -671,6 +676,8 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
         locator=_certification,
         store=stores.CertificationStore(),
         lister=lists.certifications,
+        index_lister=lists.certifications_indexed,
+        index_facts=f"{GOVERNANCE_DIR}/",
         identity_paths=("$.slug", "$.id"),
     ),
 )
@@ -736,6 +743,8 @@ DOCUMENT_TYPES = (
         locator=_rule("regle_tag", tag_rule_service, _tag_rule_ids),
         store=stores.TagRuleStore(),
         lister=lists.tag_rule_items,
+        index_lister=lists.tag_rule_items_indexed,
+        index_facts=f"{GOVERNANCE_DIR}/",
         identity_paths=("$.id",),
     ),
     DocumentType(
@@ -756,6 +765,8 @@ DOCUMENT_TYPES = (
         ),
         store=stores.ClassificationRuleStore(),
         lister=lists.classification_rule_items,
+        index_lister=lists.classification_rule_items_indexed,
+        index_facts=f"{GOVERNANCE_DIR}/",
         identity_paths=("$.id",),
     ),
     DocumentType(
@@ -799,6 +810,8 @@ DOCUMENT_TYPES = (
         locator=_relation_profile,
         store=stores.RelationProfileStore(),
         lister=lists.relation_profile_items,
+        index_lister=lists.relation_profile_items_indexed,
+        index_facts=f"{GOVERNANCE_DIR}/",
         identity_paths=("$.id",),
     ),
 )

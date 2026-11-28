@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
 
+from ossie_studio.governance.files import DiskFiles, GovernanceFiles
 from ossie_studio.governance.tags import is_valid_tag_id
 from ossie_studio.roundtrip import write_document
 
@@ -89,14 +90,9 @@ def _dump(data: Any) -> str:
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
 
-def _load(file: Path) -> dict[str, Any]:
-    data = yaml.safe_load(file.read_text(encoding="utf-8"))
+def _load(files: GovernanceFiles, rel: str) -> dict[str, Any]:
+    data = yaml.safe_load(files.read_text(rel))
     return data if isinstance(data, dict) else {}
-
-
-def _files(root: Path, folder: str) -> list[Path]:
-    base = root / folder
-    return sorted(base.rglob("*.yaml")) if base.is_dir() else []
 
 
 def _write(root: Path, rel: str, data: Any) -> None:
@@ -128,17 +124,22 @@ def tag_path(tag_id: str) -> str:
 
 
 def read_tags(root: Path) -> list[Tag]:
+    return tags_from(DiskFiles(root))
+
+
+def tags_from(files: GovernanceFiles) -> list[Tag]:
+    """Les tags, lus par `files` (la copie de travail ou l'index des documents)."""
     tags: list[Tag] = []
-    for file in _files(root, TAGS_DIR):
+    for rel in files.yaml_files(TAGS_DIR, recursive=True):
         try:
-            data = _load(file)
+            data = _load(files, rel)
         except (OSError, yaml.YAMLError):
             continue  # signalé par la validation (fichier illisible)
         info = data.get("info") if isinstance(data.get("info"), dict) else {}
         assert isinstance(info, dict)
         tags.append(
             Tag(
-                id=str(data.get("id") or file.relative_to(root / TAGS_DIR).as_posix()[:-5]),
+                id=str(data.get("id") or rel[len(TAGS_DIR) + 1 : -5]),
                 owner=str(info.get("owner", "") or ""),
                 description=str(info.get("description", "") or ""),
                 links=dict(data.get("links") or {}),
@@ -178,16 +179,20 @@ def cert_path(cert_id: str) -> str:
 
 
 def read_certs(root: Path) -> list[Cert]:
+    return certs_from(DiskFiles(root))
+
+
+def certs_from(files: GovernanceFiles) -> list[Cert]:
     certs: list[Cert] = []
-    for file in _files(root, CERTIFICATIONS_DIR):
+    for rel in files.yaml_files(CERTIFICATIONS_DIR, recursive=True):
         try:
-            data = _load(file)
+            data = _load(files, rel)
         except (OSError, yaml.YAMLError):
             continue
         rank = data.get("rank", 1)
         certs.append(
             Cert(
-                id=str(data.get("id") or file.stem),
+                id=str(data.get("id") or PurePosixPath(rel).stem),
                 name=str(data.get("name", "") or ""),
                 rank=rank if isinstance(rank, int) and not isinstance(rank, bool) else 1,
                 description=str(data.get("description", "") or ""),
@@ -234,13 +239,17 @@ def _level(scheme_id: str, item: dict[str, Any], position: int) -> Level:
 
 
 def read_schemes(root: Path) -> list[Scheme]:
+    return schemes_from(DiskFiles(root))
+
+
+def schemes_from(files: GovernanceFiles) -> list[Scheme]:
     schemes: list[Scheme] = []
-    for file in _files(root, CLASSIFICATIONS_DIR):
+    for rel in files.yaml_files(CLASSIFICATIONS_DIR, recursive=True):
         try:
-            data = _load(file)
+            data = _load(files, rel)
         except (OSError, yaml.YAMLError):
             continue
-        scheme_id = str(data.get("id") or file.stem)
+        scheme_id = str(data.get("id") or PurePosixPath(rel).stem)
         order = data.get("display_order", 0)
         schemes.append(
             Scheme(

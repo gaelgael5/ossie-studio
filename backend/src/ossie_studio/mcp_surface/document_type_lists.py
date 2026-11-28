@@ -38,19 +38,20 @@ from ossie_studio.governance import classification_rules as classification_rule_
 from ossie_studio.governance import tag_rules as tag_rule_service
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
-from ossie_studio.governance.classification_rules import read_classification_rules
-from ossie_studio.governance.relation_profiles import builtin_profiles, read_profile_files
+from ossie_studio.governance.classification_rules import classification_rules_from
+from ossie_studio.governance.files import DiskFiles, GovernanceFiles, IndexFiles
+from ossie_studio.governance.relation_profiles import builtin_profiles, profile_files_from
 from ossie_studio.governance.relation_profiles import profile_document as relation_profile_document
 from ossie_studio.governance.relation_profiles import profile_path as relation_profile_path
 from ossie_studio.governance.repo import (
     cert_path,
-    read_certs,
-    read_schemes,
-    read_tags,
+    certs_from,
     scheme_path,
+    schemes_from,
     tag_path,
+    tags_from,
 )
-from ossie_studio.governance.tag_rules import read_tag_rules
+from ossie_studio.governance.tag_rules import tag_rules_from
 from ossie_studio.mcp_surface.document_type_base import (
     Document,
     DocumentError,
@@ -1029,14 +1030,58 @@ def _asset_schemas(provider: _Provider, query: ListQuery) -> list[Item]:
 # --- Règles (ticket 71347227) ------------------------------------------------------------
 
 
+class _FileGovernance:
+    """La gouvernance d'une copie de travail."""
+
+    def __init__(self, root: Path) -> None:
+        self.files: GovernanceFiles = DiskFiles(root)
+
+    def version(self, path: str) -> str | None:
+        return None  # celle du fichier, calculée par la liste
+
+
+class _IndexGovernance:
+    """La gouvernance d'une vue, lue dans l'index des documents (ticket bb279dd6)."""
+
+    def __init__(self, snap: Snapshot) -> None:
+        self.files = IndexFiles(snap.files)
+        self._blobs = snap.files
+
+    def version(self, path: str) -> str | None:
+        found = self._blobs.get(path)
+        return found[0] if found is not None else None
+
+
+_Governance = _FileGovernance | _IndexGovernance
+
+
+def _on_files(
+    build: Callable[[_Governance, ListQuery], list[Item]],
+) -> Callable[[Path, ListQuery], list[Item]]:
+    def lister(root: Path, query: ListQuery) -> list[Item]:
+        return build(_FileGovernance(root), query)
+
+    return lister
+
+
+def _on_index(
+    build: Callable[[_Governance, ListQuery], list[Item]],
+) -> Callable[[Snapshot, ListQuery], list[Item]]:
+    def lister(snap: Snapshot, query: ListQuery) -> list[Item]:
+        return build(_IndexGovernance(snap), query)
+
+    return lister
+
+
 def _rule_items(
-    root: Path, store: Any, builtins: Any, files: Any, state_file: str, extra: Any
+    provider: _Governance, store: Any, builtins: Any, files: Any, state_file: str, extra: Any
 ) -> list[Item]:
     """Les règles natives (fournies par Ossie, leur état dans le dépôt) puis celles du
     dépôt, valides ou non (une règle invalide porte ses erreurs)."""
+    disabled = store.service.builtin_disabled_from(provider.files)
     out = []
     for rule in builtins:
-        doc = store.native_document(root, rule.id)
+        doc = store.native_with(rule.id, disabled)
         summary = {"native": True, "enabled": doc["enabled"], **extra(rule), "errors": []}
         out.append(
             Item({"id": rule.id}, rule.name, state_file, summary, version=value_version(doc))
@@ -1050,23 +1095,31 @@ def _rule_items(
             **(extra(rule) if rule else {}),
             "errors": list(found.errors),
         }
-        out.append(Item({"id": rule_id}, rule.name if rule else rule_id, found.rel, summary))
+        out.append(
+            Item(
+                {"id": rule_id},
+                rule.name if rule else rule_id,
+                found.rel,
+                summary,
+                version=provider.version(found.rel),
+            )
+        )
     return out
 
 
-def tag_rule_items(root: Path, query: ListQuery) -> list[Item]:
+def _tag_rule_items(provider: _Governance, query: ListQuery) -> list[Item]:
     return _rule_items(
-        root,
+        provider,
         TagRuleStore(),
         builtin_rules(),
-        read_tag_rules(root),
+        tag_rules_from(provider.files),
         tag_rule_service.BUILTIN_STATE_FILE,
         lambda r: {"tags": list(r.tags)},
     )
 
 
-def classification_rule_items(root: Path, query: ListQuery) -> list[Item]:
-    schemes = read_schemes(root)
+def _classification_rule_items(provider: _Governance, query: ListQuery) -> list[Item]:
+    schemes = schemes_from(provider.files)
 
     def extra(rule: Any) -> dict[str, Any]:
         return {
@@ -1076,13 +1129,19 @@ def classification_rule_items(root: Path, query: ListQuery) -> list[Item]:
         }
 
     return _rule_items(
-        root,
+        provider,
         ClassificationRuleStore(),
         builtin_classification_rules(),
-        read_classification_rules(root),
+        classification_rules_from(provider.files),
         classification_rule_service.BUILTIN_STATE_FILE,
         extra,
     )
+
+
+tag_rule_items = _on_files(_tag_rule_items)
+tag_rule_items_indexed = _on_index(_tag_rule_items)
+classification_rule_items = _on_files(_classification_rule_items)
+classification_rule_items_indexed = _on_index(_classification_rule_items)
 
 
 def tri_rules(root: Path, query: ListQuery) -> list[Item]:
@@ -1114,10 +1173,13 @@ def _tri_rules(provider: _Provider, query: ListQuery) -> list[Item]:
 # --- Gouvernance --------------------------------------------------------------------------
 
 
-def relation_profile_items(root: Path, query: ListQuery) -> list[Item]:
+def _relation_profile_items(provider: _Governance, query: ListQuery) -> list[Item]:
     """Les profils de relations, comme l'écran les liste : le profil fourni n'apparaît
     qu'une fois (sa version de l'espace s'il en a une), puis ceux de l'espace."""
-    files = {f.rel.rsplit("/", 1)[-1].removesuffix(".yaml"): f for f in read_profile_files(root)}
+    files = {
+        f.rel.rsplit("/", 1)[-1].removesuffix(".yaml"): f
+        for f in profile_files_from(provider.files)
+    }
     builtins = {p.id: p for p in builtin_profiles()}
     out = []
     for profile_id in [*builtins, *sorted(set(files) - set(builtins))]:
@@ -1132,50 +1194,81 @@ def relation_profile_items(root: Path, query: ListQuery) -> list[Item]:
         else:
             summary |= {"name": profile.name, "rules": len(profile.rules)}
         doc = relation_profile_document(profile) if profile else None
+        path = relation_profile_path(profile_id)
         out.append(
             Item(
                 {"id": profile_id},
                 profile.name if profile else profile_id,
-                relation_profile_path(profile_id),
+                path,
                 summary,
                 text=profile.description if profile else "",
                 # Le profil fourni non personnalisé n'a pas de fichier : la version de
                 # son contenu, comme à la lecture.
-                version=value_version(doc) if file is None and doc else None,
+                version=(value_version(doc) if file is None and doc else provider.version(path)),
             )
         )
     return out
 
 
-def tags(root: Path, query: ListQuery) -> list[Item]:
+def _tags(provider: _Governance, query: ListQuery) -> list[Item]:
     out = []
-    for tag in read_tags(root):
+    for tag in tags_from(provider.files):
         summary = {k: v for k, v in asdict(tag).items() if k != "id"}
-        out.append(Item({"id": tag.id}, tag.id, tag_path(tag.id), summary, text=tag.description))
+        path = tag_path(tag.id)
+        out.append(
+            Item(
+                {"id": tag.id},
+                tag.id,
+                path,
+                summary,
+                text=tag.description,
+                version=provider.version(path),
+            )
+        )
     return out
 
 
-def classifications(root: Path, query: ListQuery) -> list[Item]:
+def _classifications(provider: _Governance, query: ListQuery) -> list[Item]:
     out = []
-    for scheme in read_schemes(root):
+    for scheme in schemes_from(provider.files):
         summary = {k: v for k, v in asdict(scheme).items() if k not in ("id", "name")}
+        path = scheme_path(scheme.id)
         out.append(
             Item(
                 {"id": scheme.id},
                 scheme.name,
-                scheme_path(scheme.id),
+                path,
                 summary,
                 text=scheme.description,
+                version=provider.version(path),
             )
         )
     return out
 
 
-def certifications(root: Path, query: ListQuery) -> list[Item]:
+def _certifications(provider: _Governance, query: ListQuery) -> list[Item]:
     out = []
-    for cert in read_certs(root):
+    for cert in certs_from(provider.files):
         summary = {k: v for k, v in asdict(cert).items() if k not in ("slug", "name")}
+        path = cert_path(cert.id)
         out.append(
-            Item({"slug": cert.slug}, cert.name, cert_path(cert.id), summary, text=cert.description)
+            Item(
+                {"slug": cert.slug},
+                cert.name,
+                path,
+                summary,
+                text=cert.description,
+                version=provider.version(path),
+            )
         )
     return out
+
+
+relation_profile_items = _on_files(_relation_profile_items)
+relation_profile_items_indexed = _on_index(_relation_profile_items)
+tags = _on_files(_tags)
+tags_indexed = _on_index(_tags)
+classifications = _on_files(_classifications)
+classifications_indexed = _on_index(_classifications)
+certifications = _on_files(_certifications)
+certifications_indexed = _on_index(_certifications)

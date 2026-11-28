@@ -531,10 +531,14 @@ class _RuleStore:
         raise NotImplementedError
 
     def native_document(self, root: Path, rule_id: str) -> dict[str, Any] | None:
+        return self.native_with(rule_id, self.service.read_builtin_disabled(root))
+
+    def native_with(self, rule_id: str, disabled: set[str]) -> dict[str, Any] | None:
+        """La règle native `rule_id`, selon la liste des règles natives désactivées."""
         rule = self._builtins().get(rule_id)
         if rule is None:
             return None
-        enabled = rule_id not in self.service.read_builtin_disabled(root)
+        enabled = rule_id not in disabled
         doc: dict[str, Any] = self.service.rule_document(dataclass_replace(rule, enabled=enabled))
         return doc
 

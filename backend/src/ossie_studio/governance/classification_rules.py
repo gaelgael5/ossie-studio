@@ -39,11 +39,12 @@ from __future__ import annotations
 import fnmatch
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
 
+from ossie_studio.governance.files import DiskFiles, GovernanceFiles
 from ossie_studio.governance.repo import GOVERNANCE_DIR, Scheme
 from ossie_studio.roundtrip import write_yaml
 
@@ -196,18 +197,19 @@ class RuleFile:
 def read_classification_rules(root: Path) -> list[RuleFile]:
     """Toutes les règles du dépôt, valides ou non (les invalides portent leurs
     erreurs et ne classent rien)."""
-    base = root / CLASSIFICATION_RULES_DIR
-    if not base.is_dir():
-        return []
+    return classification_rules_from(DiskFiles(root))
+
+
+def classification_rules_from(files: GovernanceFiles) -> list[RuleFile]:
+    """`read_classification_rules`, lu par `files` (la copie ou l'index des documents)."""
     out: list[RuleFile] = []
-    for file in sorted(base.glob("*.yaml")):
-        rel = file.relative_to(root).as_posix()
+    for rel in files.yaml_files(CLASSIFICATION_RULES_DIR, recursive=False):
         try:
-            data = yaml.safe_load(file.read_text(encoding="utf-8"))
+            data = yaml.safe_load(files.read_text(rel))
         except (OSError, UnicodeDecodeError, yaml.YAMLError):
             out.append(RuleFile(rel, None, ("classification_rule_unreadable",)))
             continue
-        rule, errors = parse_rule(file.stem, data)
+        rule, errors = parse_rule(PurePosixPath(rel).stem, data)
         out.append(RuleFile(rel, rule, tuple(errors)))
     return out
 
@@ -250,11 +252,14 @@ BUILTIN_STATE_FILE = f"{GOVERNANCE_DIR}/classification-rules-builtin.yaml"
 
 
 def read_builtin_disabled(root: Path) -> set[str]:
-    file = root / BUILTIN_STATE_FILE
-    if not file.is_file():
+    return builtin_disabled_from(DiskFiles(root))
+
+
+def builtin_disabled_from(files: GovernanceFiles) -> set[str]:
+    if not files.is_file(BUILTIN_STATE_FILE):
         return set()
     try:
-        data = yaml.safe_load(file.read_text(encoding="utf-8"))
+        data = yaml.safe_load(files.read_text(BUILTIN_STATE_FILE))
     except (OSError, UnicodeDecodeError, yaml.YAMLError):
         return set()
     items = data.get("disabled") if isinstance(data, dict) else None

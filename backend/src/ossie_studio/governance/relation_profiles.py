@@ -37,11 +37,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
 
+from ossie_studio.governance.files import DiskFiles, GovernanceFiles
 from ossie_studio.governance.repo import GOVERNANCE_DIR
 from ossie_studio.governance.tag_rules import BUILTIN_PREFIX, _compiled, is_valid_rule_id
 from ossie_studio.roundtrip import write_yaml
@@ -173,18 +174,19 @@ class ProfileFile:
 
 
 def read_profile_files(root: Path) -> list[ProfileFile]:
-    base = root / RELATION_PROFILES_DIR
-    if not base.is_dir():
-        return []
+    return profile_files_from(DiskFiles(root))
+
+
+def profile_files_from(files: GovernanceFiles) -> list[ProfileFile]:
+    """Les profils de l'espace, lus par `files` (la copie de travail ou l'index)."""
     out: list[ProfileFile] = []
-    for file in sorted(base.glob("*.yaml")):
-        rel = file.relative_to(root).as_posix()
+    for rel in files.yaml_files(RELATION_PROFILES_DIR, recursive=False):
         try:
-            data = yaml.safe_load(file.read_text(encoding="utf-8"))
+            data = yaml.safe_load(files.read_text(rel))
         except (OSError, UnicodeDecodeError, yaml.YAMLError):
             out.append(ProfileFile(rel, None, ("relation_profile_unreadable",)))
             continue
-        profile, errors = parse_profile(file.stem, data)
+        profile, errors = parse_profile(PurePosixPath(rel).stem, data)
         out.append(ProfileFile(rel, profile, tuple(errors)))
     return out
 
