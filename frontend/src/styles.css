@@ -4693,3 +4693,13 @@ urban-bpmn {
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   box-shadow: -8px 0 24px rgba(15, 27, 45, 0.25);
 }
+/* Choix de la langue dans le menu de l'utilisateur (ticket bce4852a). */
+.menu-lang {
+  padding: 6px 12px;
+}
+.menu-lang .lang-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}

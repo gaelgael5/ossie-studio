@@ -275,7 +275,6 @@ function AppNav({
         {branchDraft.shown ? (
           <DraftViewSelect spaceId={branchDraft.spaceId as string} branchId={branchDraft.branchId as string} />
         ) : null}
-        <LanguageSelector />
         <div className="topnav-dropdown" ref={userRef}>
           <button
             type="button"
@@ -312,6 +311,14 @@ function AppNav({
               <Link to="/agent-connections" role="menuitem" onClick={() => setUserOpen(false)}>
                 {t('navAgentConnections')}
               </Link>
+              {/* La langue vit dans le menu de l'utilisateur (ticket bce4852a, Gael :
+                  « tu bascules le menu de langue dans le menu utilisateur »). Avant
+                  connexion, elle reste dans le bandeau simple. */}
+              <hr className="menu-sep" />
+              <div className="menu-lang">
+                <LanguageSelector />
+              </div>
+              <hr className="menu-sep" />
               <button
                 type="button"
                 className="btn btn-sm"

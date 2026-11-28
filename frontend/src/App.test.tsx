@@ -1127,3 +1127,23 @@ test('menu : « Sources » et « Curation » regroupés dans le bloc « Collecte
   expect(within(menu).getAllByRole('menuitem').map((a) => a.textContent)).toEqual(['Sources', 'Curation'])
   expect(within(menu).getByRole('menuitem', { name: 'Sources' })).toHaveAttribute('href', '/sources')
 })
+
+test('langue : dans le menu de l’utilisateur, plus dans le bandeau (ticket bce4852a)', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: ADMIN_CAPS,
+      },
+    },
+  })
+  renderAt('/')
+  const userButton = await screen.findByRole('button', { name: /gael@example\.org/ })
+  expect(screen.queryByRole('combobox', { name: 'Langue' })).not.toBeInTheDocument()
+  await userEvent.setup().click(userButton)
+  const menu = screen.getByRole('menu')
+  expect(within(menu).getByRole('combobox', { name: 'Langue' })).toHaveValue('fr')
+})
