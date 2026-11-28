@@ -249,3 +249,23 @@ terme (l'Explorateur raw y passera dans un ticket à part, et la table
   `mcp_surface/document_type_lists.py` passent par un fournisseur de sources
   (`_FileSources` ou `_IndexSources`) : le même code de liste pour les deux.
 - `read_document` d'un point d'entrée lit toujours les fichiers.
+
+## Recherche par l'index (2/6) : modèles et valeurs des référentiels (ticket c854ad1e)
+
+Gael : « oui » à garder les **valeurs entières** dans l'index (la liste des valeurs rend
+chaque valeur en entier ; sans elles, il faudrait relire `valeurs.json`).
+
+- **Faits** (`referentiels/indexed.py`, `file_facts`) : le modèle lu par `load_model`
+  (`referentiel_model`), les valeurs lues par `load_values` (`referentiel_values`), et
+  pour chaque déclaration d'import `imports/<slug>.yaml` son refus éventuel
+  (`referentiel_import` : une déclaration illisible rend le référentiel illisible).
+  La clé d'une valeur dépend du modèle, un autre fichier : elle se calcule à la
+  lecture. `INDEXER_VERSION` 5.
+- **Référentiels reconstruits** : `IndexedReferentiels.read(name)` lève exactement
+  comme `read_referentiel` (mêmes codes, même ordre : modèle, valeurs, imports).
+- `referentiels/published.py` sépare la lecture du calcul (`readable`,
+  `summaries_of`, `search_in`) : les fichiers et l'index passent par les mêmes
+  fonctions.
+- **Listes** : `referentiel_modele` et `referentiel_valeur` déclarent `index_lister` et
+  `index_facts` (`referentiels/`). Coût : une copie des valeurs en base par version de
+  `valeurs.json` (les versions qu'aucune vue ne lit sont purgées).
