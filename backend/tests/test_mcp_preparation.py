@@ -33,7 +33,7 @@ PREPARATION = {
     "get_validation_log",
     "accept_validation_warning",
 }
-OBJ = "sources/s/raw/O.schema.yaml"
+OBJ = "sources/s/assets/O.schema.yaml"
 OTHER = "sources/s/raw/P.schema.yaml"
 RAW = "sources/s/raw/User.schema.yaml"
 ASSET = "sources/s/assets/User.schema.yaml"

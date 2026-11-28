@@ -29,6 +29,9 @@ class ChangedObject:
     title: str
     state: str  # created | modified | deleted
     folder: str | None  # dossier dans l'explorateur (mode par défaut) ; None : plus d'objet
+    # Fichier du brouillon que la fenêtre de fusion ouvre (ticket 173c6ed6) : le
+    # schéma, ou le `.extend.yaml` d'un asset ; None : hors du brouillon (orphelin).
+    path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -58,6 +61,17 @@ def asset_names(workdir: Path) -> dict[str, set[str]]:
         if directory.is_dir():
             out[slug] = {p.name for p in directory.iterdir() if is_schema_name(p.name)}
     return out
+
+
+def is_collected_raw(path: str) -> bool:
+    """Objet raw d'une source (`sources/<slug>/raw/<schéma>`) : produit par la
+    collecte, sa fusion se consulte sans se modifier (Gael, 28/11, ticket
+    173c6ed6 : « sur la partie source il faut ouvrir la fusion mais elle est en
+    read only »). Une nouvelle collecte le met à jour."""
+    parts = path.split("/", 2)
+    return (
+        len(parts) == 3 and parts[0] == SOURCES_DIR and _direct_child(parts[2], RAW_DIR) is not None
+    )
 
 
 def _direct_child(rest: str, directory: str) -> str | None:
@@ -93,17 +107,20 @@ def group_changes(
             by_source[slug] = SourceChanges(slug=slug, label=labels.get(slug) or slug)
         return by_source[slug]
 
-    def changed(slug: str, name: str, state: str) -> ChangedObject:
+    def changed(slug: str, name: str, state: str, path: str) -> ChangedObject:
         target = graph.target((slug, name)) if state != "deleted" else None
         return ChangedObject(
             file=name,
             title=target["title"] if target else name,
             state=state,
             folder=target["folder"] if target else None,
+            path=path,
         )
 
     outside: list[ChangedFile] = []
-    seen_assets: set[tuple[str, str]] = set()
+    # Un asset et son `.extend.yaml` font une seule ligne ; la fusion ouvre le
+    # schéma de l'asset s'il est dans le brouillon, sinon son `.extend.yaml`.
+    asset_rows: dict[tuple[str, str], ChangedObject] = {}
     for path, state in objects:
         parts = path.split("/", 2)
         if len(parts) < 3 or parts[0] != SOURCES_DIR:
@@ -111,19 +128,17 @@ def group_changes(
             continue
         slug, rest = parts[1], parts[2]
         if (name := _direct_child(rest, RAW_DIR)) is not None:
-            source(slug).raw.append(changed(slug, name, state))
+            source(slug).raw.append(changed(slug, name, state, path))
         elif (name := _direct_child(rest, ASSETS_DIR)) is not None:
-            if (slug, name) not in seen_assets:
-                seen_assets.add((slug, name))
-                source(slug).assets.append(changed(slug, name, state))
+            asset_rows[(slug, name)] = changed(slug, name, state, path)
         elif (name := _extend_child(rest)) is not None:
             # Le travail humain d'un asset (`.extend.yaml`, ticket 7a284e55) est
             # une modification de cet asset, pas un fichier à part.
-            if (slug, name) not in seen_assets:
-                seen_assets.add((slug, name))
-                source(slug).assets.append(changed(slug, name, "modified"))
+            asset_rows.setdefault((slug, name), changed(slug, name, "modified", path))
         else:
             source(slug).other.append(ChangedFile(path=path, state=state))
+    for (slug, _name), row in sorted(asset_rows.items()):
+        source(slug).assets.append(row)
     for slug, names in sorted(assets.items()):
         for name in sorted(names):
             if graph.located((slug, name)) is None:

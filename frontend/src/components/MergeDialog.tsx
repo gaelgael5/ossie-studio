@@ -58,6 +58,7 @@ export function MergeDialog(props: { spaceId: string; branchId: string; path: st
         </button>
       </div>
       <ErrorList messages={messages} />
+      {data?.collected ? <p className="info-note">{t('mergeCollected')}</p> : null}
       {data ? <MergeBody data={data} picks={picks} free={free} setPick={(p, v) => setPicks({ ...picks, [p]: v })} setFree={(p, v) => setFree({ ...free, [p]: v })} /> : null}
       {data && !data.readonly ? (
         <div className="row">
@@ -104,7 +105,7 @@ function MergeBody(props: {
             </div>
           ))}
         </div>
-        {data.kind === 'text_conflict' ? <ConflictChoice pointer="" conflict={{ pointer: '', base: data.base, theirs: data.theirs, mine: data.mine }} {...props} /> : null}
+        {data.kind === 'text_conflict' && !data.collected ? <ConflictChoice pointer="" conflict={{ pointer: '', base: data.base, theirs: data.theirs, mine: data.mine }} {...props} /> : null}
       </div>
     )
   }
@@ -112,9 +113,10 @@ function MergeBody(props: {
     <div className="stack">
       <p className="muted">{data.readonly ? t('mergeReadonly') : t(`mergeKind_${data.kind}`)}</p>
       <PropertyDiff left={data.theirs} right={data.mine} />
-      {data.conflicts.map((c) => (
-        <ConflictChoice key={c.pointer} pointer={c.pointer} conflict={c} {...props} />
-      ))}
+      {/* Objet collecté : les conflits se lisent dans l'écart, sans choix à faire. */}
+      {data.collected
+        ? null
+        : data.conflicts.map((c) => <ConflictChoice key={c.pointer} pointer={c.pointer} conflict={c} {...props} />)}
     </div>
   )
 }

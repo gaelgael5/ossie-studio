@@ -297,12 +297,6 @@ function AppNav({
               {branchDraft.count > 0 ? (
                 <>
                   <Link
-                    to={`/spaces/${branchDraft.spaceId}/branches/${branchDraft.branchId}/changes`}
-                    role="menuitem"
-                  >
-                    {t('changesLinkCount', { count: branchDraft.count })}
-                  </Link>
-                  <Link
                     to={`/spaces/${branchDraft.spaceId}/branches/${branchDraft.branchId}/publish`}
                     role="menuitem"
                     className="menuitem-strong"

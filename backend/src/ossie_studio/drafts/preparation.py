@@ -52,6 +52,7 @@ from ossie_studio.drafts.store import (
 from ossie_studio.drafts.validation import LoggedFinding, run_rules, validation_log
 from ossie_studio.drafts.workdir import DraftWorkdir, ObjectVersions
 from ossie_studio.errors import ApiError
+from ossie_studio.sources.draft_changes import is_collected_raw
 from ossie_studio.spaces.branch_service import db_get_branch
 from ossie_studio.spaces.workdir import WorkdirError
 
@@ -129,6 +130,7 @@ def merge_detail(obj: DraftObject, v: ObjectVersions) -> dict[str, Any]:
     """Les trois versions d'un objet du brouillon et la fusion proposée. Sans
     changement côté publié : lecture seule (correspondance des modifications)."""
     upstream = changed_upstream(obj, v.current_blob)
+    collected = is_collected_raw(obj.path)
     mine = obj.content
     merged = merge_object(obj.path, v.base, v.theirs, mine) if upstream else None
     shown = merged or merge_object(obj.path, v.base, v.base, mine)
@@ -139,7 +141,9 @@ def merge_detail(obj: DraftObject, v: ObjectVersions) -> dict[str, Any]:
         "path": obj.path,
         "state": obj.state,
         "changed_upstream": upstream,
-        "readonly": not upstream,
+        "readonly": not upstream or collected,
+        # Objet raw : lecture seule même en conflit (ticket 173c6ed6).
+        "collected": collected,
         "kind": merged.kind if merged else "none",
         "structured": shown.structured,
         "base": _json(shown.base),
@@ -287,6 +291,9 @@ async def resolve_merge(
         v = versions[path]
         if strict and not changed_upstream(obj, v.current_blob):
             raise ApiError("merge_not_needed", status_code=409, path=path)
+        if is_collected_raw(path):
+            # La fenêtre est en lecture seule ; le serveur ne s'y fie pas.
+            raise ApiError("merge_collected_readonly", status_code=409, path=path)
         merged = merge_object(path, v.base, v.theirs, obj.content)
         if strict:
             unknown = sorted(set(resolutions) - _decision_pointers(merged))

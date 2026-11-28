@@ -12,7 +12,23 @@ const DRAFT = {
   objects: [{ path: 'sources/s/raw/O.schema.yaml', state: 'modified', changed_upstream: false }],
 }
 
-function mockApi(readiness: { ok: boolean; reasons: string[]; conflicts: string[] }) {
+const CHANGES = {
+  count: 1,
+  mode: 'origin',
+  sources: [
+    {
+      slug: 's',
+      label: 'Source S',
+      raw: [{ file: 'O.schema.yaml', title: 'Commande', state: 'modified', folder: 'api', path: 'sources/s/raw/O.schema.yaml' }],
+      assets: [],
+      orphans: [{ file: 'ghost.schema.yaml', title: 'ghost.schema.yaml', state: 'orphan', folder: null, path: null }],
+      other: [],
+    },
+  ],
+  other: [],
+}
+
+function mockApi(readiness: { ok: boolean; reasons: string[]; conflicts: string[] }, options: { changesFail?: boolean } = {}) {
   const calls: { method: string; path: string; body?: string }[] = []
   vi.stubGlobal(
     'fetch',
@@ -20,7 +36,16 @@ function mockApi(readiness: { ok: boolean; reasons: string[]; conflicts: string[
       const method = init?.method ?? 'GET'
       calls.push({ method, path, body: init?.body as string | undefined })
       let body: unknown = {}
-      if (path.endsWith('/draft')) body = DRAFT
+      if (path.endsWith('/raw-explorer/changes') && options.changesFail)
+        return Promise.resolve({ ok: false, status: 403, text: () => Promise.resolve(JSON.stringify({ error: 'forbidden' })) })
+      if (path.endsWith('/raw-explorer/changes')) body = CHANGES
+      else if (path.includes('/draft/merge'))
+        body = {
+          path: 'sources/s/raw/O.schema.yaml', state: 'modified', changed_upstream: true, readonly: true, collected: true,
+          kind: 'conflict', structured: true, base: { a: 1 }, theirs: { a: 3 }, mine: { a: 2 }, theirs_absent: false,
+          mine_absent: false, proposed: null, conflicts: [{ pointer: '/a', base: 1, theirs: 3, mine: 2 }],
+        }
+      else if (path.endsWith('/draft')) body = DRAFT
       else if (path.endsWith('/readiness')) body = readiness
       else if (path.endsWith('/publish')) body = { commit: 'abc', published: 1 }
       else if (path.endsWith('/impacts')) body = { impacts: [], pending: 0 }
@@ -62,10 +87,7 @@ describe('PublishPage', () => {
     const calls = mockApi({ ok: true, reasons: [], conflicts: [] })
     const user = userEvent.setup()
     renderPage()
-    // Blocs repliés à l'ouverture (ticket 9774a263) : le fichier est dans « Sources ».
-    await user.click(await screen.findByRole('button', { name: 'Déplier Sources' }))
-    expect(screen.getByText('O.schema.yaml')).toBeInTheDocument()
-    expect(screen.getByText('s/raw/')).toBeInTheDocument()
+    await screen.findByRole('button', { name: 'Déplier Sources' })
     const button = screen.getByRole('button', { name: 'Publier' })
     expect(button).toBeDisabled() // commentaire vide
     await user.type(screen.getByLabelText('Commentaire du commit'), 'Ma modif')
@@ -73,5 +95,29 @@ describe('PublishPage', () => {
     await waitFor(() => expect(screen.getByText('Publié : 1 objet(s) en un commit.')).toBeInTheDocument())
     const post = calls.find((c) => c.method === 'POST' && c.path.endsWith('/publish'))
     expect(JSON.parse(post?.body ?? '{}')).toEqual({ comment: 'Ma modif' })
+  })
+
+  it('bloc Sources : la vue par source, chargée à l’ouverture ; le titre ouvre la fusion, en lecture seule pour un raw (ticket 173c6ed6)', async () => {
+    const calls = mockApi({ ok: true, reasons: [], conflicts: [] })
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Déplier Sources' }))
+    expect(calls.filter((c) => c.path.endsWith('/raw-explorer/changes'))).toHaveLength(1)
+    expect(await screen.findByRole('region', { name: 'Source S' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'O.schema.yaml' })).toHaveAttribute('href', expect.stringContaining('/sources?'))
+    // Orphelin : hors du brouillon, pas de fusion à ouvrir.
+    expect(screen.queryByRole('button', { name: 'ghost.schema.yaml' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Commande' }))
+    expect(await screen.findByText(/Objet collecté : sa fusion se consulte sans se modifier/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Valider la fusion' })).not.toBeInTheDocument()
+  })
+
+  it('bloc Sources : sans la vue par source (droit absent), l’arbre des fichiers', async () => {
+    mockApi({ ok: true, reasons: [], conflicts: [] }, { changesFail: true })
+    const user = userEvent.setup()
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Déplier Sources' }))
+    expect(await screen.findByText('O.schema.yaml')).toBeInTheDocument()
+    expect(screen.getByText('s/raw/')).toBeInTheDocument()
   })
 })

@@ -4669,3 +4669,10 @@ urban-bpmn {
 .draft-block .draft-tree {
   margin-top: 8px;
 }
+/* Bloc « Sources » de la publication : la vue par source (ticket 173c6ed6). */
+.draft-block-body {
+  margin-top: 10px;
+}
+.source-changes + .source-changes {
+  margin-top: 18px;
+}

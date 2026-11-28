@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 // Fichiers du brouillon en arbre de répertoires (ticket 8810604c, Gael : « regrouper
@@ -171,10 +171,15 @@ export function DraftBlocks({
   files,
   conflicts,
   onOpen,
+  content,
 }: {
   files: readonly DraftFile[]
   conflicts: ReadonlySet<string>
   onOpen: (path: string) => void
+  /** Contenu propre d'un bloc à la place de son arbre, rendu à l'ouverture
+   * seulement (ticket 173c6ed6 : la vue par source des « Sources ») ; reçoit
+   * l'arbre, comme repli. */
+  content?: Partial<Record<string, (tree: ReactNode) => ReactNode>>
 }) {
   // Un fichier à la racine du dépôt, ou sous un répertoire non listé : « Autres ».
   const blockOf = (path: string) =>
@@ -184,7 +189,15 @@ export function DraftBlocks({
       {BLOCKS.map((b) => {
         const mine = files.filter((f) => blockOf(f.path) === b.key)
         return mine.length > 0 ? (
-          <Block key={b.key} name={b.key} dir={b.dir ?? ''} files={mine} conflicts={conflicts} onOpen={onOpen} />
+          <Block
+            key={b.key}
+            name={b.key}
+            dir={b.dir ?? ''}
+            files={mine}
+            conflicts={conflicts}
+            onOpen={onOpen}
+            content={content?.[b.key]}
+          />
         ) : null
       })}
     </div>
@@ -197,12 +210,14 @@ function Block({
   files,
   conflicts,
   onOpen,
+  content,
 }: {
   name: string
   dir: string
   files: readonly DraftFile[]
   conflicts: ReadonlySet<string>
   onOpen: (path: string) => void
+  content?: (tree: ReactNode) => ReactNode
 }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -222,7 +237,12 @@ function Block({
         <span className="draft-block-title">{title}</span>
         <Summary files={files} conflicts={conflicts} />
       </button>
-      {open ? <DraftTree files={files} conflicts={conflicts} onOpen={onOpen} base={dir} label={title} /> : null}
+      {open
+        ? (() => {
+            const tree = <DraftTree files={files} conflicts={conflicts} onOpen={onOpen} base={dir} label={title} />
+            return content ? <div className="draft-block-body">{content(tree)}</div> : tree
+          })()
+        : null}
     </section>
   )
 }

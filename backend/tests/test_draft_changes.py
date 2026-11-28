@@ -92,11 +92,15 @@ async def test_vue_modifications_par_source_et_nature(app: FastAPI, sp: ApiSpace
         and raw["order.schema.yaml"]["folder"] is not None
     )
     assert raw["customer.schema.yaml"]["folder"] is None  # supprimé : pas de lien
+    # Fichier que la fenêtre de fusion ouvre (ticket 173c6ed6).
+    assert raw["order.schema.yaml"]["path"] == "sources/app/raw/order.schema.yaml"
     assert [(a["file"], a["state"]) for a in source["assets"]] == [
         ("invoice.schema.yaml", "created")
     ]
     # ghost.schema.yaml : publié, objet absent ; aucune entrée du brouillon nécessaire.
     assert [o["file"] for o in source["orphans"]] == ["ghost.schema.yaml"]
+    assert source["assets"][0]["path"] == "sources/app/assets/invoice.schema.yaml"
+    assert source["orphans"][0]["path"] is None  # hors du brouillon : pas de fusion
     assert body["other"] == [{"path": "notes/lisez-moi.schema.yaml", "state": "created"}]
 
 
