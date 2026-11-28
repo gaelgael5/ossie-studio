@@ -300,9 +300,24 @@ function CurationScreen({ spaceId, branchId }: { spaceId: string; branchId: stri
               {d.label} : {t('curationDomainMissing', { count: d.assets.length })}
             </strong>
             <span className="small">{t('curationDomainMissingHint')}</span>
-            <ul className="list-plain small mono">
+            {/* Comment résoudre (ticket 7787976d, Gael : « il faut que l'on puisse
+                comprendre comment résoudre le problème ») : deux gestes par asset,
+                toujours sans reconstruction ni blocage (choix de bug 206d434c). */}
+            <span className="small">{t('curationDomainMissingFix')}</span>
+            <ul className="list-plain small stack stack-tight">
               {d.assets.map((a) => (
-                <li key={`${a.source}/${a.path}`}>{`${a.source} / ${a.path}`}</li>
+                <li key={`${a.source}/${a.path}`} className="row">
+                  <span className="mono">{`${a.source} / ${a.path}`}</span>
+                  <Link
+                    className="btn btn-sm"
+                    to={`/sources?${new URLSearchParams({ tab: 'raw', source: a.source, sel: a.path }).toString()}`}
+                  >
+                    {t('curationDomainMissingRetain')}
+                  </Link>
+                  <Link className="btn btn-sm" to={`/domaines/${encodeURIComponent(d.name)}`}>
+                    {t('curationDomainMissingRemove')}
+                  </Link>
+                </li>
               ))}
             </ul>
           </div>

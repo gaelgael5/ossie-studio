@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -22,7 +22,11 @@ const CHANGES = {
       raw: [{ file: 'O.schema.yaml', title: 'Commande', state: 'modified', folder: 'api', path: 'sources/s/raw/O.schema.yaml' }],
       assets: [],
       orphans: [{ file: 'ghost.schema.yaml', title: 'ghost.schema.yaml', state: 'orphan', folder: null, path: null }],
-      other: [],
+      other: [
+        { path: 'sources/s/manifest.yaml', state: 'created' },
+        { path: 'sources/s/documents/b.md', state: 'created' },
+        { path: 'sources/s/documents/a.md', state: 'modified' },
+      ],
     },
   ],
   other: [],
@@ -105,8 +109,16 @@ describe('PublishPage', () => {
     expect(calls.filter((c) => c.path.endsWith('/raw-explorer/changes'))).toHaveLength(1)
     expect(await screen.findByRole('region', { name: 'Source S' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'O.schema.yaml' })).toHaveAttribute('href', expect.stringContaining('/sources?'))
+    // Objets raw rangés par leur dossier d'origine (bug 3a451428).
+    const raw = screen.getByRole('list', { name: 'Objets raw (1)' })
+    expect(within(raw).getByRole('button', { name: 'Replier api' })).toHaveTextContent('1 fichier · 1 modifié')
     // Orphelin : hors du brouillon, pas de fusion à ouvrir.
     expect(screen.queryByRole('button', { name: 'ghost.schema.yaml' })).not.toBeInTheDocument()
+    // Autres fichiers en arbre, sans répéter sources/s/ (bug 7cfa1921).
+    const others = screen.getByRole('list', { name: 'Autres fichiers (3)' })
+    expect(within(others).getByRole('button', { name: 'Replier documents' })).toHaveTextContent('2 fichiers · 1 créé · 1 modifié')
+    expect(within(others).getByText('manifest.yaml')).toBeInTheDocument()
+    expect(within(others).queryByText('sources/s/manifest.yaml')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Commande' }))
     expect(await screen.findByText(/Objet collecté : sa fusion se consulte sans se modifier/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Valider la fusion' })).not.toBeInTheDocument()
@@ -118,6 +130,7 @@ describe('PublishPage', () => {
     renderPage()
     await user.click(await screen.findByRole('button', { name: 'Déplier Sources' }))
     expect(await screen.findByText('O.schema.yaml')).toBeInTheDocument()
-    expect(screen.getByText('s/raw/')).toBeInTheDocument()
+    expect(screen.getByText('s/')).toBeInTheDocument()
+    expect(screen.getByText('raw/')).toBeInTheDocument()
   })
 })

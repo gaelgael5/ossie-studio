@@ -16,13 +16,14 @@ const FILES = [
 ]
 
 describe('Arbre des fichiers du brouillon (ticket 8810604c)', () => {
-  it('regroupe par répertoire, fusionne les chaînes à un seul sous-répertoire, trie', () => {
+  it('regroupe par répertoire, un niveau par ligne (bug 3a451428 : plus de fusion), trie', () => {
     const root = buildTree(FILES)
     expect(root.files.map((f) => f.path)).toEqual(['README.md'])
     const [carto] = root.dirs
     expect(carto.name).toBe('cartographie')
-    expect(carto.dirs.map((d) => d.name)).toEqual(['imports/communique', 'modeles', 'objets/composant-applicatif'])
-    expect(carto.dirs[0].files.map((f) => f.path)).toEqual([
+    expect(carto.dirs.map((d) => d.name)).toEqual(['imports', 'modeles', 'objets'])
+    expect(carto.dirs[0].dirs.map((d) => d.name)).toEqual(['communique'])
+    expect(carto.dirs[0].dirs[0].files.map((f) => f.path)).toEqual([
       'cartographie/imports/communique/flux.jslt',
       'cartographie/imports/communique/flux.yaml',
     ])
@@ -37,7 +38,7 @@ describe('Arbre des fichiers du brouillon (ticket 8810604c)', () => {
         onOpen={onOpen}
       />,
     )
-    const objetsDir = screen.getByRole('button', { name: 'Déplier objets/composant-applicatif' })
+    const objetsDir = screen.getByRole('button', { name: 'Déplier composant-applicatif' })
     expect(objetsDir).toHaveAttribute('aria-expanded', 'false')
     expect(objetsDir).toHaveTextContent('25 fichiers · 25 créé')
     expect(within(objetsDir).getByText('en conflit')).toBeInTheDocument()
@@ -79,7 +80,7 @@ describe('Blocs de l’écran de publication (ticket 9774a263)', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Déplier Cartographie' }))
     const tree = screen.getByRole('list', { name: 'Cartographie' })
-    expect(within(tree).getByRole('button', { name: 'Replier imports/communique' })).toBeInTheDocument()
+    expect(within(tree).getByRole('button', { name: 'Replier communique' })).toBeInTheDocument()
     expect(within(tree).queryByText('cartographie/')).not.toBeInTheDocument()
     await user.click(within(tree).getByText('flux.jslt'))
     expect(onOpen).toHaveBeenCalledWith('cartographie/imports/communique/flux.jslt')

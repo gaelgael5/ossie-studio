@@ -4701,3 +4701,20 @@ urban-bpmn {
 .source-changes + .source-changes {
   margin-top: 18px;
 }
+/* Fenêtre de fusion : panneau à droite, par-dessus la page (bug d45bbc68) ; le
+   contenu long défile dedans. */
+.merge-backdrop {
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
+}
+.merge-backdrop .merge-dialog {
+  width: min(760px, 100%);
+  max-width: none;
+  margin: 0;
+  border-radius: 0;
+  overflow-y: auto;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  box-shadow: -8px 0 24px rgba(15, 27, 45, 0.25);
+}

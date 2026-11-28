@@ -11,8 +11,9 @@ export interface DraftFile {
 }
 
 export interface DirNode {
-  /** Libellé affiché : plusieurs segments quand des répertoires sans fichier propre
-   * et à un seul sous-répertoire sont fusionnés (« cartographie/imports »). */
+  /** Nom du répertoire : un seul segment. La fusion des répertoires à un seul
+   * sous-répertoire (« objets/composant-applicatif ») cachait les niveaux, elle est
+   * retirée (bug 3a451428, Gael : « je ne vois pas les sous-répertoires »). */
   name: string
   /** Chemin complet du répertoire, clé stable. */
   path: string
@@ -41,20 +42,14 @@ export function buildTree(files: readonly DraftFile[], base = ''): DirNode {
     }
     node.files.push(file)
   }
-  return sortAndFold(root)
+  return sorted(root)
 }
 
-function sortAndFold(node: DirNode): DirNode {
-  let current = node
-  // La racine ne se fusionne pas : elle n'est pas affichée.
-  while (current.name !== '' && current.files.length === 0 && current.dirs.length === 1) {
-    const only = current.dirs[0]
-    current = { ...only, name: `${current.name}/${only.name}` }
-  }
+function sorted(node: DirNode): DirNode {
   return {
-    ...current,
-    dirs: current.dirs.map(sortAndFold).sort((a, b) => a.name.localeCompare(b.name)),
-    files: [...current.files].sort((a, b) => a.path.localeCompare(b.path)),
+    ...node,
+    dirs: node.dirs.map(sorted).sort((a, b) => a.name.localeCompare(b.name)),
+    files: [...node.files].sort((a, b) => a.path.localeCompare(b.path)),
   }
 }
 
@@ -72,30 +67,43 @@ export function DraftTree({
   onOpen,
   base = '',
   label,
+  renderFile,
 }: {
   files: readonly DraftFile[]
   conflicts: ReadonlySet<string>
   onOpen: (path: string) => void
   base?: string
   label?: string
+  /** Contenu d'une feuille à la place du nom de fichier (objets raw : titre, fichier
+   * lié à l'explorateur, ticket 3a451428). */
+  renderFile?: RenderFile
 }) {
   const { t } = useTranslation()
   const root = buildTree(files, base)
   return (
     <ul className="draft-tree" aria-label={label ?? t('draftTreeLabel')}>
-      <Children node={root} conflicts={conflicts} onOpen={onOpen} />
+      <Children node={root} conflicts={conflicts} onOpen={onOpen} renderFile={renderFile} />
     </ul>
   )
 }
 
-function Children({ node, conflicts, onOpen }: { node: DirNode; conflicts: ReadonlySet<string>; onOpen: (path: string) => void }) {
+export type RenderFile = (file: DraftFile) => ReactNode
+
+type NodeProps = { node: DirNode; conflicts: ReadonlySet<string>; onOpen: (path: string) => void; renderFile?: RenderFile }
+
+function Children({ node, conflicts, onOpen, renderFile }: NodeProps) {
   const { t } = useTranslation()
   return (
     <>
       {node.dirs.map((d) => (
-        <Dir key={d.path} node={d} conflicts={conflicts} onOpen={onOpen} />
+        <Dir key={d.path} node={d} conflicts={conflicts} onOpen={onOpen} renderFile={renderFile} />
       ))}
-      {node.files.map((f) => (
+      {node.files.map((f) =>
+        renderFile ? (
+          <li key={f.path} className="draft-tree-file row">
+            {renderFile(f)}
+          </li>
+        ) : (
         <li key={f.path} className="draft-tree-file row">
           <button type="button" className="btn-link" title={f.path} onClick={() => onOpen(f.path)}>
             <code>{basename(f.path)}</code>
@@ -103,12 +111,13 @@ function Children({ node, conflicts, onOpen }: { node: DirNode; conflicts: Reado
           <span className="pill">{t(`draftState_${f.state}`)}</span>
           {conflicts.has(f.path) ? <span className="badge-warn">{t('publishConflict')}</span> : null}
         </li>
-      ))}
+        ),
+      )}
     </>
   )
 }
 
-function Dir({ node, conflicts, onOpen }: { node: DirNode; conflicts: ReadonlySet<string>; onOpen: (path: string) => void }) {
+function Dir({ node, conflicts, onOpen, renderFile }: NodeProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(node.files.length <= FOLDED_ABOVE)
   return (
@@ -128,7 +137,7 @@ function Dir({ node, conflicts, onOpen }: { node: DirNode; conflicts: ReadonlySe
       </button>
       {open ? (
         <ul>
-          <Children node={node} conflicts={conflicts} onOpen={onOpen} />
+          <Children node={node} conflicts={conflicts} onOpen={onOpen} renderFile={renderFile} />
         </ul>
       ) : null}
     </li>

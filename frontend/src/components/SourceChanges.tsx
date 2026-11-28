@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
-import type { DraftChangedFile, DraftChangedObject, DraftSourceChanges } from '../apiClient'
+import type { DraftChangedObject, DraftSourceChanges } from '../apiClient'
+import { DraftTree, type DraftFile } from './DraftTree'
 
 // Le bloc « Sources » de « Publier mes modifications » (ticket 173c6ed6) : la vue
 // par source de l'ancien écran « Modifications » (ticket aad1d3c6), qui y est
@@ -24,11 +25,13 @@ export function SourceChanges({
   branchId,
   onOpen,
   fallback,
+  conflicts,
 }: {
   spaceId: string
   branchId: string
   onOpen: (path: string) => void
   fallback: React.ReactNode
+  conflicts: ReadonlySet<string>
 }) {
   const { t } = useTranslation()
   const changes = useQuery({
@@ -48,7 +51,7 @@ export function SourceChanges({
   return (
     <div className="stack">
       {sources.map((s) => (
-        <SourceSection key={s.slug} source={s} mode={mode} onOpen={onOpen} />
+        <SourceSection key={s.slug} source={s} mode={mode} onOpen={onOpen} conflicts={conflicts} />
       ))}
     </div>
   )
@@ -58,10 +61,12 @@ function SourceSection({
   source,
   mode,
   onOpen,
+  conflicts,
 }: {
   source: DraftSourceChanges
   mode: string
   onOpen: (path: string) => void
+  conflicts: ReadonlySet<string>
 }) {
   const { t } = useTranslation()
   const explorerHref = (o: DraftChangedObject) =>
@@ -78,11 +83,12 @@ function SourceSection({
     <section className="stack stack-tight source-changes" aria-label={source.label}>
       <h3 className="section-title">{source.label}</h3>
       {source.raw.length > 0 ? (
-        <ObjectGroup
+        <RawTree
           title={t('changesRaw', { count: source.raw.length })}
           items={source.raw}
           href={(o) => (o.folder !== null ? explorerHref(o) : null)}
           onOpen={onOpen}
+          conflicts={conflicts}
         />
       ) : null}
       {source.assets.length > 0 ? (
@@ -105,10 +111,78 @@ function SourceSection({
       {source.other.length > 0 ? (
         <div className="stack stack-tight">
           <h4 className="panel-label">{t('changesOther', { count: source.other.length })}</h4>
-          <FileList files={source.other} onOpen={onOpen} />
+          {/* En arbre, sans répéter `sources/<source>/` (bug 7cfa1921, Gael : « je ne
+              vois pas les répertoires et tout est mélangé »). */}
+          <DraftTree
+            files={source.other}
+            conflicts={conflicts}
+            onOpen={onOpen}
+            base={`sources/${source.slug}`}
+            label={t('changesOther', { count: source.other.length })}
+          />
         </div>
       ) : null}
     </section>
+  )
+}
+
+/** Objets raw en arbre selon leur dossier d'origine dans la source (bug 3a451428,
+ * Gael : « je ne vois pas les sous-répertoires […] sur les sources »). Le chemin
+ * de l'arbre est celui de l'explorateur, pas celui du fichier : tous les objets
+ * raw sont à plat sous `raw/`. Un objet supprimé n'a plus de dossier : racine. */
+function RawTree({
+  title,
+  items,
+  href,
+  onOpen,
+  conflicts,
+}: {
+  title: string
+  items: DraftChangedObject[]
+  href: (o: DraftChangedObject) => string | null
+  onOpen: (path: string) => void
+  conflicts: ReadonlySet<string>
+}) {
+  const { t } = useTranslation()
+  const byTreePath = new Map<string, DraftChangedObject>()
+  const files: DraftFile[] = items.map((o) => {
+    const treePath = o.folder ? `${o.folder}/${o.file}` : o.file
+    byTreePath.set(treePath, o)
+    return { path: treePath, state: o.state }
+  })
+  // Les conflits sont connus par chemin de fichier : traduits en chemins de l'arbre.
+  const treeConflicts = new Set(
+    [...byTreePath.entries()].filter(([, o]) => o.path !== null && conflicts.has(o.path)).map(([p]) => p),
+  )
+  return (
+    <div className="stack stack-tight">
+      <h4 className="panel-label">{title}</h4>
+      <DraftTree
+        files={files}
+        conflicts={treeConflicts}
+        onOpen={onOpen}
+        label={title}
+        renderFile={(f) => {
+          const o = byTreePath.get(f.path)!
+          const link = href(o)
+          const path = o.path
+          return (
+            <>
+              {path ? (
+                <button type="button" className="btn-link" title={path} onClick={() => onOpen(path)}>
+                  {o.title}
+                </button>
+              ) : (
+                <span>{o.title}</span>
+              )}
+              <span className="mono small muted">{link ? <Link to={link}>{o.file}</Link> : o.file}</span>
+              <span className="pill">{t(`draftState_${o.state}`)}</span>
+              {treeConflicts.has(f.path) ? <span className="badge-warn">{t('publishConflict')}</span> : null}
+            </>
+          )
+        }}
+      />
+    </div>
   )
 }
 
@@ -174,21 +248,5 @@ function ObjectGroup({
         </div>
       ) : null}
     </div>
-  )
-}
-
-function FileList({ files, onOpen }: { files: DraftChangedFile[]; onOpen: (path: string) => void }) {
-  const { t } = useTranslation()
-  return (
-    <ul className="list-plain stack stack-tight">
-      {files.map((f) => (
-        <li key={f.path} className="row">
-          <button type="button" className="btn-link" onClick={() => onOpen(f.path)}>
-            <code>{f.path}</code>
-          </button>
-          <span className="pill">{t(`changesState_${f.state}`)}</span>
-        </li>
-      ))}
-    </ul>
   )
 }

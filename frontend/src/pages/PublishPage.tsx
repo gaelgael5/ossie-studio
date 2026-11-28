@@ -73,7 +73,7 @@ export function PublishPage() {
             onOpen={setOpened}
             content={{
               sources: (tree) => (
-                <SourceChanges spaceId={spaceId} branchId={branchId} onOpen={setOpened} fallback={tree} />
+                <SourceChanges spaceId={spaceId} branchId={branchId} onOpen={setOpened} fallback={tree} conflicts={conflicts} />
               ),
             }}
           />

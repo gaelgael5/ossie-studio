@@ -55,8 +55,14 @@ def _digest(file: Path) -> str:
         return ""
 
 
+# Dossiers du travail versionné. Domaines, cartographie et référentiels n'y étaient
+# pas : un `valeurs.json` ou un `.extend.yaml` de domaine illisible passait la
+# publication sans un mot (ticket 661efd1c).
+_WORK_FOLDERS = ("sources", "governance", "domaines", "cartographie", "referentiels")
+
+
 def _work_files(view: Path) -> Iterator[Path]:
-    for folder in ("sources", "governance"):
+    for folder in _WORK_FOLDERS:
         root = view / folder
         if root.is_dir():
             yield from (p for p in root.rglob("*") if p.is_file())

@@ -400,6 +400,11 @@ describe('CurationPage', () => {
     const box = banner.closest('[role="status"]')!
     expect(box).toHaveTextContent('colis-21 / boxes.schema.yaml')
     expect(box).toHaveTextContent('colis-21 / carriersite.schema.yaml')
+    // Comment résoudre (ticket 7787976d) : retenir à nouveau, ou retirer du domaine.
+    expect(box).toHaveTextContent('Pour corriger : retenez à nouveau')
+    const retain = within(box as HTMLElement).getAllByRole('link', { name: 'Retenir à nouveau' })
+    expect(retain[0]).toHaveAttribute('href', '/sources?tab=raw&source=colis-21&sel=boxes.schema.yaml')
+    expect(within(box as HTMLElement).getAllByRole('link', { name: 'Retirer du domaine' })[0]).toHaveAttribute('href', '/domaines/pudo-au-colis')
     // Un domaine complet ne produit aucun bandeau.
     expect(screen.queryByText(/^Complet :/)).not.toBeInTheDocument()
     const user = userEvent.setup()
