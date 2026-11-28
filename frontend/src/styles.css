@@ -4615,3 +4615,43 @@ urban-bpmn {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* « Publier mon brouillon » : fichiers en arbre de répertoires (ticket 8810604c). */
+.draft-tree,
+.draft-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.draft-tree ul {
+  padding-left: 22px;
+  border-left: 1px solid var(--border);
+  margin-left: 7px;
+}
+.draft-tree li {
+  padding: 2px 0;
+}
+.draft-tree-file {
+  gap: 8px;
+}
+.draft-tree-toggle {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  gap: 8px;
+  text-align: left;
+}
+.draft-tree-toggle:hover .draft-tree-name,
+.draft-tree-toggle:focus-visible .draft-tree-name {
+  color: var(--link);
+}
+.draft-tree-caret {
+  width: 12px;
+  color: var(--muted);
+}
+.draft-tree-name {
+  font-weight: 600;
+}
