@@ -89,13 +89,17 @@ def _write(root: Path, slug: str, target: Any, _now: list[Any], items: list[Any]
 
 
 def _properties(root: Path, slug: str) -> list[str]:
-    """La base d'un objet (cle, nom, documentation) et les propriétés du type :
-    attributs ArchiMate et propriétés ajoutées (ticket 221d832b)."""
+    """La base d'un objet (cle, nom, documentation), la source et la cible d'une
+    relation, et les propriétés du type : attributs ArchiMate et propriétés ajoutées
+    (ticket 221d832b). Source et cible manquaient : une relation ne pouvait pas
+    rattacher ses colonnes d'extrémités (bug b5a86f55), alors que `_skeleton` les
+    écrit déjà dans le template."""
     _require(root, slug)
     ctype = read_cartographie(root).types[slug]
     base = catalog().get(ctype.archimate)
     return [
         *(name for name, _kind, _required in BASE_PROPERTIES),
+        *(("source", "cible") if base is not None and base.is_relation else ()),
         *(a.name for a in (base.attributes if base else ())),
         *ctype.properties,
     ]

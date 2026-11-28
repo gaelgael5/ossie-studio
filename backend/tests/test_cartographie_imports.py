@@ -194,6 +194,29 @@ async def test_journal(space: ApiSpace) -> None:
     assert event["object_id"].endswith("/application/fichier")
 
 
+async def test_relation_source_et_cible_dans_les_correspondances(space: ApiSpace) -> None:
+    """Bug b5a86f55 : un type de relation propose `source` et `cible` aux colonnes du
+    fichier ; un élément ne les propose pas."""
+    await _declare(space, "acces", REL_TEMPLATE)
+    await space.client.put(
+        _url(space, "acces", "/fichier/exemple"),
+        files={"file": ("e.csv", b"cle;nom;Source;cible\nREL-1;Un;PRC-X;DOC-Y\n", "text/csv")},
+    )
+    preview = await space.client.post(_url(space, "acces", "/fichier/apercu"))
+    assert preview.status_code == 200, preview.text
+    body = preview.json()
+    assert {"source", "cible"} <= set(body["properties"])
+    rows = {r["column"]: r["property"] for r in body["comparison"]}
+    assert (rows["Source"], rows["cible"]) == ("source", "cible")
+    await _declare(space, "application", APP_TEMPLATE)
+    await space.client.put(
+        _url(space, "application", "/fichier/exemple"),
+        files={"file": ("e.csv", b"cle;nom\nAPP-1;Un\n", "text/csv")},
+    )
+    element = await space.client.post(_url(space, "application", "/fichier/apercu"))
+    assert not {"source", "cible"} & set(element.json()["properties"])
+
+
 async def test_colonnes_et_ajout_au_modele(space: ApiSpace) -> None:
     """Ticket 221d832b, critère 2 : la base et les propriétés du type correspondent,
     une colonne sans propriété s'ajoute au type."""
