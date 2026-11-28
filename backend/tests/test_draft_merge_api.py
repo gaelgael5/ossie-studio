@@ -236,3 +236,60 @@ async def test_objet_raw_fusion_en_lecture_seule_meme_en_conflit(
     assert refused.status_code == 409
     assert refused.json()["error"] == "merge_collected_readonly"
     assert (await _draft_content(sp))["changed_upstream_count"] == 1
+
+
+async def test_fleche_sur_un_bloc_fusionne_automatiquement(app: FastAPI, sp: ApiSpace) -> None:
+    """Feature d727680a : la flèche peut reprendre un bloc fusionné automatiquement
+    (ici `b`, changé côté publié) et retirer un bloc ajouté d'un seul côté (`c`)."""
+    forge_edit(sp, {OBJ: json.dumps({"a": 1, "b": 1})})
+    await _draft_write(app, sp, OBJ, {"a": 2, "b": 1, "c": 9})
+    forge_edit(sp, {OBJ: json.dumps({"a": 1, "b": 5})})
+    view = (await sp.client.get(f"{sp.base}/draft/merge", params={"path": OBJ})).json()
+    assert view["kind"] == "auto" and view["proposed"] == {"a": 2, "b": 5, "c": 9}
+    done = await sp.client.post(
+        f"{sp.base}/draft/merge",
+        json={"path": OBJ, "resolutions": {"/b": {"value": 1}, "/c": {"remove": True}}},
+    )
+    assert done.status_code == 200, done.text
+    after = (await sp.client.get(f"{sp.base}/draft/merge", params={"path": OBJ})).json()
+    assert after["mine"] == {"a": 2, "b": 1}
+
+
+async def test_choix_incompris_refuse(app: FastAPI, sp: ApiSpace) -> None:
+    forge_edit(sp, {OBJ: json.dumps({"a": 1, "b": 1})})
+    await _draft_write(app, sp, OBJ, {"a": 2, "b": 1})
+    forge_edit(sp, {OBJ: json.dumps({"a": 1, "b": 5})})
+    refused = await sp.client.post(
+        f"{sp.base}/draft/merge", json={"path": OBJ, "resolutions": {"/b": "peut-etre"}}
+    )
+    assert refused.status_code == 400
+    assert refused.json()["error"] == "merge_choice_invalid"
+
+
+async def test_texte_retouche_illisible_refuse(app: FastAPI, sp: ApiSpace) -> None:
+    """Feature edaddc6d : un résultat retouché qui n'est plus du YAML n'entre jamais
+    dans le brouillon ; un texte valide, si."""
+    path = "notes/plan.yaml"
+    # Base illisible en YAML : la fusion se fait en mode texte, en conflit.
+    forge_edit(sp, {path: "a: [1\nligne: base\n"})
+    workdir = await _admin_workdir(app, sp)
+
+    def write(root: Path) -> None:
+        (root / path).write_text("a: [1\nligne: brouillon\n")
+
+    await workdir.commit_to_branch(
+        uuid.UUID(sp.space_id), "work/principale", sp.url, "x", None, "a", "a", "écrit", write
+    )
+    forge_edit(sp, {path: "a: [1\nligne: publiee\n"})
+    view = (await sp.client.get(f"{sp.base}/draft/merge", params={"path": path})).json()
+    assert view["kind"] == "text_conflict"
+    broken = await sp.client.post(
+        f"{sp.base}/draft/merge", json={"path": path, "resolutions": {"": {"value": "a: [1\n"}}}
+    )
+    assert broken.status_code == 400
+    assert broken.json()["error"] == "merge_value_invalid"
+    fixed = await sp.client.post(
+        f"{sp.base}/draft/merge",
+        json={"path": path, "resolutions": {"": {"value": "a: 1\nligne: les deux\n"}}},
+    )
+    assert fixed.status_code == 200, fixed.text
