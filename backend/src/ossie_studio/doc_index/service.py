@@ -132,12 +132,19 @@ async def ensure_contents(
     given = dict(known or {})
     to_read = sorted({b for b in missing.values() if b not in given})
     given.update(await read(to_read))
+    readable: list[tuple[str, str, bytes]] = []
     for path, blob in sorted(missing.items()):
         data = given.get(blob)
         if data is None:
             log.warning("doc_index_blob_missing", path=path, blob=blob)
             continue
-        indexed = index_file(path, data)
+        readable.append((path, blob, data))
+    # Analyse hors de la boucle du serveur (bug c6a4ab74) : le premier remplissage lit
+    # des milliers de fichiers, et toutes les requêtes attendaient pendant ce temps.
+    indexed_all = await asyncio.to_thread(
+        lambda: [index_file(path, data) for path, _blob, data in readable]
+    )
+    for (path, blob, _data), indexed in zip(readable, indexed_all, strict=True):
         content_id = await store.db_put_content(conn, space_id, path, blob, indexed)
         out[path] = (content_id, indexed.keys)
     return out
