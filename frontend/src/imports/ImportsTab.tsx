@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSwitchGuard, useUnsaved } from '../referentiels/unsaved'
 import { useTranslation } from 'react-i18next'
 import { IMPORT_DELETIONS } from '../apiClient'
-import type { ImportDeletion, ImportsApi, ImportPreview, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
+import type { ImportDeletion, ImportsApi, ImportPreview, ImportPreviewFilter, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
@@ -463,15 +463,41 @@ function ExampleTab({
 // L'aperçu des premières lignes et les chemins détectés, dans leur propre onglet
 // (ticket c2e5078c) : l'onglet « Fichier d'exemple » garde le dépôt, la lecture et
 // les colonnes du modèle.
+const NO_FILTER: ImportPreviewFilter = { q: '', colonne: '', lignes: '' }
+
+export function filtering(filter: ImportPreviewFilter): boolean {
+  return Boolean(filter.q.trim() || filter.colonne || filter.lignes.trim())
+}
+
+/** Valeur stabilisée après une courte pause de saisie : un appel au serveur par
+ * intention, pas un par touche. */
+function useSettled<T>(value: T, delay = 300): T {
+  const [settled, setSettled] = useState(value)
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delay)
+    return () => clearTimeout(timer)
+  }, [value, delay])
+  return settled
+}
+
 function PreviewTab({
   preview,
   unreadable,
   onClear,
+  filter,
+  onFilter,
+  filtered,
+  filterError,
 }: {
   preview: ImportPreview | undefined
   unreadable: boolean
   /** Absent : rien à nettoyer (pas de fichier d'exemple) ou lecture seule. */
   onClear?: () => void
+  /** Filtres (ticket 32e41ab7) : appliqués par le serveur sur tout le fichier. */
+  filter: ImportPreviewFilter
+  onFilter: (next: ImportPreviewFilter) => void
+  filtered: ImportPreview | undefined
+  filterError: unknown
 }) {
   const { t } = useTranslation()
   // Cases dépliées, « ligne:colonne » (ticket 49f41fa2).
@@ -521,6 +547,10 @@ function PreviewTab({
         <p className="empty-note">{t('refImportPreviewEmpty')}</p>
       </div>
     )
+  const active = filtering(filter)
+  // Pendant le filtrage, les dernières lignes reçues restent affichées.
+  const shown = active ? (filtered ?? preview) : preview
+  const numbers = shown.numbers ?? shown.rows.map((_, i) => i + 1)
   const toggle = (key: string) =>
     setOpen((prev) => {
       const next = new Set(prev)
@@ -531,7 +561,48 @@ function PreviewTab({
   return (
     <div className="stack">
       {clear}
-      <h4>{t('refImportPreview', { count: preview.count })}</h4>
+      <div className="panel import-preview-filters">
+        <input
+          type="search"
+          className="input"
+          aria-label={t('refImportFilterText')}
+          placeholder={t('refImportFilterText')}
+          value={filter.q}
+          onChange={(e) => onFilter({ ...filter, q: e.target.value })}
+        />
+        <select
+          className="select"
+          aria-label={t('refImportFilterColumn')}
+          value={filter.colonne}
+          onChange={(e) => onFilter({ ...filter, colonne: e.target.value })}
+        >
+          <option value="">{t('refImportFilterAllColumns')}</option>
+          {preview.columns.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <input
+          className="input mono import-preview-lines"
+          aria-label={t('refImportFilterLines')}
+          placeholder={t('refImportFilterLinesHint')}
+          value={filter.lignes}
+          onChange={(e) => onFilter({ ...filter, lignes: e.target.value })}
+        />
+        {active ? (
+          <button type="button" className="btn btn-sm" onClick={() => onFilter(NO_FILTER)}>
+            {t('refImportFilterClear')}
+          </button>
+        ) : null}
+      </div>
+      <ErrorList messages={filterError ? errorMessages(t, filterError) : []} />
+      <h4>
+        {active && shown.matched !== undefined
+          ? t('refImportPreviewMatched', { count: shown.matched, total: shown.count, shown: shown.rows.length })
+          : t('refImportPreview', { count: preview.count })}
+      </h4>
+      {active && shown.rows.length === 0 ? <p className="empty-note">{t('refImportFilterNone')}</p> : null}
       <div className="panel table-wrap">
         {/* Traits discrets entre colonnes et numéro de ligne (ticket 49f41fa2). */}
         <table className="table import-preview" aria-label={t('refImportPreviewTable')}>
@@ -544,12 +615,13 @@ function PreviewTab({
             </tr>
           </thead>
           <tbody>
-            {preview.rows.map((row, i) => (
-              <tr key={i}>
-                <td className="import-preview-num">{i + 1}</td>
+            {shown.rows.map((row, i) => (
+              <tr key={numbers[i] ?? i}>
+                {/* Le vrai numéro de la ligne dans le fichier, filtre ou non. */}
+                <td className="import-preview-num">{numbers[i] ?? i + 1}</td>
                 {preview.columns.map((c) => {
                   const text = shownCell(row[c])
-                  const key = `${i}:${c}`
+                  const key = `${numbers[i] ?? i}:${c}`
                   if (text.length <= PREVIEW_CUT) return <td key={c}>{text}</td>
                   // Au-delà de 50 caractères : le début et « … » ; un clic sur la
                   // case montre tout, un autre replie.
@@ -631,6 +703,17 @@ function ImportView({
     enabled: data !== undefined && data.example_size > 0,
   })
   const mapping = useMapping(imports, slug, data?.label ?? slug, preview.data, readOnly)
+  // Filtres de l'aperçu (ticket 32e41ab7) : une requête à part, pour que la
+  // comparaison colonnes / propriétés reste celle du fichier entier.
+  const [filter, setFilter] = useState<ImportPreviewFilter>(NO_FILTER)
+  const settled = useSettled(filter)
+  const filtered = useQuery({
+    queryKey: ['referentielImportPreview', spaceId, branchId, name, slug, effective, data?.example_size, settled],
+    queryFn: () =>
+      imports.preview(slug, data?.format === 'csv' || data?.format === 'xlsx' ? effective ?? undefined : undefined, settled),
+    enabled: data !== undefined && data.example_size > 0 && filtering(settled),
+    placeholderData: (previous) => previous,
+  })
   const refresh = () =>
     Promise.all(
       ['referentielImport', 'referentielImports', 'draft', 'draftChanges'].map((k) =>
@@ -794,6 +877,10 @@ function ImportView({
             preview={preview.data}
             unreadable={preview.isError}
             onClear={!readOnly && data.example_size > 0 ? () => clearExample.mutate() : undefined}
+            filter={filter}
+            onFilter={setFilter}
+            filtered={filtering(settled) ? filtered.data : undefined}
+            filterError={filtering(settled) ? filtered.error : null}
           />
         </>
       ) : (

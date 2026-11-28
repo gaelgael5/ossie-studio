@@ -30,7 +30,9 @@ from __future__ import annotations
 import csv
 import io
 import json
-from collections.abc import Hashable, Set
+import re
+import unicodedata
+from collections.abc import Callable, Hashable, Set
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from typing import Any
@@ -270,15 +272,87 @@ def detect_paths(example: Example) -> list[dict[str, str]]:
     return [{"path": p, "kind": k, "description": ""} for p, k in list(found.items())[:MAX_PATHS]]
 
 
-def preview(example: Example) -> dict[str, Any]:
-    rows = [r.data for r in example.records[:PREVIEW_ROWS]]
-    columns = example.columns or sorted({k for r in rows if isinstance(r, dict) for k in r})
+def preview(example: Example, text: str = "", column: str = "", lines: str = "") -> dict[str, Any]:
+    """Les premières lignes du fichier, ou les premières **retenues** par les filtres
+    (ticket 32e41ab7) : texte cherché (toutes colonnes, ou `column`) et numéros de
+    ligne. Le filtre court sur tout le fichier : l'écran n'a que `PREVIEW_ROWS`
+    lignes, il ne pourrait pas atteindre les autres. `numbers` : le numéro de chaque
+    ligne montrée dans le fichier (1 = première donnée). ValueError : `lines` mal
+    écrit."""
+    keep = line_filter(lines)
+    needle = _fold(text.strip())
+    picked: list[tuple[int, Any]] = []
+    matched = 0
+    for number, record in enumerate(example.records, start=1):
+        if keep is not None and not keep(number):
+            continue
+        if needle and needle not in _fold(_record_text(record.data, column)):
+            continue
+        matched += 1
+        if len(picked) < PREVIEW_ROWS:
+            picked.append((number, record.data))
+    rows = [data for _, data in picked]
+    shown = rows or [r.data for r in example.records[:PREVIEW_ROWS]]
+    columns = example.columns or sorted({k for r in shown if isinstance(r, dict) for k in r})
     return {
         "columns": columns,
         "rows": rows,
+        "numbers": [n for n, _ in picked],
         "count": len(example.records),
+        "matched": matched,
         "paths": detect_paths(example),
     }
+
+
+_LINE_PART = re.compile(r"^(\d+)(?:\s*-\s*(\d*))?$")
+
+
+def line_filter(spec: str) -> Callable[[int], bool] | None:
+    """`120` : à partir de la ligne 120 ; `100-150` : cette plage ; `3, 7, 10-12` :
+    ces lignes-là ; `` : pas de filtre. ValueError si la forme n'est pas comprise
+    (`abc`, `5-2`)."""
+    parts = [p.strip() for p in spec.split(",") if p.strip()]
+    if not parts:
+        return None
+    spans: list[tuple[int, int | None]] = []
+    for part in parts:
+        found = _LINE_PART.match(part)
+        if found is None:
+            raise ValueError(part)
+        start = int(found.group(1))
+        end_text = found.group(2)
+        if found.group(2) is None:
+            # Un numéro seul : « à partir de » ; dans une liste, cette ligne seule.
+            end: int | None = None if len(parts) == 1 else start
+        else:
+            end = int(end_text) if end_text else None
+        if start < 1 or (end is not None and end < start):
+            raise ValueError(part)
+        spans.append((start, end))
+    return lambda n: any(n >= a and (b is None or n <= b) for a, b in spans)
+
+
+def _fold(value: str) -> str:
+    """Casse et accents ignorés (« École » trouve « ecole »)."""
+    decomposed = unicodedata.normalize("NFKD", value)
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
+def _record_text(data: Any, column: str) -> str:
+    """Le texte où chercher : la cellule de `column`, ou toute la ligne."""
+    if isinstance(data, dict):
+        if column:
+            return _cell_text(data.get(column))
+        return "\n".join(_cell_text(v) for v in data.values())
+    return "" if column else _cell_text(data)
 
 
 # --- Essai du template -----------------------------------------------------------------------

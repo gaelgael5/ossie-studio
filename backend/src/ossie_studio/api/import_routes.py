@@ -495,9 +495,14 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
         branch_id: uuid.UUID,
         slug: str,
         body: ReadingBody | None = None,
+        q: str = "",
+        colonne: str = "",
+        lignes: str = "",
     ) -> dict[str, object]:
         """Aperçu des premières lignes et chemins détectés, avec les réglages donnés
-        (ceux de l'import s'il n'y en a pas)."""
+        (ceux de l'import s'il n'y en a pas). Filtres (ticket 32e41ab7) en paramètres
+        d'adresse, à part des réglages de lecture : texte `q` (toutes colonnes, ou
+        `colonne`), numéros `lignes` (`120`, `100-150`, `3, 7, 10-12`)."""
         owner = owner_of(request)
         handle = await adapter.open(conn, crypto, workdir, space_id, branch_id, user)
 
@@ -515,7 +520,10 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             if chosen not in sheets and len(sheets) != 1:
                 return {**out, "sheet_required": True, "columns": [], "rows": [], "count": 0,
                         "paths": [], "comparison": []}  # fmt: skip
-        result = preview(_example_of(imp, body))
+        try:
+            result = preview(_example_of(imp, body), q, colonne, lignes)
+        except ValueError:
+            raise ApiError("import_lines_invalid", status_code=400, lines=lignes) from None
         header = body.header if body is not None else decl.header
         # Colonnes face aux propriétés du modèle, si le fichier a un en-tête (221d832b).
         comparison = (

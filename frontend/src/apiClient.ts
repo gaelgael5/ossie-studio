@@ -2020,6 +2020,10 @@ export interface ImportPreview {
   columns: string[]
   rows: Record<string, unknown>[]
   count: number
+  /** Filtres de l'aperçu (ticket 32e41ab7) : numéro de chaque ligne montrée dans le
+   * fichier, et nombre de lignes retenues sur tout le fichier. */
+  numbers?: number[]
+  matched?: number
   paths: { path: string; kind: string; description: string }[]
   /** Classeur xlsx : ses feuilles ; `sheet_required` tant qu'aucune n'est choisie. */
   sheets?: string[]
@@ -3354,6 +3358,24 @@ export const api = {
 // imports d'un référentiel ou d'un type de cartographie. Mêmes routes partout
 // sous cette adresse.
 
+/** Filtres de l'aperçu d'un import (ticket 32e41ab7) : texte cherché, dans toutes
+ * les colonnes ou une seule, et numéros de ligne (« 120 », « 100-150 », « 3, 7 »). */
+export interface ImportPreviewFilter {
+  q: string
+  colonne: string
+  lignes: string
+}
+
+function previewQuery(filter?: ImportPreviewFilter): string {
+  if (!filter) return ''
+  const params = new URLSearchParams()
+  if (filter.q.trim()) params.set('q', filter.q.trim())
+  if (filter.colonne) params.set('colonne', filter.colonne)
+  if (filter.lignes.trim()) params.set('lignes', filter.lignes.trim())
+  const text = params.toString()
+  return text ? `?${text}` : ''
+}
+
 export interface ImportsApi {
   /** Adresse des imports de la cible (sert aussi de clé de cache). */
   base: string
@@ -3378,7 +3400,7 @@ export interface ImportsApi {
   /** « Nettoyer » : retire le fichier d'exemple (ticket 34fa9248). */
   clearExample: (slug: string) => Promise<ReferentielImportDetail>
   setReading: (slug: string, reading: ImportReading) => Promise<ReferentielImportDetail>
-  preview: (slug: string, reading?: ImportReading) => Promise<ImportPreview>
+  preview: (slug: string, reading?: ImportReading, filter?: ImportPreviewFilter) => Promise<ImportPreview>
   /** L'essai, avec la stratégie de suppression donnée (sinon celle enregistrée). */
   trial: (slug: string, template: string, deletion?: ImportDeletion) => Promise<ImportTrial>
   /** `review` : les lignes taguées ont été vues, celles de `refuse` ne sont pas écrites. */
@@ -3410,8 +3432,11 @@ export function importsApi(
     },
     clearExample: (slug) => apiFetch(one(slug, '/exemple'), { method: 'DELETE' }),
     setReading: (slug, reading) => apiFetch(one(slug, '/lecture'), { method: 'PUT', body: JSON.stringify(reading) }),
-    preview: (slug, reading) =>
-      apiFetch(one(slug, '/apercu'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
+    preview: (slug, reading, filter) =>
+      apiFetch(one(slug, '/apercu') + previewQuery(filter), {
+        method: 'POST',
+        body: reading ? JSON.stringify(reading) : undefined,
+      }),
     trial: (slug, template, deletion) =>
       apiFetch(one(slug, '/essai'), { method: 'POST', body: JSON.stringify({ template, deletion }) }),
     /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */

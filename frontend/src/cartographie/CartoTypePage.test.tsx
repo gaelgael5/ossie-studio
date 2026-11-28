@@ -451,6 +451,25 @@ describe('Cartographie — imports d’un type (ticket 49952be0)', () => {
     expect(rows[0]).toHaveClass('selected')
   })
 
+  it('« Résumé » : le filtre porte sur la clé et le nom, sans casse ni accents (ticket b531abe2)', async () => {
+    setup()
+    const table = await screen.findByRole('table', { name: 'Objets de ce type' })
+    const user = userEvent.setup()
+    const search = screen.getByRole('searchbox', { name: 'Rechercher par nom ou par clé…' })
+    const keys = () => within(table).queryAllByRole('row').slice(1).map((r) => r.querySelector('td')?.textContent)
+    await user.type(search, 'prc-b')
+    expect(keys()).toEqual(['PRC-B'])
+    expect(screen.getByRole('heading', { name: '1 objet sur 2' })).toBeInTheDocument()
+    await user.clear(search)
+    await user.type(search, 'VÉNTE A')
+    expect(keys()).toEqual(['PRC-A'])
+    await user.clear(search)
+    await user.type(search, 'zzz')
+    expect(screen.getByText('Aucun objet ne correspond à la recherche.')).toBeInTheDocument()
+    await user.clear(search)
+    expect(keys()).toEqual(['PRC-A', 'PRC-B'])
+  })
+
   it('le crayon ouvre la fiche de l’objet sans sélectionner la ligne (ticket 61a24b85)', async () => {
     setup()
     await screen.findByRole('table', { name: 'Objets de ce type' })

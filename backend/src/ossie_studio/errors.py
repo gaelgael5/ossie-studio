@@ -167,6 +167,7 @@ ERROR_CODES: tuple[str, ...] = (
     "merge_collected_readonly",
     "merge_choice_invalid",
     "merge_value_invalid",
+    "import_lines_invalid",
     "merge_unresolved",
     "impact_not_found",
     "warning_not_found",

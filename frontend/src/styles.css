@@ -3116,6 +3116,19 @@ td.cell-error {
 }
 /* Aperçu d'un import (ticket 49f41fa2) : trait très discret entre colonnes,
    numéro de ligne, valeurs longues repliées. */
+.import-preview-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+}
+.import-preview-filters .input[type='search'] {
+  flex: 1 1 240px;
+}
+.import-preview-lines {
+  flex: 0 1 220px;
+}
 .import-preview th + th,
 .import-preview td + td {
   border-left: 1px solid var(--surface-muted);
@@ -4616,6 +4629,9 @@ urban-bpmn {
 /* Onglet « Résumé » d'un type : ses objets et le YAML de l'objet choisi (ticket 7dc220a4). */
 .carto-type-objects {
   margin-top: 16px;
+}
+.carto-type-objects-search {
+  max-width: 420px;
 }
 .carto-type-objects-layout {
   display: grid;

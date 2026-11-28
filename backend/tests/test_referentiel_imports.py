@@ -126,6 +126,53 @@ async def test_exemple_csv_apercu_et_chemins(space: ApiSpace) -> None:
     assert comma["columns"] == ["Pays;Mode;Delai"]
 
 
+async def test_apercu_filtre_texte_colonne_et_numeros(space: ApiSpace) -> None:
+    """Ticket 32e41ab7 : le filtre court sur tout le fichier ; numéros réels."""
+    await _csv_import(space)
+    url = _url(space, "/transporteur/apercu")
+
+    async def view(**params: str) -> dict[str, object]:
+        return dict((await space.client.post(url, params=params)).json())
+
+    found = await view(q="DOMICILE")
+    assert found["rows"] == [{"Pays": "DE", "Mode": "domicile", "Delai": "x"}]
+    assert (found["numbers"], found["matched"], found["count"]) == ([3], 1, 4)
+    in_column = await view(q="site", colonne="Pays")
+    assert in_column["rows"] == [] and in_column["matched"] == 0
+    assert (await view(lignes="3"))["numbers"] == [3, 4]
+    assert (await view(lignes="2-3"))["numbers"] == [2, 3]
+    assert (await view(lignes="1, 4"))["numbers"] == [1, 4]
+    assert (await view(lignes="2-4", q="site"))["numbers"] == [2, 4]
+    assert (await view(lignes="99"))["rows"] == []
+    plain = await view()
+    assert plain["numbers"] == [1, 2, 3, 4] and plain["matched"] == 4
+    bad = await space.client.post(url, params={"lignes": "5-2"})
+    assert bad.status_code == 400
+    assert bad.json()["error"] == "import_lines_invalid"
+
+
+def test_filtre_de_lignes_et_accents() -> None:
+    from ossie_studio.imports.engine import Example, Record, line_filter, preview
+
+    keep = line_filter("3, 7, 10-12")
+    assert keep is not None
+    assert [n for n in range(1, 14) if keep(n)] == [3, 7, 10, 11, 12]
+    assert line_filter("") is None
+    for bad in ("abc", "5-2", "0"):
+        try:
+            line_filter(bad)
+        except ValueError:
+            continue
+        raise AssertionError(bad)
+    example = Example([Record({"nom": "École"}, "l1"), Record({"nom": "x", "tags": ["ÉTÉ"]}, "l2")])
+    assert preview(example, "ecole")["numbers"] == [1]
+    assert preview(example, "ete")["numbers"] == [2]
+    many = Example([Record({"n": i}, f"l{i}") for i in range(1, 51)])
+    far = preview(many, lines="45")
+    assert far["numbers"] == [45, 46, 47, 48, 49, 50]
+    assert len(preview(many)["rows"]) == 20 and preview(many)["matched"] == 50
+
+
 async def test_depot_detecte_encodage_et_separateur_cp1252(space: ApiSpace) -> None:
     """Ticket 123631e5 : fichier Excel de Gael (cp1252, « ; », espace insécable) ;
     sans détection, l'import restait en utf-8 / « , » et rien ne se lisait."""

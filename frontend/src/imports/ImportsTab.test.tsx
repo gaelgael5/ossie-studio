@@ -108,7 +108,22 @@ function setup(
       let status = 200
       if (path === BASE && method === 'GET') body = { imports }
       else if (path === BASE) body = { ...DETAIL, ...JSON.parse(String(init?.body)), example_size: 0 }
-      else if (path === `${BASE}/transporteur/apercu` && options.previewFails) {
+      else if (path.startsWith(`${BASE}/transporteur/apercu?`)) {
+        // Aperçu filtré (ticket 32e41ab7) : le serveur filtre tout le fichier.
+        const params = new URLSearchParams(path.split('?')[1])
+        if (params.get('lignes') === '5-2') {
+          status = 400
+          body = { error: 'import_lines_invalid' }
+        } else
+          body = {
+            columns: ['Pays', 'Mode', 'Delai'],
+            rows: [{ Pays: 'DE', Mode: 'domicile', Delai: 'x' }],
+            numbers: [3],
+            matched: 1,
+            count: 4,
+            paths: [],
+          }
+      } else if (path === `${BASE}/transporteur/apercu` && options.previewFails) {
         status = 400
         body = { error: 'example_encoding', detail: "'utf-8' codec can't decode byte 0xa0" }
       } else if (path === `${BASE}/transporteur/apercu`) {
@@ -185,6 +200,28 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     })
   })
 
+  it('aperçu : filtre texte, colonne et numéros de ligne, appliqué par le serveur ; vrais numéros affichés (ticket 32e41ab7)', async () => {
+    const calls = setup()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: '2. Aperçu' }))
+    await screen.findByText('Aperçu (4 ligne(s))')
+    await user.type(screen.getByRole('searchbox', { name: 'Filtrer les lignes (texte)…' }), 'domicile')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Colonne filtrée' }), 'Mode')
+    expect(await screen.findByText('1 ligne retenue sur 4 (affichée : 1)')).toBeInTheDocument()
+    const table = screen.getByRole('table', { name: 'Aperçu du fichier d’exemple' })
+    const rows = within(table).getAllByRole('row')
+    expect(rows).toHaveLength(2)
+    expect(rows[1].firstChild).toHaveTextContent('3')
+    const asked = calls.filter((c) => c.path.includes('/apercu?')).map((c) => c.path).pop() ?? ''
+    expect(new URLSearchParams(asked.split('?')[1]).get('q')).toBe('domicile')
+    expect(new URLSearchParams(asked.split('?')[1]).get('colonne')).toBe('Mode')
+    await user.type(screen.getByRole('textbox', { name: 'Numéros de ligne' }), '5-2')
+    expect(await screen.findByText(/Numéros de ligne non compris/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Effacer les filtres' }))
+    expect(await screen.findByText('Aperçu (4 ligne(s))')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'Aperçu du fichier d’exemple' })).getAllByRole('row')).toHaveLength(3)
+  })
+
   it('fichier d’exemple : aperçu, chemins, et le séparateur met l’aperçu à jour', async () => {
     const calls = setup()
     expect(await screen.findByText('jamais importé', { exact: false })).toBeInTheDocument()
@@ -210,7 +247,7 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     await user.click(screen.getByRole('tab', { name: '1. Fichier d’exemple' }))
     await user.selectOptions(screen.getByLabelText('Séparateur'), ',')
     await user.click(screen.getByRole('tab', { name: '2. Aperçu' }))
-    expect(await screen.findByText('Pays;Mode;Delai')).toBeInTheDocument()
+    expect(await screen.findByRole('columnheader', { name: 'Pays;Mode;Delai' })).toBeInTheDocument()
     await user.click(screen.getByRole('tab', { name: '1. Fichier d’exemple' }))
     expect(calls.some((c) => c.path.endsWith('/apercu') && String(c.body).includes('","'))).toBe(true)
     // Les réglages changés s'enregistrent sur demande.
