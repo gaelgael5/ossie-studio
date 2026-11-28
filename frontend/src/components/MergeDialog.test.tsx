@@ -108,4 +108,10 @@ describe('MergeDialog', () => {
     expect(await screen.findByText('Fichier binaire : pas d’aperçu.')).toBeInTheDocument()
     expect(screen.queryByText(/PK/)).not.toBeInTheDocument()
   })
+
+  it('en attendant la réponse : le panneau le dit au lieu de rester blanc', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)))
+    renderDialog()
+    expect(await screen.findByText('Chargement…')).toBeInTheDocument()
+  })
 })

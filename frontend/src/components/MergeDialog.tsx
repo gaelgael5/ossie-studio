@@ -77,7 +77,14 @@ export function MergeDialog(props: { spaceId: string; branchId: string; path: st
           {t('close')}
         </button>
       </div>
-      <ErrorList messages={messages} />
+      <ErrorList messages={[...messages, ...(view.error ? errorMessages(t, view.error) : [])]} />
+      {/* Sur l'écran de publication, la fusion peut attendre les calculs de la page
+          (validation, impacts) : le panneau le dit au lieu de rester blanc. */}
+      {view.isPending ? (
+        <p className="muted" aria-busy="true">
+          <span className="spinner" aria-hidden="true" /> {t('loading')}
+        </p>
+      ) : null}
       {data?.collected ? <p className="info-note">{t('mergeCollected')}</p> : null}
       {data ? <MergeBody data={data} picks={picks} free={free} setPick={(p, v) => setPicks({ ...picks, [p]: v })} setFree={(p, v) => setFree({ ...free, [p]: v })} /> : null}
       {data && !data.readonly ? (
