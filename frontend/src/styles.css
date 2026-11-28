@@ -4586,6 +4586,13 @@ urban-bpmn {
   overflow: auto;
   word-break: normal;
 }
+.carto-type-object-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.carto-type-object-actions .btn + .btn {
+  margin-left: 4px;
+}
 @media (max-width: 900px) {
   .carto-type-objects-layout {
     grid-template-columns: minmax(0, 1fr);
