@@ -15,10 +15,10 @@ Content — the drawing file:
 Entries that match nothing in the model are dropped.
 
 ```yaml example
-- kind: carto_objet
+- document_type: carto_objet
   identity: {type: acces, key: REL-PRISE-ECRIT-COMMANDE}
   content: {cle: REL-PRISE-ECRIT-COMMANDE, type: acces, source: PRC-PRISE-COMMANDE, cible: OBJ-COMMANDE, nom: Écrit}
-- kind: carto_modele
+- document_type: carto_modele
   identity: {slug: vente}
   content:
     id: MOD-VENTE
@@ -39,7 +39,7 @@ Entries that match nothing in the model are dropped.
           - {id: N2, element: OBJ-COMMANDE}
         connexions:
           - {id: C1, relationship: REL-PRISE-ECRIT-COMMANDE, de: N1, vers: N2}
-- kind: carto_graphique
+- document_type: carto_graphique
   identity: {slug: vente}
   content:
     vues:

@@ -191,7 +191,7 @@
   "carto_process_drop_unsupported",
   "carto_process_schema_invalid",
   "write_refused",
-  "write_kind_unknown",
+  "document_type_unknown",
   "write_identity_invalid",
   "write_identity_mismatch",
   "write_path_forbidden",
@@ -210,7 +210,7 @@
   "write_field_frozen",
   "write_identity_frozen",
   "write_document_too_large",
-  "write_kind_forbidden",
+  "document_type_forbidden",
   "standard_unknown",
   "example_encoding",
   "example_json",
@@ -261,5 +261,5 @@
   "dataset_change_impacts",
   "setting_not_found",
   "setting_value_invalid",
-  "write_kind_read_only"
+  "document_type_read_only"
 ]

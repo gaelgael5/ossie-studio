@@ -22,7 +22,7 @@ Content — the BPMN 2.0 XML, **as text**:
 - Modify a process with `patch_document` and XPath (`describe_standard xpath`).
 
 ```yaml example
-kind: processus
+document_type: processus
 identity: {key: PRC-PRISE-COMMANDE-DETAIL}
 content: |
   <?xml version="1.0" encoding="UTF-8"?>

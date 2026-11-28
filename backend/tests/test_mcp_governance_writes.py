@@ -128,7 +128,7 @@ async def _patch(
         app,
         space,
         "patch_document",
-        kind=kind,
+        document_type=kind,
         identity=identity,
         version=current["version"],
         operations=ops,
@@ -139,14 +139,14 @@ async def _read(
     app: FastAPI, space: ApiSpace, kind: str, identity: dict[str, Any]
 ) -> dict[str, Any]:
     error, body = await _call(
-        app, space, "read_document", kind=kind, identity=identity, branch="draft"
+        app, space, "read_document", document_type=kind, identity=identity, branch="draft"
     )
     assert not error, body
     return body
 
 
 async def _listed(app: FastAPI, space: ApiSpace, kind: str, **args: Any) -> list[dict[str, Any]]:
-    error, body = await _call(app, space, "list_documents", kind=kind, **args)
+    error, body = await _call(app, space, "list_documents", document_type=kind, **args)
     assert not error, body
     documents: list[dict[str, Any]] = body["documents"]
     return documents
@@ -159,7 +159,7 @@ async def _draft_paths(app: FastAPI, space: ApiSpace) -> list[str]:
 
 
 def _delete(kind: str, identity: dict[str, Any], version: str) -> dict[str, Any]:
-    return {"kind": kind, "identity": identity, "version": version, "delete": True}
+    return {"document_type": kind, "identity": identity, "version": version, "delete": True}
 
 
 # --- Critère 2 : chaque geste des primitives retirées, par l'écriture commune ------------
@@ -171,7 +171,7 @@ async def test_tag_creer_modifier_supprimer(app: FastAPI, space: ApiSpace) -> No
         space,
         [
             {
-                "kind": "tag",
+                "document_type": "tag",
                 "identity": TAG,
                 "content": {
                     "info": {"owner": "dpo@example.org", "description": "Données personnelles"},
@@ -214,7 +214,7 @@ async def test_classification_et_niveaux(app: FastAPI, space: ApiSpace) -> None:
         space,
         [
             {
-                "kind": "classification",
+                "document_type": "classification",
                 "identity": SCHEME,
                 "content": {
                     "name": "Sensibilité",
@@ -260,7 +260,7 @@ async def test_classification_et_niveaux(app: FastAPI, space: ApiSpace) -> None:
         space,
         [
             {
-                "kind": "classification",
+                "document_type": "classification",
                 "identity": SCHEME,
                 "version": current["version"],
                 "content": reordered,
@@ -308,7 +308,7 @@ async def test_certification_creer_modifier_supprimer(app: FastAPI, space: ApiSp
         space,
         [
             {
-                "kind": "certification",
+                "document_type": "certification",
                 "identity": CERT,
                 "content": {
                     "name": "Or",
@@ -344,9 +344,9 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
         app,
         space,
         [
-            {"kind": "tag", "identity": TAG, "content": {}},
+            {"document_type": "tag", "identity": TAG, "content": {}},
             {
-                "kind": "classification",
+                "document_type": "classification",
                 "identity": SCHEME,
                 "content": {
                     "name": "Sensibilité",
@@ -357,7 +357,7 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
                 },
             },
             {
-                "kind": "certification",
+                "document_type": "certification",
                 "identity": CERT,
                 "content": {"name": "Or", "tag": "certification/or"},
             },
@@ -368,9 +368,11 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
     def level(value: dict[str, Any]) -> list[dict[str, Any]]:
         return [{"op": "add", "path": "$.levels[0]", "value": value}]
 
-    exists = await _refused(app, space, [{"kind": "tag", "identity": TAG, "content": {}}])
+    exists = await _refused(app, space, [{"document_type": "tag", "identity": TAG, "content": {}}])
     assert exists["errors"][0]["code"] == "write_exists"
-    bad_id = await _refused(app, space, [{"kind": "tag", "identity": {"id": "pas valide!"}}])
+    bad_id = await _refused(
+        app, space, [{"document_type": "tag", "identity": {"id": "pas valide!"}}]
+    )
     assert bad_id["errors"][0]["code"] == "write_identity_invalid"
     other_branch = await call_tool(
         app,
@@ -380,7 +382,7 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
             space,
             message="x",
             branch="main",
-            documents=[{"kind": "tag", "identity": {"id": "autre"}, "content": {}}],
+            documents=[{"document_type": "tag", "identity": {"id": "autre"}, "content": {}}],
         ),
     )
     refusal = json.loads(other_branch.content[0].text)
@@ -402,7 +404,7 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
         space,
         [
             {
-                "kind": "certification",
+                "document_type": "certification",
                 "identity": {"slug": "gold"},
                 "content": {"name": "Gold", "tag": "certification/or"},
             }
@@ -421,7 +423,7 @@ async def test_une_cle_ne_voit_ni_n_appelle_aucune_ecriture(app: FastAPI, space:
     assert not ({*COMMON} | REMOVED) & names
     assert "list_documents" in names
     error, refused = await _call(
-        app, space, "write_documents", KEY, message="x", documents=[{"kind": "tag"}]
+        app, space, "write_documents", KEY, message="x", documents=[{"document_type": "tag"}]
     )
     assert error and refused["error"] == "primitive_forbidden"
 
@@ -462,12 +464,12 @@ async def test_ecriture_bornee_par_les_droits_sur_l_espace(app: FastAPI, space: 
         )
         profile = await conn.fetchval("SELECT id FROM agent_profiles WHERE name = 'Gouvernance'")
     _wire(app, {"ana": McpCaller(kind="oauth", ref="a", agent_profile_id=profile, user_id=user_id)})
-    entry = [{"kind": "tag", "identity": TAG, "content": {}}]
+    entry = [{"document_type": "tag", "identity": TAG, "content": {}}]
 
     # governance:write sur un AUTRE espace seulement : refusé sur celui-ci.
     assert "write_documents" in await tool_names(app, "ana")
     refused = await _refused(app, space, entry, token="ana")
-    assert refused["errors"][0]["code"] == "write_kind_forbidden"
+    assert refused["errors"][0]["code"] == "document_type_forbidden"
     assert refused["errors"][0]["capability"] == "governance:write"
 
     # Donné sur cet espace : permis.
@@ -526,7 +528,7 @@ async def test_ecran_refuse_un_ordre_de_niveaux_avec_doublon(
         space,
         [
             {
-                "kind": "classification",
+                "document_type": "classification",
                 "identity": SCHEME,
                 "content": {
                     "name": "Sensibilité",

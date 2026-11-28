@@ -45,7 +45,7 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     ),
     # Cartographie applicative (ticket 72ce32b3)
     "get_review": Implementation(SourceArgs, reads.get_review),
-    # Écriture et lecture communes par genre (epic « Primitives MCP — écriture commune »)
+    # Écriture et lecture communes par type de document (epic « Primitives MCP — écriture commune »)
     "write_documents": Implementation(
         document_writes.WriteDocumentsArgs, document_writes.write_documents
     ),
@@ -56,8 +56,8 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
         document_reads.ListDocumentsArgs, document_reads.list_documents
     ),
     "read_document": Implementation(document_reads.ReadDocumentArgs, document_reads.read_document),
-    "list_write_kinds": Implementation(
-        write_guide.ListWriteKindsArgs, write_guide.list_write_kinds
+    "list_document_types": Implementation(
+        write_guide.ListDocumentTypesArgs, write_guide.list_document_types
     ),
     "describe_standard": Implementation(
         write_guide.DescribeStandardArgs, write_guide.describe_standard

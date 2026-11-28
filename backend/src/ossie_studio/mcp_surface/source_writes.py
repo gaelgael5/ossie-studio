@@ -64,7 +64,7 @@ class DeclareSourceArgs(BranchArgs):
     connection: str = Field(default="", description="Connection slug (none for 'openapi').")
     parameters: dict[str, Any] = Field(
         default_factory=dict,
-        description="Type-specific parameters, as in the manifest (kind 'source').",
+        description="Type-specific parameters, as in the manifest (document type 'source').",
     )
 
 

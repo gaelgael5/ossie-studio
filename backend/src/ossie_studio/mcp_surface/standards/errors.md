@@ -31,9 +31,9 @@ is returned at once:
 - `message`: in French, readable as is, with what was received and what was expected.
 - `expected` / `received`: when they help.
 - `aide`: for a format error, where to read the rule — `describe_standard` with a standard, or
-  `list_write_kinds` for an unknown kind. Every primitive adds it to its format errors.
+  `list_document_types` for an unknown document type. Every primitive adds it to its format errors.
 
-On success: `written: true`, the draft `revision`, each document's kind, identity, path, `action`
+On success: `written: true`, the draft `revision`, each document's document_type, identity, path, `action`
 (`created`, `replaced`, `deleted`, `unchanged`) and new `version`, and the `warnings`:
 
 ```json
@@ -48,9 +48,9 @@ A warning never blocks: the document is written.
 fields at the top level (`error` for the code, `path` in your request, `message`, `expected`,
 `received`, `aide`):
 
-- `document_not_found`: no document of that kind and identity in the version read (with
+- `document_not_found`: no document of that document type and identity in the version read (with
   `expected_path` when known). Not a format error: no `aide`. Read with `branch: draft` a
   document you have just written.
-- `list_filter_unknown`: an identity field or a filter the kind does not declare (`expected`
+- `list_filter_unknown`: an identity field or a filter the document type does not declare (`expected`
   lists the possible ones); `list_filter_invalid`: a filter value of the wrong form.
-- `schema_kind_untyped`: the content of that kind depends on no type; read its standard.
+- `schema_document_type_untyped`: the content of that document type depends on no type; read its standard.

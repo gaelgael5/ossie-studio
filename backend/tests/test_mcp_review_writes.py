@@ -95,7 +95,7 @@ def _assets_args(space: ApiSpace, **extra: Any) -> dict[str, Any]:
     return {
         "space_id": space.space_id,
         "branch_id": space.branch_id,
-        "kind": "schema_asset",
+        "document_type": "schema_asset",
         "identity": {"source": "ventes"},
         **extra,
     }
@@ -144,7 +144,7 @@ async def _collected_in_draft(app: FastAPI, space: ApiSpace) -> dict[str, Any]:
 # --- Critères 1 et 2 : règles de tri ------------------------------------------------------
 
 
-TRI = {"kind": "regles_tri", "identity": {"source": "ventes"}}
+TRI = {"document_type": "regles_tri", "identity": {"source": "ventes"}}
 
 
 async def _tri(app: FastAPI, space: ApiSpace) -> dict[str, Any]:
@@ -240,7 +240,9 @@ async def test_regle_invalide_refusee_en_la_nommant(app: FastAPI, space: ApiSpac
         _branch_ids(
             space,
             message="x",
-            documents=[{"kind": "regles_tri", "identity": {"source": "inconnue"}, "content": []}],
+            documents=[
+                {"document_type": "regles_tri", "identity": {"source": "inconnue"}, "content": []}
+            ],
         ),
     )
     assert unknown["errors"][0]["code"] == "write_identity_invalid"

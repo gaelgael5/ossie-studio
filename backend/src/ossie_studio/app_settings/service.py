@@ -1,5 +1,5 @@
 """Paramètres généraux de l'application, réglables sur la page « Paramètres »
-(epic « Primitives MCP — écriture commune par genre », ticket ae8fc4b6).
+(epic « Primitives MCP — écriture commune par type de document », ticket ae8fc4b6).
 
 Gael : « il faut prévoir un paramètre dans la config, et accessible dans une page ».
 Chaque paramètre a une **valeur par défaut** dans la configuration du serveur
@@ -10,7 +10,7 @@ valeur par défaut supprime la ligne.
 
 Premier paramètre : la taille maximale d'un document écrit par un agent
 (`document_max_bytes`, 200 Ko par défaut — décision de Gael), lue par
-`write_documents`, `patch_document`, `list_write_kinds` et `describe_standard`.
+`write_documents`, `patch_document`, `list_document_types` et `describe_standard`.
 """
 
 from __future__ import annotations

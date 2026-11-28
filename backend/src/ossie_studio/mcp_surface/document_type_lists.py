@@ -1,13 +1,13 @@
-"""Ce que rend la liste de chaque genre (`list_documents`, epic « Primitives MCP —
-écriture commune par genre », ticket 2113e7bc).
+"""Ce que rend la liste de chaque type de document (`list_documents`, epic « Primitives MCP —
+écriture commune par type de document », ticket 2113e7bc).
 
-Un lister par genre lit l'espace **par le service de l'écran** (cartographie,
+Un lister par type de document lit l'espace **par le service de l'écran** (cartographie,
 modèles, processus, référentiels, gouvernance) et rend ses documents triés, avec
 leur identité, leur nom, leur fichier et les champs de synthèse que rendaient les
 lectures par domaine qu'il remplace (`list_carto_types`, `list_carto_objects`,
 `list_carto_models`, `list_referentiels`, `search_referentiel_values`,
 `list_tags`, `list_classifications`, `list_certifications`). Il applique les
-filtres propres à son genre (déclarés dans le registre) ; l'identité partielle, la
+filtres propres à son type de document (déclarés dans le registre) ; l'identité partielle, la
 recherche texte, la pagination et les versions sont communes (`document_reads`).
 """
 
@@ -48,15 +48,15 @@ from ossie_studio.governance.repo import (
     tag_path,
 )
 from ossie_studio.governance.tag_rules import read_tag_rules
-from ossie_studio.mcp_surface.kind_base import (
+from ossie_studio.mcp_surface.document_type_base import (
     Document,
+    DocumentError,
     Item,
-    KindError,
     ListFilter,
     ListQuery,
     Location,
 )
-from ossie_studio.mcp_surface.kind_stores import (
+from ossie_studio.mcp_surface.document_type_stores import (
     ClassificationRuleStore,
     ReadOnlyStore,
     TagRuleStore,
@@ -115,7 +115,8 @@ RAW_MODULE = ListFilter(
 )
 ENTRY_MODULE = ListFilter(
     "module",
-    "A module of the source (its name or its title, from list_documents(kind='schema_raw', "
+    "A module of the source (its name or its title, from "
+    "list_documents(document_type='schema_raw', "
     "filters={kind: 'module'})): its entry points.",
 )
 ENTRY_CONTRACT = ListFilter(
@@ -307,7 +308,7 @@ def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
     name = query.identity.get("referentiel")
     equals = _given(query, "equals") or {}
     if equals and not name:
-        raise KindError(
+        raise DocumentError(
             "list_filter_invalid",
             "$.filters.equals",
             "« equals » filtre les valeurs d'un référentiel : donner aussi identity.referentiel.",
@@ -320,7 +321,7 @@ def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
         except ReferentielError as exc:
             if exc.code == "referentiel_filter_unknown":
                 prop = exc.detail.get("property")
-                raise KindError(
+                raise DocumentError(
                     "list_filter_invalid",
                     f"$.filters.equals.{prop}",
                     f"« {prop} » n'est pas une propriété simple de premier niveau du "
@@ -422,11 +423,11 @@ def _sources(root: Path, query: ListQuery) -> list[str]:
     if wanted is None:
         return known
     if wanted not in known:
-        raise KindError(
+        raise DocumentError(
             "write_identity_invalid",
             "source",
             f"La source « {wanted} » n'existe pas dans l'espace "
-            "(list_documents, genre « source »).",
+            "(list_documents, type de document « source »).",
             received=wanted,
         )
     return [str(wanted)]
@@ -479,11 +480,11 @@ class _Application:
         """Le nom de schéma d'un module désigné par son nom ou son titre."""
         name = wanted if wanted in self.members else self.titles.get(wanted.casefold())
         if name is None:
-            raise KindError(
+            raise DocumentError(
                 "list_filter_invalid",
                 "$.filters.module",
                 f"« {wanted} » n'est pas un module de la source « {source} » "
-                "(list_documents, genre « schema_raw », filters {kind: 'module'}).",
+                "(list_documents, type de document « schema_raw », filters {kind: 'module'}).",
                 received=wanted,
                 expected=sorted(self.members),
             )
@@ -586,7 +587,7 @@ class EntryPointStore(ReadOnlyStore):
 def _module_filter(query: ListQuery) -> Any:
     wanted = _given(query, "module")
     if wanted is not None and "source" not in query.identity:
-        raise KindError(
+        raise DocumentError(
             "list_filter_invalid",
             "$.filters.module",
             "« module » désigne un module d'une source : donner aussi identity.source.",

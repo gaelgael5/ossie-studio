@@ -106,7 +106,7 @@ async def _refused(app: FastAPI, token: str, tool: str, space: ApiSpace, **args:
 
 
 async def _list(app: FastAPI, space: ApiSpace, kind: str, token: str = KEY, **args: Any) -> dict:
-    return await _ok(app, token, "list_documents", space, kind=kind, **args)
+    return await _ok(app, token, "list_documents", space, document_type=kind, **args)
 
 
 def _keys(listing: dict[str, Any]) -> list[str]:
@@ -135,7 +135,7 @@ async def test_lister_les_types(app: FastAPI, space: ApiSpace) -> None:
     """Critère 3 (ticket 2113e7bc) : objet ou relation, type ArchiMate ; le catalogue
     ArchiMate complet passe par describe_standard('carto-type')."""
     data = await _list(app, space, "carto_type")
-    assert data["view"] == "published" and data["kind"] == "carto_type"
+    assert data["view"] == "published" and data["document_type"] == "carto_type"
     by_slug = {t["identity"]["slug"]: t for t in data["documents"]}
     application = by_slug["application"]
     assert (application["archimate"], application["nature"]) == ("ApplicationComponent", "object")
@@ -212,17 +212,21 @@ async def test_relations_d_un_objet(app: FastAPI, space: ApiSpace) -> None:
 async def test_lire_un_objet(app: FastAPI, space: ApiSpace) -> None:
     """Ce que rendait get_carto_object : contenu par read_document, libellés des
     attributs ArchiMate par read_schema (x-labels)."""
-    boutique = await _ok(app, KEY, "read_document", space, kind="carto_objet", identity=APP_ID)
+    boutique = await _ok(
+        app, KEY, "read_document", space, document_type="carto_objet", identity=APP_ID
+    )
     assert boutique["content"]["proprietes"] == {"criticite": "haute"}
     assert boutique["content"]["documentation"] == "Site de vente."
-    relation = await _ok(app, KEY, "read_document", space, kind="carto_objet", identity=REL_ID)
+    relation = await _ok(
+        app, KEY, "read_document", space, document_type="carto_objet", identity=REL_ID
+    )
     assert relation["content"]["source"] == "PRC-PRISE-COMMANDE"
     assert relation["content"]["proprietes"] == {"acces": "Write"}
-    schema = await _ok(app, KEY, "read_schema", space, kind="carto_objet", type="acces")
+    schema = await _ok(app, KEY, "read_schema", space, document_type="carto_objet", type="acces")
     acces = schema["schema"]["properties"]["proprietes"]["properties"]["acces"]
     assert acces["x-labels"]["Write"] == "écriture"
     missing = await _refused(
-        app, KEY, "read_document", space, kind="carto_objet",
+        app, KEY, "read_document", space, document_type="carto_objet",
         identity={"type": "application", "key": "ABSENT"},
     )  # fmt: skip
     assert missing["error"] == "document_not_found"
@@ -247,29 +251,33 @@ async def test_vue_brouillon_et_vue_publiee(app: FastAPI, space: ApiSpace) -> No
     assert "unpublished" not in boutique
     published = await _list(app, space, "carto_objet", AGENT, identity=by_type)
     assert _keys(published) == ["APP-BOUTIQUE"]
-    refused = await _refused(app, KEY, "list_documents", space, kind="carto_type", branch="draft")
+    refused = await _refused(
+        app, KEY, "list_documents", space, document_type="carto_type", branch="draft"
+    )
     assert refused["error"] == "draft_requires_person"
-    other = await _refused(app, AGENT, "list_documents", space, kind="carto_type", branch="main")
+    other = await _refused(
+        app, AGENT, "list_documents", space, document_type="carto_type", branch="main"
+    )
     assert other["error"] == "branch_unsupported"
 
 
 async def test_genre_ou_filtre_inconnu(app: FastAPI, space: ApiSpace) -> None:
     """Critère 7 : erreur explicite, avec ce qui est possible et `aide`."""
-    unknown = await _refused(app, KEY, "list_documents", space, kind="inconnu")
-    assert unknown["error"] == "write_kind_unknown"
-    assert unknown["aide"] == {"primitive": "list_write_kinds"}
+    unknown = await _refused(app, KEY, "list_documents", space, document_type="inconnu")
+    assert unknown["error"] == "document_type_unknown"
+    assert unknown["aide"] == {"primitive": "list_document_types"}
     stray = await _refused(
-        app, KEY, "list_documents", space, kind="carto_type", filters={"source": "X"}
+        app, KEY, "list_documents", space, document_type="carto_type", filters={"source": "X"}
     )
     assert stray["error"] == "list_filter_unknown" and stray["path"] == "$.filters.source"
     assert stray["expected"] == ["nature", "archimate"]
-    assert stray["aide"] == {"primitive": "list_write_kinds"}
+    assert stray["aide"] == {"primitive": "list_document_types"}
     identity = await _refused(
-        app, KEY, "list_documents", space, kind="carto_objet", identity={"cle": "X"}
+        app, KEY, "list_documents", space, document_type="carto_objet", identity={"cle": "X"}
     )
     assert identity["error"] == "list_filter_unknown" and identity["path"] == "$.identity.cle"
     bad = await _refused(
-        app, KEY, "list_documents", space, kind="carto_objet", filters={"nature": "autre"}
+        app, KEY, "list_documents", space, document_type="carto_objet", filters={"nature": "autre"}
     )
     assert bad["error"] == "list_filter_invalid" and bad["expected"] == ["object", "relation"]
 
@@ -325,7 +333,9 @@ async def test_lire_un_modele_sans_le_dessin(app: FastAPI, with_model: ApiSpace)
     retenus, vues, nœuds, connexions) par read_document, les noms par list_documents ;
     le dessin est un autre document (carto_graphique)."""
     identity = {"slug": "boutique-applicatif"}
-    data = await _ok(app, KEY, "read_document", with_model, kind="carto_modele", identity=identity)
+    data = await _ok(
+        app, KEY, "read_document", with_model, document_type="carto_modele", identity=identity
+    )
     model = data["content"]
     assert data["path"] == "cartographie/modeles/boutique-applicatif.modele.yaml"
     assert len(data["version"]) == 40
@@ -348,11 +358,16 @@ async def test_lire_un_modele_sans_le_dessin(app: FastAPI, with_model: ApiSpace)
         "Commande",
     ]
     graphic = await _ok(
-        app, KEY, "read_document", with_model, kind="carto_graphique", identity=identity
+        app, KEY, "read_document", with_model, document_type="carto_graphique", identity=identity
     )
     assert graphic["content"]["vues"]["VUE-1"]["noeuds"]["N1"]["x"] == 40
     missing = await _refused(
-        app, KEY, "read_document", with_model, kind="carto_modele", identity={"slug": "absent"}
+        app,
+        KEY,
+        "read_document",
+        with_model,
+        document_type="carto_modele",
+        identity={"slug": "absent"},
     )
     assert missing["error"] == "document_not_found"
 
@@ -396,13 +411,15 @@ async def test_version_suit_le_contenu(app: FastAPI, space: ApiSpace) -> None:
     """La version d'un document (empreinte Git du fichier) est la même dans la liste
     et à la lecture, et change avec le contenu."""
     listed = await _list(app, space, "carto_objet", identity=APP_ID)
-    read = await _ok(app, KEY, "read_document", space, kind="carto_objet", identity=APP_ID)
+    read = await _ok(app, KEY, "read_document", space, document_type="carto_objet", identity=APP_ID)
     assert listed["documents"][0]["version"] == read["version"]
     forge_edit(space, {APP_PATH: "cle: APP-BOUTIQUE\ntype: application\nnom: Boutique\n"})
-    changed = await _ok(app, KEY, "read_document", space, kind="carto_objet", identity=APP_ID)
+    changed = await _ok(
+        app, KEY, "read_document", space, document_type="carto_objet", identity=APP_ID
+    )
     assert changed["version"] != read["version"]
     wrong_type = await _refused(
-        app, KEY, "read_document", space, kind="carto_objet",
+        app, KEY, "read_document", space, document_type="carto_objet",
         identity={"type": "processus-de-vente", "key": "APP-BOUTIQUE"},
     )  # fmt: skip
     assert wrong_type["error"] == "document_not_found"
@@ -414,13 +431,21 @@ async def test_objet_du_brouillon_selon_branch(app: FastAPI, space: ApiSpace) ->
     crm = {"type": "application", "key": "APP-CRM"}
     crm_path = "cartographie/objets/application/app-crm.yaml"
     await draft_write(app, space, crm_path, {"cle": "APP-CRM", "type": "application", "nom": "CRM"})
-    published = await _refused(app, AGENT, "read_document", space, kind="carto_objet", identity=crm)
+    published = await _refused(
+        app, AGENT, "read_document", space, document_type="carto_objet", identity=crm
+    )
     assert published["error"] == "document_not_found"
     draft = await _ok(
-        app, AGENT, "read_document", space, kind="carto_objet", identity=crm, branch="draft"
+        app,
+        AGENT,
+        "read_document",
+        space,
+        document_type="carto_objet",
+        identity=crm,
+        branch="draft",
     )
     assert draft["unpublished"] is True and draft["view"] == "draft" and draft["version"]
     other = await _refused(
-        app, AGENT, "read_document", space, kind="carto_objet", identity=crm, branch="main"
+        app, AGENT, "read_document", space, document_type="carto_objet", identity=crm, branch="main"
     )
     assert other["error"] == "branch_unsupported"

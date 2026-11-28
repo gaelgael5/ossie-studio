@@ -40,7 +40,7 @@ from ossie_studio.spaces.workdir import WorkdirError
 
 
 class SourceWriteArgs(BranchArgs):
-    source: str = Field(description="Source slug (list_documents, kind 'source').")
+    source: str = Field(description="Source slug (list_documents, document type 'source').")
 
 
 class ObjectWriteArgs(SourceWriteArgs):

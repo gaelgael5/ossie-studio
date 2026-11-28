@@ -115,7 +115,7 @@ async def test_chemins_inconnus_ou_absents(app: FastAPI, space: ApiSpace) -> Non
     assert unknown == {
         "error": "schema_path_unknown",
         "path": "cartographie/objets/a/b.yaml",
-        "aide": {"primitive": "list_write_kinds"},
+        "aide": {"primitive": "list_document_types"},
     }
     missing = await _refusal(app, KEY, _ids(space, path="cartographie/types/absent.schema.yaml"))
     assert missing["error"] == "schema_not_found"
@@ -125,8 +125,8 @@ async def test_par_genre_le_meme_schema_que_par_chemin(app: FastAPI, space: ApiS
     """Ticket 69be2ef9, critère 1 : genre + type rend exactement ce que rend le chemin,
     pour chaque genre dont le contenu dépend d'un type."""
     for designation, path in (
-        ({"kind": "carto_objet", "type": "processus-de-vente"}, TYPE_PATH),
-        ({"kind": "referentiel_valeur", "referentiel": "pays"}, MODEL_PATH),
+        ({"document_type": "carto_objet", "type": "processus-de-vente"}, TYPE_PATH),
+        ({"document_type": "referentiel_valeur", "referentiel": "pays"}, MODEL_PATH),
     ):
         for resolved in (True, False):
             by_kind = await _ok(app, KEY, _ids(space, **designation, resolved=resolved))
@@ -137,27 +137,29 @@ async def test_par_genre_le_meme_schema_que_par_chemin(app: FastAPI, space: ApiS
 async def test_par_genre_les_refus(app: FastAPI, space: ApiSpace) -> None:
     """Un genre sans type renvoie à son standard ; ce qui le type manque, est en trop
     ou est mal formé ; un chemin avec un genre suit la règle du genre (interdit)."""
-    untyped = await _refusal(app, KEY, _ids(space, kind="processus"))
-    assert untyped["error"] == "schema_kind_untyped"
+    untyped = await _refusal(app, KEY, _ids(space, document_type="processus"))
+    assert untyped["error"] == "schema_document_type_untyped"
     assert untyped["aide"] == {"primitive": "describe_standard", "standard": "bpmn"}
     cases = [
-        ({"kind": "carto_objet"}, "$.type"),
-        ({"kind": "carto_objet", "type": "role", "referentiel": "pays"}, "$.referentiel"),
-        ({"kind": "carto_objet", "type": "Pas Un Slug"}, "$.type"),
+        ({"document_type": "carto_objet"}, "$.type"),
+        ({"document_type": "carto_objet", "type": "role", "referentiel": "pays"}, "$.referentiel"),
+        ({"document_type": "carto_objet", "type": "Pas Un Slug"}, "$.type"),
         ({"type": "role"}, "$.type"),
-        ({}, "$.kind"),
+        ({}, "$.document_type"),
     ]
     for designation, where in cases:
         refused = await _refusal(app, KEY, _ids(space, **designation))
         assert (refused["error"], refused["path"]) == ("schema_designation_invalid", where)
-        assert refused["aide"] == {"primitive": "list_write_kinds"}
+        assert refused["aide"] == {"primitive": "list_document_types"}
     with_path = await _refusal(
-        app, KEY, _ids(space, kind="carto_objet", type="processus-de-vente", path=TYPE_PATH)
+        app,
+        KEY,
+        _ids(space, document_type="carto_objet", type="processus-de-vente", path=TYPE_PATH),
     )
     assert with_path["error"] == "write_path_forbidden" and with_path["expected"] == TYPE_PATH
-    unknown = await _refusal(app, KEY, _ids(space, kind="inconnu"))
-    assert unknown["error"] == "write_kind_unknown"
-    absent = await _refusal(app, KEY, _ids(space, kind="carto_objet", type="absent"))
+    unknown = await _refusal(app, KEY, _ids(space, document_type="inconnu"))
+    assert unknown["error"] == "document_type_unknown"
+    absent = await _refusal(app, KEY, _ids(space, document_type="carto_objet", type="absent"))
     assert absent["error"] == "schema_not_found"
 
 

@@ -13,7 +13,7 @@ Content — the tag file:
 - `properties`: free properties.
 
 ```yaml example
-kind: tag
+document_type: tag
 identity: {id: pii/email}
 content:
   info:

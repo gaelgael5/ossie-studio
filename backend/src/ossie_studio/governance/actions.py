@@ -2,8 +2,8 @@
 et leurs niveaux, certifications.
 
 Service commun à l'écran (routes `api/governance.py`, `api/classifications.py`)
-et à l'agent (écriture commune par genre : `write_documents` / `patch_document`,
-validateurs `mcp_surface/kind_stores.py`) : une seule règle métier. Chaque
+et à l'agent (écriture commune par type de document : `write_documents` / `patch_document`,
+validateurs `mcp_surface/document_type_stores.py`) : une seule règle métier. Chaque
 fonction s'exécute dans la vue de la personne (`root`), à l'intérieur du geste
 d'écriture de son brouillon : elle vérifie tout **avant** d'écrire, puis rend
 l'objet tel qu'il est écrit.

@@ -20,10 +20,10 @@ Content — the model file (never coordinates, never object content):
 A new model gets an empty drawing; replacing a model keeps its drawing (`carto_graphique`).
 
 ```yaml example
-- kind: carto_objet
+- document_type: carto_objet
   identity: {type: acces, key: REL-PRISE-ECRIT-COMMANDE}
   content: {cle: REL-PRISE-ECRIT-COMMANDE, type: acces, source: PRC-PRISE-COMMANDE, cible: OBJ-COMMANDE, nom: Écrit}
-- kind: carto_modele
+- document_type: carto_modele
   identity: {slug: vente}
   content:
     id: MOD-VENTE

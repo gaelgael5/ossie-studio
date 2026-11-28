@@ -4,7 +4,7 @@ What the parser knows of a raw object beyond its schema: the methods of a class,
 functions of a module (Python, TypeScript, C# minimal API), and their entry points. It is
 written next to the schema, regenerated at each collection; the schema itself stays standard
 JSON Schema, without any method. **Read-only**: produced by the collection
-(`collect_source`). `write_documents` and `patch_document` refuse it (`write_kind_read_only`,
+(`collect_source`). `write_documents` and `patch_document` refuse it (`document_type_read_only`,
 naming `collect_source`).
 
 Identity: the same as the raw schema it extends — `source` and `name` (the schema file name,
@@ -47,9 +47,9 @@ methods:
 
 Reading:
 
-- `list_documents(kind: extension_raw, identity: {source})`: the raw objects that have an
+- `list_documents(document_type: extension_raw, identity: {source})`: the raw objects that have an
   extension, with `methods`, `functions` (their numbers) and `entry_point` (whether the object
   itself is one). Filter `filters: {module: <name or title>}` (with `identity.source`): the
   objects of a module;
-- `read_document(kind: extension_raw, identity: {source, name})`: the whole extension. An object
+- `read_document(document_type: extension_raw, identity: {source, name})`: the whole extension. An object
   without method nor function has none: `document_not_found`.

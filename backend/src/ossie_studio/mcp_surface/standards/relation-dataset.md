@@ -14,10 +14,10 @@ A column that is not a field of its dataset is refused (`write_content_invalid`,
 `$.from_columns[i]` or `$.to_columns[i]`).
 
 ```yaml example
-- kind: domaine
+- document_type: domaine
   identity: {name: ventes}
   content: {label: Ventes}
-- kind: dataset
+- document_type: dataset
   identity: {domain: ventes, name: client}
   content:
     ossie:
@@ -26,7 +26,7 @@ A column that is not a field of its dataset is refused (`write_content_invalid`,
       fields:
         - {name: id, expression: {dialects: [{dialect: ANSI_SQL, expression: id}]}}
     extension: {consultable: true, derived: false}
-- kind: dataset
+- document_type: dataset
   identity: {domain: ventes, name: commande}
   content:
     ossie:
@@ -36,7 +36,7 @@ A column that is not a field of its dataset is refused (`write_content_invalid`,
         - {name: id, expression: {dialects: [{dialect: ANSI_SQL, expression: id}]}}
         - {name: client_id, expression: {dialects: [{dialect: ANSI_SQL, expression: client_id}]}}
     extension: {consultable: true, derived: false}
-- kind: relation_dataset
+- document_type: relation_dataset
   identity: {domain: ventes, name: commande-client}
   content: {from: commande, to: client, from_columns: [client_id], to_columns: [id]}
 ```

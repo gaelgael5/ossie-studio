@@ -18,11 +18,11 @@ Operations:
   last one appends).
 - `remove`: remove a node that exists.
 
-Identity fields never change (`write_identity_frozen`); some kinds freeze other fields
+Identity fields never change (`write_identity_frozen`); some document types freeze other fields
 (`write_field_frozen`). For a reference-list value, paths apply **inside the value**.
 
 ```yaml example-patch
-kind: carto_objet
+document_type: carto_objet
 document:
   cle: PRC-PRISE-COMMANDE
   type: processus-metier

@@ -131,7 +131,7 @@ async def _draft_text(app: FastAPI, space: ApiSpace, rel: str, text: str) -> Non
 async def test_lister_les_sources(app: FastAPI, space: ApiSpace) -> None:
     """Critère 1 : les champs de `list_sources` ; un manifeste illisible est listé
     avec son erreur, sans faire échouer la liste. Filtre par type."""
-    error, listed = await _call(app, KEY, "list_documents", space, kind="source")
+    error, listed = await _call(app, KEY, "list_documents", space, document_type="source")
     assert not error, listed
     by_slug = {d["identity"]["source"]: d for d in listed["documents"]}
     assert set(by_slug) == {"boutique", "casse", "entrepot", "ventes"}
@@ -143,7 +143,7 @@ async def test_lister_les_sources(app: FastAPI, space: ApiSpace) -> None:
     assert ventes["unpublished_changes"] == 0
     assert by_slug["casse"]["ok"] is False and by_slug["casse"]["error"]
     error, typed = await _call(
-        app, KEY, "list_documents", space, kind="source", filters={"type": "postgres"}
+        app, KEY, "list_documents", space, document_type="source", filters={"type": "postgres"}
     )
     assert [d["identity"]["source"] for d in typed["documents"]] == ["entrepot"]
 
@@ -152,41 +152,45 @@ async def test_lire_une_source(app: FastAPI, space: ApiSpace) -> None:
     """Critère 2 : le manifeste complet, son chemin et sa version ; une source
     inconnue → document_not_found ; un manifeste illisible se lit en texte."""
     error, read = await _call(
-        app, KEY, "read_document", space, kind="source", identity={"source": "ventes"}
+        app, KEY, "read_document", space, document_type="source", identity={"source": "ventes"}
     )
     assert not error, read
     assert read["path"] == "sources/ventes/manifest.yaml" and read["version"]
     assert read["content"]["slug"] == "ventes"
     assert read["content"]["parameters"]["parsers"] == ["csharp"]
     error, missing = await _call(
-        app, KEY, "read_document", space, kind="source", identity={"source": "inconnue"}
+        app, KEY, "read_document", space, document_type="source", identity={"source": "inconnue"}
     )
     assert error and missing["error"] == "document_not_found"
     error, broken = await _call(
-        app, KEY, "read_document", space, kind="source", identity={"source": "casse"}
+        app, KEY, "read_document", space, document_type="source", identity={"source": "casse"}
     )
     assert not error and broken["content"] == "slug: casse\nlabel: [\n"
 
 
 async def test_aucun_secret_dans_les_reponses(app: FastAPI, space: ApiSpace) -> None:
     """Critère 3 : la source de base ne porte que le nom de sa connexion."""
-    _, listed = await _call(app, KEY, "list_documents", space, kind="source")
+    _, listed = await _call(app, KEY, "list_documents", space, document_type="source")
     _, read = await _call(
-        app, KEY, "read_document", space, kind="source", identity={"source": "entrepot"}
+        app, KEY, "read_document", space, document_type="source", identity={"source": "entrepot"}
     )
     assert read["content"]["connection"] == "pg-entrepot"
     assert SECRET not in json.dumps(listed) + json.dumps(read)
 
 
 async def test_une_source_ne_s_ecrit_pas(app: FastAPI, space: ApiSpace) -> None:
-    """Critère 4 : refus `write_kind_read_only`, qui nomme les trois actions."""
-    document = {"kind": "source", "identity": {"source": "neuve"}, "content": {"slug": "neuve"}}
+    """Critère 4 : refus `document_type_read_only`, qui nomme les trois actions."""
+    document = {
+        "document_type": "source",
+        "identity": {"source": "neuve"},
+        "content": {"slug": "neuve"},
+    }
     error, body = await _call(
         app, AGENT, "write_documents", space, message="source", documents=[document]
     )
     assert error
     [refusal] = body["errors"]
-    assert refusal["code"] == "write_kind_read_only"
+    assert refusal["code"] == "document_type_read_only"
     for action in ("declare_source", "update_source", "delete_source"):
         assert action in refusal["message"]
     error, body = await _call(
@@ -194,7 +198,7 @@ async def test_une_source_ne_s_ecrit_pas(app: FastAPI, space: ApiSpace) -> None:
         AGENT,
         "patch_document",
         space,
-        kind="source",
+        document_type="source",
         identity={"source": "ventes"},
         version="x",
         operations=[{"op": "set", "path": "$.label", "value": "Autre"}],
@@ -206,19 +210,21 @@ async def test_source_du_brouillon(app: FastAPI, space: ApiSpace) -> None:
     """Critère 5 : une source déclarée dans le brouillon apparaît avec branch='draft',
     marquée non publiée ; une clé d'API ne la voit pas."""
     await _draft_text(app, space, "sources/achats/manifest.yaml", _manifest("achats"))
-    _, draft = await _call(app, AGENT, "list_documents", space, kind="source", branch="draft")
+    _, draft = await _call(
+        app, AGENT, "list_documents", space, document_type="source", branch="draft"
+    )
     achats = next(d for d in draft["documents"] if d["identity"]["source"] == "achats")
     assert achats["unpublished"] is True and achats["unpublished_changes"] == 1
-    _, published = await _call(app, KEY, "list_documents", space, kind="source")
+    _, published = await _call(app, KEY, "list_documents", space, document_type="source")
     assert "achats" not in {d["identity"]["source"] for d in published["documents"]}
 
 
 async def test_list_sources_retiree(app: FastAPI, space: ApiSpace) -> None:
     """Critères 6 et 7 : plus au catalogue ; le genre est listé ; les profils migrés."""
     assert "list_sources" not in {p.id for p in CATALOG}
-    result = await call_tool(app, KEY, "list_write_kinds", {})
+    result = await call_tool(app, KEY, "list_document_types", {})
     kinds = result.structured_content
-    source = next(k for k in kinds["kinds"] if k["kind"] == "source")
+    source = next(k for k in kinds["document_types"] if k["document_type"] == "source")
     assert source["writable"] is False
     assert source["produced_by"] == ["declare_source", "update_source", "delete_source"]
     assert [f["name"] for f in source["list_filters"]] == ["type"]
@@ -244,7 +250,7 @@ async def test_lister_et_lire_les_contrats(app: FastAPI, space: ApiSpace) -> Non
     inconnue → refus nommé."""
     boutique = {"source": "boutique"}
     error, listed = await _call(
-        app, KEY, "list_documents", space, kind="contrat", identity=boutique
+        app, KEY, "list_documents", space, document_type="contrat", identity=boutique
     )
     assert not error, listed
     [v1] = listed["documents"]
@@ -257,17 +263,27 @@ async def test_lister_et_lire_les_contrats(app: FastAPI, space: ApiSpace) -> Non
     )
     assert v1["author"] == "gael@example.org" and v1["collected"] is False
     error, read = await _call(
-        app, KEY, "read_document", space, kind="contrat", identity={**boutique, "version": "v1"}
+        app,
+        KEY,
+        "read_document",
+        space,
+        document_type="contrat",
+        identity={**boutique, "version": "v1"},
     )
     assert not error, read
     assert read["content"]["info"]["title"] == "API boutique"
     assert read["version"] == v1["version"]
     error, missing = await _call(
-        app, KEY, "read_document", space, kind="contrat", identity={**boutique, "version": "v9"}
+        app,
+        KEY,
+        "read_document",
+        space,
+        document_type="contrat",
+        identity={**boutique, "version": "v9"},
     )
     assert error and missing["error"] == "document_not_found"
     error, unknown = await _call(
-        app, KEY, "list_documents", space, kind="contrat", identity={"source": "inconnue"}
+        app, KEY, "list_documents", space, document_type="contrat", identity={"source": "inconnue"}
     )
     assert error and unknown["error"] == "write_identity_invalid"
 
@@ -275,7 +291,7 @@ async def test_lister_et_lire_les_contrats(app: FastAPI, space: ApiSpace) -> Non
 async def test_source_non_openapi_sans_contrat(app: FastAPI, space: ApiSpace) -> None:
     """Critère 3."""
     _, listed = await _call(
-        app, KEY, "list_documents", space, kind="contrat", identity={"source": "ventes"}
+        app, KEY, "list_documents", space, document_type="contrat", identity={"source": "ventes"}
     )
     assert listed["documents"] == []
 
@@ -283,13 +299,13 @@ async def test_source_non_openapi_sans_contrat(app: FastAPI, space: ApiSpace) ->
 async def test_un_contrat_ne_s_ecrit_pas(app: FastAPI, space: ApiSpace) -> None:
     """Critère 4 : refus qui nomme deposit_contract et remove_contract."""
     identity = {"source": "boutique", "version": "v2"}
-    document = {"kind": "contrat", "identity": identity, "content": {"openapi": "3.0.3"}}
+    document = {"document_type": "contrat", "identity": identity, "content": {"openapi": "3.0.3"}}
     error, body = await _call(
         app, AGENT, "write_documents", space, message="contrat", documents=[document]
     )
     assert error
     [refusal] = body["errors"]
-    assert refusal["code"] == "write_kind_read_only"
+    assert refusal["code"] == "document_type_read_only"
     assert "deposit_contract" in refusal["message"] and "remove_contract" in refusal["message"]
 
 
@@ -299,7 +315,7 @@ async def test_contrat_du_brouillon(app: FastAPI, space: ApiSpace) -> None:
     index = CONTRACT_INDEX + CONTRACT_INDEX.split("contracts:\n", 1)[1].replace("v1", "v2")
     await _draft_text(app, space, "sources/boutique/contrats/contrats.yaml", index)
     await _draft_text(app, space, "sources/boutique/contrats/v2.yaml", CONTRACT)
-    args = {"kind": "contrat", "identity": {"source": "boutique"}}
+    args = {"document_type": "contrat", "identity": {"source": "boutique"}}
     _, draft = await _call(app, AGENT, "list_documents", space, branch="draft", **args)
     by_version = {d["identity"]["version"]: d for d in draft["documents"]}
     assert set(by_version) == {"v1", "v2"} and by_version["v2"]["unpublished"] is True
@@ -310,8 +326,10 @@ async def test_contrat_du_brouillon(app: FastAPI, space: ApiSpace) -> None:
 async def test_list_contracts_retiree(app: FastAPI, space: ApiSpace) -> None:
     """Critères 6 et 7."""
     assert "list_contracts" not in {p.id for p in CATALOG}
-    result = await call_tool(app, KEY, "list_write_kinds", {})
-    contrat = next(k for k in result.structured_content["kinds"] if k["kind"] == "contrat")
+    result = await call_tool(app, KEY, "list_document_types", {})
+    contrat = next(
+        k for k in result.structured_content["document_types"] if k["document_type"] == "contrat"
+    )
     assert contrat["writable"] is False
     assert contrat["produced_by"] == ["deposit_contract", "remove_contract"]
     async with app.state.pool.acquire() as conn:

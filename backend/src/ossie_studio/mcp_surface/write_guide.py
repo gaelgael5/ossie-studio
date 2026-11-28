@@ -1,5 +1,6 @@
 """Pour qu'un agent ne soit jamais perdu (epic « Primitives MCP — écriture commune par
-genre », ticket c7838a43) : `list_write_kinds` liste les genres qu'on peut écrire,
+type de document », ticket c7838a43) : `list_document_types` liste les types de document qu'on peut
+écrire,
 `describe_standard` expose chaque standard, et toute erreur de format renvoie vers
 l'un ou l'autre (`aide`).
 
@@ -8,11 +9,11 @@ Gael : « prévois une primitive qui permet de lister tous les types possibles e
 les primitives, à chaque erreur de syntaxe, il faut que l'exception propose à l'agent
 de consommer la méthode d'exposition qui décrit le standard. »
 
-- `list_write_kinds` est **généré à partir du registre** (`kinds.py`) et de la
-  configuration (taille maximale) : ajouter un genre l'y fait apparaître.
+- `list_document_types` est **généré à partir du registre** (`document_types.py`) et de la
+  configuration (taille maximale) : ajouter un type de document l'y fait apparaître.
 - Les standards sont des fichiers versionnés avec le code, un par standard
   (`standards/<id>.md`, en anglais pour l'agent) ; leurs exemples (blocs
-  « example ») sont vérifiés par les tests, en passant par le validateur du genre.
+  « example ») sont vérifiés par les tests, en passant par le validateur du type de document.
 - Le renvoi `aide` se pose à un seul endroit : là où le serveur met en forme les
   refus des primitives (`aide_for`).
 """
@@ -30,8 +31,8 @@ from ossie_studio.app_settings.service import document_max_bytes
 from ossie_studio.cartographie.catalog import catalog
 from ossie_studio.mcp_surface.branch import BranchParam
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
-from ossie_studio.mcp_surface.kind_base import ListFilter
-from ossie_studio.mcp_surface.kinds import KINDS
+from ossie_studio.mcp_surface.document_type_base import ListFilter
+from ossie_studio.mcp_surface.document_types import DOCUMENT_TYPES
 
 STANDARDS_DIR = Path(__file__).parent / "standards"
 
@@ -66,7 +67,7 @@ def examples(standard: str) -> list[tuple[str, str]]:
 # --- Primitives -------------------------------------------------------------------------
 
 
-class ListWriteKindsArgs(BranchParam):
+class ListDocumentTypesArgs(BranchParam):
     pass
 
 
@@ -96,41 +97,41 @@ async def _limit(ctx: PrimitiveContext) -> int:
     return await document_max_bytes(ctx.conn, ctx.state.settings)
 
 
-async def list_write_kinds(ctx: PrimitiveContext, args: ListWriteKindsArgs) -> dict[str, Any]:
-    kinds = []
-    for kind in KINDS:
+async def list_document_types(ctx: PrimitiveContext, args: ListDocumentTypesArgs) -> dict[str, Any]:
+    document_types = []
+    for doc_type in DOCUMENT_TYPES:
         item: dict[str, Any] = {
-            "kind": kind.name,
-            "description": kind.description,
+            "document_type": doc_type.name,
+            "description": doc_type.description,
             "identity": [
                 {"name": f.name, "description": f.description, "format": f.format}
-                for f in kind.identity
+                for f in doc_type.identity
             ],
             "path": {
-                "rule": kind.path_rule,
-                **({"root": kind.path_root} if kind.path_root else {}),
+                "rule": doc_type.path_rule,
+                **({"root": doc_type.path_root} if doc_type.path_root else {}),
             },
-            "standard": kind.standard,
-            "syntax": kind.syntax,
-            "identity_fields": list(kind.identity_paths),
-            "frozen_fields": list(kind.frozen),
-            "list_filters": [_filter(f) for f in kind.list_filters],
-            "writable": kind.writable,
-            "write_capability": kind.capability if kind.writable else None,
-            "read_capability": kind.read_capability,
+            "standard": doc_type.standard,
+            "syntax": doc_type.syntax,
+            "identity_fields": list(doc_type.identity_paths),
+            "frozen_fields": list(doc_type.frozen),
+            "list_filters": [_filter(f) for f in doc_type.list_filters],
+            "writable": doc_type.writable,
+            "write_capability": doc_type.capability if doc_type.writable else None,
+            "read_capability": doc_type.read_capability,
         }
-        if not kind.writable:
-            item["produced_by"] = list(kind.produced_by)
-        if kind.typed_by:
+        if not doc_type.writable:
+            item["produced_by"] = list(doc_type.produced_by)
+        if doc_type.typed_by:
             item["schema"] = (
-                f"The exact schema of the content depends on '{kind.typed_by}': "
-                f"read_schema(kind='{kind.name}', {kind.typed_by}=...)."
+                f"The exact schema of the content depends on '{doc_type.typed_by}': "
+                f"read_schema(document_type='{doc_type.name}', {doc_type.typed_by}=...)."
             )
-        kinds.append(item)
+        document_types.append(item)
     return {
         "document_max_bytes": await _limit(ctx),
         "rules": "describe_standard('writing-rules')",
-        "kinds": kinds,
+        "document_types": document_types,
     }
 
 
@@ -184,11 +185,11 @@ def _standard(name: str) -> dict[str, str]:
     return {"primitive": "describe_standard", "standard": name}
 
 
-_KINDS_AIDE = {"primitive": "list_write_kinds"}
+_KINDS_AIDE = {"primitive": "list_document_types"}
 
 # Une erreur de format, par son code.
 _BY_CODE: dict[str, dict[str, str]] = {
-    "write_kind_unknown": _KINDS_AIDE,
+    "document_type_unknown": _KINDS_AIDE,
     "write_jsonpath_invalid": _standard("jsonpath"),
     "write_xpath_invalid": _standard("xpath"),
     "write_xpath_value_invalid": _standard("xpath"),

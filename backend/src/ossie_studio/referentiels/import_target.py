@@ -5,9 +5,9 @@ Ce qui reste propre aux référentiels : le dossier des imports
 type d'objet du journal. Tout le reste (lecture, JSLT, essai, compte rendu, tout
 ou rien, journal) vit dans `ossie_studio/imports/`.
 
-**Validation** (epic « Primitives MCP — écriture commune par genre », ticket
-1612cce4) : la cible est le genre `referentiel_valeur` du registre. Chaque valeur
-produite est validée par la méthode du validateur de ce genre — celle de
+**Validation** (epic « Primitives MCP — écriture commune par type de document », ticket
+1612cce4) : la cible est le type de document `referentiel_valeur` du registre. Chaque valeur
+produite est validée par la méthode du validateur de ce type de document — celle de
 `write_documents` —, et ses refus portent le même code et le même message que par
 MCP. Aucune validation n'est propre à l'import.
 """
@@ -19,12 +19,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from ossie_studio.imports.target import ItemProblem
-from ossie_studio.mcp_surface.kind_imports import check_import
+from ossie_studio.mcp_surface.document_type_imports import check_import
 from ossie_studio.referentiels.model import model_key
 from ossie_studio.referentiels.values import key_label, key_of
 
 JOURNAL_TYPE = "referentiel_import"
-KIND = "referentiel_valeur"
+DOCUMENT_TYPE = "referentiel_valeur"
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ class ReferentielImportTarget:
         entries = [(self._identity(item), item) for item in produced]
         return [
             ItemProblem(r.index, r.code, r.message, r.path, self.label(produced[r.index], r.index))
-            for r in check_import(KIND, self.model, entries)
+            for r in check_import(DOCUMENT_TYPE, self.model, entries)
         ]
 
     def key(self, item: Any) -> Hashable | None:

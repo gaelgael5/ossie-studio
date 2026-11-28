@@ -1,7 +1,7 @@
-"""Les types communs du registre des genres d'écriture (enabler 7b4b8f3a) : un refus,
+"""Les types communs du registre des types de document d'écriture (enabler 7b4b8f3a) : un refus,
 un champ d'identité, l'emplacement d'un document, un document lu, ce qu'un
 validateur sait faire (lire, écrire, supprimer — par le service de l'écran), et ce
-que rend la liste d'un genre (`list_documents`, ticket 2113e7bc)."""
+que rend la liste d'un type de document (`list_documents`, ticket 2113e7bc)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
 
-class KindError(Exception):
+class DocumentError(Exception):
     """Un refus du registre ou d'un validateur : le code, le champ en cause (un nom
     d'identité, `path`, ou un JSONPath dans le contenu) et un message en français."""
 
@@ -37,7 +37,7 @@ class Location:
     du modèle). `path` None : un document que le service nommera à sa création
     (certification nouvelle)."""
 
-    kind: str
+    document_type: str
     identity: dict[str, Any]
     path: str | None
     entry: tuple[Any, ...] | None = None
@@ -54,7 +54,7 @@ class Document:
 
 
 class Store(Protocol):
-    """Le validateur d'un genre : **le service de l'écran**, mêmes contrôles et mêmes
+    """Le validateur d'un type de document : **le service de l'écran**, mêmes contrôles et mêmes
     refus nommés. Rien n'est validé ici qui ne le soit déjà par le service ; un
     validateur ne fait que traduire le document en appel du service."""
 
@@ -69,11 +69,11 @@ class Store(Protocol):
 
 @runtime_checkable
 class CheckingStore(Store, Protocol):
-    """Le validateur d'un genre qu'un import alimente (ticket 1612cce4) : il sait aussi
+    """Le validateur d'un type de document qu'un import alimente (ticket 1612cce4) : il sait aussi
     valider un lot sans rien écrire. Gael : « il faut que le validateur appelle la même
     méthode » — `write` passe par `check` pour son document, et le moteur d'import
     appelle `check` sur ses lignes : l'écran, l'agent et l'import valident par un seul
-    chemin. `scope` : ce que le genre lit de l'espace pour valider (la cartographie
+    chemin. `scope` : ce que le type de document lit de l'espace pour valider (la cartographie
     pour un objet, le modèle pour une valeur de référentiel)."""
 
     def check(
@@ -84,12 +84,12 @@ class CheckingStore(Store, Protocol):
         ...
 
 
-# --- Lister les documents d'un genre (list_documents) -------------------------------------
+# --- Lister les documents d'un type (list_documents) ---------------------------------------
 
 
 @dataclass(frozen=True)
 class ListFilter:
-    """Un filtre de list_documents propre à un genre, déclaré dans le registre."""
+    """Un filtre de list_documents propre à un type de document, déclaré dans le registre."""
 
     name: str
     description: str  # en anglais, pour l'agent
@@ -118,7 +118,7 @@ class Item:
 @dataclass(frozen=True)
 class ListQuery:
     """Les filtres d'une liste, déjà contrôlés : l'identité partielle et les filtres
-    propres au genre (le lister applique les seconds, et peut se servir de la
+    propres au type de document (le lister applique les seconds, et peut se servir de la
     première pour ne lire que le nécessaire)."""
 
     identity: Mapping[str, Any]
