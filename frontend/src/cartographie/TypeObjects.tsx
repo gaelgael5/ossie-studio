@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { ErrorList } from '../components/ErrorList'
 import { BusyButton } from '../components/BusyButton'
 import { cartoObjectPath } from './ObjectsTab'
+import { IconButton, IconLink } from '../components/IconButton'
 
 // Onglet « Résumé » d'un type (ticket 7dc220a4) : ses objets, clé et nom ; la ligne
 // cliquée montre à droite le fichier YAML de l'objet tel qu'il est stocké. Gael :
@@ -123,27 +123,16 @@ export function TypeObjects({
                         </>
                       ) : (
                         <>
-                          <Link
-                            to={cartoObjectPath(o.key)}
-                            className="btn btn-sm"
-                            aria-label={t('cartoTypeObjectEdit', { key: o.key })}
-                            title={t('cartoTypeObjectEdit', { key: o.key })}
-                          >
-                            {'✎'}
-                          </Link>
+                          <IconLink icon="edit" label={t('cartoTypeObjectEdit', { key: o.key })} to={cartoObjectPath(o.key)} />
                           {writable ? (
-                            <button
-                              type="button"
-                              className="btn btn-sm"
-                              aria-label={t('cartoTypeObjectDelete', { key: o.key })}
-                              title={t('cartoTypeObjectDelete', { key: o.key })}
+                            <IconButton
+                              icon="delete"
+                              label={t('cartoTypeObjectDelete', { key: o.key })}
                               onClick={() => {
                                 remove.reset()
                                 setConfirming(o.key)
                               }}
-                            >
-                              {'🗑'}
-                            </button>
+                            />
                           ) : null}
                         </>
                       )}

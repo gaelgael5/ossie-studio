@@ -9,6 +9,7 @@ import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import { cartoModelPath } from './ModelsTab'
+import { IconButton } from '../components/IconButton'
 
 // Fenêtre « Nouveau modèle » (ticket 5a05c7bb, maquette validée par Gael) : libellé et
 // slug (comme la création d'un référentiel), description, fichier de règles
@@ -74,9 +75,7 @@ export function NewModelDialog({ spaceId, branchId, catalog, rules, taken, onClo
       >
         <div className="row dialog-head">
           <h2>{t('cartoNewModelTitle')}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={create.error ? errorMessages(t, create.error) : []} />
         <div className="form-grid">

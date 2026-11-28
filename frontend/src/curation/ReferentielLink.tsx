@@ -6,6 +6,7 @@ import type { CurationAssetProperty, LinkTarget, ReferentielLink } from '../apiC
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
+import { IconButton } from '../components/IconButton'
 
 // Lier une propriété d'asset à une propriété de référentiel (ticket 8269c642).
 // Gael : « si dans le fichier de schéma référentiel la clé est composite il faut que
@@ -219,9 +220,7 @@ export function LinkReferentielDialog({
       >
         <div className="row dialog-head">
           <h2>{t('linkDialogTitle')}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <p className="muted small">{t('linkDialogFor', { name: property.business_name || property.name })}</p>
         <ErrorList messages={[targets.error, link.error].flatMap((e) => (e ? errorMessages(t, e) : []))} />

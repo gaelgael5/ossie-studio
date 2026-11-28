@@ -19,6 +19,7 @@ import { ArchimateIcon } from './ArchimateIcon'
 import { TypeObjects } from './TypeObjects'
 import { RELATIONS, TypeRelations, readDeviations, writeDeviations } from './TypeRelations'
 import type { Deviations } from './TypeRelations'
+import { IconButton } from '../components/IconButton'
 
 // Fenêtre d'édition d'un type de cartographie (ticket 5c39d4df), sur le modèle de
 // l'onglet Modèle des Référentiels : propriétés de base ArchiMate en lecture
@@ -250,18 +251,15 @@ function TypeEditor({
               <>
                 <h1 className="page-title">{title || detail.slug}</h1>
                 {!readOnly && parsed.ok ? (
-                  <button
-                    type="button"
-                    className="carto-type-label-edit"
-                    aria-label={t('cartoTypeLabelEdit')}
-                    title={t('cartoTypeLabelEdit')}
+                  <IconButton
+                    icon="edit"
+                    label={t('cartoTypeLabelEdit')}
+                    plain
                     onClick={() => {
                       labelCancelled.current = false
                       setLabelDraft(title)
                     }}
-                  >
-                    {'✎'}
-                  </button>
+                  />
                 ) : null}
               </>
             )}

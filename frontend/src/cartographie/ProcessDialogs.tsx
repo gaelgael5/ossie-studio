@@ -10,6 +10,7 @@ import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 import { ProcessPreview } from './ProcessPreview'
 import { cartoProcessPath } from './ProcessesTab'
+import { IconButton } from '../components/IconButton'
 
 // Fenêtres de l'écran Processus (ticket 7e061c3e, maquette validée par Gael) : créer un
 // processus, importer un fichier BPMN produit par un autre outil (vérifications et
@@ -94,9 +95,7 @@ function Dialog({ title, onClose, children }: { title: string; onClose: () => vo
       <div className="panel dialog-panel stack">
         <div className="row dialog-head">
           <h2>{title}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         {children}
       </div>
@@ -234,9 +233,7 @@ export function ImportProcessDialog({
       <div className="panel dialog-panel dialog-wide stack">
         <div className="row dialog-head">
           <h2>{t('cartoImportProcessTitle')}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={[check.error, importing.error].flatMap((e) => (e ? errorMessages(t, e) : []))} />
         <div className="carto-import">

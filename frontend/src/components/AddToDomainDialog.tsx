@@ -8,6 +8,7 @@ import { errorMessages } from '../errors'
 import { BusyButton } from './BusyButton'
 import { ErrorList } from './ErrorList'
 import { LabelSlugFields, useLabelSlug } from './LabelSlugFields'
+import { IconButton } from './IconButton'
 
 // « Regrouper dans un domaine » (ticket docflow 36d35a88). Gael, 23/11/2026 :
 // « j'aimerais beaucoup regrouper ces items […] que me proposes-tu pour que ce
@@ -90,9 +91,7 @@ export function AddToDomainDialog({
       <div className="panel dialog-panel stack">
         <div className="row dialog-head">
           <h2>{t('domainAddTitle')}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={messages} />
         {done ? (

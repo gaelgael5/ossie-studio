@@ -32,6 +32,7 @@ import { cartoProcessPath } from './ProcessesTab'
 import { cartoObjectPath } from './ObjectsTab'
 import { RelateDialog } from './RelateDialog'
 import type { RelateSource } from './RelateDialog'
+import { IconButton } from '../components/IconButton'
 
 // Fiche d'un objet de cartographie (ticket 6f71bcba), pour un objet existant
 // (/cartographie/objets/<clé>) ou à créer (/cartographie/objets/nouveau) :
@@ -893,9 +894,7 @@ function WriteDialog({
       <div role="dialog" aria-modal="true" aria-label={title} className="panel modal-panel modal-editor">
         <div className="row modal-head">
           <h2>{title}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <Suspense fallback={<p className="muted">{t('loading')}</p>}>
           <MarkdownEditor

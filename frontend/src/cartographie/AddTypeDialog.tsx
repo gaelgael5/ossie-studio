@@ -10,6 +10,7 @@ import { LabelSlugFields, useLabelSlug } from '../components/LabelSlugFields'
 import type { LabelSlug } from '../components/LabelSlugFields'
 import { asciiLower } from '../slug'
 import { ArchimateIcon } from './ArchimateIcon'
+import { IconButton } from '../components/IconButton'
 
 // Fenêtre « Ajouter un type » (ticket e7521e80, maquette validée par Gael) : à
 // gauche, les types ArchiMate 3.2 par couche, puis libellé et slug ; à droite, ce
@@ -70,9 +71,7 @@ export function AddTypeDialog({ spaceId, branchId, catalog, taken, onClose }: Pr
       >
         <div className="row dialog-head">
           <h2>{t('cartoAddTitle')}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={create.error ? errorMessages(t, create.error) : []} />
         <div className="carto-add">

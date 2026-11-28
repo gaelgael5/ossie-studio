@@ -11,6 +11,7 @@ import { ImportReport, shownCell, shownDate } from './ImportReport'
 import { ImportRunPanel } from './ImportRunPanel'
 import { isMac } from './jsltKeys'
 import { TemplateEditor } from './TemplateEditor'
+import { IconButton } from '../components/IconButton'
 
 // Onglet Imports (ticket cda9c43a). Gael : « mets la liste des fichiers d'import sous
 // forme de liste avec un bouton ajouter qui affiche une popup et une sélection dans la
@@ -58,9 +59,7 @@ function AddImportDialog({
       >
         <div className="row dialog-head">
           <h2>{t('refImportAdd')}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={create.error ? errorMessages(t, create.error) : []} />
         <div className="form-grid">

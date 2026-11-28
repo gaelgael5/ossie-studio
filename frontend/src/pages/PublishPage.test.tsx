@@ -62,7 +62,8 @@ describe('PublishPage', () => {
     const calls = mockApi({ ok: true, reasons: [], conflicts: [] })
     const user = userEvent.setup()
     renderPage()
-    await waitFor(() => expect(screen.getByText('sources/s/raw/O.schema.yaml')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('O.schema.yaml')).toBeInTheDocument())
+    expect(screen.getByText('sources/s/raw/')).toBeInTheDocument()
     const button = screen.getByRole('button', { name: 'Publier' })
     expect(button).toBeDisabled() // commentaire vide
     await user.type(screen.getByLabelText('Commentaire du commit'), 'Ma modif')
