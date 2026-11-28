@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
 import type { AuditEvent } from '../apiClient'
 import { errorMessages } from '../errors'
@@ -19,6 +20,18 @@ const PAGE = 50
 function formatDate(iso: string, locale: string): string {
   const date = new Date(iso)
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString(locale)
+}
+
+/** La page des éléments gardés car utilisés d'une exécution d'import (ticket
+ * 6d36073b), quand elle en a : l'objet journalisé est `<branche>/<propriétaire>/<import>`. */
+export function keptRunPath(event: AuditEvent): string | null {
+  if (event.origin !== 'db' || !Number(event.detail.kept_in_use)) return null
+  const [, owner, slug] = event.object_id.split('/')
+  if (!owner || !slug) return null
+  const run = `/imports/${encodeURIComponent(slug)}/executions/${event.ref}`
+  if (event.object_type === 'carto_import') return `/cartographie/types/${encodeURIComponent(owner)}${run}`
+  if (event.object_type === 'referentiel_import') return `/referentiels/${encodeURIComponent(owner)}${run}`
+  return null
 }
 
 function Detail({ event }: { event: AuditEvent }) {
@@ -142,6 +155,14 @@ export function HistoryPage() {
                     </td>
                     <td>
                       <Detail event={e} />
+                      {keptRunPath(e) ? (
+                        <>
+                          {' '}
+                          <Link to={keptRunPath(e)!} className="small">
+                            {t('historyKeptInUse')}
+                          </Link>
+                        </>
+                      ) : null}
                     </td>
                   </tr>
                 ))}

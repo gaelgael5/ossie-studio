@@ -94,13 +94,17 @@ def _url(space: ApiSpace, rest: str = "") -> str:
     return f"{space.base}/referentiels/delais/imports{rest}"
 
 
-async def _import(
-    space: ApiSpace, content: bytes | None, mode: str = "merge", name: str = "t.csv"
-) -> Any:
+async def _import(space: ApiSpace, content: bytes | None, name: str = "t.csv") -> Any:
     files = {"file": (name, content, "text/csv")} if content is not None else None
-    return await space.client.post(
-        _url(space, "/transporteur/import"), data={"mode": mode}, files=files
+    return await space.client.post(_url(space, "/transporteur/import"), files=files)
+
+
+async def _strategy(space: ApiSpace, deletion: str) -> None:
+    answer = await space.client.put(
+        _url(space, "/transporteur/suppression"), json={"deletion": deletion}
     )
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["deletion"] == deletion
 
 
 async def _values(space: ApiSpace) -> list[dict[str, Any]]:
@@ -128,7 +132,7 @@ async def test_fusion_ajoute_et_met_a_jour_le_reste_inchange(space: ApiSpace) ->
     body = done.json()
     assert (body["new"], body["modified"], body["unchanged"], body["deleted"]) == (3, 2, 5, 0)
     assert body["revision"]
-    assert body["mode"] == "merge"
+    assert body["deletion"] == "keep" and body["kept"] == 0
     assert body["file"] == "t.csv"
     values = {(v["pays"], v["mode"]): v["delai"] for v in await _values(space)}
     assert len(values) == 10
@@ -146,26 +150,67 @@ async def test_sans_fichier_l_import_porte_sur_le_fichier_d_exemple(space: ApiSp
     assert body["new"] == 3
 
 
-# --- Critère 2 : remplacement ----------------------------------------------------------------
+# --- Ticket 6d36073b : stratégies de suppression (l'ancien « remplacement ») ---------------
 
 
-async def test_remplacement_donne_exactement_les_valeurs_du_fichier(space: ApiSpace) -> None:
+async def test_supprimer_tous_les_absents_donne_exactement_le_fichier(space: ApiSpace) -> None:
+    """« On supprime tous les éléments absents » : ce que faisait le remplacement."""
     two = _csv([("FR", "site", "9"), ("LU", "site", "2")])
-    # L'essai, sur le même fichier en exemple, annonce déjà les suppressions.
     await space.client.put(
         _url(space, "/transporteur/exemple"), files={"file": ("e.csv", two, "text/csv")}
     )
-    trial = await space.client.post(
-        _url(space, "/transporteur/essai"), json={"template": TEMPLATE, "mode": "replace"}
+    # « On garde » (par défaut) : l'essai liste les absents gardés, rien n'est supprimé.
+    kept = (
+        await space.client.post(_url(space, "/transporteur/essai"), json={"template": TEMPLATE})
+    ).json()
+    assert (kept["deleted"], kept["kept"]) == (0, 6)
+    # L'essai suit la stratégie demandée, puis celle enregistrée.
+    asked = await space.client.post(
+        _url(space, "/transporteur/essai"), json={"template": TEMPLATE, "deletion": "all"}
     )
+    assert asked.json()["deleted"] == 6
+    await _strategy(space, "all")
+    trial = await space.client.post(_url(space, "/transporteur/essai"), json={"template": TEMPLATE})
     assert trial.json()["deleted"] == 6
-    body = (await _import(space, two, "replace")).json()
+    body = (await _import(space, two)).json()
     assert (body["new"], body["modified"], body["deleted"]) == (1, 1, 6)
     assert {d["kind"] for d in body["differences"]} == {"new", "modified", "deleted"}
     assert await _values(space) == [
         {"delai": 9, "mode": "site", "pays": "FR"},
         {"delai": 2, "mode": "site", "pays": "LU"},
     ]
+
+
+async def test_supprimer_ce_que_cet_import_a_cree(space: ApiSpace) -> None:
+    """« On supprime les éléments absents que cet import a créés » : seul ce qui vient
+    de cet import part ; ce qui existait, ou vient d'un autre import, reste."""
+    base = [("FR", "site", "1"), ("BE", "site", "1"), ("DE", "site", "1"), ("ES", "site", "1")]
+    rest = [("IT", "site", "1"), ("NL", "site", "1"), ("PT", "site", "1")]
+    await _strategy(space, "created")
+    first = (await _import(space, _csv([*base, *rest, ("LU", "site", "2")]))).json()
+    assert first["new"] == 1
+    # Un autre import (B) crée MC.
+    other = _url(space, "/autre")
+    created = await space.client.post(
+        _url(space), json={"label": "Autre", "slug": "autre", "format": "csv"}
+    )
+    assert created.status_code == 201, created.text
+    await space.client.put(
+        f"{other}/lecture", json={"separator": ";", "encoding": "utf-8", "header": True}
+    )
+    await space.client.put(f"{other}/template", json={"template": TEMPLATE})
+    files = {"file": ("b.csv", _csv([("MC", "site", "3")]), "text/csv")}
+    assert (await space.client.post(f"{other}/import", files=files)).status_code == 200
+    # Le fichier suivant de A n'a ni LU (créé par A), ni MC (créé par B), ni PT (d'avant).
+    body = (await _import(space, _csv([*base, ("IT", "site", "1"), ("NL", "site", "1")]))).json()
+    assert body["deleted"] == 1
+    reasons = {d["key"]: d.get("reason") for d in body["differences"] if d["kind"] != "new"}
+    assert reasons == {"LU+site": None, "MC+site": "not_created", "PT+site": "not_created"}
+    pays = {v["pays"] for v in await _values(space)}
+    assert "LU" not in pays and {"MC", "PT"} <= pays
+    # LU n'existe plus : il sort de la provenance de A (le fichier disparaît).
+    again = (await _import(space, _csv(base))).json()
+    assert again["deleted"] == 0
 
 
 # --- Critère 3 : tout ou rien ----------------------------------------------------------------
@@ -313,13 +358,15 @@ async def test_journal_et_date_du_dernier_import(app: FastAPI, space: ApiSpace) 
     assert first["object_label"] == f"delais{SEPARATOR}transporteur"
     assert first["detail"] == {
         "outcome": "imported",
-        "mode": "merge",
+        "deletion": "keep",
         "file": "transporteur-novembre.csv",
         "lines": 10,
         "new": 3,
         "modified": 2,
         "unchanged": 5,
         "deleted": 0,
+        "kept": 0,
+        "kept_in_use": 0,
         "errors": 0,
         "revision": first["detail"]["revision"],
     }

@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ImportsTab } from './ImportsTab'
 import { referentielImports } from '../apiClient'
@@ -43,6 +44,7 @@ const DETAIL = {
   separator: ';',
   encoding: 'utf-8',
   header: true,
+  deletion: 'keep',
   last_import: null,
   template: '{\n}\n',
   example_name: 'transporteur.exemple.csv',
@@ -72,9 +74,12 @@ const DONE = {
   errors: 0,
   error_details: [],
   deleted: 0,
-  mode: 'merge',
+  kept: 0,
+  kept_in_use: 0,
+  deletion: 'keep',
   file: 'transporteur.exemple.csv',
   revision: 'draft:7',
+  run_id: 41,
   last_import: '2026-11-24T10:00:00+00:00',
 }
 
@@ -91,7 +96,7 @@ function setup(
     previewFails?: boolean
   } = {},
 ) {
-  const detail = { ...DETAIL, ...options.detail }
+  let detail: Record<string, unknown> = { ...DETAIL, ...options.detail }
   const calls: { method: string; path: string; body?: BodyInit | null }[] = []
   const imports = options.imports ?? [DETAIL]
   vi.stubGlobal(
@@ -129,6 +134,10 @@ function setup(
       } else if (path === `${BASE}/transporteur/resoudre`) body = { template: '{"pays": $.Pays}\n' }
       else if (path === `${BASE}/transporteur/proprietes`) body = { property: 'delai', type: 'integer', revision: 'draft:9' }
       else if (path === `${BASE}/transporteur/essai`) body = options.trial ?? TRIAL
+      else if (path === `${BASE}/transporteur/suppression`) {
+        detail = { ...detail, ...JSON.parse(String(init?.body)) }
+        body = detail
+      }
       else if (path === `${BASE}/transporteur/import`) {
         status = options.run?.status ?? 200
         body = options.run?.body ?? DONE
@@ -146,9 +155,11 @@ function setup(
   )
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <UnsavedProvider>
-        <ImportsTab spaceId="s1" branchId="b1" name="delais" imports={referentielImports('s1', 'b1', 'delais')} readOnly={options.readOnly ?? false} />
-      </UnsavedProvider>
+      <MemoryRouter>
+        <UnsavedProvider>
+          <ImportsTab spaceId="s1" branchId="b1" name="delais" imports={referentielImports('s1', 'b1', 'delais')} readOnly={options.readOnly ?? false} />
+        </UnsavedProvider>
+      </MemoryRouter>
     </QueryClientProvider>,
   )
   return calls
@@ -236,9 +247,9 @@ describe('Référentiels — onglet Imports (ticket cda9c43a)', () => {
     const diffs = screen.getByRole('list', { name: 'Différences avec les valeurs actuelles' })
     expect(diffs).toHaveTextContent('delai : 1 → 2')
     expect(diffs).toHaveTextContent('nouvelle valeur')
+    // L'essai suit la stratégie de suppression enregistrée (ticket 6d36073b).
     expect(JSON.parse(String(calls.find((c) => c.path.endsWith('/essai'))!.body))).toEqual({
       template: '{"pays": $.Pays}',
-      mode: 'merge',
     })
     // Enregistrer le template.
     await user.click(screen.getByRole('button', { name: 'Enregistrer le template' }))
@@ -321,40 +332,56 @@ describe('Référentiels — importer des valeurs (ticket a909dc66)', () => {
     const calls = setup()
     const user = await openTemplate()
     const panel = screen.getByRole('region', { name: 'Importer' })
-    expect(within(panel).getByLabelText('Mode')).toHaveValue('merge')
+    // Fusion seulement : plus de choix de mode (ticket 6d36073b).
+    expect(within(panel).queryByLabelText('Mode')).not.toBeInTheDocument()
     // Pas de « Web API » : les API des référentiels sont en lecture seule.
     expect(panel).not.toHaveTextContent('POST /api')
     await user.click(within(panel).getByRole('button', { name: 'Importer' }))
     expect(await within(panel).findByText(/Import de transporteur.exemple.csv enregistré/)).toBeInTheDocument()
     expect(within(panel).getByText('1 nouvelle(s)')).toBeInTheDocument()
     const form = importCall(calls)!.body as FormData
-    expect(form.get('mode')).toBe('merge')
+    expect(form.get('mode')).toBeNull()
     expect(form.get('file')).toBeNull()
-    // Pas de confirmation en fusion.
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
-  it('remplacement : confirmation d’abord, puis suppressions dans le compte rendu', async () => {
-    const calls = setup({ run: { status: 200, body: { ...DONE, mode: 'replace', deleted: 3 } } })
+  it('suppressions et absents gardés dans le compte rendu ; lien vers les éléments gardés car utilisés', async () => {
+    const differences = [
+      { key: 'NL+site', kind: 'deleted', where: '', value: {} },
+      { key: 'DE+site', kind: 'kept', where: '', value: {}, reason: 'not_created' },
+    ]
+    const body = { ...DONE, deletion: 'created', deleted: 1, kept: 2, kept_in_use: 1, differences }
+    setup({ run: { status: 200, body }, detail: { deletion: 'created' } })
     const user = await openTemplate()
     const panel = screen.getByRole('region', { name: 'Importer' })
-    await user.selectOptions(within(panel).getByLabelText('Mode'), 'replace')
+    expect(panel).toHaveTextContent('Seuls les éléments venus de cet import')
     await user.click(within(panel).getByRole('button', { name: 'Importer' }))
-    expect(importCall(calls)).toBeUndefined()
-    const confirm = screen.getByRole('alertdialog')
-    expect(confirm).toHaveTextContent('Remplacer toutes les valeurs de « delais »')
-    await user.click(within(confirm).getByRole('button', { name: 'Remplacer' }))
-    expect(await within(panel).findByText('3 supprimée(s)')).toBeInTheDocument()
-    expect((importCall(calls)!.body as FormData).get('mode')).toBe('replace')
+    expect(await within(panel).findByText('1 supprimée(s)')).toBeInTheDocument()
+    expect(within(panel).getByText('2 absent(s) gardé(s)')).toBeInTheDocument()
+    const diffs = within(panel).getByRole('list', { name: 'Différences avec les valeurs actuelles' })
+    expect(diffs).toHaveTextContent('NL+site — supprimée')
+    expect(diffs).toHaveTextContent('DE+site — absent, gardé (non créé par cet import)')
+    expect(within(panel).getByRole('link', { name: 'voir le détail' })).toHaveAttribute(
+      'href',
+      '/referentiels/delais/imports/transporteur/executions/41',
+    )
   })
 
-  it('l’essai suit le mode choisi', async () => {
+  it('stratégie de suppression : en haut du fichier d’exemple, aide à droite, enregistrée au choix', async () => {
     const calls = setup()
-    const user = await openTemplate()
-    await user.selectOptions(screen.getByLabelText('Mode'), 'replace')
-    await user.click(screen.getByRole('button', { name: 'Ctrl+F5' }))
-    await waitFor(() => expect(calls.some((c) => c.path.endsWith('/essai'))).toBe(true))
-    expect(JSON.parse(String(calls.find((c) => c.path.endsWith('/essai'))!.body)).mode).toBe('replace')
+    const user = userEvent.setup()
+    const select = await screen.findByLabelText('Stratégie de suppression')
+    expect(select).toHaveValue('keep')
+    expect(screen.getByText(/Le fichier ajoute et corrige, il ne supprime jamais/)).toBeInTheDocument()
+    expect([...(select as HTMLSelectElement).options].map((o) => o.text)).toEqual([
+      'On garde les éléments existants qui ne sont pas dans la liste',
+      'On supprime les éléments absents que cet import a créés',
+      'On supprime tous les éléments absents',
+    ])
+    await user.selectOptions(select, 'all')
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.path.endsWith('/suppression'))).toBe(true))
+    expect(JSON.parse(String(calls.find((c) => c.path.endsWith('/suppression'))!.body))).toEqual({ deletion: 'all' })
+    expect(await screen.findByText(/Le fichier fait foi pour tout le référentiel/)).toBeInTheDocument()
   })
 
   it('un autre fichier déposé part avec l’import', async () => {

@@ -1,9 +1,51 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import type { ImportTrial } from '../apiClient'
+import { Link } from 'react-router-dom'
+import type { ImportTrial, ImportTrialDifference, ImportUsage } from '../apiClient'
 import { explainProblem } from './templateHint'
 
 // Compte rendu d'un essai ou d'un import (tickets cda9c43a, a909dc66) : compteurs,
-// erreurs rattachées à leur ligne du fichier, différences avec les valeurs actuelles.
+// erreurs rattachées à leur ligne du fichier, différences avec les valeurs actuelles,
+// et — selon la stratégie de suppression (ticket 6d36073b) — les éléments supprimés
+// et les absents gardés, avec la raison (et les utilisations qui retiennent un élément).
+
+/** Un nom qui mène à sa fiche quand la cible en a une. */
+export function ItemLink({ to, children }: { to: string | null | undefined; children: ReactNode }) {
+  return to ? <Link to={to}>{children}</Link> : <>{children}</>
+}
+
+/** Une utilisation : la relation (son type), et l'objet à son autre bout. */
+export function UsageLine({ usage, itemPath }: { usage: ImportUsage; itemPath?: (ref: string) => string }) {
+  const { t } = useTranslation()
+  const other = usage.other
+  return (
+    <>
+      {usage.type_title} <ItemLink to={itemPath?.(usage.ref)}>{usage.name || usage.key}</ItemLink>{' '}
+      {t(usage.role === 'target' ? 'refImportUsageFrom' : 'refImportUsageTo')}{' '}
+      <ItemLink to={other.ref ? itemPath?.(other.ref) : null}>{other.name ?? other.key ?? other.ref}</ItemLink>
+      {other.type_title ? ` (${other.type_title})` : ''}
+    </>
+  )
+}
+
+function Absent({ d, itemPath }: { d: ImportTrialDifference; itemPath?: (ref: string) => string }) {
+  const { t } = useTranslation()
+  if (d.kind === 'deleted') return <>{t('refImportDiffDeleted')}</>
+  return (
+    <>
+      {t('refImportDiffKept', { reason: t(`refImportKeptReason_${d.reason ?? 'strategy_keep'}`) })}
+      {(d.usages ?? []).length > 0 ? (
+        <ul className="plain-list">
+          {(d.usages ?? []).map((u) => (
+            <li key={u.ref}>
+              <UsageLine usage={u} itemPath={itemPath} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  )
+}
 
 export function shownCell(value: unknown): string {
   if (value === undefined || value === null) return ''
@@ -15,7 +57,16 @@ export function shownDate(iso: string, locale: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' })
 }
 
-export function ImportReport({ report, source }: { report: ImportTrial; source?: string }) {
+export function ImportReport({
+  report,
+  source,
+  itemPath,
+}: {
+  report: ImportTrial
+  source?: string
+  /** La fiche d'un élément (cartographie), pour les liens des absents gardés. */
+  itemPath?: (ref: string) => string
+}) {
   const { t } = useTranslation()
   if (report.template_problems.length > 0) {
     return (
@@ -58,6 +109,10 @@ export function ImportReport({ report, source }: { report: ImportTrial; source?:
         {report.deleted ? (
           <span className="badge badge-danger">{t('refImportDeleted', { count: report.deleted })}</span>
         ) : null}
+        {report.kept ? <span className="badge badge-muted">{t('refImportKept', { count: report.kept })}</span> : null}
+        {report.kept_in_use ? (
+          <span className="badge badge-warn">{t('refImportKeptInUseBadge', { count: report.kept_in_use })}</span>
+        ) : null}
         <span className="badge badge-danger">{t('refImportErrors', { count: report.errors ?? 0 })}</span>
       </div>
       {(report.error_details ?? []).length > 0 ? (
@@ -89,14 +144,17 @@ export function ImportReport({ report, source }: { report: ImportTrial; source?:
         <ul className="plain-list small" aria-label={t('refImportDifferences')}>
           {(report.differences ?? []).map((d, i) => (
             <li key={i}>
-              <strong>{d.key}</strong> {d.where ? `${t('refImportDiffWhere', { where: d.where })} ` : '— '}
-              {d.kind === 'new'
-                ? t('refImportDiffNew')
-                : d.kind === 'deleted'
-                  ? t('refImportDiffDeleted')
-                  : (d.changes ?? [])
-                      .map((c) => `${c.property} : ${shownCell(c.before)} → ${shownCell(c.after)}`)
-                      .join(' · ')}
+              <strong>
+                <ItemLink to={d.ref ? itemPath?.(d.ref) : null}>{d.key}</ItemLink>
+              </strong>{' '}
+              {d.where ? `${t('refImportDiffWhere', { where: d.where })} ` : '— '}
+              {d.kind === 'new' ? (
+                t('refImportDiffNew')
+              ) : d.kind === 'deleted' || d.kind === 'kept' ? (
+                <Absent d={d} itemPath={itemPath} />
+              ) : (
+                (d.changes ?? []).map((c) => `${c.property} : ${shownCell(c.before)} → ${shownCell(c.after)}`).join(' · ')
+              )}
             </li>
           ))}
         </ul>

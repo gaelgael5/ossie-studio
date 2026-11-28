@@ -154,18 +154,88 @@ async def test_importer_des_relations(space: ApiSpace) -> None:
     assert (error["where"], error["code"]) == ("ligne 2", "relation_not_allowed")
 
 
-async def test_pas_de_remplacement_et_type_absent(space: ApiSpace) -> None:
-    """Aucune suppression par import : le mode « remplacement » est refusé."""
-    await _declare(space, "application", APP_TEMPLATE)
-    replace = await _import(space, "application", _apps(1), mode="replace")
-    assert replace.status_code == 400
-    trial = await space.client.post(
-        _url(space, "application", "/fichier/essai"),
-        json={"template": APP_TEMPLATE, "mode": "replace"},
-    )
-    assert trial.status_code == 400
+async def test_type_absent(space: ApiSpace) -> None:
     absent = await space.client.get(_url(space, "inconnu"))
     assert absent.status_code == 404 and absent.json()["error"] == "carto_type_not_found"
+
+
+async def test_objet_a_supprimer_mais_utilise_est_garde(space: ApiSpace) -> None:
+    """Ticket 6d36073b, critères 6 et 7 : un objet absent du fichier, que la stratégie
+    supprimerait, mais qu'une relation vise encore, est gardé ; le reste de l'import
+    s'applique ; la page de l'exécution l'explique, avec des liens."""
+    await _declare(space, "acces", REL_TEMPLATE)
+    ok = await _import(space, "acces", b"cle;nom;source;cible\nREL-1;Lit;PRC-X;DOC-Y\n")
+    assert ok.status_code == 200, ok.text
+    await space.client.delete(_url(space, "acces", "/fichier"))
+    await _declare(space, "document", '{"cle": $.cle, "nom": $.nom}')
+    strategy = await space.client.put(
+        _url(space, "document", "/fichier/suppression"), json={"deletion": "all"}
+    )
+    assert strategy.json()["deletion"] == "all"
+    content = b"cle;nom\nDOC-NEUF;Nouveau\n"
+    trial = await space.client.post(
+        _url(space, "document", "/fichier/essai"),
+        json={"template": '{"cle": $.cle, "nom": $.nom}'},
+    )
+    # Critère 9 : l'essai annonce l'objet gardé car utilisé, sans rien écrire.
+    assert (trial.json()["deleted"], trial.json()["kept_in_use"]) == (0, 1)
+    done = await _import(space, "document", content)
+    assert done.status_code == 200, done.text
+    body = done.json()
+    assert (body["new"], body["deleted"], body["kept_in_use"]) == (1, 0, 1)
+    [kept] = [d for d in body["differences"] if d["kind"] == "kept"]
+    assert (kept["key"], kept["ref"], kept["reason"]) == ("DOC-Y", "document/DOC-Y", "in_use")
+    assert await _object(space, "document/DOC-Y") is not None
+    assert await _object(space, "document/DOC-NEUF") is not None
+    run = await space.client.get(_url(space, "document", f"/fichier/executions/{body['run_id']}"))
+    assert run.status_code == 200, run.text
+    page = run.json()
+    assert (page["label"], page["file"], page["deletion"]) == ("Fichier", "f.csv", "all")
+    assert page["deletion_label"] == "On supprime tous les éléments absents"
+    [item] = page["kept_in_use"]
+    assert (item["key"], item["ref"]) == ("DOC-Y", "document/DOC-Y")
+    [usage] = item["usages"]
+    assert (usage["ref"], usage["type_title"], usage["role"]) == ("acces/REL-1", "Accès", "target")
+    assert (usage["other"]["ref"], usage["other"]["name"]) == ("processus/PRC-X", "PRC-X")
+    # Une autre exécution, ou un autre import, n'a pas cette page.
+    missing = await space.client.get(_url(space, "document", "/fichier/executions/999999"))
+    assert (missing.status_code, missing.json()["error"]) == (404, "import_run_not_found")
+
+
+def test_relation_supprimee_dans_le_meme_import_ne_retient_rien(tmp_path: Path) -> None:
+    """Critère 8 : l'état final compte. Une association visée par une autre association
+    part si celle-ci part aussi ; gardée si celle-ci reste."""
+    from ossie_studio.cartographie import import_target as carto_import
+    from ossie_studio.cartographie import space as carto_space
+    from ossie_studio.imports.declaration import ALL
+    from ossie_studio.imports.engine import Example, Record, deletion_plan, transform
+
+    root = _carto_root(tmp_path)
+    files = {
+        "cartographie/types/association.schema.yaml": (
+            "title: Association\nx-archimate: Association\ntype: object\n"
+        ),
+        "cartographie/objets/association/rel-b.yaml": (
+            "cle: REL-B\ntype: association\nsource: processus/PRC-X\n"
+            "cible: document/DOC-Y\nnom: B\n"
+        ),
+        "cartographie/objets/association/rel-a.yaml": (
+            "cle: REL-A\ntype: association\nsource: document/DOC-Y\n"
+            "cible: association/REL-B\nnom: A\n"
+        ),
+    }
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    target = carto_import.target_of(carto_space.read_cartographie(root), "association")
+    template = '{"cle": $.cle, "nom": $.nom, "source": $.source, "cible": $.cible}'
+    nothing = transform(target, template, Example([]))
+    gone = deletion_plan(target, target.current(), nothing, ALL)
+    assert sorted(a.ref or "" for a in gone.deleted) == ["association/REL-A", "association/REL-B"]
+    row = {"cle": "REL-A", "nom": "A", "source": "DOC-Y", "cible": "association/REL-B"}
+    keep_a = transform(target, template, Example([Record(row, "ligne 2")]))
+    plan = deletion_plan(target, target.current(), keep_a, ALL)
+    assert not plan.deleted and [a.ref for a in plan.in_use] == ["association/REL-B"]
 
 
 async def test_sans_le_droit_de_modifier(app: FastAPI, space: ApiSpace) -> None:

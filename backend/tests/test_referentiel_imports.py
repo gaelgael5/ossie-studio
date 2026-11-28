@@ -271,7 +271,12 @@ async def test_import_json(space: ApiSpace) -> None:
         await space.client.post(_url(space, "/api/essai"), json={"template": template})
     ).json()
     assert (result["new"], result["modified"], result["errors"]) == (1, 1, 0)
-    assert {d["where"] for d in result["differences"]} == {"élément [0]", "élément [1]"}
+    changed = [d for d in result["differences"] if d["kind"] in ("new", "modified")]
+    assert {d["where"] for d in changed} == {"élément [0]", "élément [1]"}
+    # BE, absent du fichier, reste (stratégie « On garde », ticket 6d36073b).
+    assert [(d["key"], d["reason"]) for d in result["differences"] if d["kind"] == "kept"] == [
+        ("BE+site", "strategy_keep")
+    ]
 
 
 # --- Critères 8 et 9 : lecture seule, droits, éditeur servi ------------------------------------

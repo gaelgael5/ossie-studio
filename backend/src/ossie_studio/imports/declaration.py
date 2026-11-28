@@ -5,9 +5,20 @@ trois fichiers, dans le dossier d'imports que fixe sa cible (pour un référenti
     <slug>.yaml                   la déclaration : libellé, format (csv | json),
                                   réglages de lecture (séparateur, encodage,
                                   ligne d'en-tête, pour le CSV ; feuille du
-                                  classeur ; correspondances colonne → propriété)
+                                  classeur ; correspondances colonne → propriété),
+                                  stratégie de suppression
     <slug>.jslt                   le template JSLT
     <slug>.exemple.csv | .json    le fichier d'exemple (octets tels quels)
+
+et, tenu par l'import lui-même, `<slug>.provenance.yaml` : les clés des éléments que
+cet import a créés (voir `provenance`).
+
+**Fusion seulement** (ticket 6d36073b, Gael : « je corrige ou remplace si l'élément
+est différent, et j'ajoute si manquant ») : la suppression des éléments absents du
+fichier est une **stratégie de suppression** choisie par import (`deletion`) :
+`keep` (par défaut) n'en supprime aucun, `created` supprime ceux que cet import a
+créés, `all` les supprime tous. L'ancien mode « remplacement » (`mode: replace`)
+se lit comme `all`.
 """
 
 from __future__ import annotations
@@ -20,6 +31,12 @@ import yaml
 
 from ossie_studio.imports.errors import ImportsError
 from ossie_studio.problems import Problem
+
+# Stratégies de suppression des éléments absents du fichier (ticket 6d36073b).
+KEEP = "keep"
+CREATED = "created"
+ALL = "all"
+DELETIONS = (KEEP, CREATED, ALL)
 
 ImportFormat = Literal["csv", "json", "xlsx"]
 FORMATS: tuple[ImportFormat, ...] = ("csv", "json", "xlsx")
@@ -42,6 +59,8 @@ class ImportDeclaration:
     # les choix qui diffèrent de la correspondance par nom sont gardés, "" = colonne
     # ignorée. Lues par « Résoudre le template ».
     mapping: dict[str, str] = field(default_factory=dict)
+    # Stratégie de suppression des éléments absents du fichier (ticket 6d36073b).
+    deletion: str = KEEP
 
 
 @dataclass(frozen=True)
@@ -78,6 +97,8 @@ def check_declaration(decl: ImportDeclaration) -> list[Problem]:
             problems.append(Problem("separator", "import_separator_invalid"))
         if not _known_encoding(decl.encoding):
             problems.append(Problem("encoding", "import_encoding_unknown", decl.encoding))
+    if decl.deletion not in DELETIONS:
+        problems.append(Problem("deletion", "import_deletion_unknown", decl.deletion))
     return problems
 
 
@@ -91,6 +112,8 @@ def dump_declaration(decl: ImportDeclaration) -> str:
             data["sheet"] = decl.sheet
     if decl.mapping and decl.format in TABULAR:
         data["mapping"] = dict(decl.mapping)
+    if decl.deletion != KEEP:
+        data["deletion"] = decl.deletion
     return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
 
 
@@ -119,4 +142,6 @@ def parse_declaration(slug: str, text: str) -> ImportDeclaration:
         header=header if isinstance(header, bool) else True,
         sheet=str(data.get("sheet") or ""),
         mapping=mapping,
+        # Un import enregistré en remplacement garde son comportement (ticket 6d36073b).
+        deletion=str(data.get("deletion") or (ALL if data.get("mode") == "replace" else KEEP)),
     )

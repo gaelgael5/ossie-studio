@@ -17,6 +17,7 @@ from ossie_studio.imports.declaration import (
     parse_declaration,
 )
 from ossie_studio.imports.errors import ImportsError
+from ossie_studio.imports.provenance import SUFFIX as PROVENANCE_SUFFIX
 from ossie_studio.slugs import is_valid_slug
 
 
@@ -100,11 +101,13 @@ def write_import(
 
 
 def delete_import(root: Path, folder: str, slug: str) -> None:
-    """Supprime les trois fichiers d'un import (« import_not_found » s'il n'existe pas)."""
+    """Supprime les trois fichiers d'un import, et sa provenance (« import_not_found »
+    s'il n'existe pas)."""
     directory = root / folder
     if not is_valid_slug(slug) or not (directory / f"{slug}.yaml").is_file():
         raise ImportsError("import_not_found", 404, slug=slug)
-    for file in [f"{slug}.yaml", f"{slug}.jslt", *(example_name(slug, f) for f in FORMATS)]:
+    files = [f"{slug}.yaml", f"{slug}.jslt", *(example_name(slug, f) for f in FORMATS)]
+    for file in [*files, f"{slug}{PROVENANCE_SUFFIX}"]:
         target = directory / file
         if target.is_file():
             target.unlink()

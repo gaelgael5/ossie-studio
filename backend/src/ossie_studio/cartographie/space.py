@@ -595,6 +595,24 @@ def delete_object(root: Path, ref: str, cat: Catalog | None = None) -> None:
     (root / found[0]).unlink()
 
 
+def delete_objects(root: Path, refs: list[str], cat: Catalog | None = None) -> None:
+    """Supprime un lot d'objets (`type/CLÉ`, un import, ticket 6d36073b), par la règle
+    de `delete_object` vue sur l'**état final** : un objet n'est refusé que si une
+    relation qui reste le vise (une relation supprimée dans le même lot ne retient
+    rien). Tout ou rien : le premier refus remonte avant toute suppression."""
+    space = read_cartographie(root, cat or catalog())
+    _refuse_duplicates(space)
+    going = set(refs)
+    for ref in refs:
+        if ref not in space.objects:
+            raise CartographieError("object_not_found", status=404, key=ref)
+        users = [u for u in space.users(ref) if u not in going]
+        if users:
+            raise CartographieError("object_in_use", status=409, key=ref, relations=users)
+    for ref in refs:
+        (root / space.objects[ref][0]).unlink()
+
+
 def allowed_between(
     root: Path, source_key: str, target_key: str, cat: Catalog | None = None
 ) -> list[str]:

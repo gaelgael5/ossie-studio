@@ -1921,6 +1921,8 @@ export interface ReferentielImportSummary {
   header: boolean
   /** Feuille d'un classeur xlsx (ticket 6f6066e9) ; vide : la seule, ou à choisir. */
   sheet: string
+  /** Stratégie de suppression des éléments absents du fichier (ticket 6d36073b). */
+  deletion: ImportDeletion
   last_import: string | null
   last_import_by?: string | null
 }
@@ -1971,12 +1973,31 @@ export interface ImportTrialError {
   key?: string
 }
 
+/** Une utilisation qui retient un élément à supprimer (pour la cartographie : une
+ * relation qui vise l'objet, et l'objet à son autre bout). */
+export interface ImportUsage {
+  ref: string
+  key: string
+  name: string
+  type: string
+  type_title: string
+  role: 'source' | 'target'
+  other: { ref: string | null; key: string | null; name: string | null; type_title: string | null }
+}
+
+/** Pourquoi un élément absent du fichier est gardé (ticket 6d36073b). */
+export type ImportKeptReason = 'strategy_keep' | 'not_created' | 'in_use'
+
 export interface ImportTrialDifference {
   key: string
-  kind: 'new' | 'modified' | 'deleted'
+  kind: 'new' | 'modified' | 'deleted' | 'kept'
   where: string
   value?: Record<string, unknown>
   changes?: { property: string; before: unknown; after: unknown }[]
+  /** La fiche de l'élément (`type/CLÉ` d'un objet de cartographie). */
+  ref?: string
+  reason?: ImportKeptReason
+  usages?: ImportUsage[]
 }
 
 export interface ImportTrial {
@@ -1987,20 +2008,44 @@ export interface ImportTrial {
   modified?: number
   unchanged?: number
   deleted?: number
+  /** Absents du fichier gardés (toutes raisons), dont gardés car encore utilisés. */
+  kept?: number
+  kept_in_use?: number
   errors?: number
   error_details?: ImportTrialError[]
   differences?: ImportTrialDifference[]
 }
 
-export type ImportMode = 'merge' | 'replace'
+/** Stratégie de suppression d'un import (ticket 6d36073b) : garder les absents,
+ * supprimer ceux que cet import a créés, ou les supprimer tous. */
+export type ImportDeletion = 'keep' | 'created' | 'all'
+export const IMPORT_DELETIONS: ImportDeletion[] = ['keep', 'created', 'all']
 
 /** Compte rendu d'un import abouti (refusé : erreur `import_refused`, compte rendu
- * dans `error_args.report`). `revision` nulle : aucun changement. */
+ * dans `error_args.report`). `revision` nulle : aucun changement. `run_id` : son
+ * exécution dans le journal (page des éléments gardés car utilisés). */
 export interface ImportRunResult extends ImportTrial {
-  mode: ImportMode
+  deletion: ImportDeletion
   file: string
   revision: string | null
+  run_id: number
   last_import: string | null
+}
+
+/** Une exécution d'import et ses éléments gardés car encore utilisés. */
+export interface ImportRun {
+  id: number
+  owner: string
+  slug: string
+  label: string
+  at: string
+  by: string
+  file: string
+  deletion: ImportDeletion
+  deletion_label: string
+  outcome: string
+  counts: { new: number; modified: number; deleted: number; kept: number }
+  kept_in_use: { key: string; ref: string | null; usages: ImportUsage[] }[]
 }
 
 export interface ReferentielCommit {
@@ -3191,8 +3236,10 @@ export const api = {
 export interface ImportsApi {
   /** Adresse des imports de la cible (sert aussi de clé de cache). */
   base: string
-  /** Modes que la cible accepte (la cartographie : fusion seulement). */
-  modes: ImportMode[]
+  /** La page d'une exécution (éléments gardés car utilisés), dans l'écran de la cible. */
+  runPath: (slug: string, runId: number) => string
+  /** La fiche d'un élément ou d'une utilisation (`ref`), si la cible en a (la cartographie). */
+  itemPath?: (ref: string) => string
   /** Clés de cache que rend périmées un import abouti (ce que la cible affiche). */
   invalidates: string[]
   list: () => Promise<{ imports: ReferentielImportSummary[] }>
@@ -3211,19 +3258,23 @@ export interface ImportsApi {
   clearExample: (slug: string) => Promise<ReferentielImportDetail>
   setReading: (slug: string, reading: ImportReading) => Promise<ReferentielImportDetail>
   preview: (slug: string, reading?: ImportReading) => Promise<ImportPreview>
-  trial: (slug: string, template: string, mode?: ImportMode) => Promise<ImportTrial>
-  run: (slug: string, mode: ImportMode, file?: File) => Promise<ImportRunResult>
+  /** L'essai, avec la stratégie de suppression donnée (sinon celle enregistrée). */
+  trial: (slug: string, template: string, deletion?: ImportDeletion) => Promise<ImportTrial>
+  run: (slug: string, file?: File) => Promise<ImportRunResult>
+  setDeletion: (slug: string, deletion: ImportDeletion) => Promise<ReferentielImportDetail>
+  getRun: (slug: string, runId: number) => Promise<ImportRun>
   saveTemplate: (slug: string, template: string) => Promise<ReferentielImportDetail>
 }
 
 export function importsApi(
   base: string,
-  options: { modes?: ImportMode[]; invalidates?: string[] } = {},
+  options: { invalidates?: string[]; screen?: string; itemPath?: (ref: string) => string } = {},
 ): ImportsApi {
   const one = (slug: string, rest = '') => `${base}/${encodeURIComponent(slug)}${rest}`
   return {
     base,
-    modes: options.modes ?? ['merge', 'replace'],
+    itemPath: options.itemPath,
+    runPath: (slug, runId) => `${options.screen ?? ''}/imports/${encodeURIComponent(slug)}/executions/${runId}`,
     invalidates: options.invalidates ?? [],
     list: () => apiFetch(base),
     get: (slug) => apiFetch(one(slug)),
@@ -3239,15 +3290,17 @@ export function importsApi(
     setReading: (slug, reading) => apiFetch(one(slug, '/lecture'), { method: 'PUT', body: JSON.stringify(reading) }),
     preview: (slug, reading) =>
       apiFetch(one(slug, '/apercu'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
-    trial: (slug, template, mode = 'merge') =>
-      apiFetch(one(slug, '/essai'), { method: 'POST', body: JSON.stringify({ template, mode }) }),
+    trial: (slug, template, deletion) =>
+      apiFetch(one(slug, '/essai'), { method: 'POST', body: JSON.stringify({ template, deletion }) }),
     /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */
-    run: (slug, mode, file) => {
+    run: (slug, file) => {
       const form = new FormData()
-      form.append('mode', mode)
       if (file) form.append('file', file)
       return apiUpload(one(slug, '/import'), form, 'POST')
     },
+    setDeletion: (slug, deletion) =>
+      apiFetch(one(slug, '/suppression'), { method: 'PUT', body: JSON.stringify({ deletion }) }),
+    getRun: (slug, runId) => apiFetch(one(slug, `/executions/${runId}`)),
     saveTemplate: (slug, template) => apiFetch(one(slug, '/template'), { method: 'PUT', body: JSON.stringify({ template }) }),
     resolve: (slug, reading) =>
       apiFetch(one(slug, '/resoudre'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
@@ -3261,13 +3314,15 @@ export function importsApi(
 export function referentielImports(spaceId: string, branchId: string, name: string): ImportsApi {
   return importsApi(`/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`, {
     invalidates: ['referentielValues', 'referentiel', 'referentiels'],
+    screen: `/referentiels/${encodeURIComponent(name)}`,
   })
 }
 
-/** Les imports d'un type de cartographie (ticket 49952be0) : fusion seulement. */
+/** Les imports d'un type de cartographie (ticket 49952be0). */
 export function cartoImports(spaceId: string, branchId: string, typeSlug: string): ImportsApi {
   return importsApi(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(typeSlug)}/imports`, {
-    modes: ['merge'],
     invalidates: ['carto-objects', 'carto-types', 'carto-type', 'carto-object'],
+    screen: `/cartographie/types/${encodeURIComponent(typeSlug)}`,
+    itemPath: (ref) => `/cartographie/objets/${cartoRefPath(ref)}`,
   })
 }

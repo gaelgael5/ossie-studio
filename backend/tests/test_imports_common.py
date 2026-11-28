@@ -11,10 +11,20 @@ from typing import Any
 import pytest
 
 from ossie_studio.imports import files
-from ossie_studio.imports.declaration import ImportDeclaration
+from ossie_studio.imports.declaration import (
+    ALL,
+    CREATED,
+    KEEP,
+    ImportDeclaration,
+    dump_declaration,
+    parse_declaration,
+)
 from ossie_studio.imports.engine import (
-    MERGE,
-    REPLACE,
+    KEPT_IN_USE,
+    KEPT_NOT_CREATED,
+    KEPT_STRATEGY,
+    created_after,
+    deletion_plan,
     imported_items,
     read_example,
     report,
@@ -22,6 +32,7 @@ from ossie_studio.imports.engine import (
     transform,
 )
 from ossie_studio.imports.errors import ImportsError
+from ossie_studio.imports.provenance import read_created, write_created
 from ossie_studio.imports.target import ItemProblem
 
 CSV = b"code;nom;poids\nA;Alpha;1\nB;Beta;-2\nC;Gamma;3\n"
@@ -70,18 +81,106 @@ def test_essai_rend_compte_par_la_cible() -> None:
     )
 
 
-def test_import_fusion_et_remplacement_tout_ou_rien() -> None:
+GOOD = CSV.replace(b"B;Beta;-2", b"B;Beta;2")
+
+
+def test_fusion_et_strategies_de_suppression() -> None:
+    """Ticket 6d36073b : fusion seulement ; l'absent (Z) suit la stratégie."""
     target = FakeTarget()
     refused = transform(target, TEMPLATE, read_example(DECL, CSV))
-    assert imported_items(target, CURRENT, refused, MERGE) is None  # tout ou rien
-    good = read_example(DECL, CSV.replace(b"B;Beta;-2", b"B;Beta;2"))
-    done = transform(target, TEMPLATE, good)
-    merged = imported_items(target, CURRENT, done, MERGE)
+    assert imported_items(target, CURRENT, refused, deletion_plan(target, [], refused)) is None
+    done = transform(target, TEMPLATE, read_example(DECL, GOOD))
+    keep = deletion_plan(target, CURRENT, done, KEEP)
+    assert [(a.key, a.reason) for a in keep.kept] == [("Z", KEPT_STRATEGY)] and not keep.deleted
+    merged = imported_items(target, CURRENT, done, keep)
     assert [i["code"] for i in merged or []] == ["A", "Z", "B", "C"]
-    replaced = imported_items(target, CURRENT, done, REPLACE)
-    assert [i["code"] for i in replaced or []] == ["A", "B", "C"]
-    summary = report(target, CURRENT, done, REPLACE)
+    everything = deletion_plan(target, CURRENT, done, ALL)
+    assert [a.key for a in everything.deleted] == ["Z"]
+    assert [i["code"] for i in imported_items(target, CURRENT, done, everything) or []] == [
+        "A",
+        "B",
+        "C",
+    ]
+    summary = report(target, CURRENT, done, everything)
     assert (summary["new"], summary["unchanged"], summary["deleted"]) == (2, 1, 1)
+    # « Cet import a créé » : Z part s'il vient de cet import, reste sinon.
+    mine = deletion_plan(target, CURRENT, done, CREATED, frozenset({"Z"}))
+    assert [a.key for a in mine.deleted] == ["Z"]
+    other = deletion_plan(target, CURRENT, done, CREATED, frozenset())
+    assert [(a.key, a.reason) for a in other.kept] == [("Z", KEPT_NOT_CREATED)]
+    kept = report(target, CURRENT, done, other)
+    assert (kept["kept"], kept["deleted"]) == (1, 0)
+    last = kept["differences"][-1]
+    assert (last["key"], last["kind"], last["reason"]) == ("Z", "kept", KEPT_NOT_CREATED)
+
+
+class UsingTarget(FakeTarget):
+    """Un élément peut en utiliser d'autres (`utilise`, liste de codes), comme une
+    relation vise ses extrémités."""
+
+    def in_use(self, produced: list[Any], deleting: set[Hashable]) -> dict[Hashable, list[Any]]:
+        final = [*produced, *(i for i in self.current if i["code"] not in deleting)]
+        found: dict[Hashable, list[Any]] = {}
+        for key in deleting:
+            users = [i["code"] for i in final if key in i.get("utilise", [])]
+            if users:
+                found[key] = [{"key": u} for u in users]
+        return found
+
+    def __init__(self, current: list[Any]) -> None:
+        self.current = current
+
+
+def test_element_utilise_garde_et_etat_final() -> None:
+    """Un absent encore utilisé par un élément qui reste est gardé ; utilisé par un
+    élément supprimé dans le même import, il part ; un gardé retient ce qu'il utilise."""
+    current = [
+        {"code": "A", "nom": "Alpha", "poids": 1},
+        {"code": "U", "nom": "Utilisé", "poids": 1},
+        {"code": "V", "nom": "Utilisé par un absent", "poids": 1},
+        {"code": "W", "nom": "Absent qui utilise V", "poids": 1, "utilise": ["V"]},
+        {"code": "M", "nom": "Main", "poids": 1, "utilise": ["U"]},
+    ]
+    target = UsingTarget(current)
+    file = b"code;nom;poids\nA;Alpha;1\n"
+    done = transform(target, TEMPLATE, read_example(DECL, file))
+    plan = deletion_plan(target, current, done, ALL)
+    # M (absent) part ; donc U, qu'il utilisait, part aussi : l'état final compte.
+    assert sorted(a.key for a in plan.deleted) == ["M", "U", "V", "W"]
+    # M créé à la main, gardé (« cet import a créé ») : il retient U.
+    created = frozenset({"U", "V", "W"})
+    plan = deletion_plan(target, current, done, CREATED, created)
+    assert sorted(a.key for a in plan.deleted) == ["V", "W"]
+    assert {(a.key, a.reason) for a in plan.kept} == {
+        ("M", KEPT_NOT_CREATED),
+        ("U", KEPT_IN_USE),
+    }
+    [used] = plan.in_use
+    assert used.usages == ({"key": "M"},)
+    summary = report(target, current, done, plan)
+    assert (summary["deleted"], summary["kept"], summary["kept_in_use"]) == (2, 2, 1)
+    items = imported_items(target, current, done, plan) or []
+    assert sorted(i["code"] for i in items) == ["A", "M", "U"]
+    # Provenance : ce qui existe encore de ce qu'il avait créé, plus ses créations.
+    assert created_after(target, current, items, created) == {"U"}
+    assert created_after(target, [], items, frozenset()) == {"A", "M", "U"}
+
+
+def test_provenance_et_ancien_remplacement(tmp_path: Path) -> None:
+    write_created(tmp_path, "x/imports", "poids", {"B", "A"})
+    assert (tmp_path / "x/imports/poids.provenance.yaml").read_text() == "created:\n- A\n- B\n"
+    assert read_created(tmp_path, "x/imports", "poids") == {"A", "B"}
+    write_created(tmp_path, "r/imports", "pays", {("FR", "75")})
+    assert read_created(tmp_path, "r/imports", "pays") == {("FR", "75")}
+    write_created(tmp_path, "x/imports", "poids", set())
+    assert not (tmp_path / "x/imports/poids.provenance.yaml").exists()
+    # Un import enregistré en remplacement garde son comportement : tous les absents.
+    assert parse_declaration("p", "label: P\nformat: csv\nmode: replace\n").deletion == ALL
+    assert parse_declaration("p", "label: P\nformat: csv\n").deletion == KEEP
+    created = parse_declaration(
+        "p", dump_declaration(ImportDeclaration("p", "P", "csv", deletion=CREATED))
+    )
+    assert created.deletion == CREATED
 
 
 def test_fichiers_d_un_import_dans_un_dossier_quelconque(tmp_path: Path) -> None:

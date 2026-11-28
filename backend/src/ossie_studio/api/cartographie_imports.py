@@ -139,7 +139,6 @@ def _skeleton(root: Path, slug: str) -> Skeleton:
 
 ADAPTER = ImportAdapter(
     journal_type=JOURNAL_TYPE,
-    modes=("merge",),
     read_dependency=require_capability("cartographie:read"),
     write_dependency=require_capability("cartographie:write"),
     open=_open,

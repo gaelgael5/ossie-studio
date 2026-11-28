@@ -88,7 +88,6 @@ def _kind(schema: Any) -> str | None:
 
 ADAPTER = ImportAdapter(
     journal_type=JOURNAL_TYPE,
-    modes=("merge", "replace"),
     read_dependency=require_capability("referentiels:read"),
     write_dependency=require_capability("referentiels:write"),
     open=_open,

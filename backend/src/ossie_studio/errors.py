@@ -191,6 +191,7 @@ ERROR_CODES: tuple[str, ...] = (
     "import_file_too_large",
     "import_file_empty",
     "import_refused",
+    "import_run_not_found",
     "referentiel_link_invalid",
     "referentiel_link_field",
     "referentiel_link_property",
