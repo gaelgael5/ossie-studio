@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api } from '../apiClient'
@@ -49,8 +49,28 @@ export function MergeDialog(props: { spaceId: string; branchId: string; path: st
     save.mutate({ resolutions })
   }
 
+  // Échap referme, comme « Fermer ».
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // Fenêtre par-dessus la page (bug d45bbc68) : rendue en section ordinaire après
+  // la liste, elle s'ouvrait en bas de l'écran de publication, hors de la vue, et
+  // le clic semblait sans effet. Gael : « que la fenêtre de fusion apparaisse sur
+  // la droite en mode popup » — panneau à droite, la liste reste visible à gauche.
   return (
-    <section role="dialog" aria-label={t('mergeTitle', { path })} className="panel panel-form stack">
+    <div
+      className="dialog-backdrop merge-backdrop"
+      // Un clic à côté du panneau le referme, comme Échap.
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+    <section role="dialog" aria-modal="true" aria-label={t('mergeTitle', { path })} className="panel panel-form stack dialog-panel dialog-wide merge-dialog">
       <div className="panel-head">
         <h3 className="panel-title">{t('mergeTitle', { path })}</h3>
         <button type="button" className="btn btn-sm" onClick={onClose}>
@@ -79,7 +99,19 @@ export function MergeDialog(props: { spaceId: string; branchId: string; path: st
         </div>
       ) : null}
     </section>
+    </div>
   )
+}
+
+/** Contenu binaire (classeur d'exemple d'un import…) : pas d'aperçu lisible. */
+function isBinary(value: unknown): boolean {
+  return typeof value === 'string' && /[\u0000-\u0008\u000e-\u001f]/.test(value)
+}
+
+/** Fichier créé : rien de publié à fusionner ; sinon la note habituelle. */
+function readonlyNote(data: MergeView, t: (key: string) => string): string {
+  if (data.state === 'created' && data.theirs_absent) return t('mergeCreated')
+  return data.readonly ? t('mergeReadonly') : t(`mergeKind_${data.kind}`)
 }
 
 function MergeBody(props: {
@@ -97,11 +129,16 @@ function MergeBody(props: {
   if (!data.structured) {
     return (
       <div className="stack">
+        <p className="muted">{readonlyNote(data, t)}</p>
         <div className="form-grid">
           {(['base', 'theirs', 'mine'] as const).map((side) => (
             <div key={side} className="field">
               <span className="field-label">{t(`mergeSide_${side}`)}</span>
-              <pre className="mono">{show(data[side])}</pre>
+              {isBinary(data[side]) ? (
+                <p className="muted">{t('mergeBinary')}</p>
+              ) : (
+                <pre className="mono">{show(data[side])}</pre>
+              )}
             </div>
           ))}
         </div>
@@ -111,7 +148,7 @@ function MergeBody(props: {
   }
   return (
     <div className="stack">
-      <p className="muted">{data.readonly ? t('mergeReadonly') : t(`mergeKind_${data.kind}`)}</p>
+      <p className="muted">{readonlyNote(data, t)}</p>
       <PropertyDiff left={data.theirs} right={data.mine} />
       {/* Objet collecté : les conflits se lisent dans l'écart, sans choix à faire. */}
       {data.collected

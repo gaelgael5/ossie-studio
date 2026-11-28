@@ -319,6 +319,8 @@ export const en = {
     mergeColPublished: 'Published',
     mergeColDraft: 'My draft',
     mergeCollected: 'Collected object: its merge can be viewed, not changed. A new collection updates it.',
+    mergeCreated: 'New file: it does not exist on the published side yet, nothing to merge. Here is what you are about to publish.',
+    mergeBinary: 'Binary file: no preview.',
     mergeReadonly: 'Nothing changed on the published side: correspondence of your changes.',
     mergeKind_auto: 'The changes do not overlap: merge proposed, to validate.',
     mergeKind_conflict: 'Some properties changed on both sides: choose.',

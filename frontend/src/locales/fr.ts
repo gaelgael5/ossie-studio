@@ -320,6 +320,8 @@ export const fr = {
     mergeColPublished: 'Publiée',
     mergeColDraft: 'Mon brouillon',
     mergeCollected: 'Objet collecté : sa fusion se consulte sans se modifier. Une nouvelle collecte le met à jour.',
+    mergeCreated: 'Nouveau fichier : il n’existe pas encore côté publié, rien à fusionner. Voici ce que vous allez publier.',
+    mergeBinary: 'Fichier binaire : pas d’aperçu.',
     mergeReadonly: 'Rien n’a changé côté publié : correspondance de vos modifications.',
     mergeKind_auto: 'Les changements ne se chevauchent pas : fusion proposée, à valider.',
     mergeKind_conflict: 'Certaines propriétés ont changé des deux côtés : choisissez.',

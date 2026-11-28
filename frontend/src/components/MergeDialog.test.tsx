@@ -78,4 +78,34 @@ describe('MergeDialog', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
     expect(JSON.parse(calls.find((c) => c.method === 'POST')?.body ?? '{}')).toEqual({ path: BASE.path, delete: false })
   })
+
+  it('par-dessus la page (bug d45bbc68) ; fichier créé : son contenu, rien à fusionner ; Échap ferme', async () => {
+    mockApi({
+      ...BASE, path: 'cartographie/types/flux.schema.yaml', state: 'created', changed_upstream: false, readonly: true,
+      kind: 'none', base: null, theirs: null, mine: { title: 'Flux' }, theirs_absent: true, proposed: null, conflicts: [],
+    })
+    const onClose = vi.fn()
+    renderDialog(onClose)
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog.parentElement).toHaveClass('dialog-backdrop')
+    expect(await screen.findByText(/Nouveau fichier : il n’existe pas encore côté publié/)).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.keyboard('{Escape}')
+    expect(onClose).toHaveBeenCalledTimes(1)
+    await user.click(dialog.parentElement!)
+    expect(onClose).toHaveBeenCalledTimes(2)
+    await user.click(dialog)
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
+  it('fichier binaire créé : pas d’aperçu illisible', async () => {
+    mockApi({
+      ...BASE, path: 'cartographie/imports/t/c.exemple.xlsx', state: 'created', changed_upstream: false, readonly: true,
+      kind: 'none', structured: false, base: null, theirs: null, mine: 'PK\u0003\u0004xyz', theirs_absent: true, proposed: null, conflicts: [],
+    })
+    renderDialog()
+    expect(await screen.findByText('Fichier binaire : pas d’aperçu.')).toBeInTheDocument()
+    expect(screen.queryByText(/PK/)).not.toBeInTheDocument()
+  })
 })
