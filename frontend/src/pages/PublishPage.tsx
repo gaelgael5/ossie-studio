@@ -5,7 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { CredentialBlock } from '../components/CredentialBlock'
-import { DraftTree } from '../components/DraftTree'
+import { DraftBlocks } from '../components/DraftTree'
 import { ErrorList } from '../components/ErrorList'
 import { ImpactsSection } from '../components/ImpactsSection'
 import { MergeDialog } from '../components/MergeDialog'
@@ -71,7 +71,7 @@ export function PublishPage() {
         {objects.length === 0 ? (
           <div className="empty-note">{t('draftEmpty')}</div>
         ) : (
-          <DraftTree files={objects} conflicts={conflicts} onOpen={setOpened} />
+          <DraftBlocks files={objects} conflicts={conflicts} onOpen={setOpened} />
         )}
         {opened ? <MergeDialog spaceId={spaceId} branchId={branchId} path={opened} onClose={() => setOpened(null)} /> : null}
         <ImpactsSection spaceId={spaceId} branchId={branchId} />
