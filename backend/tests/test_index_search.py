@@ -271,3 +271,48 @@ async def test_ecran_des_types_par_l_index(
     assert counts == {"acces": 1, "application": 2, "document": 1, "processus": 1}
     titles = [t["title"] for t in answer.json()["types"]]
     assert titles == sorted(titles, key=str.casefold)
+
+
+async def test_ecran_des_objets_par_l_index(
+    app: FastAPI, space: ApiSpace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L'écran des objets lit l'index (Gael, 28/11 : « oui ») : extrait de la
+    documentation, premières propriétés, nombre de relations et extrémités, sans lire
+    la cartographie."""
+    from ossie_studio.api import cartographie_objects
+    from ossie_studio.cartographie import service
+
+    forge_edit(
+        space,
+        {
+            "cartographie/objets/application/app-02.yaml": (
+                "cle: APP-02\ntype: application\nnom: Stock\n"
+                'documentation: "# Gestion du **stock**"\n'
+                "proprietes:\n  a: 1\n  b: ''\n  c: true\n  d: [x, y]\n  e: z\n"
+            )
+        },
+    )
+
+    def forbidden(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("read_cartographie ne doit pas être appelé")
+
+    monkeypatch.setattr(service, "read_cartographie", forbidden)
+    monkeypatch.setattr(cartographie_objects, "read_cartographie", forbidden)
+    answer = await space.client.get(f"{space.base}/cartographie/objets")
+    assert answer.status_code == 200, answer.text
+    objects = {o["ref"]: o for o in answer.json()["objects"]}
+    stock = objects["application/APP-02"]
+    assert stock["excerpt"] == "Gestion du stock"
+    assert stock["properties"] == [
+        {"name": "a", "value": "1"},
+        {"name": "c", "value": "oui"},
+        {"name": "d", "value": "2 élément(s)"},
+    ]
+    assert (stock["type_title"], stock["archimate"]) == ("Application", "ApplicationComponent")
+    relation = objects["acces/REL-01"]
+    assert relation["is_relation"] is True
+    assert (relation["source"], relation["target"]) == ("processus/PRC-01", "document/DOC-01")
+    assert objects["processus/PRC-01"]["relations"] == 1
+    assert objects["document/DOC-01"]["relations"] == 1
+    names = [o["name"] for o in answer.json()["objects"]]
+    assert names == sorted(names, key=str.casefold)

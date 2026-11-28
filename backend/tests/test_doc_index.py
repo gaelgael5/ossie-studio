@@ -63,6 +63,8 @@ def test_objet_et_relation() -> None:
             "name": "Lit",
             "source": "application/APP-01",
             "cible": "DOC-01",
+            "excerpt": "",
+            "properties": [],
         },
     }
 

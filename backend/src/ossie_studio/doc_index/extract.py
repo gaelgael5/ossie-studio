@@ -26,8 +26,9 @@ version plus ancienne est réindexé.
 **Cartographie** (ticket 06171fd3, la recherche passe par l'index) : un type et un objet
 sont aussi lus par le service de la cartographie (`parse_type`, `parse_object`), aux
 mêmes chemins que `read_cartographie` ; leurs champs gardent ce qu'il en lit
-(`readable`, et pour un objet `object` : clé, type, nom, extrémités). Les listes tirées
-de l'index rendent ainsi exactement ce que rendait la lecture des fichiers.
+(`readable`, et pour un objet `object` : clé, type, nom, extrémités, extrait de la
+documentation et premières propriétés). Les listes tirées de l'index rendent ainsi
+exactement ce que rendait la lecture des fichiers.
 """
 
 from __future__ import annotations
@@ -40,9 +41,10 @@ from typing import Any
 
 from ossie_studio.cartographie.errors import CartographieError
 from ossie_studio.cartographie.model import parse_object, parse_type
+from ossie_studio.cartographie.summary import excerpt, shown_properties
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 
-INDEXER_VERSION = 2
+INDEXER_VERSION = 3
 
 ANY_TYPE = "*"
 
@@ -182,6 +184,9 @@ def _carto_objet(m: re.Match[str], data: bytes) -> IndexedFile:
             "name": obj.name,
             "source": obj.source,
             "cible": obj.target,
+            # Ce que la liste des objets en montre (écran de la cartographie).
+            "excerpt": excerpt(obj.documentation),
+            "properties": shown_properties(obj.properties),
         }
     document = IndexedDocument(
         "carto_objet", {"type": type_slug, "key": key}, _text(doc.get("nom")) or key, fields

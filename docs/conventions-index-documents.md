@@ -218,7 +218,10 @@ Gael : l'index est « un outil de validation **et un outil de recherche** ».
 - **Identité seule** : `read_document` complète une identité partielle (une clé de
   cartographie sans son type) par l'index ; plusieurs candidats : `identity_ambiguous`.
   Le contenu vient toujours du fichier.
-- **Écrans** : la liste des types de cartographie lit l'index.
+- **Écrans** : les listes des types et des objets de cartographie lisent l'index. Pour un
+  objet, l'index garde aussi ce que la liste en montre (extrait de la documentation,
+  premières propriétés : `cartographie/summary.py`, `INDEXER_VERSION` 3) ; la liste des
+  objets garde son cache par empreinte pour les dates de publication (historique Git).
 - **Index corrigé** : la liste des documents d'un contenu est rangée telle quelle en
   `jsonb` (elle était encodée deux fois, illisible pour les requêtes) ; un contenu
   inchangé mais indexé par une version plus ancienne de l'extraction est réindexé sur

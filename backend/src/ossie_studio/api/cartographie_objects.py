@@ -14,7 +14,6 @@ qu'utilisent les extrémités d'une relation.
 
 from __future__ import annotations
 
-import re
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -32,12 +31,12 @@ from ossie_studio.cartographie.catalog import catalog
 from ossie_studio.cartographie.diagram import delete_object, models_retaining
 from ossie_studio.cartographie.errors import CartographieError, problem_payload
 from ossie_studio.cartographie.history import FileDates, file_dates
-from ossie_studio.cartographie.indexed import users_from_index
+from ossie_studio.cartographie.indexed import IndexedCartographie, IndexedObject, users_from_index
+from ossie_studio.cartographie.indexed import load as indexed_load
 from ossie_studio.cartographie.model import (
     CARTO_DIR,
     OBJECTS_DIR,
     CartoObject,
-    is_empty,
     object_ref,
     properties_schema,
     split_ref,
@@ -56,8 +55,6 @@ router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/cartograp
 # Assez pour dater tous les objets d'un espace ordinaire ; au-delà, la date de
 # création d'un très vieil objet peut être celle du plus ancien commit lu.
 HISTORY_LIMIT = 2000
-EXCERPT_LENGTH = 180
-SHOWN_PROPERTIES = 3
 
 _OBJECTS_INDEX: ListIndex[list[dict[str, Any]]] = ListIndex()
 
@@ -78,21 +75,6 @@ class ObjectChange(BaseModel):
     name: str = ""
     documentation: str = ""
     properties: dict[str, Any] = {}
-
-
-def _excerpt(markdown: str) -> str:
-    """Le début de la documentation, sans la syntaxe Markdown la plus courante."""
-    text = re.sub(r"[`*_>#\[\]()-]+", " ", markdown)
-    text = " ".join(text.split())
-    return text if len(text) <= EXCERPT_LENGTH else text[: EXCERPT_LENGTH - 1].rstrip() + "…"
-
-
-def _shown(value: Any) -> str:
-    if isinstance(value, bool):
-        return "oui" if value else "non"
-    if isinstance(value, (list, dict)):
-        return f"{len(value)} élément(s)"
-    return str(value)
 
 
 def dates_payload(found: FileDates | None) -> dict[str, str] | None:
@@ -132,29 +114,26 @@ async def carto_history(
 
 
 def _summary(
-    space: Cartographie, path: str, obj: CartoObject, dates: dict[str, FileDates]
+    space: IndexedCartographie, obj: IndexedObject, dates: dict[str, FileDates]
 ) -> dict[str, Any]:
+    """Un objet dans la liste, lu dans l'index des documents (ticket 06171fd3) : sans
+    relire la cartographie."""
     ctype = space.types.get(obj.type)
-    shown = [
-        {"name": name, "value": _shown(value)}
-        for name, value in obj.properties.items()
-        if not is_empty(value)
-    ][:SHOWN_PROPERTIES]
     return {
         "key": obj.key,
         "type": obj.type,
         "ref": obj.ref,
-        "type_title": ctype.title if ctype else obj.type,
-        "archimate": ctype.archimate if ctype else "",
+        "type_title": str(ctype.get("title") or "") if ctype is not None else obj.type,
+        "archimate": str(ctype.get("archimate") or "") if ctype is not None else "",
         "name": obj.name,
-        "excerpt": _excerpt(obj.documentation),
-        "properties": shown,
+        "excerpt": obj.excerpt,
+        "properties": list(obj.properties),
         "relations": len(space.users(obj.ref)),
         "is_relation": obj.is_relation,
-        "source": _canonical(space, obj.source),
-        "target": _canonical(space, obj.target),
-        "path": path,
-        "dates": dates_payload(dates.get(path)),
+        "source": space.resolve(obj.source) or obj.source,
+        "target": space.resolve(obj.target) or obj.target,
+        "path": obj.path,
+        "dates": dates_payload(dates.get(obj.path)),
     }
 
 
@@ -288,14 +267,16 @@ async def list_objects(
     personne, avec leurs dates de publication et leur état dans le brouillon."""
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     try:
+        # Les objets se lisent dans l'index (ticket 06171fd3) ; le cache par empreinte
+        # garde surtout les dates de publication (historique Git, coûteux à relire).
         signature, _paths = await target.signature(f"{CARTO_DIR}/")
         key = (space_id, branch_id, workdir.user_id, workdir.published_only)
         items = _OBJECTS_INDEX.get(key, signature)
         if items is None:
-            space = await target.cartographie()
+            space = await indexed_load(conn, await target.indexed_view())
             dates = await carto_history(conn, crypto, manager, space_id, branch_id)
             items = sorted(
-                (_summary(space, p, o, dates) for p, o in space.objects.values()),
+                (_summary(space, o, dates) for o in space.objects.values()),
                 key=lambda i: (str(i["name"]).casefold(), str(i["key"])),
             )
             _OBJECTS_INDEX.put(key, signature, items)

@@ -19,15 +19,15 @@ Cinquième ticket de l'epic « Index des documents et validation avant publicati
 - Suppression d'un objet de cartographie visé par une relation : refus avec les
   relations tirées de l'index.
 - `read_document` : identité partielle complétée par l'index ; `identity_ambiguous`.
-- Écran des types de cartographie : lu dans l'index.
+- Écrans des types et des objets de cartographie : lus dans l'index (Gael : « oui »
+  pour les objets ; extrait et premières propriétés ajoutés à l'index).
 - Index corrigé : documents rangés en `jsonb` natif ; contenus d'une ancienne version
   de l'extraction réindexés sur place.
 - Tests : `tests/test_index_search.py`.
 
-## Reste ouvert (à décider avec Gael)
+## Suite (Gael : « oui »)
 
-- L'écran des objets de cartographie garde sa lecture des fichiers (avec son cache
-  par empreinte) : il affiche des propriétés et la documentation, absentes de l'index.
-- Les autres types de document gardent leur liste par les fichiers.
+- Les autres types de document gardent leur liste par les fichiers : un ticket par
+  famille, dans le backlog.
 
 Conventions : `docs/conventions-index-documents.md` (La recherche passe par l'index).

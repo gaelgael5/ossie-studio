@@ -38,6 +38,8 @@ class IndexedObject:
     name: str
     source: str | None
     target: str | None
+    excerpt: str = ""
+    properties: tuple[dict[str, str], ...] = ()
 
     @property
     def ref(self) -> str:
@@ -64,6 +66,8 @@ def indexed_object(doc: IndexedDoc) -> IndexedObject | None:
         str(found.get("name") or ""),
         found.get("source"),
         found.get("cible"),
+        str(found.get("excerpt") or ""),
+        tuple(found.get("properties") or ()),
     )
 
 
@@ -81,6 +85,7 @@ class IndexedCartographie:
                 self.type_versions[slug] = doc.blob
         self.objects: dict[str, IndexedObject] = {}
         self._keys: dict[str, list[str]] = {}
+        self._users: dict[str, list[str]] | None = None
         for doc in snap.of("carto_objet"):
             obj = indexed_object(doc)
             if obj is not None and obj.ref not in self.objects:
@@ -96,6 +101,17 @@ class IndexedCartographie:
             return value if value in self.objects else None
         refs = self._keys.get(key, [])
         return refs[0] if len(refs) == 1 else None
+
+    def users(self, ref: str) -> list[str]:
+        """Comme `Cartographie.users` : les relations qui désignent cet objet."""
+        if self._users is None:
+            index: dict[str, list[str]] = {}
+            for other, obj in self.objects.items():
+                for end in {self.resolve(obj.source), self.resolve(obj.target)}:
+                    if end is not None and end != other:
+                        index.setdefault(end, []).append(other)
+            self._users = {k: sorted(v) for k, v in index.items()}
+        return list(self._users.get(ref, []))
 
     def end(self, value: str | None) -> dict[str, Any] | None:
         """Une extrémité de relation, comme la liste des objets la rend."""
