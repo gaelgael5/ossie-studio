@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { api } from '../apiClient'
-import type { DraftChangedFile, DraftChangedObject, DraftSourceChanges } from '../apiClient'
+import type { DraftChangedObject, DraftSourceChanges } from '../apiClient'
+import { DraftTree } from './DraftTree'
 
 // Le bloc « Sources » de « Publier mes modifications » (ticket 173c6ed6) : la vue
 // par source de l'ancien écran « Modifications » (ticket aad1d3c6), qui y est
@@ -24,11 +25,13 @@ export function SourceChanges({
   branchId,
   onOpen,
   fallback,
+  conflicts,
 }: {
   spaceId: string
   branchId: string
   onOpen: (path: string) => void
   fallback: React.ReactNode
+  conflicts: ReadonlySet<string>
 }) {
   const { t } = useTranslation()
   const changes = useQuery({
@@ -48,7 +51,7 @@ export function SourceChanges({
   return (
     <div className="stack">
       {sources.map((s) => (
-        <SourceSection key={s.slug} source={s} mode={mode} onOpen={onOpen} />
+        <SourceSection key={s.slug} source={s} mode={mode} onOpen={onOpen} conflicts={conflicts} />
       ))}
     </div>
   )
@@ -58,10 +61,12 @@ function SourceSection({
   source,
   mode,
   onOpen,
+  conflicts,
 }: {
   source: DraftSourceChanges
   mode: string
   onOpen: (path: string) => void
+  conflicts: ReadonlySet<string>
 }) {
   const { t } = useTranslation()
   const explorerHref = (o: DraftChangedObject) =>
@@ -105,7 +110,15 @@ function SourceSection({
       {source.other.length > 0 ? (
         <div className="stack stack-tight">
           <h4 className="panel-label">{t('changesOther', { count: source.other.length })}</h4>
-          <FileList files={source.other} onOpen={onOpen} />
+          {/* En arbre, sans répéter `sources/<source>/` (bug 7cfa1921, Gael : « je ne
+              vois pas les répertoires et tout est mélangé »). */}
+          <DraftTree
+            files={source.other}
+            conflicts={conflicts}
+            onOpen={onOpen}
+            base={`sources/${source.slug}`}
+            label={t('changesOther', { count: source.other.length })}
+          />
         </div>
       ) : null}
     </section>
@@ -174,21 +187,5 @@ function ObjectGroup({
         </div>
       ) : null}
     </div>
-  )
-}
-
-function FileList({ files, onOpen }: { files: DraftChangedFile[]; onOpen: (path: string) => void }) {
-  const { t } = useTranslation()
-  return (
-    <ul className="list-plain stack stack-tight">
-      {files.map((f) => (
-        <li key={f.path} className="row">
-          <button type="button" className="btn-link" onClick={() => onOpen(f.path)}>
-            <code>{f.path}</code>
-          </button>
-          <span className="pill">{t(`changesState_${f.state}`)}</span>
-        </li>
-      ))}
-    </ul>
   )
 }
