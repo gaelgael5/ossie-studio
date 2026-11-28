@@ -10,7 +10,8 @@ import { ErrorList } from './ErrorList'
 import { Icon } from './IconButton'
 import { PropertyDiff } from './PropertyDiff'
 
-// Fenêtre de fusion d'un objet du brouillon, en panneau à droite (bug d45bbc68).
+// Fenêtre de fusion d'un objet du brouillon, par-dessus la page et presque plein
+// écran (bug d45bbc68, mise à jour du 28/11 : « prendre le max de place »).
 //
 // Feature d727680a (Gael, 28/11 : « mettre la fusion au milieu » ; « un petit bouton
 // sur les blocs à fusionner […] une flèche qui va vers la droite […] une flèche qui
@@ -59,7 +60,7 @@ export function MergeDialog(props: { spaceId: string; branchId: string; path: st
   return (
     <div
       className="dialog-backdrop merge-backdrop"
-      // Un clic à côté du panneau le referme, comme Échap.
+      // Un clic dans la marge autour de la fenêtre la referme, comme Échap.
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}

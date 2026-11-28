@@ -4710,22 +4710,21 @@ urban-bpmn {
 .source-changes + .source-changes {
   margin-top: 18px;
 }
-/* Fenêtre de fusion : panneau à droite, par-dessus la page (bug d45bbc68) ; le
+/* Fenêtre de fusion par-dessus la page (bug d45bbc68). Mise à jour du 28/11 : elle
+   « prend le max de place pour faciliter la lecture » des trois colonnes — presque
+   tout l'écran, une marge étroite autour ; la liste n'a plus à rester visible. Le
    contenu long défile dedans. */
 .merge-backdrop {
-  justify-content: flex-end;
+  justify-content: center;
   align-items: stretch;
-  padding: 0;
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
 }
 .merge-backdrop .merge-dialog {
-  width: min(760px, 100%);
+  width: 100%;
   max-width: none;
   margin: 0;
-  border-radius: 0;
   overflow-y: auto;
-  padding-top: calc(16px + env(safe-area-inset-top, 0px));
-  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-  box-shadow: -8px 0 24px rgba(15, 27, 45, 0.25);
+  box-shadow: 0 8px 32px rgba(15, 27, 45, 0.3);
 }
 /* Choix de la langue dans le menu de l'utilisateur (ticket bce4852a). */
 .menu-lang {
@@ -4751,9 +4750,6 @@ urban-bpmn {
 
 /* Fenêtre de fusion en trois colonnes (features d727680a, edaddc6d) : publiée |
    résultat | brouillon ; les colonnes défilent ensemble (une seule grille). */
-.merge-backdrop .merge-dialog {
-  width: min(1100px, 100%);
-}
 .merge-grid {
   display: grid;
   gap: 0;
