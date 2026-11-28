@@ -67,6 +67,7 @@ from ossie_studio.config import Settings
 from ossie_studio.crypto import CryptoService
 from ossie_studio.db import create_pool
 from ossie_studio.db.migrate import run_migrations
+from ossie_studio.domains import rules as _domain_rules  # noqa: F401 — règle de publication des domaines
 from ossie_studio.errors import ApiError, api_error_handler
 from ossie_studio.governance import rules as _governance_rules  # noqa: F401 — enregistre les règles
 from ossie_studio.health import resolve_health
