@@ -51,10 +51,19 @@ def test_objet_et_relation() -> None:
         "carto_objet:application/APP-01",
         "carto_objet:*/DOC-01",
     ]
+    # Ce que le service de la cartographie en lit (ticket 06171fd3).
     assert rel.documents[0].fields == {
         "nom": "Lit",
         "source": "application/APP-01",
         "cible": "DOC-01",
+        "readable": True,
+        "object": {
+            "key": "REL-01",
+            "type": "acces",
+            "name": "Lit",
+            "source": "application/APP-01",
+            "cible": "DOC-01",
+        },
     }
 
 
