@@ -109,6 +109,9 @@ describe('PublishPage', () => {
     expect(calls.filter((c) => c.path.endsWith('/raw-explorer/changes'))).toHaveLength(1)
     expect(await screen.findByRole('region', { name: 'Source S' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'O.schema.yaml' })).toHaveAttribute('href', expect.stringContaining('/sources?'))
+    // Objets raw rangés par leur dossier d'origine (bug 3a451428).
+    const raw = screen.getByRole('list', { name: 'Objets raw (1)' })
+    expect(within(raw).getByRole('button', { name: 'Replier api' })).toHaveTextContent('1 fichier · 1 modifié')
     // Orphelin : hors du brouillon, pas de fusion à ouvrir.
     expect(screen.queryByRole('button', { name: 'ghost.schema.yaml' })).not.toBeInTheDocument()
     // Autres fichiers en arbre, sans répéter sources/s/ (bug 7cfa1921).
@@ -127,6 +130,7 @@ describe('PublishPage', () => {
     renderPage()
     await user.click(await screen.findByRole('button', { name: 'Déplier Sources' }))
     expect(await screen.findByText('O.schema.yaml')).toBeInTheDocument()
-    expect(screen.getByText('s/raw/')).toBeInTheDocument()
+    expect(screen.getByText('s/')).toBeInTheDocument()
+    expect(screen.getByText('raw/')).toBeInTheDocument()
   })
 })
