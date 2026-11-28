@@ -1283,6 +1283,7 @@ export const fr = {
     refImportMappingChosen: 'choisie',
     refImportMappingHint: 'La propriété choisie pour chaque colonne est reprise par « Résoudre le template ».',
     refImportAddProperty: 'Ajouter au modèle ({{name}})',
+    refImportAddPropertyBusy: 'Ajout en cours… ({{name}})',
     refImportAddPropertyFor: 'Ajouter la colonne {{column}} au modèle',
     refImportFormatXlsx: 'Excel (xlsx)',
     refImportReadingXlsx: 'Lecture du classeur',

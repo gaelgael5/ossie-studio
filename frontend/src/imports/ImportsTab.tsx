@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSwitchGuard, useUnsaved } from '../referentiels/unsaved'
 import { useTranslation } from 'react-i18next'
@@ -175,13 +175,38 @@ function ExampleTab({
     (reading.sheet ?? '') !== (detail.sheet ?? '')
   // « Ajouter au modèle » une colonne sans propriété (ticket 221d832b) : le modèle
   // change, la comparaison et ce que la cible affiche se relisent.
-  const addProperty = useMutation({
-    mutationFn: (column: string) => imports.addProperty(detail.slug, column),
-    onSuccess: () =>
-      Promise.all([...imports.invalidates, 'referentielImportPreview', 'draft', 'draftChanges'].map((k) =>
-        queryClient.invalidateQueries({ queryKey: [k] }),
-      )),
-  })
+  // Ticket 1ad8c077 (Gael : « que je puisse les appuyer les uns après les autres sans
+  // attendre ») : les clics vont dans une file, envoyés un par un. En parallèle,
+  // chaque requête relirait et réécrirait le même fichier du type : des
+  // propriétés se perdraient. Une colonne reste « en attente » jusqu'à ce que
+  // l'aperçu relu la montre rattachée.
+  const [adding, setAdding] = useState<ReadonlySet<string>>(new Set())
+  const [addErrors, setAddErrors] = useState<unknown[]>([])
+  const chain = useRef<Promise<void>>(Promise.resolve())
+  const addProperty = (column: string) => {
+    if (adding.has(column)) return
+    // Une nouvelle série efface les erreurs de la précédente, pas celles de la série en cours.
+    if (adding.size === 0) setAddErrors([])
+    setAdding((prev) => new Set(prev).add(column))
+    chain.current = chain.current.then(async () => {
+      try {
+        await imports.addProperty(detail.slug, column)
+        await Promise.all(
+          [...imports.invalidates, 'referentielImportPreview', 'draft', 'draftChanges'].map((k) =>
+            queryClient.invalidateQueries({ queryKey: [k] }),
+          ),
+        )
+      } catch (error) {
+        // Un échec n'arrête pas la file ; la colonne redevient cliquable.
+        setAddErrors((prev) => [...prev, error])
+        setAdding((prev) => {
+          const next = new Set(prev)
+          next.delete(column)
+          return next
+        })
+      }
+    })
+  }
   // La propriété de chaque colonne, choisie à la main (ticket 47716786) : enregistrée
   // dans la déclaration, reprise par « Résoudre le template ».
   const comparison = preview?.comparison ?? []
@@ -324,7 +349,7 @@ function ExampleTab({
         <div className="stack">
           <h4>{t('refImportColumns')}</h4>
           <p className="muted small">{t('refImportMappingHint')}</p>
-          <ErrorList messages={[addProperty.error, setMapping.error].flatMap((e) => (e ? errorMessages(t, e) : []))} />
+          <ErrorList messages={[...addErrors, setMapping.error].flatMap((e) => (e ? errorMessages(t, e) : []))} />
           <table className="table" aria-label={t('refImportColumns')}>
             <thead>
               <tr>
@@ -361,11 +386,13 @@ function ExampleTab({
                       <button
                         type="button"
                         className="btn btn-sm"
-                        disabled={addProperty.isPending}
+                        disabled={adding.has(c.column)}
                         aria-label={t('refImportAddPropertyFor', { column: c.column })}
-                        onClick={() => addProperty.mutate(c.column)}
+                        onClick={() => addProperty(c.column)}
                       >
-                        {t('refImportAddProperty', { name: c.proposed })}
+                        {adding.has(c.column)
+                          ? t('refImportAddPropertyBusy', { name: c.proposed })
+                          : t('refImportAddProperty', { name: c.proposed })}
                       </button>
                     ) : null}
                   </td>

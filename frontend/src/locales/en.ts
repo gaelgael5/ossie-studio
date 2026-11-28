@@ -1281,6 +1281,7 @@ export const en = {
     refImportMappingChosen: 'chosen',
     refImportMappingHint: 'The property chosen for each column is used by “Resolve the template”.',
     refImportAddProperty: 'Add to the model ({{name}})',
+    refImportAddPropertyBusy: 'Adding… ({{name}})',
     refImportAddPropertyFor: 'Add the column {{column}} to the model',
     refImportFormatXlsx: 'Excel (xlsx)',
     refImportReadingXlsx: 'Workbook reading',

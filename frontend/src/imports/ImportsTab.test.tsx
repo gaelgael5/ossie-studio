@@ -422,6 +422,43 @@ describe('Imports — colonnes et modèle (ticket 221d832b)', () => {
     expect(JSON.parse(String(post.body))).toEqual({ column: 'Delai' })
   })
 
+  it('« Ajouter au modèle » en file : un 2e clic sans attendre, envoyés un par un (ticket 1ad8c077)', async () => {
+    const calls = setup()
+    // Deux colonnes sans propriété, et un ajout qui ne répond qu'à la demande.
+    const original = globalThis.fetch as unknown as (path: string, init?: RequestInit) => Promise<Response>
+    const answers: (() => void)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string, init?: RequestInit) => {
+        const response = await original(path, init)
+        if (path === `${BASE}/transporteur/apercu`) {
+          const body = JSON.parse(await response.text())
+          body.comparison = body.comparison.map((c: { column: string }) => (c.column === 'Mode' ? { ...c, property: null } : c))
+          body.properties = ['pays', 'duree']
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) } as unknown as Response
+        }
+        if (path === `${BASE}/transporteur/proprietes`) await new Promise<void>((done) => answers.push(done))
+        return response
+      }),
+    )
+    const user = userEvent.setup()
+    const table = await screen.findByRole('table', { name: 'Colonnes du fichier et propriétés du modèle' })
+    const delai = await within(table).findByRole('button', { name: 'Ajouter la colonne Delai au modèle' })
+    const mode = await within(table).findByRole('button', { name: 'Ajouter la colonne Mode au modèle' })
+    await user.click(delai)
+    expect(delai).toBeDisabled()
+    expect(delai).toHaveTextContent('Ajout en cours… (delai)')
+    expect(mode).toBeEnabled()
+    await user.click(mode)
+    const posts = () => calls.filter((c) => c.path === `${BASE}/transporteur/proprietes`).map((c) => JSON.parse(String(c.body)).column)
+    await waitFor(() => expect(answers).toHaveLength(1))
+    expect(posts()).toEqual(['Delai'])
+    answers[0]()
+    await waitFor(() => expect(answers).toHaveLength(2))
+    expect(posts()).toEqual(['Delai', 'Mode'])
+    answers[1]()
+  })
+
   it('sans le droit de modifier : la liste sans bouton', async () => {
     setup({ readOnly: true })
     const table = await screen.findByRole('table', { name: 'Colonnes du fichier et propriétés du modèle' })
