@@ -32,6 +32,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from ossie_studio.parsers.conventions import SchemaReadError, dump_schema, load_schema
+from ossie_studio.roundtrip import write_document
 
 DOMAINS_DIR = "domaines"
 OSSIE_VERSION = "0.1.1"
@@ -385,33 +386,43 @@ def check_domain(domain: Domain) -> None:
             raise DomainError("reference_dataset_missing", ref.name)
 
 
-def render_domain(domain: Domain) -> dict[str, str | None]:
-    """Texte de chaque fichier du domaine (None : fichier à supprimer), validé.
-    Clés : noms de fichiers relatifs à `domaines/`."""
+def domain_documents(domain: Domain) -> dict[str, dict[str, Any] | None]:
+    """Document de chaque fichier du domaine (None : fichier à supprimer), validé.
+    Clés : noms de fichiers relatifs à `domaines/`. Le document Ossie et le
+    `.extend.yaml` restent deux fichiers distincts : jamais fusionnés sur disque."""
     check_domain(domain)
-    out: dict[str, str | None] = {}
+    out: dict[str, dict[str, Any] | None] = {}
     for suffix, consultable in ((OSSIE_SUFFIX, True), (VIRTUAL_SUFFIX, False)):
         doc = _ossie_document(domain, consultable)
         if doc is not None:
             _check(_ossie_validator(), doc, "ossie_invalid")
-        out[f"{domain.name}{suffix}"] = dump_schema(doc) if doc is not None else None
+        out[f"{domain.name}{suffix}"] = doc
     extend = _extend_document(domain)
     _check(_extend_validator(), extend, "extend_invalid")
-    out[f"{domain.name}{EXTEND_SUFFIX}"] = dump_schema(extend)
+    out[f"{domain.name}{EXTEND_SUFFIX}"] = extend
     return out
+
+
+def render_domain(domain: Domain) -> dict[str, str | None]:
+    """Texte neuf de chaque fichier du domaine (None : fichier à supprimer)."""
+    return {
+        name: dump_schema(doc) if doc is not None else None
+        for name, doc in domain_documents(domain).items()
+    }
 
 
 def write_domain(root: Path, domain: Domain) -> None:
     """Écrit les fichiers du domaine dans la copie `root` (le brouillon)."""
-    texts = render_domain(domain)
+    documents = domain_documents(domain)
     base = root / DOMAINS_DIR
     base.mkdir(parents=True, exist_ok=True)
-    for name, text in texts.items():
+    for name, doc in documents.items():
         target = base / name
-        if text is None:
+        if doc is None:
             target.unlink(missing_ok=True)
         else:
-            target.write_text(text, encoding="utf-8")
+            # Aller-retour (14bb8eb8) : seules les lignes changées bougent.
+            write_document(target, doc, dump_schema)
 
 
 def delete_domain(root: Path, name: str) -> bool:

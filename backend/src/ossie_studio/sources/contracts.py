@@ -18,6 +18,7 @@ from typing import Any
 import yaml
 
 from ossie_studio.parsers.openapi import OPENAPI_PARSER_ID
+from ossie_studio.roundtrip import write_document
 from ossie_studio.sources.collect_core import (
     RAW_DIR,
     checksum,
@@ -123,12 +124,24 @@ def parse_index(text: str) -> list[ContractEntry]:
     return [_entry_from_row(row) for row in rows if isinstance(row, dict)]
 
 
-def dump_index(entries: list[ContractEntry]) -> str:
-    mapping = {
+def index_document(entries: list[ContractEntry]) -> dict[str, Any]:
+    return {
         "version": CONTRATS_INDEX_VERSION,
         "contracts": [e.to_mapping() for e in sorted(entries, key=lambda e: e.version)],
     }
-    return yaml.safe_dump(mapping, sort_keys=False, allow_unicode=True, default_flow_style=False)
+
+
+def dump_index(entries: list[ContractEntry]) -> str:
+    return yaml.safe_dump(
+        index_document(entries), sort_keys=False, allow_unicode=True, default_flow_style=False
+    )
+
+
+def _write_index(contrats_dir: Path, entries: list[ContractEntry]) -> None:
+    """Index des contrats en aller-retour (14bb8eb8)."""
+    write_document(
+        contrats_dir / CONTRATS_INDEX, index_document(entries), lambda _d: dump_index(entries)
+    )
 
 
 def _read_index_dir(contrats_dir: Path) -> list[ContractEntry]:
@@ -191,7 +204,7 @@ def deposit_contract_fn(
         (contrats_dir / entry.file).write_bytes(content)
         kept = [e for e in entries if e.version != entry.version]
         kept.append(entry)
-        (contrats_dir / CONTRATS_INDEX).write_text(dump_index(kept), encoding="utf-8")
+        _write_index(contrats_dir, kept)
 
     return write
 
@@ -209,7 +222,7 @@ def remove_contract_fn(slug: str, version: str) -> Callable[[Path], None]:
             raise ContractNotFoundError(version)
         (contrats_dir / target.file).unlink(missing_ok=True)
         kept = [e for e in entries if e.version != version]
-        (contrats_dir / CONTRATS_INDEX).write_text(dump_index(kept), encoding="utf-8")
+        _write_index(contrats_dir, kept)
         _drop_schemas(workdir, slug, target.file)
 
     return write

@@ -12,11 +12,13 @@ from ossie_studio.imports.declaration import (
     Import,
     ImportDeclaration,
     check_declaration,
+    declaration_document,
     dump_declaration,
     example_name,
     parse_declaration,
 )
 from ossie_studio.imports.errors import ImportsError
+from ossie_studio.roundtrip import write_document
 from ossie_studio.slugs import is_valid_slug
 
 
@@ -86,7 +88,8 @@ def write_import(
     if not create and not declaration.is_file():
         raise ImportsError("import_not_found", 404, slug=decl.slug)
     yaml_rel, jslt_rel, example_rel = import_paths(folder, decl)
-    _write_text(root, yaml_rel, dump_declaration(decl))
+    # Aller-retour (14bb8eb8) : la déclaration garde commentaires et forme.
+    write_document(root / yaml_rel, declaration_document(decl), lambda _d: dump_declaration(decl))
     _write_text(root, jslt_rel, template)
     target = root / example_rel
     target.parent.mkdir(parents=True, exist_ok=True)

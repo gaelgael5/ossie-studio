@@ -24,6 +24,7 @@ from typing import Any
 import yaml
 
 from ossie_studio.governance.tags import is_valid_tag_id
+from ossie_studio.roundtrip import write_document
 
 GOVERNANCE_DIR = "governance"
 TAGS_DIR = f"{GOVERNANCE_DIR}/tags"
@@ -99,9 +100,8 @@ def _files(root: Path, folder: str) -> list[Path]:
 
 
 def _write(root: Path, rel: str, data: Any) -> None:
-    target = root / rel
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(_dump(data), encoding="utf-8")
+    # Aller-retour (14bb8eb8) : sur un fichier existant, seules les lignes changées.
+    write_document(root / rel, data, _dump)
 
 
 def _remove(root: Path, rel: str) -> bool:

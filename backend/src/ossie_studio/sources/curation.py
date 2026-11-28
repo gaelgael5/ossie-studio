@@ -21,6 +21,7 @@ from ossie_studio.parsers.conventions import (
     is_schema_name,
     load_schema,
 )
+from ossie_studio.roundtrip import write_document
 from ossie_studio.sources.asset_files import (
     HUMAN_KEYS,
     dump_asset,
@@ -816,6 +817,6 @@ def set_tri_rules_fn(slug: str, rules: list[dict[str, Any]]) -> Callable[[Path],
             raise FileNotFoundError(slug)
         manifest = parse_manifest(manifest_file.read_text(encoding="utf-8"))
         updated = replace(manifest, triage=rules)
-        manifest_file.write_text(dump_manifest(updated), encoding="utf-8")
+        write_document(manifest_file, updated.to_mapping(), lambda _m: dump_manifest(updated))
 
     return write

@@ -45,6 +45,7 @@ from typing import Any
 import yaml
 
 from ossie_studio.governance.repo import GOVERNANCE_DIR, Scheme
+from ossie_studio.roundtrip import write_yaml
 
 CLASSIFICATION_RULES_DIR = f"{GOVERNANCE_DIR}/classification-rules"
 
@@ -228,12 +229,7 @@ def rule_document(rule: ClassificationRule) -> dict[str, Any]:
 def write_classification_rule(root: Path, rule: ClassificationRule) -> None:
     target = root / rule_path(rule.id)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        yaml.safe_dump(
-            rule_document(rule), sort_keys=False, allow_unicode=True, default_flow_style=False
-        ),
-        encoding="utf-8",
-    )
+    write_yaml(target, rule_document(rule))
 
 
 def delete_classification_rule(root: Path, rule_id: str) -> bool:
@@ -272,10 +268,7 @@ def write_builtin_disabled(root: Path, disabled: set[str]) -> None:
             file.unlink()
         return
     file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(
-        yaml.safe_dump({"disabled": sorted(disabled)}, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    write_yaml(file, {"disabled": sorted(disabled)})
 
 
 def active_classification_rules(root: Path) -> list[ClassificationRule]:
@@ -398,10 +391,7 @@ def write_classification_removals(root: Path, removals: list[ClassificationRemov
             for r in sorted(unique.values(), key=lambda r: r.key)
         ]
     }
-    target.write_text(
-        yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False),
-        encoding="utf-8",
-    )
+    write_yaml(target, doc)
 
 
 def removal_counts(removals: list[ClassificationRemoval]) -> dict[str, int]:

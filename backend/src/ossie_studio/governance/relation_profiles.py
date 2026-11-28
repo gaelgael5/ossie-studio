@@ -44,6 +44,7 @@ import yaml
 
 from ossie_studio.governance.repo import GOVERNANCE_DIR
 from ossie_studio.governance.tag_rules import BUILTIN_PREFIX, _compiled, is_valid_rule_id
+from ossie_studio.roundtrip import write_yaml
 
 RELATION_PROFILES_DIR = f"{GOVERNANCE_DIR}/relation-profiles"
 # À incrémenter quand le profil fourni change : les index se reconstruisent.
@@ -228,10 +229,7 @@ def all_profiles(root: Path) -> dict[str, RelationProfile]:
 def write_profile(root: Path, profile: RelationProfile) -> None:
     target = root / profile_path(profile.id)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        yaml.safe_dump(profile_document(profile), sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    write_yaml(target, profile_document(profile))
 
 
 def delete_profile(root: Path, profile_id: str) -> bool:

@@ -71,11 +71,36 @@ def test_3_json_indentation_et_ordre_des_cles() -> None:
 
 
 def test_4_ajout_dans_une_liste_d_objets_sans_reordonner() -> None:
-    old = "items:\n- name: c\n  v: 3\n- name: a\n  v: 1\n"
+    old = "items:\n- name: a  # premier\n  v: 1\n- name: c\n  v: 3\n"
     new = {"items": [{"name": "a", "v": 1}, {"name": "b", "v": 2}, {"name": "c", "v": 3}]}
     out = update_yaml(old, new, _fresh)
-    # L'ordre existant (c, a) reste ; b se place après son prédécesseur a.
-    assert [i["name"] for i in yaml.safe_load(out)["items"]] == ["c", "a", "b"]
+    # Les éléments existants ne bougent pas, b s'insère à sa place ; le
+    # commentaire du premier reste.
+    assert [i["name"] for i in yaml.safe_load(out)["items"]] == ["a", "b", "c"]
+    assert "# premier" in out
+
+
+def test_4b_reordonnancement_voulu_respecte_ou_ordre_du_fichier_garde() -> None:
+    old = "items:\n- name: c\n  v: 3\n- name: a\n  v: 1\n"
+    new = {"items": [{"name": "a", "v": 1}, {"name": "b", "v": 2}, {"name": "c", "v": 3}]}
+    # Par défaut, l'ordre voulu par l'application fait foi (niveaux réordonnés…).
+    assert [i["name"] for i in yaml.safe_load(update_yaml(old, new, _fresh))["items"]] == [
+        "a",
+        "b",
+        "c",
+    ]
+    # keep_order (valeurs.json) : ordre du fichier, b après son prédécesseur a.
+    kept = update_yaml(old, new, _fresh, keep_order=True)
+    assert [i["name"] for i in yaml.safe_load(kept)["items"]] == ["c", "a", "b"]
+
+
+def test_partie_nouvelle_au_style_de_l_application() -> None:
+    def flow(value: Any) -> str:
+        return yaml.safe_dump(value, sort_keys=False, default_flow_style=None)
+
+    old = "# graphique\nnoeuds:\n  A: {x: 1, y: 2}\n"
+    out = update_yaml(old, {"noeuds": {"A": {"x": 1, "y": 2}, "B": {"x": 3, "y": 4}}}, flow)
+    assert out == "# graphique\nnoeuds:\n  A: {x: 1, y: 2}\n  B: {x: 3, y: 4}\n"
 
 
 def test_5_ecriture_sans_changement_aucun_diff(tmp_path: Path) -> None:
@@ -194,3 +219,73 @@ def test_referentiel_valeurs_ordre_garde_nouvelle_valeur_a_sa_place(tmp_path: Pa
     # Ordre gardé (FR, DE) ; ES après son prédécesseur dans l'ordre des clés (DE).
     assert [v["code"] for v in json.loads(after)] == ["FR", "DE", "ES"]
     assert all(line.startswith("+") for line in _changed(before, after))
+
+
+# --- Lot b : domaines, assets, gouvernance, imports (14bb8eb8) ---------------------
+
+
+def test_domaine_extend_commente_garde_ses_commentaires(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from ossie_studio.domains.documents import Domain, read_domain, write_domain
+
+    write_domain(tmp_path, Domain(name="pudo", label="Pudo"))
+    extend = tmp_path / "domaines/pudo.extend.yaml"
+    before = "# domaine relu en comité\n" + extend.read_text()
+    extend.write_text(before)
+    domain = read_domain(tmp_path, "pudo")
+    assert domain is not None
+    write_domain(tmp_path, replace(domain, label="Pudo au colis"))
+    after = extend.read_text()
+    assert after.startswith("# domaine relu en comité\n")
+    assert [line for line in _changed(before, after) if "label" not in line] == []
+
+
+def test_asset_extend_ne_change_que_la_description(tmp_path: Path) -> None:
+    from ossie_studio.sources.asset_files import load_asset, write_asset
+
+    file = tmp_path / "sources/s/assets/commande.schema.yaml"
+    write_asset(file, {"$id": "commande.schema.yaml", "title": "Commande", "x-description": "A"})
+    ext = file.with_name("commande.extend.yaml")
+    before = "# travail de l'équipe data\n" + ext.read_text()
+    ext.write_text(before)
+    asset = load_asset(file)
+    asset["x-description"] = "B"
+    schema_before = file.read_text()
+    write_asset(file, asset)
+    assert file.read_text() == schema_before  # schéma inchangé : pas réécrit
+    after = ext.read_text()
+    assert after.startswith("# travail de l'équipe data\n")
+    assert len(_changed(before, after)) == 2
+
+
+def test_regle_de_tags_commentee(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from ossie_studio.governance.tag_rules import TagRule, rule_path, write_tag_rule
+
+    rule = TagRule("pii", "PII", ("*.cs",), {"name": ("email",)}, ("pii",))
+    write_tag_rule(tmp_path, rule)
+    target = tmp_path / rule_path("pii")
+    before = "# validée par la gouvernance\n" + target.read_text()
+    target.write_text(before)
+    write_tag_rule(tmp_path, replace(rule, name="Données personnelles"))
+    after = target.read_text()
+    assert _changed(before, after) == ["-name: PII", "+name: Données personnelles"]
+
+
+def test_declaration_d_import_commentee(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from ossie_studio.imports.declaration import ImportDeclaration
+    from ossie_studio.imports.files import write_import
+
+    decl = ImportDeclaration("pays", "Pays", "csv", separator=";")
+    write_import(tmp_path, "referentiels/r/imports", decl, "{}", b"a;b\n", create=True)
+    target = tmp_path / "referentiels/r/imports/pays.yaml"
+    before = "# fichier fourni par la DSI\n" + target.read_text()
+    target.write_text(before)
+    write_import(tmp_path, "referentiels/r/imports", replace(decl, label="Pays ISO"),
+                 "{}", b"a;b\n", create=False)  # fmt: skip
+    after = target.read_text()
+    assert _changed(before, after) == ["-label: Pays", "+label: Pays ISO"]

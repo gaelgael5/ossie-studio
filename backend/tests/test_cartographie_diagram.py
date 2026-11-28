@@ -318,7 +318,11 @@ def test_controle_5_entree_du_graphique_ignoree_et_signalee(root: Path) -> None:
     assert read.diagram is not None
     warnings = save_diagram(root, SLUG, read.diagram, read.graphic, create=False)
     assert {p.detail for p in warnings} == {"N9", "VUE-ABSENTE"}
-    assert graphic.read_text(encoding="utf-8") == GRAPHIC_WRITTEN  # non réécrites
+    # Entrées inconnues retirées ; le reste garde la forme du fichier (écriture en
+    # aller-retour, enabler 14bb8eb8) : la liste de points reste sur une ligne.
+    assert graphic.read_text(encoding="utf-8") == GRAPHIC_WRITTEN.replace(
+        "        points:\n        - {x: 400, y: 95}\n", "        points: [{x: 400, y: 95}]\n"
+    )
 
 
 def test_autres_incoherences_signalees(root: Path) -> None:

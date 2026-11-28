@@ -34,6 +34,7 @@ from ossie_studio.parsers.conventions import (
     is_schema_name,
     load_schema,
 )
+from ossie_studio.roundtrip import write_document
 
 EXTEND_SUFFIX = ".extend.yaml"
 
@@ -157,14 +158,15 @@ def load_asset(file: Path) -> dict[str, Any]:
 def write_asset(file: Path, asset: dict[str, Any]) -> None:
     """Écrit l'asset en deux fichiers ; supprime le `.extend.yaml` s'il n'y a plus
     de travail humain."""
-    schema_text, extend_text = dump_asset(asset)
-    file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(schema_text, encoding="utf-8")
+    schema, extend = split_asset(asset)
+    # Aller-retour (14bb8eb8) : chaque fichier ne change que là où il change ; le
+    # schéma et son `.extend.yaml` restent deux fichiers distincts.
+    write_document(file, schema, dump_schema)
     ext_file = file.with_name(extend_name(file.name))
-    if extend_text is None:
+    if not extend:
         ext_file.unlink(missing_ok=True)
     else:
-        ext_file.write_text(extend_text, encoding="utf-8")
+        write_document(ext_file, extend, dump_schema)
 
 
 def remove_asset(file: Path) -> None:
