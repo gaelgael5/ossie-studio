@@ -150,6 +150,12 @@ export interface MergeView {
   mine_absent: boolean
   proposed: unknown
   conflicts: MergeConflict[]
+  /** Fenêtre graphique (feature fcf32f4a) : marque d'un conflit non tranché. */
+  marker: string
+  /** Blocs pris d'un seul côté sans décision. */
+  auto: number
+  /** Fichiers entiers ; `proposed` : le milieu, chaque conflit marqué. */
+  texts: { base: string | null; theirs: string | null; mine: string | null; proposed: string | null }
 }
 
 export type MergeChoice = 'theirs' | 'mine' | { value: unknown }
@@ -3007,7 +3013,7 @@ export const api = {
   resolveMerge: (
     spaceId: string,
     branchId: string,
-    body: { path: string; resolutions?: Record<string, MergeChoice>; delete?: boolean },
+    body: { path: string; resolutions?: Record<string, MergeChoice>; delete?: boolean; content?: string },
   ) =>
     apiFetch<{ path: string; merged: boolean }>(`/api/spaces/${spaceId}/branches/${branchId}/draft/merge`, {
       method: 'POST',

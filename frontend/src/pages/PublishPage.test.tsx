@@ -89,6 +89,7 @@ function mockApi(readiness: Readiness, options: { changesFail?: boolean; state?:
           path: 'sources/s/raw/O.schema.yaml', state: 'modified', changed_upstream: true, readonly: true, collected: true,
           kind: 'conflict', structured: true, base: { a: 1 }, theirs: { a: 3 }, mine: { a: 2 }, theirs_absent: false,
           mine_absent: false, proposed: null, conflicts: [{ pointer: '/a', base: 1, theirs: 3, mine: 2 }],
+          marker: '⟨ à choisir ⟩', auto: 0, texts: { base: 'a: 1\n', theirs: 'a: 3\n', mine: 'a: 2\n', proposed: null },
         }
       else if (path.endsWith('/draft')) body = DRAFT
       else if (path.endsWith('/readiness'))

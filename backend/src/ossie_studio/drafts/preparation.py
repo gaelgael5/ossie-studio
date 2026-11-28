@@ -35,6 +35,7 @@ from ossie_studio.doc_index.state import ValidationState, view_state
 from ossie_studio.doc_index.store import ViewKey, db_view_problems
 from ossie_studio.drafts.impacts import Impact, compute_impacts, fingerprint
 from ossie_studio.drafts.merge import (
+    CONFLICT_MARKER,
     MISSING,
     Conflict,
     ObjectMerge,
@@ -157,7 +158,45 @@ def merge_detail(obj: DraftObject, v: ObjectVersions) -> dict[str, Any]:
         "mine_absent": mine is None,
         "proposed": _json(proposed),
         "conflicts": conflicts_payload(merged) if merged else [],
+        # Fenêtre graphique (feature fcf32f4a) : les fichiers entiers, et au milieu
+        # la fusion proposée, chaque conflit marqué.
+        "marker": CONFLICT_MARKER,
+        "auto": len(merged.auto) if merged else 0,
+        "texts": {
+            "base": _text(v.base),
+            "theirs": _text(v.theirs if upstream else v.base),
+            "mine": _text(mine),
+            "proposed": proposed_text(obj.path, merged) if merged else None,
+        },
     }
+
+
+def _text(data: bytes | None) -> str | None:
+    return data.decode("utf-8", errors="replace") if data is not None else None
+
+
+def proposed_text(path: str, merged: ObjectMerge) -> str | None:
+    """Le texte du milieu de la fenêtre : la fusion proposée, écrite sur le
+    brouillon, chaque conflit remplacé par la marque `CONFLICT_MARKER` — jamais un
+    choix fait à la place de l'utilisateur. Repli texte : les marques de
+    `git merge-file`."""
+    if merged.kind == "text_conflict":
+        return _text(merged.marked)
+    if merged.kind in DELETION_KINDS or merged.result is None:
+        return _text(merged.result)
+    if not (merged.structured and merged.conflicts):
+        return _text(merged.result)
+    document = parse(path, merged.result)
+    for conflict in merged.conflicts:
+        document = set_pointer(document, conflict.pointer, CONFLICT_MARKER)
+    return serialize(path, document, like=merged.result).decode("utf-8")
+
+
+def unresolved_text(text: str) -> bool:
+    """Un conflit reste-t-il dans un texte validé depuis la fenêtre ?"""
+    if CONFLICT_MARKER in text or CONFLICT_MARKER.encode("unicode_escape").decode() in text:
+        return True
+    return any(line.startswith(("<<<<<<< ", ">>>>>>> ")) for line in text.splitlines())
 
 
 @dataclass(frozen=True)
@@ -200,9 +239,18 @@ def resolved_content(
     resolutions: Mapping[str, Any],
     delete: bool | None,
     theirs: bytes | None,
+    content: str | None = None,
 ) -> bytes | None:
     """Contenu final de l'objet après les choix (None = supprimé). Lève
-    merge_unresolved si un conflit reste sans choix."""
+    merge_unresolved si un conflit reste sans choix. `content` : le texte du
+    milieu de la fenêtre graphique (feature fcf32f4a), enregistré tel quel."""
+    if content is not None and merged.kind not in DELETION_KINDS:
+        if unresolved_text(content):
+            raise ApiError("merge_unresolved", status_code=400, pointers=[""])
+        _refuse_unreadable(path, content)
+        # Tel quel : l'utilisateur a vu et validé ce texte ; le réécrire changerait
+        # ce qu'il a validé.
+        return content.encode("utf-8")
     if merged.kind in DELETION_KINDS:
         if delete is None:
             raise ApiError("merge_unresolved", status_code=400, pointers=[""])
@@ -316,6 +364,7 @@ async def resolve_merge(
     delete: bool | None,
     *,
     strict: bool = False,
+    content: str | None = None,
 ) -> tuple[Draft, ObjectMerge]:
     """Enregistre la version réconciliée d'un objet, sous le verrou du
     brouillon : une écriture concurrente ne peut pas écraser la fusion.
@@ -337,8 +386,8 @@ async def resolve_merge(
             unknown = sorted(set(resolutions) - _decision_pointers(merged))
             if unknown:
                 raise ApiError("merge_pointer_not_found", status_code=400, pointers=unknown)
-        content = resolved_content(path, merged, resolutions, delete, v.theirs)
-        await rebase(conn, draft, path, v.current_blob, v.theirs, content)
+        result = resolved_content(path, merged, resolutions, delete, v.theirs, content)
+        await rebase(conn, draft, path, v.current_blob, v.theirs, result)
     return draft, merged
 
 
