@@ -226,3 +226,26 @@ Gael : l'index est « un outil de validation **et un outil de recherche** ».
   `jsonb` (elle était encodée deux fois, illisible pour les requêtes) ; un contenu
   inchangé mais indexé par une version plus ancienne de l'extraction est réindexé sur
   place à la comparaison suivante (sans être compté comme nouveau ni à revalider).
+
+## Recherche par l'index (1/6) : schémas raw, assets, extensions, points d'entrée (ticket 4618ee38)
+
+Gael : « tout mettre dans l'index des documents », pour qu'il n'y ait qu'un seul index à
+terme (l'Explorateur raw y passera dans un ticket à part, et la table
+`raw_explorer_index` disparaîtra).
+
+- **Faits d'un fichier** (`sources/raw_facts.py`, `file_facts`, colonne
+  `doc_index_content.facts`, migration `0058`) : pour un fichier de
+  `sources/<source>/`, ce que l'Explorateur et la curation en lisent, calculé par leurs
+  propres fonctions. Rôles : `source_manifest`, `raw_schema` (résumé `_summarize` et
+  ce que lisent la rétention et les règles de tri), `raw_view` (ancres), `raw_extend`
+  (compteurs, synthèse, points d'entrée seulement), `tech_manifest`, `docs`,
+  `contracts`, `asset_schema`. Jamais de contenu entier. `INDEXER_VERSION` 4.
+- **Une seule règle, deux sources de faits** : `collect_source_entries` passe par
+  `build_source_entries` (`RawLayer`), `list_curation` par `curation_objects`, et
+  `module_detail` accepte des extensions déjà lues. `IndexedSources` /
+  `IndexedSource` reconstruisent une source depuis l'index pour ces mêmes fonctions.
+- **Listes** : `schema_raw`, `schema_asset`, `extension_raw` et `point_entree` sont
+  listés par l'index (`index_facts: "sources/"` dans le registre). Les listes de
+  `mcp_surface/document_type_lists.py` passent par un fournisseur de sources
+  (`_FileSources` ou `_IndexSources`) : le même code de liste pour les deux.
+- `read_document` d'un point d'entrée lit toujours les fichiers.
