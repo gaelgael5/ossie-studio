@@ -4748,3 +4748,125 @@ urban-bpmn {
   border-color: var(--border-strong);
   font-family: inherit;
 }
+
+/* Fenêtre de fusion en trois colonnes (features d727680a, edaddc6d) : publiée |
+   résultat | brouillon ; les colonnes défilent ensemble (une seule grille). */
+.merge-backdrop .merge-dialog {
+  width: min(1100px, 100%);
+}
+.merge-grid {
+  display: grid;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.merge-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
+  border-top: 1px solid var(--border);
+}
+.merge-row:first-child {
+  border-top: none;
+}
+.merge-head {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.merge-head > span {
+  padding: 8px 10px;
+}
+.merge-head > span:nth-child(2) {
+  text-align: center;
+}
+.merge-row-pending .merge-result {
+  background: var(--warn-bg, #fff7e0);
+}
+.merge-cell {
+  padding: 8px 10px;
+  min-width: 0;
+}
+.merge-side {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  word-break: break-word;
+}
+.merge-side .mono {
+  flex: 1;
+  font-size: 0.85rem;
+}
+.merge-side:first-child .merge-arrow {
+  margin-left: auto;
+}
+.merge-pointer {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  flex-basis: 100%;
+}
+.merge-side:first-child {
+  flex-wrap: wrap;
+}
+.merge-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+.merge-arrow {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.merge-arrow-applied {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.input-invalid {
+  border-color: var(--danger);
+}
+.merge-text {
+  margin: 0;
+  max-height: 60vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+}
+.merge-textarea {
+  min-height: 240px;
+  font-size: 0.8rem;
+}
+.merge-row-text .merge-side {
+  flex-direction: column;
+}
+.merge-row-text .merge-side:last-child {
+  align-items: flex-start;
+}
+.merge-row-text .merge-side:first-child .merge-arrow {
+  align-self: flex-end;
+}
+.merge-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.merge-footer {
+  justify-content: flex-end;
+}
+@media (max-width: 760px) {
+  .merge-row {
+    grid-template-columns: 1fr;
+  }
+  .merge-result {
+    border: none;
+  }
+}

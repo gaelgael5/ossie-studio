@@ -165,6 +165,8 @@ ERROR_CODES: tuple[str, ...] = (
     "draft_object_too_large",
     "draft_object_not_found",
     "merge_collected_readonly",
+    "merge_choice_invalid",
+    "merge_value_invalid",
     "merge_unresolved",
     "impact_not_found",
     "warning_not_found",

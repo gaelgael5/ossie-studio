@@ -205,27 +205,59 @@ def resolved_content(
         if delete:
             return None
         return merged.result if merged.kind == "deleted_upstream" else theirs
-    if merged.kind == "text_conflict":
+    if merged.kind in ("text", "text_conflict"):
         choice = resolutions.get("")
         if choice == "theirs":
             return theirs
         if choice == "mine":
-            return merged.result
+            mine = merged.mine if isinstance(merged.mine, str) else None
+            if merged.kind == "text_conflict" or mine is None:
+                return merged.result
+            return mine.encode()
         if isinstance(choice, dict) and isinstance(choice.get("value"), str):
-            return str(choice["value"]).encode("utf-8")
+            text = str(choice["value"])
+            _refuse_unreadable(path, text)
+            return text.encode("utf-8")
+        if merged.kind == "text":
+            return merged.result  # fusion automatique gardée telle quelle
         raise ApiError("merge_unresolved", status_code=400, pointers=[""])
-    if merged.kind == "conflict":
+    if merged.kind in ("conflict", "auto") and merged.structured:
         missing = [c.pointer for c in merged.conflicts if c.pointer not in resolutions]
         if missing:
             raise ApiError("merge_unresolved", status_code=400, pointers=missing)
+        if not resolutions:
+            return merged.result
         document = parse(path, merged.result)
-        for conflict in merged.conflicts:
-            value = _choice(resolutions[conflict.pointer], conflict)
-            document = set_pointer(document, conflict.pointer, value)
+        conflicts = {c.pointer: c for c in merged.conflicts}
+        # Fenêtre en trois colonnes (feature d727680a) : une flèche ou une retouche
+        # peut porter sur n'importe quel bloc, pas seulement un conflit — reprendre
+        # un bloc fusionné automatiquement, retirer un bloc ajouté d'un seul côté
+        # (`{"remove": true}`). Le calcul de la fusion, lui, ne change pas.
+        for pointer, choice in sorted(resolutions.items()):
+            if isinstance(choice, dict) and choice.get("remove") is True:
+                value: Any = MISSING
+            elif pointer in conflicts:
+                value = _choice(choice, conflicts[pointer])
+            elif isinstance(choice, dict) and "value" in choice:
+                value = choice["value"]
+            else:
+                raise ApiError("merge_choice_invalid", status_code=400, pointer=pointer)
+            document = set_pointer(document, pointer, value)
         # Les choix s'écrivent sur le résultat proposé (lui-même écrit sur le
         # brouillon) : seules les lignes tranchées changent (14bb8eb8).
         return serialize(path, document, like=merged.result)
     return merged.result
+
+
+def _refuse_unreadable(path: str, text: str) -> None:
+    """Un résultat retouché à la main doit rester lisible (feature edaddc6d) :
+    jamais de YAML ou de JSON cassé dans le brouillon."""
+    if not is_structured(path):
+        return
+    try:
+        parse(path, text.encode("utf-8"))
+    except (ValueError, yaml.YAMLError) as exc:
+        raise ApiError("merge_value_invalid", status_code=400, path=path) from exc
 
 
 def _decision_pointers(merged: ObjectMerge) -> set[str]:

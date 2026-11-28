@@ -8,7 +8,7 @@ import { Link } from 'react-router-dom'
 // Dans une ligne de tableau ou un élément de liste, le style les efface
 // légèrement et les rend nettes au survol de la ligne (Gael, 28/11).
 
-export type IconName = 'edit' | 'delete' | 'up' | 'down' | 'remove' | 'close'
+export type IconName = 'edit' | 'delete' | 'up' | 'down' | 'remove' | 'close' | 'right' | 'left'
 
 const PATHS: Record<IconName, ReactNode> = {
   edit: (
@@ -28,6 +28,9 @@ const PATHS: Record<IconName, ReactNode> = {
   up: <path d="M9.5 15V4M5 8.5l4.5-4.5 4.5 4.5" />,
   down: <path d="M9.5 4v11M5 10.5l4.5 4.5 4.5-4.5" />,
   remove: <path d="M5.5 5.5l8 8M13.5 5.5l-8 8" />,
+  // Flèches de la fenêtre de fusion (feature d727680a).
+  right: <path d="M4 9.5h11M10.5 5l4.5 4.5-4.5 4.5" />,
+  left: <path d="M15 9.5H4M8.5 5L4 9.5 8.5 14" />,
   close: <path d="M5 5l9 9M14 5l-9 9" />,
 }
 

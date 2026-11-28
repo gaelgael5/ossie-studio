@@ -1,31 +1,40 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import { parse as parseYaml } from 'yaml'
 import { api } from '../apiClient'
-import type { MergeChoice, MergeConflict, MergeView } from '../apiClient'
+import type { MergeChoice, MergeView } from '../apiClient'
 import { errorMessages } from '../errors'
-import { parseFree, show } from '../mergeUtils'
+import { type At, editText, getAt, mergeBlocks, readEdit, sameAt, setAt, show } from '../mergeUtils'
 import { ErrorList } from './ErrorList'
+import { Icon } from './IconButton'
 import { PropertyDiff } from './PropertyDiff'
 
-type Pick = 'theirs' | 'mine' | 'free'
+// Fenêtre de fusion d'un objet du brouillon, en panneau à droite (bug d45bbc68).
+//
+// Feature d727680a (Gael, 28/11 : « mettre la fusion au milieu » ; « un petit bouton
+// sur les blocs à fusionner […] une flèche qui va vers la droite […] une flèche qui
+// pointe vers la gauche ») : trois colonnes, version publiée | résultat | brouillon.
+// Chaque bloc qui diffère porte une flèche de chaque côté ; plus de gros boutons de
+// choix. Feature edaddc6d (« rends la colonne du milieu modifiable directement ») :
+// le résultat se retouche sur place, les flèches continuent de marcher, leur état
+// se déduit de la valeur en place.
+//
+// Un bloc est une propriété pour un objet structuré (règle de la fusion par
+// propriétés, jamais ligne à ligne) ; pour un fichier de structure inconnue, le
+// fichier entier est un seul bloc, modifiable. Objet raw : deux colonnes en lecture
+// seule (ticket 173c6ed6). Sans changement côté publié : lecture seule.
 
-// Fenêtre de fusion d'un objet du brouillon : la version publiée à gauche, la
-// mienne à droite, en propriétés. Une propriété changée des deux côtés demande
-// un choix (publiée / la mienne / saisie libre). Sans changement côté publié :
-// lecture seule, pour voir la correspondance des modifications.
+type Body = { resolutions?: Record<string, MergeChoice>; delete?: boolean }
+
 export function MergeDialog(props: { spaceId: string; branchId: string; path: string; onClose: () => void }) {
   const { spaceId, branchId, path, onClose } = props
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [picks, setPicks] = useState<Record<string, Pick>>({})
-  const [free, setFree] = useState<Record<string, string>>({})
   const [messages, setMessages] = useState<string[]>([])
   const view = useQuery({ queryKey: ['merge', spaceId, branchId, path], queryFn: () => api.draftMerge(spaceId, branchId, path) })
-
   const save = useMutation({
-    mutationFn: (body: { resolutions?: Record<string, MergeChoice>; delete?: boolean }) =>
-      api.resolveMerge(spaceId, branchId, { path, ...body }),
+    mutationFn: (body: Body) => api.resolveMerge(spaceId, branchId, { path, ...body }),
     onSuccess: async () => {
       await queryClient.invalidateQueries()
       onClose()
@@ -33,23 +42,7 @@ export function MergeDialog(props: { spaceId: string; branchId: string; path: st
     onError: (err) => setMessages(errorMessages(t, err)),
   })
 
-  const data = view.data
-  const choice = (pointer: string): MergeChoice | null => {
-    const pick = picks[pointer]
-    if (pick === 'theirs' || pick === 'mine') return pick
-    if (pick === 'free') return { value: parseFree(free[pointer] ?? '') }
-    return null
-  }
-  const pointers = data?.kind === 'text_conflict' ? [''] : (data?.conflicts ?? []).map((c) => c.pointer)
-  const complete = pointers.every((p) => choice(p) !== null)
-  const submit = () => {
-    setMessages([])
-    const resolutions: Record<string, MergeChoice> = {}
-    for (const p of pointers) resolutions[p] = choice(p) as MergeChoice
-    save.mutate({ resolutions })
-  }
-
-  // Échap referme, comme « Fermer ».
+  // Échap referme, comme « Fermer » ; rien n'est enregistré sans « Valider ».
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -58,10 +51,11 @@ export function MergeDialog(props: { spaceId: string; branchId: string; path: st
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // Fenêtre par-dessus la page (bug d45bbc68) : rendue en section ordinaire après
-  // la liste, elle s'ouvrait en bas de l'écran de publication, hors de la vue, et
-  // le clic semblait sans effet. Gael : « que la fenêtre de fusion apparaisse sur
-  // la droite en mode popup » — panneau à droite, la liste reste visible à gauche.
+  const data = view.data
+  const submit = (body: Body) => {
+    setMessages([])
+    save.mutate(body)
+  }
   return (
     <div
       className="dialog-backdrop merge-backdrop"
@@ -70,44 +64,49 @@ export function MergeDialog(props: { spaceId: string; branchId: string; path: st
         if (e.target === e.currentTarget) onClose()
       }}
     >
-    <section role="dialog" aria-modal="true" aria-label={t('mergeTitle', { path })} className="panel panel-form stack dialog-panel dialog-wide merge-dialog">
-      <div className="panel-head">
-        <h3 className="panel-title">{t('mergeTitle', { path })}</h3>
-        <button type="button" className="btn btn-sm" onClick={onClose}>
-          {t('close')}
-        </button>
-      </div>
-      <ErrorList messages={[...messages, ...(view.error ? errorMessages(t, view.error) : [])]} />
-      {/* Sur l'écran de publication, la fusion peut attendre les calculs de la page
-          (validation, impacts) : le panneau le dit au lieu de rester blanc. */}
-      {view.isPending ? (
-        <p className="muted" aria-busy="true">
-          <span className="spinner" aria-hidden="true" /> {t('loading')}
-        </p>
-      ) : null}
-      {data?.collected ? <p className="info-note">{t('mergeCollected')}</p> : null}
-      {data ? <MergeBody data={data} picks={picks} free={free} setPick={(p, v) => setPicks({ ...picks, [p]: v })} setFree={(p, v) => setFree({ ...free, [p]: v })} /> : null}
-      {data && !data.readonly ? (
-        <div className="row">
-          {data.kind === 'deleted_upstream' || data.kind === 'deleted_in_draft' ? (
-            <>
-              <button type="button" className="btn btn-primary" onClick={() => save.mutate({ delete: false })}>
-                {t(data.kind === 'deleted_upstream' ? 'mergeKeepMine' : 'mergeKeepPublished')}
-              </button>
-              <button type="button" className="btn btn-danger" onClick={() => save.mutate({ delete: true })}>
-                {t('mergeAcceptDeletion')}
-              </button>
-            </>
-          ) : (
-            <button type="button" className="btn btn-primary" disabled={!complete || save.isPending} onClick={submit}>
-              {t('mergeValidate')}
-            </button>
-          )}
+      <section role="dialog" aria-modal="true" aria-label={t('mergeTitle', { path })} className="panel panel-form stack dialog-panel dialog-wide merge-dialog">
+        <div className="panel-head">
+          <h3 className="panel-title">{t('mergeTitle', { path })}</h3>
+          <button type="button" className="btn btn-sm" onClick={onClose}>
+            {t('close')}
+          </button>
         </div>
-      ) : null}
-    </section>
+        <ErrorList messages={[...messages, ...(view.error ? errorMessages(t, view.error) : [])]} />
+        {/* Sur l'écran de publication, la fusion peut attendre les calculs de la page
+            (validation, impacts) : le panneau le dit au lieu de rester blanc. */}
+        {view.isPending ? (
+          <p className="muted" aria-busy="true">
+            <span className="spinner" aria-hidden="true" /> {t('loading')}
+          </p>
+        ) : null}
+        {data ? <MergeContent data={data} path={path} busy={save.isPending} onSubmit={submit} onCancel={onClose} /> : null}
+      </section>
     </div>
   )
+}
+
+function MergeContent({
+  data,
+  path,
+  busy,
+  onSubmit,
+  onCancel,
+}: {
+  data: MergeView
+  path: string
+  busy: boolean
+  onSubmit: (body: Body) => void
+  onCancel: () => void
+}) {
+  if (data.collected) return <ReadOnlyTwoColumns data={data} collected />
+  if (data.readonly) return <ReadOnlyTwoColumns data={data} />
+  if (data.kind === 'deleted_upstream' || data.kind === 'deleted_in_draft') {
+    return <DeletionMerge data={data} busy={busy} onSubmit={onSubmit} onCancel={onCancel} />
+  }
+  if (data.structured && (data.kind === 'auto' || data.kind === 'conflict')) {
+    return <StructuredMerge data={data} busy={busy} onSubmit={onSubmit} onCancel={onCancel} />
+  }
+  return <TextMerge data={data} path={path} busy={busy} onSubmit={onSubmit} onCancel={onCancel} />
 }
 
 /** Contenu binaire (classeur d'exemple d'un import…) : pas d'aperçu lisible. */
@@ -115,91 +114,307 @@ function isBinary(value: unknown): boolean {
   return typeof value === 'string' && /[\u0000-\u0008\u000e-\u001f]/.test(value)
 }
 
-/** Fichier créé : rien de publié à fusionner ; sinon la note habituelle. */
-function readonlyNote(data: MergeView, t: (key: string) => string): string {
-  if (data.state === 'created' && data.theirs_absent) return t('mergeCreated')
-  return data.readonly ? t('mergeReadonly') : t(`mergeKind_${data.kind}`)
+function Text({ value }: { value: unknown }) {
+  const { t } = useTranslation()
+  return isBinary(value) ? <p className="muted">{t('mergeBinary')}</p> : <pre className="mono merge-text">{show(value)}</pre>
 }
 
-function MergeBody(props: {
-  data: MergeView
-  picks: Record<string, Pick>
-  free: Record<string, string>
-  setPick: (pointer: string, pick: Pick) => void
-  setFree: (pointer: string, text: string) => void
-}) {
-  const { data } = props
+/** Lecture seule, deux colonnes : objet raw (critère 13), ou rien de changé côté
+ * publié, ou fichier créé (critère 10) — aucune flèche. */
+function ReadOnlyTwoColumns({ data, collected = false }: { data: MergeView; collected?: boolean }) {
   const { t } = useTranslation()
-  if (data.kind === 'deleted_upstream' || data.kind === 'deleted_in_draft') {
-    return <p>{t(data.kind === 'deleted_upstream' ? 'mergeDeletedUpstream' : 'mergeDeletedInDraft')}</p>
-  }
-  if (!data.structured) {
-    return (
-      <div className="stack">
-        <p className="muted">{readonlyNote(data, t)}</p>
-        <div className="form-grid">
-          {(['base', 'theirs', 'mine'] as const).map((side) => (
-            <div key={side} className="field">
-              <span className="field-label">{t(`mergeSide_${side}`)}</span>
-              {isBinary(data[side]) ? (
-                <p className="muted">{t('mergeBinary')}</p>
-              ) : (
-                <pre className="mono">{show(data[side])}</pre>
-              )}
-            </div>
-          ))}
-        </div>
-        {data.kind === 'text_conflict' && !data.collected ? <ConflictChoice pointer="" conflict={{ pointer: '', base: data.base, theirs: data.theirs, mine: data.mine }} {...props} /> : null}
-      </div>
-    )
-  }
+  const note = collected
+    ? t('mergeCollected')
+    : data.state === 'created' && data.theirs_absent
+      ? t('mergeCreated')
+      : t('mergeReadonly')
   return (
     <div className="stack">
-      <p className="muted">{readonlyNote(data, t)}</p>
-      <PropertyDiff left={data.theirs} right={data.mine} />
-      {/* Objet collecté : les conflits se lisent dans l'écart, sans choix à faire. */}
-      {data.collected
-        ? null
-        : data.conflicts.map((c) => <ConflictChoice key={c.pointer} pointer={c.pointer} conflict={c} {...props} />)}
+      <p className={collected ? 'info-note' : 'muted'}>{note}</p>
+      {data.structured ? (
+        <PropertyDiff left={data.theirs} right={data.mine} />
+      ) : (
+        <div className="merge-two">
+          <div className="stack stack-tight">
+            <span className="field-label">{t('mergeSide_theirs')}</span>
+            <Text value={data.theirs} />
+          </div>
+          <div className="stack stack-tight">
+            <span className="field-label">{t('mergeSide_mine')}</span>
+            <Text value={data.mine} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
 
-function ConflictChoice(props: {
-  pointer: string
-  conflict: MergeConflict
-  picks: Record<string, Pick>
-  free: Record<string, string>
-  setPick: (pointer: string, pick: Pick) => void
-  setFree: (pointer: string, text: string) => void
-}) {
-  const { pointer, conflict, picks, free, setPick, setFree } = props
-  const { t } = useTranslation()
-  const name = `pick-${pointer || 'objet'}`
+function Arrow({ direction, applied, label, onClick }: { direction: 'right' | 'left'; applied: boolean; label: string; onClick: () => void }) {
   return (
-    <fieldset className="fieldset">
-      <legend>{t('mergeConflictOn', { pointer: pointer || t('mergeWholeObject') })}</legend>
-      <label className="check">
-        <input type="radio" name={name} checked={picks[pointer] === 'theirs'} onChange={() => setPick(pointer, 'theirs')} />
-        {t('mergePickTheirs', { value: show(conflict.theirs) })}
-      </label>
-      <label className="check">
-        <input type="radio" name={name} checked={picks[pointer] === 'mine'} onChange={() => setPick(pointer, 'mine')} />
-        {t('mergePickMine', { value: show(conflict.mine) })}
-      </label>
-      <label className="check">
-        <input type="radio" name={name} checked={picks[pointer] === 'free'} onChange={() => setPick(pointer, 'free')} />
-        {t('mergePickFree')}
-      </label>
-      {picks[pointer] === 'free' ? (
-        <textarea
-          className="textarea mono"
-          aria-label={t('mergeFreeValue')}
-          value={free[pointer] ?? ''}
-          onChange={(e) => setFree(pointer, e.target.value)}
-        />
-      ) : null}
-      <span className="field-hint">{t('mergeBaseWas', { value: show(conflict.base) })}</span>
-    </fieldset>
+    <button
+      type="button"
+      className={`btn btn-sm merge-arrow${applied ? ' merge-arrow-applied' : ''}`}
+      aria-label={label}
+      title={label}
+      aria-pressed={applied}
+      onClick={onClick}
+    >
+      <Icon name={direction === 'right' ? 'right' : 'left'} />
+    </button>
   )
+}
+
+function Footer({ unresolved, valid, busy, onValidate, onCancel }: { unresolved: number; valid: boolean; busy: boolean; onValidate: () => void; onCancel: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="row merge-footer">
+      <button type="button" className="btn" onClick={onCancel}>
+        {t('cancelEdit')}
+      </button>
+      <button type="button" className="btn btn-primary" disabled={unresolved > 0 || !valid || busy} onClick={onValidate}>
+        {t('mergeValidate')}
+      </button>
+    </div>
+  )
+}
+
+function Status({ unresolved }: { unresolved: number }) {
+  const { t } = useTranslation()
+  return (
+    <p className={unresolved > 0 ? 'merge-status text-warn' : 'merge-status text-ok'} role="status">
+      {unresolved > 0 ? t('mergeRemaining', { count: unresolved }) : t('mergeResolved')}
+    </p>
+  )
+}
+
+function Head() {
+  const { t } = useTranslation()
+  return (
+    <div className="merge-row merge-head">
+      <span>{t('mergeColPublished')}</span>
+      <span>{t('mergeColResult')}</span>
+      <span>{t('mergeColDraft')}</span>
+    </div>
+  )
+}
+
+/** Objet structuré : un bloc par propriété. */
+function StructuredMerge({ data, busy, onSubmit, onCancel }: { data: MergeView; busy: boolean; onSubmit: (body: Body) => void; onCancel: () => void }) {
+  const { t } = useTranslation()
+  const conflicts = useMemo(() => data.conflicts.map((c) => c.pointer), [data.conflicts])
+  const initial = data.proposed ?? data.mine
+  const [result, setResult] = useState<unknown>(initial)
+  // Blocs tranchés par l'utilisateur (flèche ou retouche) : un conflit l'est dès lors.
+  const [touched, setTouched] = useState<Set<string>>(new Set())
+  // Saisie en cours d'un bloc retouché, et erreur de type éventuelle.
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const blocks = useMemo(
+    () =>
+      mergeBlocks(conflicts, data.theirs, data.mine, initial).filter((p) => {
+        const theirs = getAt(data.theirs, p)
+        const mine = getAt(data.mine, p)
+        return conflicts.includes(p) || !sameAt(theirs, mine)
+      }),
+    [conflicts, data.theirs, data.mine, initial],
+  )
+  const put = (pointer: string, at: At) => {
+    setResult((prev: unknown) => setAt(prev, pointer, at))
+    setTouched((prev) => new Set(prev).add(pointer))
+  }
+  const unresolved = conflicts.filter((p) => !touched.has(p)).length
+  const take = (pointer: string, side: 'theirs' | 'mine') => {
+    const own = getAt(side === 'theirs' ? data.theirs : data.mine, pointer)
+    const other = getAt(side === 'theirs' ? data.mine : data.theirs, pointer)
+    const current = getAt(result, pointer)
+    const applied = touched.has(pointer) || !conflicts.includes(pointer) ? sameAt(current, own) : false
+    setDrafts(({ [pointer]: _gone, ...rest }) => rest)
+    setErrors(({ [pointer]: _gone, ...rest }) => rest)
+    // Critère 5 : bloc ajouté d'un seul côté, flèche déjà appliquée → retiré ; un
+    // autre clic le remet.
+    if (applied && own.present && !other.present) put(pointer, { present: false, value: undefined })
+    else put(pointer, own)
+  }
+  const edit = (pointer: string, text: string) => {
+    setDrafts((prev) => ({ ...prev, [pointer]: text }))
+    const read = readEdit(text, [getAt(data.theirs, pointer).value, getAt(data.mine, pointer).value])
+    if (read.error) {
+      setErrors((prev) => ({ ...prev, [pointer]: t(`mergeEditError_${read.error}`) }))
+      setTouched((prev) => new Set(prev).add(pointer))
+      return
+    }
+    setErrors(({ [pointer]: _gone, ...rest }) => rest)
+    put(pointer, { present: true, value: read.value })
+  }
+  const validate = () => {
+    const resolutions: Record<string, MergeChoice | { remove: true }> = {}
+    for (const pointer of new Set([...conflicts, ...touched])) {
+      const at = getAt(result, pointer)
+      if (!conflicts.includes(pointer) && sameAt(at, getAt(initial, pointer))) continue
+      resolutions[pointer] = at.present ? { value: at.value } : { remove: true }
+    }
+    onSubmit({ resolutions: resolutions as Record<string, MergeChoice> })
+  }
+  const hidden = mergeBlocks(conflicts, data.theirs, data.mine, initial).length - blocks.length
+  return (
+    <div className="stack">
+      <Status unresolved={unresolved} />
+      <div className="merge-grid" role="table" aria-label={t('mergeGridLabel')}>
+        <Head />
+        {blocks.map((pointer) => {
+          const theirs = getAt(data.theirs, pointer)
+          const mine = getAt(data.mine, pointer)
+          const current = getAt(result, pointer)
+          const pending = conflicts.includes(pointer) && !touched.has(pointer)
+          const leftApplied = !pending && sameAt(current, theirs)
+          const rightApplied = !pending && sameAt(current, mine)
+          const origin = pending
+            ? t('mergeOriginPending')
+            : leftApplied && rightApplied
+              ? ''
+              : leftApplied
+                ? t('mergeOriginTheirs')
+                : rightApplied
+                  ? t('mergeOriginMine')
+                  : !current.present
+                    ? t('mergeOriginRemoved')
+                    : t('mergeOriginEdited')
+          const name = pointer || t('mergeWholeObject')
+          return (
+            <div key={pointer} className={`merge-row${pending ? ' merge-row-pending' : ''}`} role="row">
+              <div className="merge-cell merge-side" role="cell">
+                <code className="merge-pointer">{name}</code>
+                <span className="mono">{theirs.present ? show(theirs.value) : t('mergeAbsent')}</span>
+                <Arrow direction="right" applied={leftApplied} label={t('mergeTakeTheirs', { name })} onClick={() => take(pointer, 'theirs')} />
+              </div>
+              <div className="merge-cell merge-result" role="cell">
+                <input
+                  className={`input mono${errors[pointer] ? ' input-invalid' : ''}`}
+                  aria-label={t('mergeResultFor', { name })}
+                  aria-invalid={Boolean(errors[pointer])}
+                  value={drafts[pointer] ?? (pending ? '' : editText(current))}
+                  placeholder={pending ? t('mergeOriginPending') : !current.present ? t('mergeAbsent') : ''}
+                  onChange={(e) => edit(pointer, e.target.value)}
+                />
+                {errors[pointer] ? <span className="text-danger small">{errors[pointer]}</span> : null}
+                {origin ? <span className={pending ? 'badge-warn' : 'muted small'}>{origin}</span> : null}
+              </div>
+              <div className="merge-cell merge-side" role="cell">
+                <Arrow direction="left" applied={rightApplied} label={t('mergeTakeMine', { name })} onClick={() => take(pointer, 'mine')} />
+                <span className="mono">{mine.present ? show(mine.value) : t('mergeAbsent')}</span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {hidden > 0 ? <p className="muted small">{t('mergeSameHidden', { count: hidden })}</p> : null}
+      <Footer unresolved={unresolved} valid={Object.keys(errors).length === 0} busy={busy} onValidate={validate} onCancel={onCancel} />
+    </div>
+  )
+}
+
+/** Objet supprimé d'un côté (critère 6) : la flèche du côté où il est absent veut
+ * dire « accepter la suppression », celle de l'autre côté « garder ». */
+function DeletionMerge({ data, busy, onSubmit, onCancel }: { data: MergeView; busy: boolean; onSubmit: (body: Body) => void; onCancel: () => void }) {
+  const { t } = useTranslation()
+  const [side, setSide] = useState<'theirs' | 'mine' | null>(null)
+  const upstream = data.kind === 'deleted_upstream' // absent côté publié
+  const deletes = (s: 'theirs' | 'mine') => (upstream ? s === 'theirs' : s === 'mine')
+  const label = (s: 'theirs' | 'mine') => (deletes(s) ? t('mergeAcceptDeletion') : s === 'theirs' ? t('mergeKeepPublished') : t('mergeKeepMine'))
+  const shown = side === null ? null : side === 'theirs' ? data.theirs : data.mine
+  return (
+    <div className="stack">
+      <p>{t(upstream ? 'mergeDeletedUpstream' : 'mergeDeletedInDraft')}</p>
+      <Status unresolved={side === null ? 1 : 0} />
+      <div className="merge-grid" role="table" aria-label={t('mergeGridLabel')}>
+        <Head />
+        <div className={`merge-row${side === null ? ' merge-row-pending' : ''}`} role="row">
+          <div className="merge-cell merge-side" role="cell">
+            {data.theirs_absent ? <span className="muted">{t('mergeAbsent')}</span> : <Text value={show(data.theirs)} />}
+            <Arrow direction="right" applied={side === 'theirs'} label={label('theirs')} onClick={() => setSide('theirs')} />
+          </div>
+          <div className="merge-cell merge-result" role="cell">
+            {side === null ? (
+              <span className="badge-warn">{t('mergeOriginPending')}</span>
+            ) : deletes(side) ? (
+              <span className="muted">{t('mergeOriginRemoved')}</span>
+            ) : (
+              <Text value={show(shown)} />
+            )}
+          </div>
+          <div className="merge-cell merge-side" role="cell">
+            <Arrow direction="left" applied={side === 'mine'} label={label('mine')} onClick={() => setSide('mine')} />
+            {data.mine_absent ? <span className="muted">{t('mergeAbsent')}</span> : <Text value={show(data.mine)} />}
+          </div>
+        </div>
+      </div>
+      <Footer unresolved={side === null ? 1 : 0} valid busy={busy} onValidate={() => side && onSubmit({ delete: deletes(side) })} onCancel={onCancel} />
+    </div>
+  )
+}
+
+/** Fichier de structure inconnue (repli texte) : le fichier entier est un bloc,
+ * modifiable au milieu ; un YAML ou un JSON cassé ne se valide pas. */
+function TextMerge({ data, path, busy, onSubmit, onCancel }: { data: MergeView; path: string; busy: boolean; onSubmit: (body: Body) => void; onCancel: () => void }) {
+  const { t } = useTranslation()
+  const theirs = typeof data.theirs === 'string' ? data.theirs : show(data.theirs)
+  const mine = typeof data.mine === 'string' ? data.mine : show(data.mine)
+  const conflict = data.kind === 'text_conflict'
+  const [text, setText] = useState(typeof data.proposed === 'string' ? data.proposed : mine)
+  const [touched, setTouched] = useState(false)
+  const pending = conflict && !touched
+  const error = touched ? unreadable(path, text) : null
+  const choose = (value: string) => {
+    setText(value)
+    setTouched(true)
+  }
+  return (
+    <div className="stack">
+      <p className="muted">{t(`mergeKind_${data.kind}`)}</p>
+      <Status unresolved={pending ? 1 : 0} />
+      <div className="merge-grid" role="table" aria-label={t('mergeGridLabel')}>
+        <Head />
+        <div className={`merge-row merge-row-text${pending ? ' merge-row-pending' : ''}`} role="row">
+          <div className="merge-cell merge-side" role="cell">
+            <Text value={theirs} />
+            <Arrow direction="right" applied={!pending && text === theirs} label={t('mergeTakeTheirs', { name: t('mergeWholeObject') })} onClick={() => choose(theirs)} />
+          </div>
+          <div className="merge-cell merge-result" role="cell">
+            <textarea
+              className={`textarea mono merge-textarea${error ? ' input-invalid' : ''}`}
+              aria-label={t('mergeResultFor', { name: t('mergeWholeObject') })}
+              aria-invalid={Boolean(error)}
+              value={pending ? '' : text}
+              placeholder={pending ? t('mergeOriginPending') : ''}
+              onChange={(e) => choose(e.target.value)}
+            />
+            {error ? <span className="text-danger small">{error}</span> : null}
+            {!pending && text !== theirs && text !== mine && touched ? <span className="muted small">{t('mergeOriginEdited')}</span> : null}
+          </div>
+          <div className="merge-cell merge-side" role="cell">
+            <Arrow direction="left" applied={!pending && text === mine} label={t('mergeTakeMine', { name: t('mergeWholeObject') })} onClick={() => choose(mine)} />
+            <Text value={mine} />
+          </div>
+        </div>
+      </div>
+      <Footer
+        unresolved={pending ? 1 : 0}
+        valid={!error}
+        busy={busy}
+        onValidate={() => onSubmit(touched ? { resolutions: { '': { value: text } } } : {})}
+        onCancel={onCancel}
+      />
+    </div>
+  )
+}
+
+/** Message d'erreur si le texte n'est plus un YAML ou un JSON lisible, sinon null. */
+function unreadable(path: string, text: string): string | null {
+  try {
+    if (path.endsWith('.json')) JSON.parse(text)
+    else if (path.endsWith('.yaml') || path.endsWith('.yml')) parseYaml(text)
+    return null
+  } catch (exc) {
+    return exc instanceof Error ? exc.message.split('\n')[0] : String(exc)
+  }
 }
