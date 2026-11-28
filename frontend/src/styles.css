@@ -4702,4 +4702,15 @@ urban-bpmn {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  color: var(--text);
+}
+/* Dans le menu clair : le libellé se lit, le sélecteur prend le style des champs. */
+.topnav .menu-lang .lang-select > span {
+  display: inline;
+}
+.menu-lang .ctx-select {
+  background: var(--panel);
+  color: var(--text);
+  border-color: var(--border-strong);
+  font-family: inherit;
 }
