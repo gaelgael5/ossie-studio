@@ -25,6 +25,11 @@ from ossie_studio.drafts.impacts import refs_in
 from ossie_studio.parsers.conventions import SCHEMA_SUFFIX, load_schema
 from ossie_studio.sources.manifest import ManifestError, parse_manifest
 
+# Analyseur YAML en C (libyaml) quand l'image l'a : relire ~5 700 fichiers prend 3 s
+# au lieu de 25 s en Python pur, et la passe de validation tient le verrou de la vue
+# d'autant (bug c6a4ab74). Mêmes fichiers acceptés ou refusés.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 Level = Literal["error", "warning"]
 
 
@@ -88,7 +93,7 @@ class ParseableRule:
                 if file.suffix == ".json":
                     json.loads(text)
                 else:
-                    yaml.safe_load(text)
+                    yaml.load(text, Loader=_YAML_LOADER)  # noqa: S506 — chargeur sûr
             except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError):
                 rel = file.relative_to(view).as_posix()
                 out.append(Finding("error", rel, self.name, "file_unreadable", {}, _digest(file)))

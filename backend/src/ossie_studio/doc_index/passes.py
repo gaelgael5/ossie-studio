@@ -200,6 +200,7 @@ class Validation:
             request = await queue.claim_next(conn)
         if request is None:
             return None
+        started = time.monotonic()
         try:
             result = await self.run(request)
             log.info(
@@ -209,6 +210,8 @@ class Validation:
                 files=result.files,
                 validated=result.validated,
                 errors=result.errors,
+                # Durée : une passe tient le verrou de la vue (bug c6a4ab74).
+                duration_ms=round((time.monotonic() - started) * 1000),
             )
         except Exception as exc:  # une passe qui échoue ne bloque jamais la file
             log.exception("validation_pass_failed", space_id=str(request.key.space_id))
