@@ -15,6 +15,7 @@ import { DomainLinks } from './DomainLinks'
 import { ManualDatasetDialog } from './ManualDatasetDialog'
 import { LinkReferentielDialog, ReferentielLinkCell } from '../curation/ReferentielLink'
 import type { LinkableProperty } from '../curation/ReferentielLink'
+import { IconButton } from '../components/IconButton'
 
 // Domaines (tickets docflow a7baaaa3 et 36d35a88). Gael, 23/11/2026 : un
 // domaine = un modèle sémantique Ossie ; on y regroupe des assets retenus, un
@@ -85,9 +86,7 @@ function EditDomainDialog({
       >
         <div className="row dialog-head">
           <h2>{title}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={save.error ? errorMessages(t, save.error) : []} />
         <div className="field">

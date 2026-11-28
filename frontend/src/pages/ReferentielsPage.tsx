@@ -27,6 +27,7 @@ import {
   simpleProperties,
   withKey,
 } from '../referentiels/modelRules'
+import { IconButton, IconLink } from '../components/IconButton'
 
 // Référentiels (epic dc0bba30, ticket 829a86a7). Gael : « La partie modélisation
 // doit pouvoir gérer un objet JSON avec plusieurs propriétés » ; l'éditeur du modèle
@@ -120,14 +121,7 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
                   {r.title || r.name}
                 </Link>
                 {editable ? (
-                  <Link
-                    to={refPath(r.name, true)}
-                    className={`btn btn-sm ref-edit${r.name === name && settings ? ' active' : ''}`}
-                    aria-label={t('refEdit', { name: r.title || r.name })}
-                    title={t('refEdit', { name: r.title || r.name })}
-                  >
-                    {'✎'}
-                  </Link>
+                  <IconLink icon="edit" label={t('refEdit', { name: r.title || r.name })} className={`ref-edit${r.name === name && settings ? ' active' : ''}`} to={refPath(r.name, true)} />
                 ) : null}
               </div>
               <div className="muted mono small">{r.name}</div>
@@ -189,9 +183,7 @@ function CreateDialog({ spaceId, branchId, onClose }: { spaceId: string; branchI
       >
         <div className="row dialog-head">
           <h2>{t('refNew')}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={create.error ? errorMessages(t, create.error) : []} />
         <div className="form-grid">
@@ -378,24 +370,8 @@ function KeyBar({
             <span className="badge">{t('refKeyBadge')}</span> <code>{property}</code>
             {!readOnly && key.length > 1 ? (
               <>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  aria-label={t('refKeyUp', { property })}
-                  disabled={index === 0}
-                  onClick={() => move(index, -1)}
-                >
-                  {'↑'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  aria-label={t('refKeyDown', { property })}
-                  disabled={index === key.length - 1}
-                  onClick={() => move(index, 1)}
-                >
-                  {'↓'}
-                </button>
+                <IconButton icon="up" label={t('refKeyUp', { property })} disabled={index === 0} onClick={() => move(index, -1)} />
+                <IconButton icon="down" label={t('refKeyDown', { property })} disabled={index === key.length - 1} onClick={() => move(index, 1)} />
               </>
             ) : null}
           </span>

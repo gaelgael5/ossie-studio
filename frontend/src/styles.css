@@ -525,6 +525,53 @@ input[type='radio'] {
   padding: 5px 10px;
   font-size: 0.85rem;
 }
+/* Boutons à icône (ticket 1cca1f06) : tous de la même taille, icône dessinée
+   en trait de la couleur du texte. */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+  vertical-align: middle;
+}
+.btn-icon .icon {
+  display: block;
+}
+.btn-icon + .btn-icon {
+  margin-left: 4px;
+}
+.btn-icon-danger:not(:disabled):hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.btn-icon-plain {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.btn-icon-plain:hover,
+.btn-icon-plain:focus-visible {
+  color: var(--link);
+}
+/* Dans une ligne (tableau, liste), légèrement effacés ; nets au survol de la
+   ligne ou quand le clavier y est (Gael, 28/11). Sans survol (tactile), nets. */
+@media (hover: hover) {
+  :is(tr, li) .btn-icon {
+    opacity: 0.4;
+    transition: opacity 0.12s ease;
+  }
+  :is(tr, li):hover .btn-icon,
+  :is(tr, li):focus-within .btn-icon,
+  :is(tr, li).active .btn-icon,
+  :is(tr, li).selected .btn-icon {
+    opacity: 1;
+  }
+}
 /* Bouton (ou lien-bouton) sur toute la largeur de son conteneur. */
 .btn-block {
   display: block;
@@ -2877,16 +2924,6 @@ td .raw-ref-menu {
   justify-content: space-between;
   gap: 6px;
 }
-/* Crayon discret : visible au survol de la ligne, sur la ligne active, et au clavier. */
-.ref-edit {
-  opacity: 0.35;
-}
-.ref-item:hover .ref-edit,
-.ref-item.active .ref-edit,
-.ref-edit:focus-visible,
-.ref-edit.active {
-  opacity: 1;
-}
 .ref-filter {
   width: 100%;
   margin-top: 8px;
@@ -4464,20 +4501,6 @@ urban-bpmn {
   font-weight: 600;
   letter-spacing: -0.015em;
   padding: 0 8px;
-}
-.carto-type-label-edit {
-  background: none;
-  border: none;
-  box-shadow: none;
-  color: var(--muted);
-  font-size: 1.2rem;
-  line-height: 1;
-  padding: 4px;
-  cursor: pointer;
-}
-.carto-type-label-edit:hover,
-.carto-type-label-edit:focus-visible {
-  color: var(--link);
 }
 
 /* Onglet « Relations » : source | relation | cibles acceptées (ticket 3fdb1e6e). */

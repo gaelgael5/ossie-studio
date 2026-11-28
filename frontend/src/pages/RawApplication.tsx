@@ -7,6 +7,7 @@ import type { RawAppModule, RawApplication as RawApplicationData, RawLinkAnchors
 import { errorMessages } from '../errors'
 import { useSession } from '../hooks'
 import { ErrorList } from '../components/ErrorList'
+import { IconButton } from '../components/IconButton'
 
 // Vue « Application » de l'Explorateur raw (epic « Cartographie applicative dans
 // raw », ticket 0fa620be). Gael : « Je voudrais dans la partie raw pouvoir dessiner
@@ -331,9 +332,7 @@ export function RawApplication({
               </button>
             </>
           ) : null}
-          <button type="button" className="btn btn-sm" onClick={() => setLink(null)} aria-label={t('rawAppLinkClose')}>
-            {'×'}
-          </button>
+          <IconButton icon="close" label={t('rawAppLinkClose')} onClick={() => setLink(null)} />
         </div>
       ) : null}
       <ErrorList messages={save.error ? errorMessages(t, save.error) : []} />

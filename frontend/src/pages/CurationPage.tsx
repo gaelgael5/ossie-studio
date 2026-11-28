@@ -22,6 +22,7 @@ import type { MarkdownEditorHandle } from '../components/MarkdownEditor'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
 import { LinkReferentielDialog, ReferentielLinkCell, useLinkTargets } from '../curation/ReferentielLink'
+import { IconButton } from '../components/IconButton'
 
 // Page « Curation » (ticket docflow aeb2e429) : les assets RETENUS de toutes les
 // sources, pour les consulter et rédiger leurs descriptions. Rien à voir avec
@@ -1203,9 +1204,7 @@ function RedactionDialog({
       <div role="dialog" aria-modal="true" aria-label={title} className="panel modal-panel modal-editor">
         <div className="row modal-head">
           <h2>{title}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={save.error ? errorMessages(t, save.error) : []} />
         {sourceText ? (

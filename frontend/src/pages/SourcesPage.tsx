@@ -16,6 +16,7 @@ import { SchemaPicker } from '../components/SchemaPicker'
 import { TriRulesEditor, useTriRules } from '../components/TriRulesEditor'
 import { ClassBadges } from '../components/ClassBadges'
 import { useReadingMode } from '../readingMode'
+import { IconButton } from '../components/IconButton'
 
 // Types que le serveur sait collecter (sources/manifest.py) : les bases en
 // étaient absentes, leur ligne n'avait pas de lien « Collecter » (0d85e746).
@@ -521,9 +522,7 @@ function Modal({
       <div className="panel" style={{ width: 'min(960px, 100%)', marginTop: 24 }}>
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
           <h2 style={{ margin: 0 }}>{title}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label="close">
-            {'✕'}
-          </button>
+          <IconButton icon="close" label="close" onClick={onClose} />
         </div>
         {children}
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 16 }}>

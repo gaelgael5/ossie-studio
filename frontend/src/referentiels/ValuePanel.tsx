@@ -21,6 +21,7 @@ import {
   setAt,
   shown,
 } from './valueRules'
+import { IconButton } from '../components/IconButton'
 
 /** Problèmes de la valeur ouverte : chemin du champ → codes (« » : la valeur entière). */
 export type FieldProblems = Map<string, string[]>
@@ -172,9 +173,7 @@ function SimpleList({ ctx, path, items, label }: { ctx: Ctx; path: PathPart[]; i
           />
           <Errors codes={ctx.problems.get(fieldPath([...path, index]))} />
           {!ctx.readOnly ? (
-            <button type="button" className="btn btn-sm" aria-label={t('refPanelItemRemove', { index })} onClick={() => ctx.set(path, list.filter((_, i) => i !== index))}>
-              {'✕'}
-            </button>
+            <IconButton icon="remove" label={t('refPanelItemRemove', { index })} onClick={() => ctx.set(path, list.filter((_, i) => i !== index))} />
           ) : null}
         </div>
       ))}
@@ -242,15 +241,9 @@ function ArrayTable({ ctx, path, items, label }: { ctx: Ctx; path: PathPart[]; i
                 ) : null}
                 {!ctx.readOnly ? (
                   <td className="row">
-                    <button type="button" className="btn btn-sm" aria-label={t('refPanelItemUp', { index })} disabled={index === 0} onClick={() => ctx.set(path, move(list, index, index - 1))}>
-                      {'↑'}
-                    </button>
-                    <button type="button" className="btn btn-sm" aria-label={t('refPanelItemDown', { index })} disabled={index === list.length - 1} onClick={() => ctx.set(path, move(list, index, index + 1))}>
-                      {'↓'}
-                    </button>
-                    <button type="button" className="btn btn-sm" aria-label={t('refPanelItemRemove', { index })} onClick={() => ctx.set(path, list.filter((_, i) => i !== index))}>
-                      {'✕'}
-                    </button>
+                    <IconButton icon="up" label={t('refPanelItemUp', { index })} disabled={index === 0} onClick={() => ctx.set(path, move(list, index, index - 1))} />
+                    <IconButton icon="down" label={t('refPanelItemDown', { index })} disabled={index === list.length - 1} onClick={() => ctx.set(path, move(list, index, index + 1))} />
+                    <IconButton icon="remove" label={t('refPanelItemRemove', { index })} onClick={() => ctx.set(path, list.filter((_, i) => i !== index))} />
                   </td>
                 ) : null}
               </tr>
@@ -425,9 +418,7 @@ export function ValuePanel({
     <aside role="dialog" aria-label={title} className="panel ref-panel stack">
       <div className="row dialog-head">
         <h3>{title}</h3>
-        <button type="button" className="btn btn-sm" onClick={onCancel} aria-label={t('close')}>
-          {'✕'}
-        </button>
+        <IconButton icon="close" label={t('close')} onClick={onCancel} />
       </div>
       <Crumbs crumbs={crumbs} onOpen={setPath} label={t('refPanelPath')} />
       {whole ? (

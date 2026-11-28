@@ -13,6 +13,7 @@ import { ArchimateIcon } from './ArchimateIcon'
 import { FoldedProperties, missingRequired } from './FoldedProperties'
 import type { Props } from './FoldedProperties'
 import { cartoObjectPath } from './ObjectsTab'
+import { IconButton } from '../components/IconButton'
 
 // Fenêtre « Nouvelle relation » (ticket b58a0a13, maquette « popup Nouvelle
 // relation ») : depuis un objet ou une relation (la source), choisir la cible (un
@@ -185,9 +186,7 @@ export function RelateDialog({
       >
         <div className="row dialog-head">
           <h2>{t('cartoRelateTitle')}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={create.error ? errorMessages(t, create.error) : []} />
         {serverProblems.length > 0 ? (
