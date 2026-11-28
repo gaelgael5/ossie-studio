@@ -70,8 +70,14 @@ from ossie_studio.parsers.application import key_of as raw_key_of
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.referentiels import published
 from ossie_studio.referentiels.errors import ReferentielError
+from ossie_studio.referentiels.indexed import IndexedReferentiels
 from ossie_studio.referentiels.model import model_key
-from ossie_studio.referentiels.repo import list_referentiels, model_path, values_path
+from ossie_studio.referentiels.repo import (
+    list_referentiels,
+    model_path,
+    read_referentiel,
+    values_path,
+)
 from ossie_studio.referentiels.values import key_of
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
@@ -388,12 +394,61 @@ def processes(root: Path, query: ListQuery) -> list[Item]:
 # --- Référentiels -------------------------------------------------------------------------
 
 
+class _FileReferentiels:
+    """Les référentiels d'une vue, lus dans les fichiers."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def names(self) -> list[str]:
+        return list_referentiels(self.root)
+
+    def read(self, name: str) -> Any:
+        return published.readable(name, lambda n: read_referentiel(self.root, n))
+
+    def version(self, path: str) -> str | None:
+        return None  # celle du fichier, calculée par la liste
+
+
+class _IndexReferentiels:
+    """Les référentiels d'une vue, lus dans l'index des documents (ticket c854ad1e)."""
+
+    def __init__(self, snap: Snapshot) -> None:
+        self.files = snap.files
+        self.referentiels = IndexedReferentiels(snap.files)
+
+    def names(self) -> list[str]:
+        return self.referentiels.names()
+
+    def read(self, name: str) -> Any:
+        return published.readable(name, self.referentiels.read)
+
+    def version(self, path: str) -> str | None:
+        found = self.files.get(path)
+        return found[0] if found is not None else None
+
+
+_Referentiels = _FileReferentiels | _IndexReferentiels
+
+
 def referentiel_models(root: Path, query: ListQuery) -> list[Item]:
+    return _referentiel_models(_FileReferentiels(root))
+
+
+def referentiel_models_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    """`referentiel_models`, tirée de l'index des documents (ticket c854ad1e)."""
+    return _referentiel_models(_IndexReferentiels(snap))
+
+
+def _referentiel_models(provider: _Referentiels) -> list[Item]:
     out = []
-    for summary in published.summaries(root):
+    for summary in published.summaries_of(provider.names(), provider.read):
         name = summary.pop("name")
         title = summary.get("title") or name
-        out.append(Item({"referentiel": name}, title, model_path(name), summary))
+        path = model_path(name)
+        out.append(
+            Item({"referentiel": name}, title, path, summary, version=provider.version(path))
+        )
     return out
 
 
@@ -404,6 +459,15 @@ def _scalars(value: dict[str, Any]) -> str:
 def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
     """Les valeurs, triées par clé comme `search_referentiel_values` ; `equals` filtre
     par égalité exactement comme elle (même fonction du service)."""
+    return _referentiel_values(_FileReferentiels(root), query)
+
+
+def referentiel_values_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    """`referentiel_values`, tirée de l'index des documents (ticket c854ad1e)."""
+    return _referentiel_values(_IndexReferentiels(snap), query)
+
+
+def _referentiel_values(provider: _Referentiels, query: ListQuery) -> list[Item]:
     name = query.identity.get("referentiel")
     equals = _given(query, "equals") or {}
     if equals and not name:
@@ -412,11 +476,12 @@ def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
             "$.filters.equals",
             "« equals » filtre les valeurs d'un référentiel : donner aussi identity.referentiel.",
         )
-    names = [str(name)] if name else list_referentiels(root)
+    names = [str(name)] if name else provider.names()
     out = []
     for ref_name in names:
         try:
-            found = published.search_values(root, ref_name, equals, sys.maxsize, 0)
+            ref = provider.read(ref_name)
+            found = published.search_in(ref, equals, sys.maxsize, 0)
         except ReferentielError as exc:
             if exc.code == "referentiel_filter_unknown":
                 prop = exc.detail.get("property")
@@ -430,7 +495,7 @@ def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
             if name:
                 raise
             continue  # un référentiel illisible ne casse pas la liste de tous
-        fields = model_key(published.model_of(root, ref_name))
+        fields = model_key(ref.model)
         for value in found["values"]:
             parts = key_of(value, fields) or ()
             single = len(fields) == 1 and parts

@@ -64,8 +64,14 @@ async def read_published[T](
 
 
 def _read(root: Path, name: str) -> Any:
+    return readable(name, lambda n: read_referentiel(root, n))
+
+
+def readable(name: str, load: Callable[[str], Any]) -> Any:
+    """Le référentiel `name` lu par `load` (les fichiers, ou l'index des documents :
+    ticket c854ad1e) ; un fichier illisible devient « referentiel_unreadable »."""
     try:
-        return read_referentiel(root, name)
+        return load(name)
     except ReferentielError as exc:
         if exc.code in _UNREADABLE:
             raise ReferentielError("referentiel_unreadable", 409, name=name) from None
@@ -79,10 +85,15 @@ def summaries(root: Path) -> list[dict[str, Any]]:
     """Les référentiels : nom, titre, description, propriétés de la clé, tags, nombre
     de valeurs. Un référentiel illisible est listé avec son erreur, sans casser
     la liste."""
+    return summaries_of(list_referentiels(root), lambda name: _read(root, name))
+
+
+def summaries_of(names: list[str], read: Callable[[str], Any]) -> list[dict[str, Any]]:
+    """`summaries`, pour ces référentiels lus par `read` (qui lève comme `_read`)."""
     out: list[dict[str, Any]] = []
-    for name in list_referentiels(root):
+    for name in names:
         try:
-            ref = _read(root, name)
+            ref = read(name)
         except ReferentielError as exc:
             out.append({"name": name, "error": exc.code})
             continue
@@ -161,7 +172,11 @@ def search_values(
 ) -> dict[str, Any]:
     """Les valeurs, triées par clé, filtrées par égalité sur des propriétés
     simples de premier niveau, paginées : `values`, `total`, `has_more`."""
-    ref = _read(root, name)
+    return search_in(_read(root, name), filters, limit, offset)
+
+
+def search_in(ref: Any, filters: Mapping[str, Any], limit: int, offset: int) -> dict[str, Any]:
+    """`search_values` sur un référentiel déjà lu."""
     kinds = _check_filters(ref.model, filters)
     matching = [
         v

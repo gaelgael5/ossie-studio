@@ -65,7 +65,7 @@ from ossie_studio.parsers.application import extend_file, key_of
 from ossie_studio.parsers.openapi import is_valid_version_name
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import load_model, model_key
-from ossie_studio.referentiels.repo import model_path, values_path
+from ossie_studio.referentiels.repo import REFERENTIELS_DIR, model_path, values_path
 from ossie_studio.slugs import is_valid_slug
 from ossie_studio.sources.asset_files import is_extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
@@ -75,6 +75,7 @@ from ossie_studio.sources.paths import (
     ASSETS_DIR,
     CONTRATS_DIR,
     MANIFEST_FILENAME,
+    SOURCES_DIR,
     is_valid_source_slug,
     source_rel_dir,
 )
@@ -595,6 +596,8 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
         locator=_referentiel_modele,
         store=stores.ReferentielModelStore(),
         lister=lists.referentiel_models,
+        index_lister=lists.referentiel_models_indexed,
+        index_facts=f"{REFERENTIELS_DIR}/",
     ),
     DocumentType(
         name="referentiel_valeur",
@@ -618,6 +621,8 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
         locator=_referentiel_valeur,
         store=stores.ReferentielValueStore(),
         lister=lists.referentiel_values,
+        index_lister=lists.referentiel_values_indexed,
+        index_facts=f"{REFERENTIELS_DIR}/",
         list_filters=(lists.EQUALS,),
         typed_by="referentiel",
         schema_document_type="referentiel_modele",
@@ -955,7 +960,7 @@ DOCUMENT_TYPES = (
         store=stores.ReadOnlyStore("schéma raw", ("collect_source",)),
         lister=lists.raw_schemas,
         index_lister=lists.raw_schemas_indexed,
-        index_facts="sources/",
+        index_facts=f"{SOURCES_DIR}/",
         list_filters=(lists.RAW_KIND, lists.RAW_MODULE),
         writable=False,
         produced_by=("collect_source",),
@@ -980,7 +985,7 @@ DOCUMENT_TYPES = (
         store=stores.ReadOnlyStore("extension raw", ("collect_source",)),
         lister=lists.raw_extensions,
         index_lister=lists.raw_extensions_indexed,
-        index_facts="sources/",
+        index_facts=f"{SOURCES_DIR}/",
         list_filters=(lists.RAW_MODULE,),
         writable=False,
         produced_by=("collect_source",),
@@ -1021,7 +1026,7 @@ DOCUMENT_TYPES = (
         store=lists.EntryPointStore("point d'entrée", ("collect_source",)),
         lister=lists.entry_points,
         index_lister=lists.entry_points_indexed,
-        index_facts="sources/",
+        index_facts=f"{SOURCES_DIR}/",
         list_filters=(lists.ENTRY_MODULE, lists.ENTRY_CONTRACT, lists.ENTRY_KIND),
         writable=False,
         produced_by=("collect_source",),
@@ -1049,7 +1054,7 @@ DOCUMENT_TYPES = (
         ),
         lister=lists.asset_schemas,
         index_lister=lists.asset_schemas_indexed,
-        index_facts="sources/",
+        index_facts=f"{SOURCES_DIR}/",
         writable=False,
         produced_by=("retain_asset", "enrich_asset", "refresh_assets"),
         is_schema=True,

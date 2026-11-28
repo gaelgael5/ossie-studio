@@ -26,7 +26,8 @@ version plus ancienne est réindexé.
 **Faits** (ticket 4618ee38) : pour un fichier de `sources/<source>/`, l'index garde
 aussi ce que l'Explorateur et la curation en lisent (`sources/raw_facts.py`) ; les
 listes de schémas raw, d'assets, d'extensions et de points d'entrée se calculent sans
-relire les fichiers.
+relire les fichiers. Pour un référentiel (ticket c854ad1e) : le modèle, les valeurs
+entières et la lisibilité de ses déclarations d'import (`referentiels/indexed.py`).
 
 **Cartographie** (ticket 06171fd3, la recherche passe par l'index) : un type et un objet
 sont aussi lus par le service de la cartographie (`parse_type`, `parse_object`), aux
@@ -49,7 +50,7 @@ from ossie_studio.cartographie.model import parse_object, parse_type
 from ossie_studio.cartographie.summary import excerpt, shown_properties
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 
-INDEXER_VERSION = 4
+INDEXER_VERSION = 5
 
 ANY_TYPE = "*"
 
@@ -462,6 +463,8 @@ def index_file(path: str, data: bytes) -> IndexedFile:
     refs = [r for r in dict.fromkeys(found.refs) if r not in keys]
     # Import local : les faits viennent des services des sources, qui importent
     # eux-mêmes des modules proches de l'index.
-    from ossie_studio.sources.raw_facts import file_facts
+    from ossie_studio.referentiels.indexed import file_facts as referentiel_facts
+    from ossie_studio.sources.raw_facts import file_facts as source_facts
 
-    return IndexedFile(found.documents, list(dict.fromkeys(keys)), refs, file_facts(path, data))
+    facts = source_facts(path, data) or referentiel_facts(path, data)
+    return IndexedFile(found.documents, list(dict.fromkeys(keys)), refs, facts)
