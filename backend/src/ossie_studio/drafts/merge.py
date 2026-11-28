@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -20,6 +21,8 @@ from typing import Any, Literal
 import yaml
 
 from ossie_studio.parsers.conventions import SCHEMA_SUFFIX, dump_schema, load_schema
+from ossie_studio.roundtrip import render
+from ossie_studio.sources.draft_changes import is_collected_raw
 
 
 class _Missing:
@@ -105,16 +108,31 @@ def parse(path: str, data: bytes | None) -> Any:
     return yaml.safe_load(text) if text.strip() else {}
 
 
-def serialize(path: str, value: Any) -> bytes:
-    """Même forme que celle qu'écrit l'application : schéma YAML déterministe
-    (`dump_schema`), autre YAML dans l'ordre des clés (`dump_manifest`)."""
+def _fresh(path: str) -> Callable[[Any], str]:
+    """Rendu neuf : même forme que celle qu'écrit l'application — schéma YAML
+    déterministe (`dump_schema`), autre YAML dans l'ordre des clés."""
     if path.endswith(SCHEMA_SUFFIX):
-        return dump_schema(value).encode("utf-8")
+        return dump_schema
     if path.endswith(".json"):
-        return (json.dumps(value, sort_keys=True, indent=2, ensure_ascii=False) + "\n").encode()
-    return yaml.safe_dump(
-        value, sort_keys=False, allow_unicode=True, default_flow_style=False
-    ).encode("utf-8")
+        return lambda v: json.dumps(v, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+    return lambda v: yaml.safe_dump(
+        v, sort_keys=False, allow_unicode=True, default_flow_style=False
+    )
+
+
+def serialize(path: str, value: Any, like: bytes | None = None) -> bytes:
+    """Texte de `value` pour `path`. `like` : texte existant (en général la version
+    du brouillon) ; le résultat d'une fusion s'écrit dessus, en aller-retour, pour
+    que seules les lignes changées bougent (enabler 14bb8eb8). Sans `like` : rendu
+    neuf. Objet raw d'une source : toujours le rendu de la collecte, jamais
+    l'aller-retour (décision de Gael, 28/11 : seule la collecte écrit ces fichiers)."""
+    if like is None or is_collected_raw(path):
+        return _fresh(path)(value).encode("utf-8")
+    try:
+        old = like.decode("utf-8")
+    except UnicodeDecodeError:
+        old = None
+    return render(path, old, value, _fresh(path)).encode("utf-8")
 
 
 def merge_object(
@@ -137,7 +155,7 @@ def merge_object(
     except (ValueError, yaml.YAMLError):
         return _merge_text(base, theirs, mine)
     result = merge3({} if b is MISSING else b, t, m)
-    merged = serialize(path, result.merged)
+    merged = serialize(path, result.merged, like=mine)
     kind: Kind = "conflict" if result.conflicts else "auto"
     return ObjectMerge(kind, merged, result.conflicts, b, t, m, structured=True)
 

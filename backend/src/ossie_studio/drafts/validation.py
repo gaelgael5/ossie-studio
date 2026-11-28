@@ -78,6 +78,11 @@ class ParseableRule:
         for file in _work_files(view):
             if file.suffix not in (".json", ".yaml", ".yml"):
                 continue
+            if ".exemple." in file.name:
+                # Fichier d'exemple d'un import (`<slug>.exemple.json`…) : donnée
+                # brute déposée par l'utilisateur, pas un document de l'application ;
+                # il peut ne pas être du JSON (test des référentiels).
+                continue
             try:
                 text = file.read_text(encoding="utf-8")
                 if file.suffix == ".json":

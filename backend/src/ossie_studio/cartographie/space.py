@@ -60,8 +60,6 @@ from ossie_studio.cartographie.model import (
     CartoType,
     check_object,
     check_type,
-    dump_object,
-    dump_type,
     is_empty,
     object_location,
     object_path,
@@ -86,6 +84,8 @@ from ossie_studio.cartographie.referentiel_links import (
     write_links,
 )
 from ossie_studio.cartographie.rules import allowed_relations
+from ossie_studio.referentiels.model import dump_model
+from ossie_studio.roundtrip import write_document
 
 
 @dataclass
@@ -448,11 +448,11 @@ def save_type(
         _refuse_breaking_objects(space, current, ctype, cat)
         _refuse_breaking_relations(space, changed, ctype.slug, cat)
         _refuse_breaking_links(root, space, ctype, links, renames, cat)
-    target = root / type_path(ctype.slug)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(dump_type(ctype), encoding="utf-8")
+    # Aller-retour (14bb8eb8) : sur un fichier existant, seules les lignes
+    # changées bougent ; commentaires et mise en forme restent.
+    write_document(root / type_path(ctype.slug), ctype.document(), dump_model)
     for path, obj in moved.items():
-        (root / path).write_text(dump_object(obj), encoding="utf-8")
+        write_document(root / path, obj.document(), dump_model)
     if after_links != links:
         write_links(root, ctype.slug, after_links)
     return ctype
@@ -624,7 +624,7 @@ def save_object(
         raise CartographieError("object_invalid", problems=problems)
     target = root / path
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(dump_object(obj), encoding="utf-8")
+    write_document(target, obj.document(), dump_model)
     return obj
 
 
@@ -655,7 +655,7 @@ def save_objects(
     for obj in written:
         target = root / object_path(obj.type, obj.key)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(dump_object(obj), encoding="utf-8")
+        write_document(target, obj.document(), dump_model)
 
 
 def check_batch(

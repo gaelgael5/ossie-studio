@@ -42,6 +42,7 @@ from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import dump_model, model_key, model_tags
 from ossie_studio.referentiels.repo import list_referentiels, read_referentiel
 from ossie_studio.referentiels.values import key_of
+from ossie_studio.roundtrip import write_document
 
 EXTEND_SUFFIX = ".extend.yaml"
 LINKS_KEY = "referentiels"
@@ -96,10 +97,15 @@ def parse_extend(text: str) -> list[ReferentielLink]:
     return links
 
 
-def dump_extend(links: list[ReferentielLink]) -> str:
-    """Sortie déterministe : liens par référentiel, propriétés dans l'ordre donné."""
+def extend_document(links: list[ReferentielLink]) -> dict[str, Any]:
+    """Le contenu du fichier : liens par référentiel, propriétés dans l'ordre donné."""
     ordered = sorted(links, key=lambda link: (link.referentiel, sorted(link.properties)))
-    return dump_model({LINKS_KEY: [link.document() for link in ordered]})
+    return {LINKS_KEY: [link.document() for link in ordered]}
+
+
+def dump_extend(links: list[ReferentielLink]) -> str:
+    """Sortie déterministe (un fichier neuf)."""
+    return dump_model(extend_document(links))
 
 
 def read_links(root: Path, slug: str) -> list[ReferentielLink]:
@@ -115,8 +121,8 @@ def write_links(root: Path, slug: str, links: list[ReferentielLink]) -> None:
     if not links:
         file.unlink(missing_ok=True)
         return
-    file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(dump_extend(links), encoding="utf-8")
+    # Aller-retour (14bb8eb8) : un fichier existant ne change que sur les lignes modifiées.
+    write_document(file, extend_document(links), dump_model)
 
 
 def renamed(links: list[ReferentielLink], renames: Mapping[str, str]) -> list[ReferentielLink]:
