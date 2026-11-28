@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -309,14 +309,31 @@ class DraftWorkdir:
         changé est indexé et passe `a_valider`, un fichier disparu est retiré ; ceux
         qui les citent passent `a_valider`. Rend (publiée, brouillon)."""
 
-        async def fn(ctx: ViewContext) -> tuple[tuple[Comparison, Comparison], None]:
-            state = await self._state()
+        async def fn(ctx: ViewContext, state: DraftState) -> tuple[Comparison, Comparison]:
             overrides = {o.path: o.content for o in state.objects}
             key = ViewKey(space_id, self.branch_id, self.user_id)
             async with self._db() as conn, conn.transaction():
                 published = await compare_published(conn, key, ctx.path, ctx.env, ctx.head)
                 draft = await compare_draft(conn, key, ctx.path, ctx.env, ctx.head, overrides)
-            return (published, draft), None
+            return published, draft
+
+        return await self.run_in_view(space_id, slug, repo_url, username, token, fn)
+
+    async def run_in_view(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+        fn: Callable[[ViewContext, DraftState], Awaitable[_T]],
+    ) -> _T:
+        """Exécute `fn` dans la vue de la personne (branche publiée + son brouillon),
+        sous le verrou de la vue, avec l'état de son brouillon. Rien n'est écrit dans
+        le brouillon (une passe de validation, enabler 6b171b74)."""
+
+        async def run(ctx: ViewContext) -> tuple[_T, None]:
+            return await fn(ctx, await self._state()), None
 
         return await self._views.run(
             space_id=space_id,
@@ -326,7 +343,7 @@ class DraftWorkdir:
             token=token,
             user_id=self.user_id,
             load=self._state,
-            fn=fn,
+            fn=run,
         )
 
     async def read_branch(

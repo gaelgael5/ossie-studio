@@ -71,6 +71,7 @@ from ossie_studio.config import Settings
 from ossie_studio.crypto import CryptoService
 from ossie_studio.db import create_pool
 from ossie_studio.db.migrate import run_migrations
+from ossie_studio.doc_index.passes import Validation
 from ossie_studio.domains import rules as _domain_rules  # noqa: F401 — règle de publication des domaines
 from ossie_studio.errors import ApiError, api_error_handler
 from ossie_studio.governance import rules as _governance_rules  # noqa: F401 — enregistre les règles
@@ -144,9 +145,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.oauth_endpoints = OAuthEndpoints(pool, app.state.crypto)
         await run_migrations(pool)
         purge = asyncio.create_task(_purge_forever(app))
+        # File de validation (enabler 6b171b74) : une passe à la fois, en fond.
+        app.state.validation = Validation(
+            pool, app.state.crypto, app.state.workdir_manager, app.state.draft_views, settings
+        )
+        worker = (
+            asyncio.create_task(app.state.validation.forever())
+            if settings.validation_worker
+            else None
+        )
         async with app.state.mcp_session_manager.run():
             yield
         purge.cancel()
+        if worker is not None:
+            worker.cancel()
         await pool.close()
 
     app = FastAPI(title="Ossie Studio", lifespan=lifespan)

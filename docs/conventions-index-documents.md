@@ -68,3 +68,41 @@ une version plus ancienne est réindexé.
 
 Les passes de validation (file sérialisée) et les règles sont l'objet des autres
 tickets de l'epic.
+
+## La file de validation (enabler 6b171b74)
+
+Gael : « on ne peut pas lancer des processus de validation en parallèle, et on ne
+peut pas lancer plusieurs processus de validation de différents utilisateurs en même
+temps. Il faut plutôt trouver un moyen de les sérialiser ». Code :
+`doc_index/queue.py`, `doc_index/passes.py`, migration `0055_validation_queue.sql`.
+
+- **Une table** `validation_requests` : une ligne par demande de passe sur une vue.
+  Elle survit à un redémarrage. Deux index la tiennent : une seule demande **en
+  attente** par vue (déduplication), une seule passe **en cours** pour toute
+  l'application, même avec plusieurs processus serveur.
+- **Le travailleur** (`passes.Validation.forever`, lancé au démarrage si
+  `validation_worker` est vrai, coupé dans les tests) prend la plus ancienne demande,
+  fait la passe, la retire, et recommence. Une passe muette depuis plus de 5 minutes
+  (serveur arrêté pendant la passe) est remise en attente.
+- **Une passe** : comparer la vue au disque ; valider les fichiers `a_valider`, le
+  document seul d'abord (réutilisé pour la même empreinte et la même version des
+  règles, `RULES_VERSION`), puis les règles entre fichiers sur la vue (aujourd'hui les
+  règles de la publication, `drafts.validation`, gouvernance et domaines compris) ;
+  poser `valide` ou `en_erreur` avec les problèmes ; publier sa progression.
+- **Échec** : la file est libérée, la vue marquée non validée
+  (`doc_index_view.validated_at` NULL, `validation_error`), une ligne
+  `validation_pass` part au journal d'audit (auteur « system »).
+
+| Déclencheur | Vue |
+|---|---|
+| fin d'un import (référentiel, cartographie), d'une collecte, d'un `write_documents` de plusieurs documents | le brouillon de la personne |
+| page de publication (`GET …/draft/validation`) | le brouillon de la personne |
+| toutes les N minutes (`validation_interval_minutes`, 10 par défaut, page « Paramètres ») | les vues qui ont des fichiers `a_valider` |
+| publication | la branche publiée |
+
+Un enregistrement isolé ne lance pas de passe : il marque le fichier `a_valider`.
+
+**État** : `GET …/draft/validation/file` rend la passe en cours (vue, fichiers faits
+sur total), le nombre de demandes en attente, la position du brouillon de la personne
+et de la branche publiée, et leur état dans l'index (fichiers, à valider, en erreur,
+dernière passe réussie).

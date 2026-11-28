@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # pour ne pas refuser les processus). Variable DOCUMENT_MAX_BYTES. C'est la valeur
     # par défaut : une valeur posée sur la page « Paramètres » prime (app_settings).
     document_max_bytes: int = 200 * 1024
+    # File de validation (enabler 6b171b74) : une passe toutes les N minutes pour les
+    # vues qui ont des fichiers à valider (modifiable sur la page « Paramètres »), et le
+    # travailleur qui vide la file (coupé dans les tests, qui lancent les passes).
+    validation_interval_minutes: int = 10
+    validation_worker: bool = True
 
     @field_validator("session_secret")
     @classmethod

@@ -274,3 +274,124 @@ async def db_copy_view(conn: asyncpg.Connection, source_id: int, target_id: int)
         source_id,
         target_id,
     )
+
+
+# --- Résultats de validation (passes, enabler 6b171b74) ---------------------------------------
+
+
+async def db_document_results(
+    conn: asyncpg.Connection, content_ids: Iterable[int]
+) -> dict[int, tuple[list[dict[str, object]], int | None]]:
+    """La validation du document seul de ces contenus : (problèmes, version des
+    règles), la version None quand il n'a jamais été validé."""
+    ids = sorted(set(content_ids))
+    if not ids:
+        return {}
+    rows = await conn.fetch(
+        "SELECT id, problems, rules_version FROM doc_index_content WHERE id = ANY($1::bigint[])",
+        ids,
+    )
+    out: dict[int, tuple[list[dict[str, object]], int | None]] = {}
+    for r in rows:
+        raw = r["problems"]
+        problems = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        out[r["id"]] = (problems, r["rules_version"])
+    return out
+
+
+async def db_set_document_result(
+    conn: asyncpg.Connection, content_id: int, problems: list[dict[str, object]], version: int
+) -> None:
+    await conn.execute(
+        "UPDATE doc_index_content SET problems = $2::jsonb, rules_version = $3 WHERE id = $1",
+        content_id,
+        json.dumps(problems, ensure_ascii=False),
+        version,
+    )
+
+
+async def db_set_statuses(
+    conn: asyncpg.Connection, view_id: int, results: dict[str, tuple[str, list[dict[str, object]]]]
+) -> None:
+    """Pose l'état et les problèmes (règles entre fichiers comprises) de ces fichiers."""
+    if not results:
+        return
+    paths = list(results)
+    await conn.execute(
+        """
+        UPDATE doc_index_file f SET status = e.status, problems = e.problems::jsonb,
+            updated_at = now()
+        FROM unnest($2::text[], $3::text[], $4::text[]) AS e(path, status, problems)
+        WHERE f.view_id = $1 AND f.path = e.path
+        """,
+        view_id,
+        paths,
+        [results[p][0] for p in paths],
+        [json.dumps(results[p][1], ensure_ascii=False) for p in paths],
+    )
+
+
+async def db_mark_validated(conn: asyncpg.Connection, view_id: int) -> None:
+    await conn.execute(
+        "UPDATE doc_index_view SET validated_at = now(), validation_error = NULL WHERE id = $1",
+        view_id,
+    )
+
+
+async def db_mark_failed(conn: asyncpg.Connection, key: ViewKey, error: str) -> None:
+    """Une passe a échoué : la vue n'est pas validée (et le dit)."""
+    view = await db_ensure_view(conn, key)
+    await conn.execute(
+        "UPDATE doc_index_view SET validated_at = NULL, validation_error = $2 WHERE id = $1",
+        view.id,
+        error[:500],
+    )
+
+
+@dataclass(frozen=True)
+class ViewSummary:
+    """L'état de validation d'une vue : fichiers par état, dernière passe réussie."""
+
+    files: int
+    to_validate: int
+    errors: int
+    compared: bool
+    validated_at: datetime | None
+    validation_error: str | None
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "files": self.files,
+            "to_validate": self.to_validate,
+            "errors": self.errors,
+            "compared": self.compared,
+            "validated_at": self.validated_at.isoformat() if self.validated_at else None,
+            "validation_error": self.validation_error,
+        }
+
+
+async def db_view_summary(conn: asyncpg.Connection, key: ViewKey) -> ViewSummary | None:
+    row = await conn.fetchrow(
+        """
+        SELECT v.compared_at, v.validated_at, v.validation_error,
+            count(f.path) AS files,
+            count(f.path) FILTER (WHERE f.status = 'a_valider') AS to_validate,
+            count(f.path) FILTER (WHERE f.status = 'en_erreur') AS errors
+        FROM doc_index_view v LEFT JOIN doc_index_file f ON f.view_id = v.id
+        WHERE v.space_id = $1 AND v.branch_id = $2 AND v.user_id IS NOT DISTINCT FROM $3
+        GROUP BY v.id
+        """,
+        key.space_id,
+        key.branch_id,
+        key.user_id,
+    )
+    if row is None:
+        return None
+    return ViewSummary(
+        row["files"],
+        row["to_validate"],
+        row["errors"],
+        row["compared_at"] is not None,
+        row["validated_at"],
+        row["validation_error"],
+    )

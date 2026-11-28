@@ -43,7 +43,7 @@ export function ParametersPage() {
           </thead>
           <tbody>
             {(settings.data?.settings ?? []).map((setting) => (
-              <SizeRow
+              <SettingRow
                 key={setting.key}
                 setting={setting}
                 canWrite={canWrite}
@@ -64,8 +64,9 @@ export function ParametersPage() {
   )
 }
 
-/** Un paramètre de taille, saisi en Ko (entier) et rangé en octets. */
-function SizeRow({
+/** Un paramètre entier : une taille saisie en Ko et rangée en octets, ou une durée en
+ * minutes (l'intervalle de la file de validation, enabler 6b171b74). */
+function SettingRow({
   setting,
   canWrite,
   onSaved,
@@ -78,16 +79,18 @@ function SizeRow({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const shown = String(Math.round(setting.value / KB))
+  const unit = setting.unit ?? 'bytes'
+  const scale = unit === 'bytes' ? KB : 1
+  const shown = String(Math.round(setting.value / scale))
   const [value, setValue] = useState(shown)
   useEffect(() => setValue(shown), [shown])
-  const kb = Number(value)
+  const entered = Number(value)
   const valid =
-    /^\d+$/.test(value.trim()) && kb * KB >= setting.minimum && kb * KB <= setting.maximum
+    /^\d+$/.test(value.trim()) && entered * scale >= setting.minimum && entered * scale <= setting.maximum
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['app-settings'] })
 
   const save = useMutation({
-    mutationFn: () => api.setSetting(setting.key, kb * KB),
+    mutationFn: () => api.setSetting(setting.key, entered * scale),
     onSuccess: async () => {
       onSaved(t('parametersSaved'))
       await refresh()
@@ -110,7 +113,7 @@ function SizeRow({
         <strong>{label}</strong>
         <div className="muted small">{t(`parameterDoc_${setting.key}`, { defaultValue: '' })}</div>
         <div className="muted small">
-          {t('parametersDefault', { value: Math.round(setting.default / KB) })} ·{' '}
+          {t('parametersDefault', { value: Math.round(setting.default / scale) })} ·{' '}
           {setting.source === 'page'
             ? t('parametersFromPage', { who: setting.updated_by ?? '' })
             : t('parametersFromConfig')}
@@ -127,13 +130,14 @@ function SizeRow({
             readOnly={!canWrite}
             onChange={(e) => setValue(e.target.value)}
           />
-          <span className="muted">{t('parametersUnitKb')}</span>
+          <span className="muted">{unit === 'bytes' ? t('parametersUnitKb') : t('parametersUnitMinutes')}</span>
         </div>
         {!valid ? (
           <div className="text-danger small">
             {t('parametersRange', {
-              minimum: Math.round(setting.minimum / KB),
-              maximum: Math.round(setting.maximum / KB),
+              minimum: Math.round(setting.minimum / scale),
+              maximum: Math.round(setting.maximum / scale),
+              unit: unit === 'bytes' ? t('parametersUnitKb') : t('parametersUnitMinutes'),
             })}
           </div>
         ) : null}

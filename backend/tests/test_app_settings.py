@@ -60,8 +60,8 @@ async def simple(app: FastAPI, space: ApiSpace) -> AsyncIterator[AsyncClient]:
 async def _setting(http: AsyncClient) -> dict[str, Any]:
     response = await http.get(URL)
     assert response.status_code == 200, response.text
-    [found] = response.json()["settings"]
-    assert found["key"] == KEY
+    # La page a plusieurs paramètres (l'intervalle de la file de validation, 6b171b74).
+    [found] = [s for s in response.json()["settings"] if s["key"] == KEY]
     data: dict[str, Any] = found
     return data
 

@@ -26,6 +26,7 @@ import asyncpg
 from ossie_studio.config import Settings
 
 DOCUMENT_MAX_BYTES = "document_max_bytes"
+VALIDATION_INTERVAL_MINUTES = "validation_interval_minutes"
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,8 @@ class SettingDef:
     minimum: int
     maximum: int
     default: Callable[[Settings], int]
+    # L'unité de la valeur rangée : « bytes » (saisie en Ko à l'écran) ou « minutes ».
+    unit: str = "bytes"
 
 
 DEFINITIONS: dict[str, SettingDef] = {
@@ -47,6 +50,15 @@ DEFINITIONS: dict[str, SettingDef] = {
         minimum=1024,
         maximum=10 * 1024 * 1024,
         default=lambda settings: settings.document_max_bytes,
+    ),
+    # L'intervalle de la passe périodique de la file de validation (enabler 6b171b74),
+    # en minutes : 10 par défaut (Gael), de 1 minute à 1 jour.
+    VALIDATION_INTERVAL_MINUTES: SettingDef(
+        VALIDATION_INTERVAL_MINUTES,
+        minimum=1,
+        maximum=24 * 60,
+        default=lambda settings: settings.validation_interval_minutes,
+        unit="minutes",
     ),
 }
 
@@ -69,6 +81,7 @@ class SettingValue:
     source: str
     updated_at: datetime | None = None
     updated_by: str | None = None
+    unit: str = "bytes"
 
 
 def definition(key: str) -> SettingDef:
@@ -114,9 +127,11 @@ async def current(conn: asyncpg.Connection, settings: Settings, key: str) -> Set
         if value is not None:
             return SettingValue(
                 key, value, default, found.minimum, found.maximum, "page",
-                row["updated_at"], row["updated_by"],
+                row["updated_at"], row["updated_by"], found.unit,
             )  # fmt: skip
-    return SettingValue(key, default, default, found.minimum, found.maximum, "config")
+    return SettingValue(
+        key, default, default, found.minimum, found.maximum, "config", unit=found.unit
+    )
 
 
 async def value_of(conn: asyncpg.Connection, settings: Settings, key: str) -> int:

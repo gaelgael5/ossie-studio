@@ -33,6 +33,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
 from ossie_studio.deps import ConnDep
+from ossie_studio.doc_index.queue import IMPORT, request_pass
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.errors import ApiError
 from ossie_studio.imports import files
 from ossie_studio.imports.columns import (
@@ -800,6 +802,9 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             outcome=IMPORTED if revision else UNCHANGED, result=result, revision=revision,
             kept_in_use=[_kept_payload(a) for a in kept], **journal,
         )  # fmt: skip
+        # Fin d'une modification en masse : une passe de validation est demandée pour le
+        # brouillon de la personne (enabler 6b171b74).
+        await request_pass(conn, ViewKey(space_id, branch_id, workdir.user_id), IMPORT)
         last = (await last_of(conn, branch_id, owner)).get(slug)
         return {
             **result,

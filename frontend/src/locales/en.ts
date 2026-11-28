@@ -1940,7 +1940,11 @@ export const en = {
     parametersFromPage: 'set on this page ({{who}})',
     parametersFromConfig: 'configuration value',
     parametersUnitKb: 'KB',
-    parametersRange: 'A whole number between {{minimum}} and {{maximum}} KB.',
+    parametersUnitMinutes: 'minutes',
+    parameter_validation_interval_minutes: 'Validation pass interval',
+    parameterDoc_validation_interval_minutes:
+      'Every N minutes, a validation pass is requested for each draft and each published branch that has files to validate. Only one pass runs at a time.',
+    parametersRange: 'A whole number between {{minimum}} and {{maximum}} {{unit}}.',
     parameter_document_max_bytes: 'Maximum size of a document written by an agent',
     parameterDoc_document_max_bytes:
       'Each document sent by write_documents, the document obtained by patch_document, a reference-list value alone. Beyond it, the write is refused.',

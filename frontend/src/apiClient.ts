@@ -420,6 +420,8 @@ export interface AppSetting {
   source: 'page' | 'config'
   updated_at: string | null
   updated_by: string | null
+  /** L'unité de la valeur rangée : octets (saisie en Ko) ou minutes. */
+  unit?: 'bytes' | 'minutes'
 }
 
 export interface ParsingPlugin {

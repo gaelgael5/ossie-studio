@@ -1942,7 +1942,11 @@ export const fr = {
     parametersFromPage: 'réglé sur cette page ({{who}})',
     parametersFromConfig: 'valeur de la configuration',
     parametersUnitKb: 'Ko',
-    parametersRange: 'Un nombre entier entre {{minimum}} et {{maximum}} Ko.',
+    parametersUnitMinutes: 'minutes',
+    parameter_validation_interval_minutes: 'Intervalle de la passe de validation',
+    parameterDoc_validation_interval_minutes:
+      'Toutes les N minutes, une passe de validation est demandée pour chaque brouillon et chaque branche publiée qui ont des fichiers à valider. Une seule passe tourne à la fois.',
+    parametersRange: 'Un nombre entier entre {{minimum}} et {{maximum}} {{unit}}.',
     parameter_document_max_bytes: 'Taille maximale d’un document écrit par un agent',
     parameterDoc_document_max_bytes:
       'Chaque document envoyé par write_documents, le document obtenu par patch_document, une valeur de référentiel seule. Au-delà, l’écriture est refusée.',

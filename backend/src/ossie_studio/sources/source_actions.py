@@ -35,6 +35,8 @@ from ossie_studio.connections.service import (
 from ossie_studio.crypto import CryptoService
 from ossie_studio.databases.registry import get_engine
 from ossie_studio.databases.service import db_get_db_connection_by_slug
+from ossie_studio.doc_index.queue import COLLECT, request_pass
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.forges.base import ForgeError
 from ossie_studio.forges.registry import get_strategy
@@ -316,7 +318,7 @@ def start_collect(
                 branch_id,
                 conn=job_conn,
             )
-            return await collect(
+            report = await collect(
                 job_conn,
                 crypto,
                 user,
@@ -328,6 +330,10 @@ def start_collect(
                 force,
                 progress,
             )
+            # Fin d'une modification en masse : une passe de validation est demandée pour
+            # le brouillon de la personne (enabler 6b171b74).
+            await request_pass(job_conn, ViewKey(space_id, branch_id, user.id), COLLECT)
+            return report
 
     jobs: CollectJobs = state.collect_jobs
     return jobs.start(job_key(space_id, branch_id, user, slug), run)

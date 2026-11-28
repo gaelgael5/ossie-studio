@@ -39,6 +39,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from ossie_studio.app_settings.service import document_max_bytes
 from ossie_studio.authz.catalog import SPACE_SCOPED
 from ossie_studio.cartographie.space import read_cartographie
+from ossie_studio.doc_index.queue import WRITE_BATCH, request_pass
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.mcp_surface.branch import BranchArgs, BranchView, open_branch
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError, agent_name
 from ossie_studio.mcp_surface.doc_paths import Operation, PathError, apply_json, apply_xml
@@ -506,6 +508,10 @@ async def write_documents(ctx: PrimitiveContext, args: WriteDocumentsArgs) -> di
 
     result, revision = await _commit(ctx, bv, args.message.strip(), write)
     changed = [d["path"] for d in result["documents"] if d["action"] != "unchanged"]
+    if revision and len(args.documents) > 1 and ctx.user is not None:
+        # Fin d'une modification en masse (un lot) : une passe de validation est demandée
+        # pour le brouillon de la personne (enabler 6b171b74).
+        await request_pass(ctx.conn, ViewKey(bv.space.id, bv.branch.id, ctx.user.id), WRITE_BATCH)
     return {
         "written": True,
         "revision": revision,
