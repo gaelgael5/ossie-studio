@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -148,6 +148,10 @@ describe('Domaines (tickets a7baaaa3, 36d35a88)', () => {
     )
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: 'Retirer Customer du domaine' }))
+    // Customer a des liens : l'écran le dit et demande de confirmer (ticket 4e856094).
+    const confirm = await screen.findByRole('alertdialog', { name: 'Retirer Customer du domaine' })
+    expect(confirm).toHaveTextContent('retire aussi ses 1 relation(s) et référence(s)')
+    await user.click(within(confirm).getByRole('button', { name: 'Retirer' }))
     await waitFor(() =>
       expect(calls.some((c) => c.method === 'DELETE' && c.path === `${BASE}/expedition/datasets/Customer`)).toBe(true),
     )

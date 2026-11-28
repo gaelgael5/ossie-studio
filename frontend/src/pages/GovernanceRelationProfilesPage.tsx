@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { api, sessionCapabilities } from '../apiClient'
@@ -60,6 +60,7 @@ export function GovernanceRelationProfilesPage() {
   const [confirmDelete, setConfirmDelete] = useState('')
   const [previewSource, setPreviewSource] = useState('')
   const [preview, setPreview] = useState<RelationPreview | null>(null)
+  const editorRef = useRef<HTMLElement>(null)
 
   const profiles = useQuery({ queryKey: ['relation-profiles', ws.spaceId, ws.branchId], queryFn: api.listRelationProfiles })
   const sources = useQuery({
@@ -132,6 +133,8 @@ export function GovernanceRelationProfilesPage() {
         : EMPTY_FORM,
     )
     setEditing({ id: file ? file.id : null })
+    // La fenêtre d'édition est sous le tableau : on l'amène à l'écran.
+    requestAnimationFrame(() => editorRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }))
   }
   const setRule = (i: number, patch: Partial<RelationRuleInput>) =>
     setForm((f) => ({ ...f, rules: f.rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) }))
@@ -163,10 +166,22 @@ export function GovernanceRelationProfilesPage() {
         </thead>
         <tbody>
           {list.map((file) => (
-            <tr key={file.id}>
+            // Ticket 1bce7eb9 : toute la ligne ouvre le profil (lecture seule
+            // sans le droit de modifier) ; les boutons arrêtent la propagation.
+            <tr
+              key={file.id}
+              className={editing?.id === file.id ? 'row-clickable selected' : 'row-clickable'}
+              tabIndex={0}
+              aria-label={t('relationProfileOpen', { name: file.profile?.name ?? file.id })}
+              onClick={() => file.profile && open(file)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && e.target === e.currentTarget && file.profile) open(file)
+              }}
+            >
               <td>
-                <strong>{file.profile?.name ?? file.id}</strong>{' '}
-                {file.builtin ? <span className="badge">{t('relationProfileBuiltin')}</span> : null}
+                <span className="link-like">{file.profile?.name ?? file.id}</span>{' '}
+                {file.builtin ? <span className="badge">{t('relationProfileBuiltin')}</span> : null}{' '}
+                {file.customized ? <span className="badge badge-warn">{t('relationProfileCustomized')}</span> : null}
                 <div className="muted mono small">{file.id}</div>
                 {file.profile?.description ? <div className="muted small">{file.profile.description}</div> : null}
                 {file.errors.length > 0 ? (
@@ -180,22 +195,19 @@ export function GovernanceRelationProfilesPage() {
                   </div>
                 ))}
               </td>
-              <td>
-                {canWrite && !file.builtin ? (
-                  <div className="row">
-                    <button type="button" className="btn btn-sm" onClick={() => open(file)}>
-                      {t('editSource')}
+              <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                {/* Profil fourni : rien à supprimer, sauf sa version de l'espace
+                    (« Rétablir l'original »). */}
+                {canWrite && (!file.builtin || file.customized) ? (
+                  confirmDelete === file.id ? (
+                    <button type="button" className="btn btn-sm btn-danger" onClick={() => remove.mutate(file.id)}>
+                      {file.builtin ? t('relationProfileConfirmRestore') : t('relationProfileConfirmDelete')}
                     </button>
-                    {confirmDelete === file.id ? (
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => remove.mutate(file.id)}>
-                        {t('relationProfileConfirmDelete')}
-                      </button>
-                    ) : (
-                      <button type="button" className="btn btn-sm" onClick={() => setConfirmDelete(file.id)}>
-                        {t('delete')}
-                      </button>
-                    )}
-                  </div>
+                  ) : (
+                    <button type="button" className="btn btn-sm" onClick={() => setConfirmDelete(file.id)}>
+                      {file.builtin ? t('relationProfileRestore') : t('delete')}
+                    </button>
+                  )
                 ) : null}
               </td>
             </tr>
@@ -205,7 +217,12 @@ export function GovernanceRelationProfilesPage() {
       <p className="muted small">{t('relationProfilesHint')}</p>
 
       {editing ? (
-        <section role="dialog" aria-label={t('relationProfileEditTitle')} className="panel panel-form stack">
+        <section
+          ref={editorRef}
+          role="dialog"
+          aria-label={t('relationProfileEditTitle')}
+          className="panel panel-form panel-form-wide stack"
+        >
           <div className="panel-head">
             <h3 className="panel-title">{t('relationProfileEditTitle')}</h3>
             <button type="button" className="btn btn-sm" onClick={() => setEditing(null)}>
@@ -254,7 +271,7 @@ export function GovernanceRelationProfilesPage() {
             <legend className="field-label">{t('relationProfileRules')}</legend>
             <span className="field-hint">{t('relationProfileRulesHint')}</span>
             {form.rules.map((r, i) => (
-              <div className="row" key={i}>
+              <div className="relation-rule-row" key={i}>
                 <input
                   className="input mono"
                   aria-label={t('relationRuleColumn')}
@@ -345,18 +362,23 @@ export function GovernanceRelationProfilesPage() {
               ) : null}
             </div>
           ) : null}
-          <div>
-            <BusyButton
-              type="button"
-              className="btn btn-primary"
-              busy={save.isPending}
+          {editing.id && list.find((f) => f.id === editing.id)?.builtin ? (
+            <p className="field-hint">{t('relationProfileBuiltinEditHint')}</p>
+          ) : null}
+          {canWrite ? (
+            <div>
+              <BusyButton
+                type="button"
+                className="btn btn-primary"
+                busy={save.isPending}
               busyText={t('loading')}
-              disabled={!form.name.trim() || toInput(form).rules.length === 0}
-              onClick={() => save.mutate()}
-            >
-              {t('save')}
-            </BusyButton>
-          </div>
+                disabled={!form.name.trim() || toInput(form).rules.length === 0}
+                onClick={() => save.mutate()}
+              >
+                {t('save')}
+              </BusyButton>
+            </div>
+          ) : null}
         </section>
       ) : null}
     </GovernanceFrame>

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
-import { DraftBar } from './DraftBar'
+import { DraftBar, DraftViewSelect } from './DraftBar'
 import { withDraftView } from '../draftView'
 
 function mockDraft(body: unknown) {
@@ -18,6 +18,7 @@ function renderBar() {
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
+        <DraftViewSelect spaceId="s1" branchId="b1" />
         <DraftBar spaceId="s1" branchId="b1" />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -54,19 +55,28 @@ describe('DraftBar', () => {
     await waitFor(() =>
       expect(screen.getByText('1 objet(s) ont changé côté publié depuis votre brouillon.')).toBeInTheDocument(),
     )
-    expect(screen.getByRole('radio', { name: 'Fusionnée' })).toBeChecked()
+    expect(screen.getByRole('combobox', { name: 'Vue de la branche' })).toHaveValue('merged')
     expect(screen.queryByText('sources/a/manifest.yaml')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('radio', { name: 'Brouillon' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Vue de la branche' }), 'draft')
     expect(screen.getByText('sources/a/manifest.yaml')).toBeInTheDocument()
     expect(screen.getByText('a changé côté publié')).toBeInTheDocument()
+  })
+
+  it('ticket e7e377b0 : rien de changé côté publié, vue fusionnée → aucun bandeau, juste la liste « Vue »', async () => {
+    mockDraft({ ...DRAFT, changed_upstream_count: 0 })
+    renderBar()
+    expect(await screen.findByRole('combobox', { name: 'Vue de la branche' })).toBeInTheDocument()
+    expect(screen.queryByRole('region')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Publier' })).not.toBeInTheDocument()
   })
 
   it('la vue « Publiée » ajoute view=published aux lectures de la branche, pas aux écritures', async () => {
     mockDraft(DRAFT)
     const user = userEvent.setup()
     renderBar()
-    await waitFor(() => expect(screen.getByRole('radio', { name: 'Publiée' })).toBeInTheDocument())
-    await user.click(screen.getByRole('radio', { name: 'Publiée' }))
+    const select = await screen.findByRole('combobox', { name: 'Vue de la branche' })
+    await user.selectOptions(select, 'published')
+    expect(window.localStorage.getItem('ossie.view.b1')).toBe('published')
     expect(withDraftView('/api/spaces/s1/branches/b1/sources', 'GET')).toBe(
       '/api/spaces/s1/branches/b1/sources?view=published',
     )

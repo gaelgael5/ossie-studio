@@ -34,6 +34,8 @@ CATALOG: tuple[Domain, ...] = (
     ),
     # Référentiels : données de référence tenues dans l'espace (epic « Référentiels »).
     Domain("referentiels", ("referentiels:read", "referentiels:write")),
+    # Cartographie : types et objets ArchiMate tenus dans l'espace (epic « Cartographie »).
+    Domain("cartographie", ("cartographie:read", "cartographie:write")),
     Domain("governance", ("governance:read", "governance:write", "governance:certify")),
     Domain("sources", ("sources:read", "sources:declare", "sources:collect")),
     Domain("parsing", ("parsing:read", "parsing:manage")),
@@ -47,6 +49,8 @@ CATALOG: tuple[Domain, ...] = (
     # Journal d'audit et page Historique (ticket cf4434da) : lecture seule, aucune
     # capacité d'écriture — aucune route ne modifie une ligne d'audit.
     Domain("audit", ("audit:read",)),
+    # Paramètres généraux de l'application, page « Paramètres » (ticket ae8fc4b6).
+    Domain("settings", ("settings:read", "settings:write")),
 )
 
 ALL_CAPABILITIES: frozenset[str] = frozenset(
@@ -56,17 +60,17 @@ ALL_CAPABILITIES: frozenset[str] = frozenset(
 # Capacités « déclinables par espace » : une équipe rattachée à un espace peut
 # les donner sur cet espace seulement. Ce sont les gestes faits DANS un espace
 # (sa lecture, ses branches, sa publication, ses versions, et le travail qu'il
-# porte : référentiels, sources, curation, gouvernance). Toutes les autres sont globales :
-# administration (secrets, connexions, OIDC, profils, utilisateurs, parseurs,
-# profils agents, clés d'API, connexions d'agents) et création d'un espace, qui
-# ne se fait pas depuis l'intérieur d'un espace.
+# porte : référentiels, cartographie, sources, curation, gouvernance). Toutes
+# les autres sont globales : administration (secrets, connexions, OIDC, profils,
+# utilisateurs, parseurs, profils agents, clés d'API, connexions d'agents) et
+# création d'un espace, qui ne se fait pas depuis l'intérieur d'un espace.
 # Une capacité ajoutée au catalogue déclare ici sa portée.
 SPACE_SCOPED: frozenset[str] = frozenset(
     {"spaces:read", "spaces:branch", "spaces:publish", "spaces:version"}
     | {
         cap
         for domain in CATALOG
-        if domain.key in ("referentiels", "sources", "curation", "governance")
+        if domain.key in ("referentiels", "cartographie", "sources", "curation", "governance")
         for cap in domain.capabilities
     }
 )

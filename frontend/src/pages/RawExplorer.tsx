@@ -44,6 +44,7 @@ import {
   withExclusion,
   withoutExclusion,
 } from '../sourceExclusions'
+import { IconButton } from '../components/IconButton'
 
 // Explorateur raw : parcourir la couche raw d'un espace comme un explorateur de
 // fichiers, en lecture seule. L'état de navigation (source, mode, dossier, objet
@@ -985,15 +986,7 @@ export function RawExplorer({
                   {singleSource && scopeIn ? (
                     <span className="raw-scope-chip" title={scopeIn}>
                       {t('rawScopeIn', { folder: folderLabel(scopeIn) })}
-                      <button
-                        type="button"
-                        className="btn-link"
-                        aria-label={t('rawScopeWiden')}
-                        title={t('rawScopeWiden')}
-                        onClick={() => go({ in: null }, true)}
-                      >
-                        {'✕'}
-                      </button>
+                      <IconButton icon="close" label={t('rawScopeWiden')} plain onClick={() => go({ in: null }, true)} />
                     </span>
                   ) : !singleSource ? (
                     <span className="raw-scope-chip">

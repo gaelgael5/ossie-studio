@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 
 import httpx
 import structlog
+import urban_archimate
+import urban_bpmn
 import urban_json_editor
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
@@ -14,8 +16,15 @@ from starlette.middleware.sessions import SessionMiddleware
 from ossie_studio.api.agent_connections import router as api_agent_connections_router
 from ossie_studio.api.agent_profiles import router as api_agent_profiles_router
 from ossie_studio.api.api_keys import router as api_api_keys_router
+from ossie_studio.api.app_settings import router as api_settings_router
 from ossie_studio.api.audit import router as api_audit_router
 from ossie_studio.api.branches import router as api_branches_router
+from ossie_studio.api.cartographie import ARCHIMATE_EDITOR_PATH, BPMN_EDITOR_PATH
+from ossie_studio.api.cartographie import router as api_cartographie_router
+from ossie_studio.api.cartographie_imports import router as api_cartographie_imports_router
+from ossie_studio.api.cartographie_models import router as api_cartographie_models_router
+from ossie_studio.api.cartographie_objects import router as api_cartographie_objects_router
+from ossie_studio.api.cartographie_processes import router as api_cartographie_processes_router
 from ossie_studio.api.classification_rules import (
     removals_router as api_classification_removals_router,
 )
@@ -145,7 +154,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Injectable : les tests la remplacent par un client branché sur un faux IdP.
     app.state.http_client_factory = _default_http_client_factory
     app.state.git_probe = prove_five_rights
-    app.state.workdir_manager = WorkdirManager(settings.work_volume_path)
+    app.state.workdir_manager = WorkdirManager(
+        settings.work_volume_path, read_follows_forge=settings.git_read_follows_forge
+    )
     app.state.draft_views = DraftViewManager(app.state.workdir_manager)
     app.state.source_downloader = SourceDownloader(settings.sources_volume_path)
     app.state.source_collector = SourceCollector(app.state.source_downloader)
@@ -178,11 +189,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_branches_router)
     app.include_router(api_referentiels_read_router)
     app.include_router(api_referentiels_router)
+    app.include_router(api_cartographie_router)
+    app.include_router(api_cartographie_objects_router)
+    app.include_router(api_cartographie_models_router)
+    app.include_router(api_cartographie_processes_router)
     app.include_router(api_referentiel_imports_router)
+    app.include_router(api_cartographie_imports_router)
     # Éditeur de template JSLT (urban-json-editor, comme Miles) : ses assets sous /api,
     # seul préfixe relayé par le nginx du front ; jamais par un CDN.
     app.include_router(api_jslt_editor_router)
     urban_json_editor.mount(app, JSLT_EDITOR_PATH)
+    # Éditeur de diagrammes ArchiMate (urban-archimate) : ses assets sous /api aussi.
+    urban_archimate.mount(app, ARCHIMATE_EDITOR_PATH)
+    # Et celui des processus BPMN (urban-bpmn), même principe.
+    urban_bpmn.mount(app, BPMN_EDITOR_PATH)
     app.include_router(api_sources_router)
     app.include_router(api_space_plugins_router)
     app.include_router(api_parsing_router)
@@ -199,6 +219,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_certifications_router)
     app.include_router(api_classifications_router)
     app.include_router(api_audit_router)
+    app.include_router(api_settings_router)
     app.include_router(api_domains_router)
     app.include_router(api_profiles_router)
     app.include_router(api_users_router)

@@ -5,6 +5,7 @@ import { Link, useParams } from 'react-router-dom'
 import { api } from '../apiClient'
 import { errorMessages } from '../errors'
 import { CredentialBlock } from '../components/CredentialBlock'
+import { DraftBlocks } from '../components/DraftTree'
 import { ErrorList } from '../components/ErrorList'
 import { ImpactsSection } from '../components/ImpactsSection'
 import { MergeDialog } from '../components/MergeDialog'
@@ -70,17 +71,7 @@ export function PublishPage() {
         {objects.length === 0 ? (
           <div className="empty-note">{t('draftEmpty')}</div>
         ) : (
-          <ul className="list-plain stack stack-tight">
-            {objects.map((o) => (
-              <li key={o.path} className="row">
-                <button type="button" className="btn-link" onClick={() => setOpened(o.path)}>
-                  <code>{o.path}</code>
-                </button>
-                <span className="pill">{t(`draftState_${o.state}`)}</span>
-                {conflicts.has(o.path) ? <span className="badge-warn">{t('publishConflict')}</span> : null}
-              </li>
-            ))}
-          </ul>
+          <DraftBlocks files={objects} conflicts={conflicts} onOpen={setOpened} />
         )}
         {opened ? <MergeDialog spaceId={spaceId} branchId={branchId} path={opened} onClose={() => setOpened(null)} /> : null}
         <ImpactsSection spaceId={spaceId} branchId={branchId} />

@@ -27,30 +27,40 @@ export interface UnsavedState {
 
 interface Registry {
   entries: Record<string, UnsavedState>
+  /** Même registre, tenu à jour sans attendre un rendu : la garde le lit au
+   * moment de la navigation (un écran qui vient d'enregistrer puis navigue
+   * aussitôt ne doit pas être retenu — bug 62a8c315, objet créé deux fois). */
+  live: React.MutableRefObject<Record<string, UnsavedState>>
   set: (id: string, state: UnsavedState | null) => void
   saves: React.MutableRefObject<Record<string, () => Promise<unknown>>>
+  /** Abandon des modifications (retour à la version enregistrée), pour « Continuer
+   * sans enregistrer » d'un changement d'onglet (bug 9cf80cdb). */
+  discards: React.MutableRefObject<Record<string, () => void>>
 }
 
 const UnsavedContext = createContext<Registry | null>(null)
 
 export function UnsavedProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<Record<string, UnsavedState>>({})
+  const live = useRef<Record<string, UnsavedState>>({})
   const saves = useRef<Record<string, () => Promise<unknown>>>({})
+  const discards = useRef<Record<string, () => void>>({})
   const set = useCallback((id: string, state: UnsavedState | null) => {
-    setEntries((prev) => {
-      if (state === null) {
-        if (!(id in prev)) return prev
-        const next = { ...prev }
-        delete next[id]
-        return next
-      }
+    const prev = live.current
+    let next: Record<string, UnsavedState>
+    if (state === null) {
+      if (!(id in prev)) return
+      next = { ...prev }
+      delete next[id]
+    } else {
       const old = prev[id]
-      if (old && old.dirty === state.dirty && old.saveable === state.saveable && old.label === state.label)
-        return prev
-      return { ...prev, [id]: state }
-    })
+      if (old && old.dirty === state.dirty && old.saveable === state.saveable && old.label === state.label) return
+      next = { ...prev, [id]: state }
+    }
+    live.current = next
+    setEntries(next)
   }, [])
-  const value = useMemo(() => ({ entries, set, saves }), [entries, set])
+  const value = useMemo(() => ({ entries, live, set, saves, discards }), [entries, set])
   // La garde de navigation a besoin d'un routeur de données (useBlocker) ; sous
   // un MemoryRouter (tests), seule l'alerte du navigateur reste.
   const dataRouter = useContext(UNSAFE_DataRouterContext)
@@ -62,13 +72,27 @@ export function UnsavedProvider({ children }: { children: ReactNode }) {
   )
 }
 
-/** Déclare l'état d'un onglet ; `save` est relu au moment d'enregistrer. */
-export function useUnsaved(id: string, state: UnsavedState, save: () => Promise<unknown>) {
+/** Déclare l'état d'un onglet ; `save` est relu au moment d'enregistrer.
+ * `discard` ramène l'onglet à la version enregistrée (sans lui, l'abandon compte
+ * sur le démontage de l'onglet par le changement qui suit).
+ * Rend `release` : à appeler juste après un enregistrement réussi suivi d'une
+ * navigation immédiate (création), pour que la garde ne la retienne pas. */
+export function useUnsaved(
+  id: string,
+  state: UnsavedState,
+  save: () => Promise<unknown>,
+  discard?: () => void,
+): () => void {
   const registry = useContext(UnsavedContext)
   const set = registry?.set
   const saves = registry?.saves
+  const discards = registry?.discards
   useEffect(() => {
     if (saves) saves.current[id] = save
+    if (discards) {
+      if (discard) discards.current[id] = discard
+      else delete discards.current[id]
+    }
   })
   useEffect(() => {
     set?.(id, state)
@@ -77,9 +101,11 @@ export function useUnsaved(id: string, state: UnsavedState, save: () => Promise<
     () => () => {
       set?.(id, null)
       if (saves) delete saves.current[id]
+      if (discards) delete discards.current[id]
     },
-    [set, saves, id],
+    [set, saves, discards, id],
   )
+  return () => set?.(id, { ...state, dirty: false })
 }
 
 /**
@@ -120,6 +146,117 @@ export function useDirty(prefix = ''): UnsavedState[] {
     .map(([, s]) => s)
 }
 
+/**
+ * Changement d'onglet (ou d'import) qui dépend de modifications non enregistrées
+ * (bug 9cf80cdb, Gael : « on a la sensation qu'on est dans le même écran. si le fait
+ * de cliquer sur les onglets nécessite d'enregistrer, il faut la popup »).
+ * `guard(prefixes, go)` : sans onglet modifié dont l'identifiant commence par l'un
+ * des préfixes, `go` tout de suite ; sinon la fenêtre Rester / Continuer sans
+ * enregistrer / Enregistrer et continuer. À rendre : `dialog`.
+ */
+export function useSwitchGuard(): { guard: (prefixes: string[], go: () => void) => void; dialog: ReactNode } {
+  const { t } = useTranslation()
+  const registry = useContext(UnsavedContext)
+  const [pending, setPending] = useState<{ ids: [string, UnsavedState][]; go: () => void } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const guard = useCallback(
+    (prefixes: string[], go: () => void) => {
+      // Lu sur le registre vivant : un onglet qui vient d'enregistrer ne retient pas.
+      const ids = Object.entries(registry?.live.current ?? {}).filter(
+        ([id, s]) => s.dirty && prefixes.some((p) => id.startsWith(p)),
+      )
+      if (ids.length === 0) go()
+      else setPending({ ids, go })
+    },
+    [registry],
+  )
+  if (!pending || !registry) return { guard, dialog: null }
+  const { ids, go } = pending
+  const discardAndGo = () => {
+    for (const [id] of ids) registry.discards.current[id]?.()
+    setPending(null)
+    go()
+  }
+  const saveAndGo = async () => {
+    setSaving(true)
+    try {
+      for (const [id] of ids) await registry.saves.current[id]?.()
+      setPending(null)
+      go()
+    } catch {
+      // L'onglet montre son erreur ; on reste pour la corriger.
+      setPending(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+  const dialog = (
+    <UnsavedDialog
+      text={t('unsavedSwitchText')}
+      entries={ids}
+      discardText={t('unsavedSwitchDiscard')}
+      saveText={t('unsavedSwitchSave')}
+      saving={saving}
+      onStay={() => setPending(null)}
+      onDiscard={discardAndGo}
+      onSave={() => void saveAndGo()}
+    />
+  )
+  return { guard, dialog }
+}
+
+function UnsavedDialog({
+  text,
+  entries,
+  discardText,
+  saveText,
+  saving,
+  onStay,
+  onDiscard,
+  onSave,
+}: {
+  text: string
+  entries: [string, UnsavedState][]
+  discardText: string
+  saveText: string
+  saving: boolean
+  onStay: () => void
+  onDiscard: () => void
+  onSave: () => void
+}) {
+  const { t } = useTranslation()
+  const blocking = entries.some(([, s]) => !s.saveable)
+  return (
+    <div role="dialog" aria-label={t('unsavedTitle')} className="dialog-backdrop">
+      <div className="panel dialog-panel stack">
+        <h2>{t('unsavedTitle')}</h2>
+        <p>{text}</p>
+        <ul>
+          {entries.map(([id, s]) => (
+            <li key={id}>
+              {s.label}
+              {!s.saveable ? <span className="muted"> — {t('unsavedNotSaveable')}</span> : null}
+            </li>
+          ))}
+        </ul>
+        <div className="row">
+          <button type="button" className="btn" onClick={onStay}>
+            {t('unsavedStay')}
+          </button>
+          <button type="button" className="btn" onClick={onDiscard}>
+            {discardText}
+          </button>
+          {!blocking ? (
+            <BusyButton type="button" busy={saving} className="btn btn-primary" busyText={t('unsavedSaving')} onClick={onSave}>
+              {saveText}
+            </BusyButton>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function BeforeUnload() {
   const dirty = useDirty().length > 0
   useEffect(() => {
@@ -142,11 +279,11 @@ function LeaveGuard() {
   const dirtyIds = Object.entries(registry.entries).filter(([, s]) => s.dirty)
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
-      dirtyIds.length > 0 && currentLocation.pathname !== nextLocation.pathname,
+      Object.values(registry.live.current).some((s) => s.dirty) &&
+      currentLocation.pathname !== nextLocation.pathname,
   )
   const [saving, setSaving] = useState(false)
   if (blocker.state !== 'blocked') return <BeforeUnload />
-  const blocking = dirtyIds.filter(([, s]) => !s.saveable)
   const saveAndLeave = async () => {
     setSaving(true)
     try {
@@ -160,38 +297,15 @@ function LeaveGuard() {
     }
   }
   return (
-    <div role="dialog" aria-label={t('unsavedTitle')} className="dialog-backdrop">
-      <div className="panel dialog-panel stack">
-        <h2>{t('unsavedTitle')}</h2>
-        <p>{t('unsavedText')}</p>
-        <ul>
-          {dirtyIds.map(([id, s]) => (
-            <li key={id}>
-              {s.label}
-              {!s.saveable ? <span className="muted"> — {t('unsavedNotSaveable')}</span> : null}
-            </li>
-          ))}
-        </ul>
-        <div className="row">
-          <button type="button" className="btn" onClick={() => blocker.reset()}>
-            {t('unsavedStay')}
-          </button>
-          <button type="button" className="btn" onClick={() => blocker.proceed()}>
-            {t('unsavedDiscard')}
-          </button>
-          {blocking.length === 0 ? (
-            <BusyButton
-              type="button"
-              busy={saving}
-              className="btn btn-primary"
-              busyText={t('unsavedSaving')}
-              onClick={() => void saveAndLeave()}
-            >
-              {t('unsavedSave')}
-            </BusyButton>
-          ) : null}
-        </div>
-      </div>
-    </div>
+    <UnsavedDialog
+      text={t('unsavedText')}
+      entries={dirtyIds}
+      discardText={t('unsavedDiscard')}
+      saveText={t('unsavedSave')}
+      saving={saving}
+      onStay={() => blocker.reset()}
+      onDiscard={() => blocker.proceed()}
+      onSave={() => void saveAndLeave()}
+    />
   )
 }

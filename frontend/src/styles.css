@@ -26,6 +26,8 @@
  * dans une page (styles.test.ts le vérifie pour les tokens référencés).
  */
 :root {
+  /* Hauteur minimum de l'éditeur JSLT, relevée en ligne par TemplateEditor (ticket e2b9d7de). */
+  --template-fill: 180px;
   --font-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   /* Chasse fixe : identifiants (tags, slugs, références) et lettrage d'étiquettes. */
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -369,10 +371,16 @@ input[type='radio'] {
 /* ---------- Page ---------- */
 .page {
   width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 24px;
+  /* Pleine largeur, 2,5 cm de marge de chaque côté (Gael : « garde une marge de
+     deux à trois centimètres sur la page », ticket c501cdcd) ; avant : centrée sur
+     1200 px, ce qui laissait le travail loin du bord gauche sur un grand écran. */
+  padding: 24px 2.5cm;
   flex: 1;
+}
+@media (max-width: 700px) {
+  .page {
+    padding-inline: 16px;
+  }
 }
 
 .page-head {
@@ -516,6 +524,53 @@ input[type='radio'] {
 .btn-sm {
   padding: 5px 10px;
   font-size: 0.85rem;
+}
+/* Boutons à icône (ticket 1cca1f06) : tous de la même taille, icône dessinée
+   en trait de la couleur du texte. */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+  vertical-align: middle;
+}
+.btn-icon .icon {
+  display: block;
+}
+.btn-icon + .btn-icon {
+  margin-left: 4px;
+}
+.btn-icon-danger:not(:disabled):hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.btn-icon-plain {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.btn-icon-plain:hover,
+.btn-icon-plain:focus-visible {
+  color: var(--link);
+}
+/* Dans une ligne (tableau, liste), légèrement effacés ; nets au survol de la
+   ligne ou quand le clavier y est (Gael, 28/11). Sans survol (tactile), nets. */
+@media (hover: hover) {
+  :is(tr, li) .btn-icon {
+    opacity: 0.4;
+    transition: opacity 0.12s ease;
+  }
+  :is(tr, li):hover .btn-icon,
+  :is(tr, li):focus-within .btn-icon,
+  :is(tr, li).active .btn-icon,
+  :is(tr, li).selected .btn-icon {
+    opacity: 1;
+  }
 }
 /* Bouton (ou lien-bouton) sur toute la largeur de son conteneur. */
 .btn-block {
@@ -2869,16 +2924,6 @@ td .raw-ref-menu {
   justify-content: space-between;
   gap: 6px;
 }
-/* Crayon discret : visible au survol de la ligne, sur la ligne active, et au clavier. */
-.ref-edit {
-  opacity: 0.35;
-}
-.ref-item:hover .ref-edit,
-.ref-item.active .ref-edit,
-.ref-edit:focus-visible,
-.ref-edit.active {
-  opacity: 1;
-}
 .ref-filter {
   width: 100%;
   margin-top: 8px;
@@ -3006,6 +3051,12 @@ td.cell-error {
   min-width: 0;
   overflow: hidden;
 }
+/* Hauteur minimum portée jusqu'au bas de la fenêtre (TemplateEditor, ticket
+   e2b9d7de) : la feuille du composant pose sa variable sur l'élément lui-même,
+   on la redéfinit donc au même niveau à partir de celle du cadre. */
+.template-frame jslt-editor {
+  --jslt-ed-min-height: var(--template-fill);
+}
 .template-frame jslt-editor .jslt-editor {
   border-radius: 0 8px 8px 0;
 }
@@ -3021,7 +3072,9 @@ td.cell-error {
 /* Onglet Imports. */
 .ref-imports-layout {
   display: grid;
-  grid-template-columns: minmax(200px, 260px) 1fr;
+  /* minmax(0, 1fr) : un aperçu de nombreuses colonnes défile dans son cadre au lieu
+     d'élargir la page (le bouton « Ajouter au modèle » sortait de l'écran). */
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -3029,6 +3082,68 @@ td.cell-error {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
+}
+/* Onglet « Template JSLT » : éditeur à gauche, colonne d'actions à droite
+   (ticket e2b9d7de). */
+.ref-template-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+  gap: 16px;
+  align-items: start;
+}
+/* Extrait de la ligne fautive d'un template, repère sous la colonne (ticket 79e85292). */
+.template-excerpt {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--surface-muted);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  overflow-x: auto;
+  white-space: pre;
+}
+.template-problem p {
+  margin: 0;
+}
+/* Aperçu d'un import (ticket 49f41fa2) : trait très discret entre colonnes,
+   numéro de ligne, valeurs longues repliées. */
+.import-preview th + th,
+.import-preview td + td {
+  border-left: 1px solid var(--surface-muted);
+}
+.import-preview .import-preview-num {
+  font-family: var(--mono);
+  color: var(--muted);
+  text-align: right;
+  width: 1%;
+  white-space: nowrap;
+}
+.import-preview-long {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.import-preview-long:hover,
+.import-preview-long:focus-visible {
+  color: var(--link);
+}
+.ref-template-doc {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ref-template-actions > .btn {
+  width: 100%;
+}
+@media (max-width: 900px) {
+  .ref-template-layout {
+    grid-template-columns: 1fr;
+  }
 }
 .ref-counters {
   display: flex;
@@ -3353,4 +3468,1204 @@ td.cell-error {
 .raw-module-class summary {
   cursor: pointer;
   padding: 4px 0;
+}
+
+/* Profils de relations (ticket 1bce7eb9) : une règle tient sur une ligne
+   « colonne → table . colonne visée × » ; le panneau s'élargit pour cela. */
+.panel-form.panel-form-wide {
+  max-width: 960px;
+}
+.relation-rule-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+@media (max-width: 700px) {
+  .relation-rule-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Cartographie (ticket e7521e80) ---------- */
+/* Une seule couleur, celle de l'application : pas de couleurs de couche ArchiMate. */
+.archimate-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--primary);
+}
+.archimate-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.archimate-icon-lg {
+  width: 26px;
+  height: 26px;
+}
+.carto-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.carto-filter-name {
+  width: 220px;
+  max-width: 100%;
+}
+.carto-filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.carto-filter-label {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.carto-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+.carto-card {
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 112px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+}
+.carto-card-new {
+  border-color: var(--primary);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+.carto-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.carto-card-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin: 0;
+}
+.carto-badge-new {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  text-transform: uppercase;
+  font-size: 0.68rem;
+}
+.carto-card-archimate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.carto-card-counts {
+  display: flex;
+  gap: 16px;
+  margin-top: auto;
+  font-size: 0.9rem;
+}
+.carto-card-add {
+  text-decoration: none;
+  border-style: dashed;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+}
+.carto-card-add:hover {
+  background: var(--chip-bg);
+}
+.carto-add {
+  display: grid;
+  grid-template-columns: minmax(260px, 2fr) 3fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .carto-add {
+    grid-template-columns: 1fr;
+  }
+}
+.carto-type-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  max-height: 340px;
+  overflow: auto;
+  padding: 6px;
+}
+.carto-type-group {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 8px 8px 4px;
+}
+.carto-type-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 5px 8px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.carto-type-item:hover {
+  background: var(--bg);
+}
+.carto-type-item.active {
+  background: var(--chip-bg);
+  border-color: var(--primary);
+  color: var(--chip-fg);
+  font-weight: 600;
+}
+.carto-add-right {
+  padding: 14px 16px;
+}
+.carto-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.carto-detail-title {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+.carto-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.carto-file {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.carto-filters .select {
+  width: auto;
+  min-width: 180px;
+}
+
+/* Publication dans le menu de l'utilisateur (ticket e7e377b0) : une pastille
+   signale qu'il y a un brouillon à publier. */
+.topnav-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--warn-fg);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+.topnav-dropdown-menu .menuitem-strong {
+  font-weight: 700;
+}
+.topnav-dropdown-menu .menu-sep {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+/* Fenêtre d'édition d'un type de cartographie (ticket 5c39d4df). */
+.carto-card-link {
+  text-decoration: none;
+  cursor: pointer;
+}
+.carto-card-link:hover {
+  border-color: var(--primary);
+}
+.carto-type-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+/* La couche en étiquette sobre : jamais de couleur de couche ArchiMate. */
+.carto-layer-chip {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  border-radius: var(--radius-sm);
+  padding: 2px 10px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.carto-band {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
+}
+.carto-band-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.carto-band-note {
+  margin-left: auto;
+}
+.carto-base-panel {
+  padding: 8px 12px;
+}
+.model-editor-head {
+  justify-content: space-between;
+  align-items: center;
+}
+.carto-problems {
+  margin: 0;
+  padding-left: 20px;
+}
+/* « Supprimer le type » dans les actions du haut, à droite d'« Enregistrer »
+   (ticket e2b9d7de). */
+.carto-delete {
+  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+.carto-delete-note {
+  max-width: 220px;
+}
+.carto-base {
+  margin-top: 16px;
+}
+/* Éditeur visuel (jsonjoy-builder) aux couleurs d’Ossie (ticket 1a03b29d) :
+   la couleur principale (« Ajouter un champ ») et les pastilles du choix du type,
+   bleues, violettes, vertes… d'origine. `.model-editor` devant : la feuille de la
+   bibliothèque est chargée après la nôtre. */
+.model-editor .jsonjoy {
+  --jsonjoy-primary: var(--primary);
+  --jsonjoy-primary-foreground: var(--primary-fg);
+}
+.model-editor .jsonjoy :is(.text-blue-500, .text-purple-500, .text-green-500, .text-orange-500, .text-pink-500, .text-gray-500) {
+  color: var(--chip-fg);
+}
+.model-editor .jsonjoy :is(.bg-blue-50, .bg-purple-50, .bg-green-50, .bg-orange-50, .bg-pink-50, .bg-gray-50) {
+  background-color: var(--chip-bg);
+}
+/* L'éditeur visuel (h-full) s'étire à la hauteur du YAML voisin : suivi d'un bloc
+   (propriétés de base d'un type), il laissait un grand vide avant lui. */
+.model-editor-with-after > .jsonjoy {
+  height: auto;
+}
+
+/* Onglet Objets et fiche d'un objet de cartographie (ticket 6f71bcba). */
+.carto-object-filters {
+  flex-direction: column;
+  align-items: stretch;
+}
+.carto-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+}
+.carto-object-search {
+  flex: 1 1 260px;
+}
+.carto-object-count {
+  margin-left: auto;
+}
+.carto-pill-count {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+.carto-object-grid {
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+}
+.carto-object-card {
+  min-height: 200px;
+}
+.carto-object-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.carto-icon-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--chip-bg);
+  flex-shrink: 0;
+}
+.carto-icon-tile-lg {
+  width: 56px;
+  height: 56px;
+}
+.carto-key {
+  align-self: flex-start;
+}
+.carto-excerpt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.carto-prop-chip {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  border-radius: var(--radius-sm);
+  padding: 1px 8px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.carto-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.9rem;
+}
+.carto-more {
+  justify-content: center;
+  margin-top: 16px;
+  gap: 16px;
+}
+.carto-object-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.carto-changed {
+  color: var(--warn-fg);
+  font-size: 0.9rem;
+}
+/* Retour + chemin, collés en haut pendant le défilement. */
+.carto-object-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-block: 8px;
+  background: var(--bg);
+}
+.carto-object-bar .breadcrumb {
+  margin-bottom: 0;
+}
+.carto-object-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .carto-object-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.carto-section {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.carto-section-head {
+  justify-content: space-between;
+  align-items: center;
+}
+.carto-doc-head {
+  justify-content: space-between;
+}
+.carto-doc {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.carto-doc-changed {
+  border-color: var(--warn-fg);
+}
+.carto-folded {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.carto-fill {
+  width: auto;
+  margin-left: auto;
+}
+.carto-relations {
+  gap: 8px;
+}
+.carto-relation-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.carto-relation-row:hover,
+.carto-relation-row:focus-visible {
+  border-color: var(--primary);
+}
+.carto-in-use {
+  margin: 0;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.carto-file-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0;
+}
+.carto-file-list dt {
+  font-family: var(--mono);
+  color: var(--muted);
+}
+.carto-file-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Relations de la cartographie (ticket b58a0a13). */
+.carto-object-card {
+  position: relative;
+}
+.carto-card-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: var(--radius);
+}
+.carto-card-cover:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.carto-relate-btn {
+  position: relative;
+  z-index: 2;
+  opacity: 0;
+}
+.carto-object-card:hover .carto-relate-btn,
+.carto-object-card:focus-within .carto-relate-btn {
+  opacity: 1;
+}
+.carto-relate-band {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+}
+@media (max-width: 760px) {
+  .carto-relate-band {
+    grid-template-columns: 1fr;
+  }
+}
+.carto-end {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  min-width: 0;
+}
+.carto-end-empty {
+  justify-content: center;
+  border-style: dashed;
+  min-height: 72px;
+}
+.carto-end-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.carto-end-type {
+  margin-left: auto;
+  text-align: right;
+}
+.carto-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--primary);
+  text-align: center;
+}
+.carto-arrow-value {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  font-size: 0.85rem;
+}
+.carto-arrow-line {
+  display: block;
+  width: 100%;
+  border-top: 2px dashed var(--primary);
+  position: relative;
+}
+.carto-arrow-line::after {
+  content: '>';
+  position: absolute;
+  right: -4px;
+  top: -0.85em;
+  font-weight: 700;
+}
+.carto-target-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) auto 1fr;
+  gap: 8px;
+}
+.carto-target-type {
+  text-align: right;
+}
+.carto-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+.carto-choice.active {
+  border-color: var(--primary);
+  box-shadow: inset 4px 0 0 var(--primary);
+}
+.carto-choice-def {
+  display: block;
+}
+.carto-relate-foot {
+  align-items: center;
+}
+.carto-relate-foot > span {
+  margin-right: auto;
+}
+
+/* Onglet Modèles de la cartographie (ticket 5a05c7bb) : l'aperçu en trait sarcelle
+   sur la trame, jamais de couleurs de couche ArchiMate dans l'interface. */
+.carto-model-grid {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.carto-model-card {
+  padding: 0;
+  gap: 0;
+  overflow: visible;
+}
+.carto-model-thumb {
+  position: relative;
+  height: 130px;
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
+  background-size: 14px 14px;
+}
+.carto-model-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.carto-preview-box {
+  fill: var(--panel);
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-preview-cadre {
+  fill: none;
+  stroke-dasharray: 4 3;
+}
+.carto-preview-note {
+  stroke: var(--border-strong);
+}
+.carto-preview-link {
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-preview-label {
+  font-family: var(--font-ui);
+  font-size: 7px;
+  fill: var(--text);
+}
+.carto-model-views {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.carto-model-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px 8px;
+  flex: 1;
+}
+.carto-model-card .carto-card-foot {
+  position: relative;
+  margin: 0 16px;
+  padding: 10px 0;
+}
+.carto-model-warn {
+  margin: 0;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 0.85rem;
+}
+.carto-model-actions {
+  position: relative;
+  z-index: 2;
+  display: none;
+  gap: 8px;
+}
+.carto-model-card:hover .carto-model-actions,
+.carto-model-card:focus-within .carto-model-actions {
+  display: inline-flex;
+}
+.carto-model-card:hover .carto-model-author,
+.carto-model-card:focus-within .carto-model-author {
+  display: none;
+}
+.carto-model-menu {
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: calc(100% - 4px);
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.carto-model-add {
+  min-height: 200px;
+  gap: 6px;
+}
+.carto-model-files {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.carto-model-viewpoint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.carto-model-viewpoint .select {
+  width: auto;
+}
+.carto-filters .carto-model-contains {
+  max-width: 260px;
+}
+.carto-model-uses {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* Page d'un modèle (ticket f5421cc7) : le diagramme occupe la page. */
+.carto-model-canvas {
+  height: calc(100vh - 290px);
+  min-height: 480px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+/* Raccord du composant urban-archimate (son contrat, « Thème ») : un changement de la
+   palette d'Ossie se propage au composant. */
+urban-archimate {
+  --ua-police: var(--font-ui);
+  --ua-police-mono: var(--mono);
+  --ua-texte: var(--text);
+  --ua-texte-secondaire: var(--muted);
+  --ua-fond: var(--bg);
+  --ua-trame-point: var(--grid-dot);
+  --ua-fond-panneau: var(--panel);
+  --ua-fond-discret: var(--surface-muted);
+  --ua-bordure: var(--border);
+  --ua-bordure-forte: var(--border-strong);
+  --ua-accent: var(--primary);
+  --ua-accent-survol: var(--primary-hover);
+  --ua-accent-texte: var(--primary-fg);
+  --ua-accent-fond: var(--chip-bg);
+  --ua-accent-fond-texte: var(--chip-fg);
+  --ua-erreur: var(--danger-fg);
+  --ua-erreur-fond: var(--danger-bg);
+  --ua-rayon: var(--radius);
+  --ua-rayon-sm: var(--radius-sm);
+  --ua-ombre: var(--shadow);
+  /* notation : blocs et filets d'Ossie ; les lignes de couche gardent la
+     palette du RailMap (couleurs de données, sans token côté Ossie) */
+  --ua-notation-autre: var(--muted);
+  --ua-notation-element: var(--panel);
+  --ua-notation-note: var(--panel);
+  --ua-notation-trait: var(--border-strong);
+  --ua-notation-relation: var(--muted);
+  --ua-notation-texte: var(--text);
+  --ua-notation-fond: var(--panel);
+}
+
+/* Onglet Processus de la cartographie (ticket 7e061c3e) : l'aperçu BPMN en trait
+   sarcelle sur la trame, comme celui des modèles. */
+.carto-process-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.carto-bpmn-shape {
+  fill: var(--panel);
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-bpmn-pool,
+.carto-bpmn-lane {
+  fill: none;
+}
+.carto-bpmn-data {
+  stroke-dasharray: 3 2;
+}
+.carto-bpmn-flow {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 1;
+}
+.carto-bpmn-label {
+  font-family: var(--font-ui);
+  fill: var(--text);
+}
+.carto-process-detail {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.carto-over-cover {
+  position: relative;
+  z-index: 2;
+}
+.carto-process-attach {
+  margin-left: auto;
+}
+.carto-add-link {
+  background: none;
+  border: 0;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.carto-add-sub {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.carto-import {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .carto-import {
+    grid-template-columns: 1fr;
+  }
+}
+.carto-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px dashed var(--primary);
+  border-radius: var(--radius);
+  background: var(--chip-bg);
+  cursor: pointer;
+}
+.carto-file-badge {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 40px;
+  height: 48px;
+  padding-bottom: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+  font-size: 0.7rem;
+}
+.carto-link {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.carto-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.carto-check {
+  display: flex;
+  gap: 10px;
+}
+.carto-check-mark {
+  width: 1em;
+  font-weight: 700;
+}
+.carto-check-ok .carto-check-mark {
+  color: var(--primary);
+}
+.carto-check-warn .carto-check-mark {
+  color: var(--warn-fg);
+}
+.carto-check-ko .carto-check-mark {
+  color: var(--danger-fg);
+}
+.carto-import-preview {
+  height: 280px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background-color: var(--bg);
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1.3px);
+  background-size: 14px 14px;
+}
+/* Page d'un processus (ticket 48335b93) : l'éditeur urban-bpmn occupe la page. */
+.carto-process-editor {
+  /* Les calques de l'éditeur (filigrane bpmn.io…) restent sous les fenêtres d'Ossie. */
+  isolation: isolate;
+  height: calc(100vh - 290px);
+  min-height: 480px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+/* Raccord du composant urban-bpmn (son contrat : variables --ub-*). */
+urban-bpmn {
+  --ub-police: var(--font-ui);
+  --ub-texte: var(--text);
+  --ub-fond: var(--bg);
+  --ub-bordure: var(--border);
+  --ub-accent: var(--primary);
+}
+.carto-attach-prompt {
+  max-width: 640px;
+  margin-top: 12px;
+}
+.carto-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.carto-pick {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.carto-pick:hover {
+  background: var(--surface-muted);
+}
+.carto-pick.active {
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+}
+.carto-process-unattached {
+  display: inline-block;
+  margin-top: 6px;
+}
+.carto-bpmn-links {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Onglet « Relations » de la fiche d'un type (ticket 2643fd8f). */
+.carto-relation-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.carto-relation-head {
+  align-items: center;
+  gap: 8px;
+}
+.carto-relation-targets {
+  list-style: none;
+  margin: 0;
+  padding-left: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.carto-relation-targets .row {
+  align-items: center;
+  gap: 8px;
+}
+.carto-target-off {
+  color: var(--muted);
+  opacity: 0.7;
+}
+.carto-relation-rule select {
+  max-width: 280px;
+  margin-left: 28px;
+}
+
+/* Libellé d'un type, édité derrière un crayon à droite du titre (ticket 1ad51345). */
+/* Le champ prend la taille du titre qu'il remplace : l'en-tête ne saute pas. */
+.carto-type-label-input.input {
+  flex: none;
+  width: min(560px, 60vw);
+  font-size: 2.1rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  padding: 0 8px;
+}
+
+/* Onglet « Relations » : source | relation | cibles acceptées (ticket 3fdb1e6e). */
+.carto-rel-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+.carto-rel-middle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.carto-rel-line {
+  flex: 1 1 24px;
+  min-width: 24px;
+}
+.carto-rel-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  background: var(--bg);
+}
+.carto-rel-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+.carto-rel-targets .carto-relation-targets {
+  padding-left: 0;
+}
+.carto-rel-targets select {
+  margin-left: 0;
+}
+.carto-rel-target .row {
+  align-items: center;
+  gap: 8px;
+}
+.carto-rel-target-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .carto-rel-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Choix de la propriété d'une colonne (ticket 47716786) : la liste et la mention
+   « choisie » sur une ligne. */
+.import-mapping {
+  flex-wrap: nowrap;
+}
+.import-mapping select {
+  max-width: 320px;
+}
+
+/* Accueil : où signaler bugs et demandes d'évolution (ticket 6fcefecf). */
+.home-feedback {
+  margin-top: 24px;
+  max-width: 720px;
+}
+.home-feedback h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.home-feedback p {
+  margin: 0;
+}
+
+/* Onglet « Résumé » d'un type : ses objets et le YAML de l'objet choisi (ticket 7dc220a4). */
+.carto-type-objects {
+  margin-top: 16px;
+}
+.carto-type-objects-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.carto-type-objects-list {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.carto-type-objects-yaml {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+}
+.carto-type-object-yaml {
+  margin: 0;
+  max-height: 70vh;
+  overflow: auto;
+  word-break: normal;
+}
+.carto-type-object-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.carto-type-object-actions .btn + .btn {
+  margin-left: 4px;
+}
+@media (max-width: 900px) {
+  .carto-type-objects-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* « Publier mon brouillon » : fichiers en arbre de répertoires (ticket 8810604c). */
+.draft-tree,
+.draft-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.draft-tree ul {
+  padding-left: 22px;
+  border-left: 1px solid var(--border);
+  margin-left: 7px;
+}
+.draft-tree li {
+  padding: 2px 0;
+}
+.draft-tree-file {
+  gap: 8px;
+}
+.draft-tree-toggle {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  gap: 8px;
+  text-align: left;
+}
+.draft-tree-toggle:hover .draft-tree-name,
+.draft-tree-toggle:focus-visible .draft-tree-name {
+  color: var(--link);
+}
+.draft-tree-caret {
+  width: 12px;
+  color: var(--muted);
+}
+.draft-tree-name {
+  font-weight: 600;
+}
+/* Blocs de l'écran de publication (ticket 9774a263). */
+.draft-block {
+  padding: 10px 14px;
+}
+.draft-block-head {
+  width: 100%;
+}
+.draft-block-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+.draft-block .draft-tree {
+  margin-top: 8px;
 }

@@ -37,11 +37,13 @@ router = APIRouter(prefix="/api/spaces/{space_id}/referentiels", tags=["referent
 _bearer = HTTPBearer(auto_error=False, description="Clé d'API de service (osk_…).")
 BearerDep = Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
 
-# Chaque lecture et la primitive MCP qui donne le même droit à une clé.
-LIST_PRIMITIVE = "list_referentiels"
-MODEL_PRIMITIVE = "read_referentiel_model"
-SEARCH_PRIMITIVE = "search_referentiel_values"
-VALUE_PRIMITIVE = "get_referentiel_value"
+# Chaque lecture et la primitive MCP qui donne le même droit à une clé. Le MCP lit
+# par les primitives communes : le modèle par read_schema (ticket 06ef8679), la liste
+# et la recherche par list_documents, une valeur par read_document (ticket 2113e7bc).
+LIST_PRIMITIVE = "list_documents"
+MODEL_PRIMITIVE = "read_schema"
+SEARCH_PRIMITIVE = "list_documents"
+VALUE_PRIMITIVE = "read_document"
 MAX_LIMIT = 500
 
 

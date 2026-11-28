@@ -76,12 +76,12 @@ async def test_profil_lecture_livre_toutes_les_lectures(admin: AsyncClient) -> N
     assert lecture["is_builtin"] and lecture["all_read"]
     assert set(lecture["effective"]) == READ_PRIMITIVES
     # Le catalogue est exposé pour l'écran : lecture/écriture et capacité supposée.
-    entry = next(p for p in body["catalog"] if p["id"] == "list_assets")
+    entry = next(p for p in body["catalog"] if p["id"] == "get_review")
     assert entry == {
-        "id": "list_assets",
+        "id": "get_review",
         "domain": "curation",
         "access": "read",
-        "capability": "curation:read",
+        "capability": "curation:review",
         "person_only": False,
     }
 
@@ -110,16 +110,16 @@ async def test_profil_livre_se_duplique_mais_ne_se_modifie_ni_ne_se_supprime(
 
 
 async def test_creer_un_profil_le_rend_choisissable(app: FastAPI, admin: AsyncClient) -> None:
-    created = await _create(admin, "Repérage", ["list_spaces", "list_sources"])
+    created = await _create(admin, "Repérage", ["list_spaces", "get_reference_graph"])
     assert created.status_code == 201, created.text
     profile = created.json()
     assert profile["slug"] == "reperage"
-    assert profile["effective"] == ["list_sources", "list_spaces"]
+    assert profile["effective"] == ["get_reference_graph", "list_spaces"]
 
     options = (await admin.get("/api/api-keys/options")).json()["agent_profiles"]
     assert "Repérage" in [p["name"] for p in options]
     secret = await _issue_key(admin, profile["id"])
-    assert set(await tool_names(app, secret)) == {"list_spaces", "list_sources"}
+    assert set(await tool_names(app, secret)) == {"list_spaces", "get_reference_graph"}
 
 
 async def test_saisies_invalides_refusees(admin: AsyncClient) -> None:
@@ -141,9 +141,9 @@ async def test_saisies_invalides_refusees(admin: AsyncClient) -> None:
 async def test_primitive_retiree_indisponible_des_l_appel_suivant(
     app: FastAPI, admin: AsyncClient
 ) -> None:
-    profile = (await _create(admin, "Repérage", ["list_spaces", "list_sources"])).json()
+    profile = (await _create(admin, "Repérage", ["list_spaces", "get_reference_graph"])).json()
     secret = await _issue_key(admin, profile["id"])
-    assert "list_sources" in await tool_names(app, secret)
+    assert "get_reference_graph" in await tool_names(app, secret)
 
     updated = await admin.put(
         f"/api/agent-profiles/{profile['id']}",
@@ -258,14 +258,14 @@ async def test_on_n_ajoute_que_des_primitives_dont_on_a_la_capacite(
         app, "ana@example.org", ["agent_profiles:read", "agent_profiles:write", "spaces:read"]
     )
     async with _as(app, "ana@example.org") as ana:
-        # Ajouter list_sources (suppose sources:read, qu'elle n'a pas) : refusé, nommé.
+        # Ajouter get_reference_graph (suppose sources:read, qu'elle n'a pas) : refusé, nommé.
         refused = await ana.put(
             f"/api/agent-profiles/{profile['id']}",
-            json={"name": "Repérage", "primitives": ["list_spaces", "list_sources"]},
+            json={"name": "Repérage", "primitives": ["list_spaces", "get_reference_graph"]},
         )
         assert refused.status_code == 403
         assert refused.json()["error"] == "agent_profile_beyond_rights"
-        assert refused.json()["error_args"]["primitives"] == "list_sources"
+        assert refused.json()["error_args"]["primitives"] == "get_reference_graph"
         # « Toutes les lectures » ajouterait aussi ce qu'elle n'a pas.
         all_read = await ana.put(
             f"/api/agent-profiles/{profile['id']}",
@@ -305,13 +305,13 @@ async def test_modifications_journalisees_avec_leur_auteur(
     capsys.readouterr()
     await admin.put(
         f"/api/agent-profiles/{profile['id']}",
-        json={"name": "Repérage", "primitives": ["list_sources"]},
+        json={"name": "Repérage", "primitives": ["get_reference_graph"]},
     )
     await admin.delete(f"/api/agent-profiles/{profile['id']}")
     entries = [
         json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")
     ]
     updated = next(e for e in entries if e["event"] == "agent_profile_updated")
-    assert updated["added"] == ["list_sources"] and updated["removed"] == ["list_spaces"]
+    assert updated["added"] == ["get_reference_graph"] and updated["removed"] == ["list_spaces"]
     assert updated["author"] == ADMIN_EMAIL
     assert any(e["event"] == "agent_profile_deleted" for e in entries)

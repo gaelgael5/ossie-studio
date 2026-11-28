@@ -21,6 +21,7 @@ import {
   setAt,
   shown,
 } from './valueRules'
+import { IconButton } from '../components/IconButton'
 
 /** Problèmes de la valeur ouverte : chemin du champ → codes (« » : la valeur entière). */
 export type FieldProblems = Map<string, string[]>
@@ -32,6 +33,51 @@ interface Ctx {
   problems: FieldProblems
   set: (path: PathPart[], next: unknown) => void
   open: (path: PathPart[]) => void
+  /** Afficher sous chaque champ la description de son schéma (fiche d'un objet de cartographie). */
+  describe?: boolean
+}
+
+/** La description d'un champ à afficher sous lui : `description`, sinon son titre
+ * s'il dit autre chose que son nom. */
+function hintOf(schema: Schema | undefined, name: string): string {
+  const description = typeof schema?.description === 'string' ? schema.description : ''
+  const title = typeof schema?.title === 'string' ? schema.title : ''
+  return description || (title && title !== name ? title : '')
+}
+
+function Hint({ ctx, schema, name }: { ctx: Ctx; schema: Schema | undefined; name: string }) {
+  const hint = ctx.describe ? hintOf(schema, name) : ''
+  return hint ? <span className="field-hint">{hint}</span> : null
+}
+
+/** Fil d'Ariane d'un chemin ouvert dans le formulaire : « racine › paliers[2] › … ». */
+function crumbsOf(rootLabel: string, path: PathPart[]): { label: string; path: PathPart[] }[] {
+  const crumbs: { label: string; path: PathPart[] }[] = [{ label: rootLabel, path: [] }]
+  path.forEach((part, i) => {
+    if (typeof part === 'number') crumbs[crumbs.length - 1].label += `[${part}]`
+    else crumbs.push({ label: part, path: path.slice(0, i + 1) })
+    crumbs[crumbs.length - 1].path = path.slice(0, i + 1)
+  })
+  return crumbs
+}
+
+function Crumbs({ crumbs, onOpen, label }: { crumbs: { label: string; path: PathPart[] }[]; onOpen: (path: PathPart[]) => void; label: string }) {
+  return (
+    <nav className="breadcrumb ref-panel-crumbs" aria-label={label}>
+      {crumbs.map((c, i) => (
+        <span key={i}>
+          {i > 0 ? ' › ' : ''}
+          {i < crumbs.length - 1 ? (
+            <button type="button" className="link-button" onClick={() => onOpen(c.path)}>
+              {c.label}
+            </button>
+          ) : (
+            c.label
+          )}
+        </span>
+      ))}
+    </nav>
+  )
 }
 
 function useErrorText() {
@@ -60,12 +106,17 @@ function FieldInput({
   const { t } = useTranslation()
   const text = shown(value)
   if (kind === 'enum') {
+    // Libellés d'affichage facultatifs (attributs ArchiMate de la cartographie) :
+    // `x-labels` pour chaque valeur, `x-unset` pour la valeur absente. La valeur
+    // stockée reste celle de l'énumération.
+    const labels = (schema['x-labels'] ?? {}) as Record<string, string>
+    const unset = typeof schema['x-unset'] === 'string' ? schema['x-unset'] : t('refPanelEmptyOption')
     return (
       <select id={id} aria-label={label} className="input" value={text} disabled={readOnly} onChange={(e) => onChange(parseInput(kind, e.target.value))}>
-        <option value="">{t('refPanelEmptyOption')}</option>
+        <option value="">{unset}</option>
         {(schema.enum as unknown[]).map((option) => (
           <option key={String(option)} value={String(option)}>
-            {String(option)}
+            {labels[String(option)] ?? String(option)}
           </option>
         ))}
       </select>
@@ -122,9 +173,7 @@ function SimpleList({ ctx, path, items, label }: { ctx: Ctx; path: PathPart[]; i
           />
           <Errors codes={ctx.problems.get(fieldPath([...path, index]))} />
           {!ctx.readOnly ? (
-            <button type="button" className="btn btn-sm" aria-label={t('refPanelItemRemove', { index })} onClick={() => ctx.set(path, list.filter((_, i) => i !== index))}>
-              {'✕'}
-            </button>
+            <IconButton icon="remove" label={t('refPanelItemRemove', { index })} onClick={() => ctx.set(path, list.filter((_, i) => i !== index))} />
           ) : null}
         </div>
       ))}
@@ -192,15 +241,9 @@ function ArrayTable({ ctx, path, items, label }: { ctx: Ctx; path: PathPart[]; i
                 ) : null}
                 {!ctx.readOnly ? (
                   <td className="row">
-                    <button type="button" className="btn btn-sm" aria-label={t('refPanelItemUp', { index })} disabled={index === 0} onClick={() => ctx.set(path, move(list, index, index - 1))}>
-                      {'↑'}
-                    </button>
-                    <button type="button" className="btn btn-sm" aria-label={t('refPanelItemDown', { index })} disabled={index === list.length - 1} onClick={() => ctx.set(path, move(list, index, index + 1))}>
-                      {'↓'}
-                    </button>
-                    <button type="button" className="btn btn-sm" aria-label={t('refPanelItemRemove', { index })} onClick={() => ctx.set(path, list.filter((_, i) => i !== index))}>
-                      {'✕'}
-                    </button>
+                    <IconButton icon="up" label={t('refPanelItemUp', { index })} disabled={index === 0} onClick={() => ctx.set(path, move(list, index, index - 1))} />
+                    <IconButton icon="down" label={t('refPanelItemDown', { index })} disabled={index === list.length - 1} onClick={() => ctx.set(path, move(list, index, index + 1))} />
+                    <IconButton icon="remove" label={t('refPanelItemRemove', { index })} onClick={() => ctx.set(path, list.filter((_, i) => i !== index))} />
                   </td>
                 ) : null}
               </tr>
@@ -219,12 +262,23 @@ function ArrayTable({ ctx, path, items, label }: { ctx: Ctx; path: PathPart[]; i
 
 /** Les champs d'un objet du modèle (la valeur elle-même, un objet imbriqué ou un
  * élément de tableau ouvert dans le panneau). */
-function ObjectFields({ ctx, schema, path }: { ctx: Ctx; schema: Schema | undefined; path: PathPart[] }) {
+function ObjectFields({
+  ctx,
+  schema,
+  path,
+  names,
+}: {
+  ctx: Ctx
+  schema: Schema | undefined
+  path: PathPart[]
+  /** Seulement ces propriétés de premier niveau (fiche d'un objet : les vides repliées). */
+  names?: string[]
+}) {
   const { t } = useTranslation()
   const required = requiredOf(schema)
   return (
     <div className="stack">
-      {propertiesOf(schema).map(([name, sub]) => {
+      {propertiesOf(schema).filter(([name]) => !names || names.includes(name)).map(([name, sub]) => {
         const here = [...path, name]
         const field = fieldPath(here)
         const kind = kindOf(sub)
@@ -233,6 +287,7 @@ function ObjectFields({ ctx, schema, path }: { ctx: Ctx; schema: Schema | undefi
           return (
             <fieldset key={name} className="ref-fieldset">
               <legend>{name}</legend>
+              <Hint ctx={ctx} schema={sub} name={name} />
               <ObjectFields ctx={ctx} schema={sub} path={here} />
             </fieldset>
           )
@@ -247,6 +302,7 @@ function ObjectFields({ ctx, schema, path }: { ctx: Ctx; schema: Schema | undefi
               ) : (
                 <SimpleList ctx={ctx} path={here} items={items} label={name} />
               )}
+              <Hint ctx={ctx} schema={sub} name={name} />
               <Errors codes={ctx.problems.get(field)} />
             </div>
           )
@@ -267,10 +323,56 @@ function ObjectFields({ ctx, schema, path }: { ctx: Ctx; schema: Schema | undefi
               label={name}
               onChange={(next) => ctx.set(here, next)}
             />
+            <Hint ctx={ctx} schema={sub} name={name} />
             <Errors codes={ctx.problems.get(field)} />
           </div>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * Les champs d'un objet tirés de son schéma, sans le panneau autour : repris par
+ * la fiche d'un objet de cartographie (ticket 6f71bcba). `names` restreint les
+ * propriétés de premier niveau affichées ; `onChange` reçoit la valeur entière.
+ * La description de chaque champ s'affiche sous lui. « Ouvrir » sur un élément
+ * d'un tableau d'objets l'ouvre sur place, avec un fil d'Ariane pour revenir.
+ */
+export function SchemaFields({
+  schema,
+  draft,
+  readOnly,
+  problems,
+  onChange,
+  names,
+  rootLabel,
+}: {
+  schema: Schema
+  draft: Value
+  readOnly: boolean
+  problems: FieldProblems
+  onChange: (next: Value) => void
+  names?: string[]
+  /** Premier maillon du fil d'Ariane quand un élément est ouvert. */
+  rootLabel: string
+}) {
+  const { t } = useTranslation()
+  const [path, setPath] = useState<PathPart[]>([])
+  const ctx: Ctx = {
+    draft,
+    readOnly,
+    lockedKey: [],
+    problems,
+    set: (at, next) => onChange(setAt(draft, at, next) as Value),
+    open: setPath,
+    describe: true,
+  }
+  if (path.length === 0) return <ObjectFields ctx={ctx} schema={schema} path={[]} names={names} />
+  return (
+    <div className="stack">
+      <Crumbs crumbs={crumbsOf(rootLabel, path)} onOpen={setPath} label={t('refPanelPath')} />
+      <ObjectFields ctx={ctx} schema={schemaAt(schema, path)} path={path} />
     </div>
   )
 }
@@ -310,35 +412,15 @@ export function ValuePanel({
   }
   const title = isNew ? t('refPanelNew') : t('refPanelTitle', { key: keyLabel(draft, key) })
   // Fil d'Ariane : « FR · site › paliers[2] › … ».
-  const crumbs: { label: string; path: PathPart[] }[] = [{ label: keyLabel(draft, key) || title, path: [] }]
-  path.forEach((part, i) => {
-    if (typeof part === 'number') crumbs[crumbs.length - 1].label += `[${part}]`
-    else crumbs.push({ label: part, path: path.slice(0, i + 1) })
-    crumbs[crumbs.length - 1].path = path.slice(0, i + 1)
-  })
+  const crumbs = crumbsOf(keyLabel(draft, key) || title, path)
   const whole = problems.get('')
   return (
     <aside role="dialog" aria-label={title} className="panel ref-panel stack">
       <div className="row dialog-head">
         <h3>{title}</h3>
-        <button type="button" className="btn btn-sm" onClick={onCancel} aria-label={t('close')}>
-          {'✕'}
-        </button>
+        <IconButton icon="close" label={t('close')} onClick={onCancel} />
       </div>
-      <nav className="breadcrumb ref-panel-crumbs" aria-label={t('refPanelPath')}>
-        {crumbs.map((c, i) => (
-          <span key={i}>
-            {i > 0 ? ' › ' : ''}
-            {i < crumbs.length - 1 ? (
-              <button type="button" className="link-button" onClick={() => setPath(c.path)}>
-                {c.label}
-              </button>
-            ) : (
-              c.label
-            )}
-          </span>
-        ))}
-      </nav>
+      <Crumbs crumbs={crumbs} onOpen={setPath} label={t('refPanelPath')} />
       {whole ? (
         <p className="empty-note text-danger" role="alert">
           <Errors codes={whole} />

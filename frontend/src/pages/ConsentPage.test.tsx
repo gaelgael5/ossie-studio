@@ -8,7 +8,7 @@ import { ConsentPage, consentNavigation } from './ConsentPage'
 const REQUEST = {
   client: { id: 'c1', name: 'Claude', redirect_uri: 'https://claude.ai/api/mcp/auth_callback' },
   agent_profiles: [
-    { id: 'p-lecture', name: 'Lecture', description: '', granted: ['list_spaces'], withheld: ['read_asset'] },
+    { id: 'p-lecture', name: 'Lecture', description: '', granted: ['list_spaces'], withheld: ['read_schema'] },
     { id: 'p-reperage', name: 'Repérage', description: '', granted: ['list_spaces'], withheld: [] },
   ],
   current_agent_profile_id: null,
@@ -57,7 +57,7 @@ describe('ConsentPage', () => {
     expect(await screen.findByText(/« Claude » demande à agir pour vous/)).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Lecture' })).toBeChecked()
     expect(screen.getByText('list_spaces')).toBeInTheDocument()
-    expect(screen.getByText(/Non accordé.*read_asset/)).toBeInTheDocument()
+    expect(screen.getByText(/Non accordé.*read_schema/)).toBeInTheDocument()
   })
 
   it('autorise avec le profil choisi puis renvoie vers le client', async () => {

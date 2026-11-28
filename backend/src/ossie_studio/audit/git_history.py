@@ -115,3 +115,68 @@ def referentiel_events(commits: list[PathCommit], filters: AuditFilters) -> list
                 out.append(event)
     out.sort(key=lambda e: e.at, reverse=True)
     return out
+
+
+# --- Cartographie (epic « Cartographie — types et objets ») : elle aussi vit dans Git --------
+
+CARTO_TYPE = "carto_type"
+CARTO_OBJECT = "carto_object"
+CARTO_MODEL = "carto_model"
+CARTO_PROCESS = "carto_process"
+CARTOGRAPHIE_TYPES = (CARTO_TYPE, CARTO_OBJECT, CARTO_MODEL, CARTO_PROCESS)
+_CARTO_TYPE_SUFFIX = ".schema.yaml"
+# Un modèle et son graphique : un seul objet du journal, le modèle (son slug).
+_CARTO_MODEL_SUFFIXES = (".modele.yaml", ".graphique.yaml")
+
+
+def _carto_target(path: str) -> tuple[str, str] | None:
+    """(type d'objet du journal, identifiant) d'un fichier de la cartographie : un
+    type (`cartographie/types/<slug>.schema.yaml`, son slug) ou un objet
+    (`cartographie/objets/<type>/<clé en minuscules>.yaml`, sa clé), ou un modèle
+    (`cartographie/modeles/<slug>.modele.yaml` et son graphique, son slug), ou un
+    processus BPMN (`cartographie/processus/<clé en minuscules>.bpmn`, sa clé)."""
+    parts = PurePosixPath(path).parts
+    if len(parts) == 3 and parts[:2] == ("cartographie", "processus"):
+        if parts[2].endswith(".bpmn"):
+            return CARTO_PROCESS, parts[2][: -len(".bpmn")].upper()
+    if len(parts) == 3 and parts[:2] == ("cartographie", "modeles"):
+        for suffix in _CARTO_MODEL_SUFFIXES:
+            if parts[2].endswith(suffix):
+                return CARTO_MODEL, parts[2][: -len(suffix)]
+    if len(parts) == 3 and parts[:2] == ("cartographie", "types"):
+        if parts[2].endswith(_CARTO_TYPE_SUFFIX):
+            return CARTO_TYPE, parts[2][: -len(_CARTO_TYPE_SUFFIX)]
+    if len(parts) == 4 and parts[:2] == ("cartographie", "objets"):
+        if parts[3].endswith(".yaml"):
+            return CARTO_OBJECT, parts[3][: -len(".yaml")].upper()
+    return None
+
+
+def cartographie_events(commits: list[PathCommit], filters: AuditFilters) -> list[AuditEvent]:
+    """Un événement par type ou objet de la cartographie touché par un commit
+    publié : créé, modifié ou supprimé selon son fichier."""
+    out: list[AuditEvent] = []
+    for commit in commits:
+        seen: set[tuple[str, str]] = set()  # un modèle et son graphique : un événement
+        for status, path in commit.files:
+            found = _carto_target(path)
+            if found is None or found in seen:
+                continue
+            seen.add(found)
+            object_type, object_id = found
+            event = AuditEvent(
+                at=datetime.fromisoformat(commit.date),
+                actor_label=commit.author,
+                actor_id=None,
+                action=_ACTIONS.get(status, UPDATED),
+                object_type=object_type,
+                object_id=object_id,
+                object_label=object_id,
+                detail={"commit": commit.sha[:12], "message": commit.message},
+                origin="git",
+                ref=commit.sha,
+            )
+            if _keep(event, filters):
+                out.append(event)
+    out.sort(key=lambda e: e.at, reverse=True)
+    return out

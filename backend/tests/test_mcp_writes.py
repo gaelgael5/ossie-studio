@@ -108,6 +108,18 @@ def _ids(space: ApiSpace, **extra: Any) -> dict[str, Any]:
     return {"space_id": space.space_id, "branch_id": space.branch_id, "source": "ventes", **extra}
 
 
+def _assets_args(space: ApiSpace, **extra: Any) -> dict[str, Any]:
+    """list_documents des assets de la source (ce que rendait list_assets, ticket
+    56f3784a)."""
+    return {
+        "space_id": space.space_id,
+        "branch_id": space.branch_id,
+        "kind": "schema_asset",
+        "identity": {"source": "ventes"},
+        **extra,
+    }
+
+
 async def _ok(app: FastAPI, token: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
     result = await call_tool(app, token, name, args)
     assert not result.is_error, result.content[0].text
@@ -164,8 +176,8 @@ async def test_l_agent_cure_dans_le_brouillon_sans_rien_publier(
     assert refreshed["refreshed"] == ["order.schema.yaml"]
 
     # Rien n'est publié : le publié n'a aucun asset ; le brouillon en a deux.
-    published = await _ok(app, AGENT, "list_assets", _ids(space, view="published"))
-    assert published["assets"] == []
+    published = await _ok(app, AGENT, "list_documents", _assets_args(space))
+    assert published["documents"] == []
     draft = await _ok(
         app, AGENT, "get_my_draft", {"space_id": space.space_id, "branch_id": space.branch_id}
     )
@@ -178,7 +190,8 @@ async def test_l_agent_cure_dans_le_brouillon_sans_rien_publier(
 
     removed = await _ok(app, AGENT, "remove_asset", order)
     assert removed["changed"] is True and removed["asset"] is None
-    names = [a["path"] for a in (await _ok(app, AGENT, "list_assets", _ids(space)))["assets"]]
+    draft_assets = await _ok(app, AGENT, "list_documents", _assets_args(space, branch="draft"))
+    names = [a["identity"]["name"] for a in draft_assets["documents"]]
     assert names == ["customer.schema.yaml"]
 
 
@@ -357,7 +370,7 @@ async def test_annotations_envoyees_au_client(app: FastAPI, space: ApiSpace) -> 
     for name in ("retain_asset", "enrich_asset", "refresh_assets"):
         assert tools[name].read_only_hint is False and tools[name].destructive_hint is False
     assert tools["retain_asset"].idempotent_hint is True
-    assert tools["list_assets"].read_only_hint is True
+    assert tools["list_documents"].read_only_hint is True
 
 
 # --- Critère 9 : journal --------------------------------------------------------------

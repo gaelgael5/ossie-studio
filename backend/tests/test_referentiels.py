@@ -17,8 +17,8 @@ from httpx import AsyncClient
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.drafts.validation import run_rules
+from ossie_studio.imports.declaration import ImportDeclaration
 from ossie_studio.referentiels.errors import Problem, ReferentielError
-from ossie_studio.referentiels.imports import ImportDeclaration
 from ossie_studio.referentiels.model import SEPARATOR, check_model, dump_model
 from ossie_studio.referentiels.repo import (
     list_referentiels,

@@ -79,6 +79,26 @@ test('admin connecté : la racine affiche l’accueil avec le lien secrets', asy
   await waitFor(() => expect(screen.getByText('Gérer les secrets')).toBeInTheDocument())
 })
 
+test('accueil : où signaler bugs et demandes d’évolution, même sans droit (ticket 6fcefecf)', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'lecteur@example.org', role: 'user' },
+        capabilities: [],
+      },
+    },
+  })
+  renderAt('/')
+  const block = await screen.findByRole('region', { name: 'Bugs et demandes d’évolution' })
+  const link = within(block).getByRole('link', { name: 'https://github.com/gaelgael5/ossie-studio/issues' })
+  expect(link).toHaveAttribute('href', 'https://github.com/gaelgael5/ossie-studio/issues')
+  expect(link).toHaveAttribute('target', '_blank')
+  expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+})
+
 test('login : des identifiants faux affichent le message traduit', async () => {
   await i18n.changeLanguage('fr')
   mockFetch({
@@ -1044,10 +1064,66 @@ test('menu : « Référentiels » juste après « Espaces » (epic Référentiel
   renderAt('/')
   const nav = await screen.findByRole('navigation', { name: 'Ossie Studio' })
   await waitFor(() => expect(within(nav).getByRole('link', { name: 'Référentiels' })).toBeInTheDocument())
-  const labels = within(nav)
-    .getAllByRole('link')
-    .map((a) => a.textContent ?? '')
-    .filter((text) => ['Espaces', 'Référentiels', 'Sources', 'Curation', 'Gouvernance'].includes(text))
-  expect(labels.slice(0, 3)).toEqual(['Espaces', 'Référentiels', 'Sources'])
+  // Entrées de premier niveau, dans l'ordre (liens et blocs déroulants).
+  const labels = [...nav.querySelectorAll('.topnav-menu > .topnav-item, .topnav-menu > .topnav-dropdown > .topnav-item')]
+    .map((el) => (el.textContent ?? '').replace(' ▾', ''))
+    .filter((text) => ['Espaces', 'Référentiels', 'Collecte', 'Gouvernance'].includes(text))
+  expect(labels.slice(0, 3)).toEqual(['Espaces', 'Référentiels', 'Collecte'])
   expect(labels).toContain('Gouvernance')
+})
+
+test('menu : « Cartographie » juste après « Modèles », avant « Gouvernance »', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: [...ADMIN_CAPS, 'curation:read', 'cartographie:read'],
+      },
+    },
+  })
+  renderAt('/')
+  const nav = await screen.findByRole('navigation', { name: 'Ossie Studio' })
+  const carto = await within(nav).findByRole('button', { name: /^Cartographie/ })
+  const labels = [...nav.querySelectorAll('.topnav-menu > .topnav-item, .topnav-menu > .topnav-dropdown > .topnav-item')]
+    .map((el) => (el.textContent ?? '').replace(' ▾', ''))
+    .filter((text) => ['Modèles', 'Cartographie', 'Gouvernance'].includes(text))
+  expect(labels).toEqual(['Modèles', 'Cartographie', 'Gouvernance'])
+  // Ticket 1bea81d8 : des écrans indépendants sous « Cartographie ▾ » ; les processus
+  // BPMN y ont le leur (epic « Cartographie — processus BPMN »).
+  await userEvent.setup().click(carto)
+  const menu = within(nav).getAllByRole('menu')[0]
+  expect(within(menu).getAllByRole('menuitem').map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+    ['Types', '/cartographie/types'],
+    ['Objets', '/cartographie/objets'],
+    ['Modèles', '/cartographie/modeles'],
+    ['Processus', '/cartographie/processus'],
+  ])
+})
+
+test('menu : « Sources » et « Curation » regroupés dans le bloc « Collecte »', async () => {
+  await i18n.changeLanguage('fr')
+  mockFetch({
+    '/api/session': {
+      body: {
+        bootstrap_required: false,
+        authenticated: true,
+        user: { email: 'gael@example.org', role: 'admin' },
+        capabilities: [...ADMIN_CAPS, 'curation:read'],
+      },
+    },
+  })
+  renderAt('/curation')
+  const nav = await screen.findByRole('navigation', { name: 'Ossie Studio' })
+  const collecte = await within(nav).findByRole('button', { name: /^Collecte/ })
+  // Plus de lien direct au premier niveau ; le bloc est actif sur une de ses pages.
+  expect(within(nav).queryByRole('link', { name: 'Sources' })).not.toBeInTheDocument()
+  expect(collecte).toHaveClass('active')
+  // « Forges » reste l'entrée des Réglages (connexions aux forges).
+  await userEvent.setup().click(collecte)
+  const menu = within(nav).getAllByRole('menu')[0]
+  expect(within(menu).getAllByRole('menuitem').map((a) => a.textContent)).toEqual(['Sources', 'Curation'])
+  expect(within(menu).getByRole('menuitem', { name: 'Sources' })).toHaveAttribute('href', '/sources')
 })

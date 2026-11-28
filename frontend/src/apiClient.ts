@@ -1,5 +1,5 @@
 import { ApiRequestError, type ApiErrorBody } from './errors'
-import { withDraftView } from './draftView'
+import { mergeViewBeforeWrite, withDraftView } from './draftView'
 
 // La gouvernance vit dans le dépôt de chaque espace, par branche : les appels
 // « /api/governance/… » visent l'espace et la branche choisis dans l'en-tête
@@ -32,6 +32,7 @@ export function governancePath(path: string): string {
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  mergeViewBeforeWrite(path, init?.method)
   const response = await fetch(withDraftView(governancePath(path), init?.method), {
     ...init,
     headers: { 'Content-Type': 'application/json', ...init?.headers },
@@ -46,6 +47,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 /** Envoi d'un fichier (multipart) : le navigateur pose lui-même l'en-tête et sa
  * frontière, jamais `application/json`. */
 async function apiUpload<T>(path: string, form: FormData, method = 'PUT'): Promise<T> {
+  mergeViewBeforeWrite(path, method)
   const response = await fetch(withDraftView(governancePath(path), method), { method, body: form })
   const text = await response.text()
   const body = text ? JSON.parse(text) : {}
@@ -406,6 +408,18 @@ export interface PluginParamItem {
   default: string
   value: string
 }
+// Paramètres généraux de l'application, page « Paramètres » (ticket ae8fc4b6).
+export interface AppSetting {
+  key: string
+  value: number
+  default: number
+  minimum: number
+  maximum: number
+  source: 'page' | 'config'
+  updated_at: string | null
+  updated_by: string | null
+}
+
 export interface ParsingPlugin {
   id: string
   label: string
@@ -1160,6 +1174,8 @@ export interface RelationProfileFile {
   profile: (RelationProfileInput & { id: string }) | null
   errors: string[]
   builtin: boolean
+  /** Profil fourni remplacé par une version de l'espace (ticket 1bce7eb9). */
+  customized?: boolean
 }
 export interface RelationPreview {
   relations: number
@@ -1533,6 +1549,307 @@ export interface AuditPage {
   types: string[]
 }
 
+// --- Cartographie (epic « Cartographie — types et objets », ticket e7521e80) --------------
+
+export interface CartoAttribute {
+  name: string
+  label: string
+  type: string
+  /** Valeurs ArchiMate (stockées) et leur libellé français (affiché). */
+  values: { value: string; label: string }[]
+  /** Libellé affiché quand l'attribut est absent. */
+  unset: string
+}
+
+export interface ArchimateTypeInfo {
+  name: string
+  kind: 'element' | 'relation'
+  layer: string
+  label: string
+  definition: string
+  /** Pictogramme SVG d'un trait (`currentColor`), servi par Ossie. */
+  icon: string
+  attributes: CartoAttribute[]
+  /** Types de relation auxquels ce type peut prendre part. */
+  relations: string[]
+  /** Relation : comment elle se lit depuis sa source (out) et depuis sa cible (in). */
+  verbs: { out: string; in: string }
+}
+
+export interface CartoCatalog {
+  archimate: string
+  layers: { key: string; label: string }[]
+  base: { name: string; type: string; required: boolean }[]
+  types: ArchimateTypeInfo[]
+  /** Les points de vue ArchiMate (identifiant d'Archi, libellé français). */
+  viewpoints?: { id: string; label: string }[]
+}
+
+export interface CartoTypeSummary {
+  slug: string
+  title: string
+  archimate: string
+  path: string
+  properties: number
+  objects: number
+  /** created : créé dans le brouillon, pas encore publié ; modified : modifié. */
+  state: 'created' | 'modified' | null
+}
+
+export interface CartoTypeDetail {
+  slug: string
+  title: string
+  archimate: string
+  path: string
+  /** Le document du type (title, x-archimate, type, properties, required). */
+  document: Record<string, unknown>
+  yaml: string
+  objects: number
+  /** Propriété ajoutée → nombre d'objets qui y ont une valeur. */
+  usage: Record<string, number>
+  /** Le schéma des propriétés d'un objet de ce type (attributs ArchiMate + ajoutées). */
+  object_schema: Record<string, unknown>
+  state: 'created' | 'modified' | null
+  problems: { path: string; code: string; detail: string; field: string }[]
+  /** Onglet « Relations » : chaque type de relation de l'espace et les types
+   * cibles qu'ArchiMate permet depuis ce type (les écarts sont dans `document`). */
+  relations: { relation: string; title: string; archimate: string; archimate_targets: string[] }[]
+  space_types: { slug: string; title: string; archimate: string }[]
+}
+
+export interface CartoDates {
+  created_at: string
+  created_by: string
+  updated_at: string
+  updated_by: string
+}
+
+export interface CartoObjectSummary {
+  key: string
+  type: string
+  type_title: string
+  archimate: string
+  name: string
+  excerpt: string
+  /** Les premières propriétés renseignées, pour la vignette. */
+  properties: { name: string; value: string }[]
+  relations: number
+  is_relation: boolean
+  source: string | null
+  target: string | null
+  path: string
+  /** Dates et auteurs d'après les commits publiés ; null : seulement dans le brouillon. */
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+}
+
+export interface CartoRelationSide {
+  key: string
+  name: string
+  type: string
+  type_title: string
+  archimate: string
+  properties: Record<string, unknown>
+  other: { key: string | null; name: string | null; type_title: string | null; exists: boolean }
+}
+
+export interface CartoEnd {
+  key: string | null
+  name: string | null
+  type_title: string | null
+  archimate: string | null
+  is_relation: boolean
+  exists: boolean
+}
+
+export interface CartoRelationTypeChoice {
+  slug: string
+  title: string
+  archimate: string
+  object_schema: Record<string, unknown>
+  /** Le schéma du type (titre, `x-archimate`, propriétés ajoutées), pour le composant de diagramme. */
+  type_schema: Record<string, unknown>
+}
+
+export interface CartoObjectDetail {
+  /** Relation : ses deux extrémités, et les types ArchiMate permis entre elles. */
+  ends?: { source: CartoEnd; target: CartoEnd }
+  rule?: string[]
+  key: string
+  type: string
+  type_title: string
+  archimate: string
+  name: string
+  documentation: string
+  properties: Record<string, unknown>
+  source: string | null
+  target: string | null
+  path: string
+  /** Le fichier de l'objet tel qu'il est stocké (ticket 7dc220a4). */
+  yaml?: string | null
+  schema: Record<string, unknown> | null
+  relations: { outgoing: CartoRelationSide[]; incoming: CartoRelationSide[] }
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+  problems: { path: string; code: string; detail: string; field: string }[]
+  /** Les modèles qui le retiennent (epic « Cartographie — modèles et vues »). */
+  models: { slug: string; name: string }[]
+  /** Les processus BPMN qui le détaillent (epic « Cartographie — processus BPMN »). */
+  processes?: string[]
+}
+
+export interface CartoObjectBody {
+  name: string
+  documentation: string
+  properties: Record<string, unknown>
+}
+
+export interface CartoTypePreview {
+  path: string
+  yaml: string
+  problems: { path: string; code: string; detail: string; field: string }[]
+}
+
+// --- Modèles de la cartographie (epic « Cartographie — modèles et vues », ticket 5a05c7bb) ---
+
+export interface CartoProblem {
+  path: string
+  code: string
+  detail: string
+  field: string
+}
+
+/** L'aperçu de la première vue d'un modèle : cadres en coordonnées absolues et traits. */
+export interface CartoModelPreview {
+  boxes: { x: number; y: number; l: number; h: number; label: string; kind: 'element' | 'note' | 'cadre' }[]
+  links: { x1: number; y1: number; x2: number; y2: number }[]
+}
+
+export interface CartoModelSummary {
+  slug: string
+  id: string
+  name: string
+  description: string
+  path: string
+  graphic: string
+  rules: string
+  /** Le fichier de règles sans son dossier ni son suffixe (`standard`). */
+  rules_name: string
+  views: { id: string; name: string; viewpoint: string }[]
+  elements: number
+  relationships: number
+  /** Les clés retenues (objets puis relations), pour « contient l'objet ». */
+  keys: string[]
+  /** Documents chargés sans objet retenu : le modèle est à nettoyer. */
+  unused_documents: number
+  errors: number
+  preview: CartoModelPreview
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+}
+
+/** Un outil de la boîte à outils du diagramme (contrat d'urban-archimate). */
+export interface CartoTool {
+  cle: string
+  libelle: string
+  icone?: string
+}
+
+export interface CartoToolGroup {
+  id: string
+  libelle?: string
+  outils: CartoTool[]
+}
+
+/** Ce que rend le délégué de pose (contrat d'urban-archimate : `DropResult`). */
+export interface CartoDropResult {
+  objet: { chemin: string; data: Record<string, unknown> }
+  schemaType?: { chemin: string; data: Record<string, unknown> }
+  regles?: Record<string, unknown>
+}
+
+export interface CartoModelBody {
+  label: string
+  slug: string
+  description: string
+  rules: string
+  view: string
+  viewpoint: string
+}
+
+// --- Processus BPMN de la cartographie (epic « Cartographie — processus BPMN », 7e061c3e) ---
+
+/** Un objet de la cartographie tel que le voit l'éditeur BPMN (`ReferencedObject`). */
+export interface CartoBpmnObject {
+  cle: string
+  nom: string
+  type: string
+}
+
+/** La relation qui manque à un objet posé (l'écran en fait la phrase et l'action). */
+export interface CartoBpmnMissing {
+  code: 'process_drop_not_linked'
+  relation: string
+  source: string
+  source_name: string
+  target: string
+  target_name: string
+}
+
+/** Ce que rend Ossie quand un objet est posé dans l'éditeur BPMN (ticket 48335b93). */
+export interface CartoBpmnDrop {
+  nom: string
+  type: string
+  genre: 'participant' | 'couloir' | 'objet-donnees' | 'stockage-donnees' | 'collaboration'
+  membres?: (CartoBpmnObject & { genre: CartoBpmnDrop['genre'] })[]
+  avertissement?: CartoBpmnMissing
+}
+
+/** L'aperçu du dessin d'un processus : formes (nature simplifiée) et liens (points). */
+export interface CartoProcessPreview {
+  boxes: { x: number; y: number; l: number; h: number; kind: 'pool' | 'lane' | 'event' | 'gateway' | 'task' | 'data' | 'other'; label: string }[]
+  links: { points: number[][] }[]
+}
+
+export interface CartoProcessSummary {
+  key: string
+  name: string
+  path: string
+  errors: number
+  readable: boolean
+  /** Le processus métier dont il est le détail ; null : non rattaché. */
+  detail_of: { key: string; name: string | null; exists: boolean } | null
+  participants: number
+  lanes: number
+  /** Éléments rattachés à un objet (participants, couloirs, données). */
+  attached: number
+  /** Noms des participants (piscines), pour le filtre. */
+  pools: string[]
+  preview: CartoProcessPreview
+  dates: CartoDates | null
+  state: 'created' | 'modified' | null
+}
+
+export interface CartoProcessCheck {
+  valid: boolean
+  error: { code: string; detail?: string } | null
+  has_diagram?: boolean
+  participants?: number
+  lanes?: number
+  elements?: number
+  flows?: number
+  attached?: number
+  name?: string
+  suggested_key?: string
+  preview?: CartoProcessPreview
+}
+
+export interface CartoProcessBody {
+  key: string
+  name: string
+  detail_of: string | null
+}
+
 // --- Référentiels (epic « Référentiels », ticket 829a86a7) ---------------------------------
 
 export interface ReferentielSummary {
@@ -1580,10 +1897,12 @@ export interface ReferentielModelPreview {
 export interface ReferentielImportSummary {
   slug: string
   label: string
-  format: 'csv' | 'json'
+  format: 'csv' | 'json' | 'xlsx'
   separator: string
   encoding: string
   header: boolean
+  /** Feuille d'un classeur xlsx (ticket 6f6066e9) ; vide : la seule, ou à choisir. */
+  sheet: string
   last_import: string | null
   last_import_by?: string | null
 }
@@ -1600,6 +1919,7 @@ export interface ImportReading {
   separator: string
   encoding: string
   header: boolean
+  sheet?: string
 }
 
 export interface ImportPreview {
@@ -1607,6 +1927,13 @@ export interface ImportPreview {
   rows: Record<string, unknown>[]
   count: number
   paths: { path: string; kind: string; description: string }[]
+  /** Classeur xlsx : ses feuilles ; `sheet_required` tant qu'aucune n'est choisie. */
+  sheets?: string[]
+  sheet_required?: boolean
+  /** Colonnes face aux propriétés du modèle (ticket 221d832b) ; vide sans en-tête. */
+  comparison?: { column: string; property: string | null; chosen?: boolean; proposed: string }[]
+  /** Les propriétés du modèle, à choisir pour chaque colonne (ticket 47716786). */
+  properties?: string[]
 }
 
 export interface TemplateProblem {
@@ -2157,6 +2484,158 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  getCartoCatalog: (spaceId: string, branchId: string) =>
+    apiFetch<CartoCatalog>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/catalogue`),
+  listCartoTypes: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; types: CartoTypeSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types`,
+    ),
+  // Le fichier que créerait l'ajout (chemin et contenu exacts) ; rien n'est écrit.
+  previewCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>
+    apiFetch<CartoTypePreview>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/apercu`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  getCartoType: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CartoTypeDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`),
+  // Libellé et propriétés ajoutées ; le slug et le type ArchiMate sont figés.
+  saveCartoType: (spaceId: string, branchId: string, slug: string, schema: Record<string, unknown>) =>
+    apiFetch<CartoTypeDetail & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`,
+      { method: 'PUT', body: JSON.stringify({ schema }) },
+    ),
+  deleteCartoType: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`,
+      { method: 'DELETE' },
+    ),
+  listCartoObjects: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; objects: CartoObjectSummary[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
+    ),
+  getCartoObject: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<CartoObjectDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`),
+  // « + Relier… » : types ArchiMate permis de `source` vers `target`, et types de
+  // relation de l'espace qui reposent sur eux (ticket b58a0a13).
+  listRelationTypes: (spaceId: string, branchId: string, source: string, target: string) =>
+    apiFetch<{ archimate: string[]; types: CartoRelationTypeChoice[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(source)}/relations-permises?cible=${encodeURIComponent(target)}`,
+    ),
+  // Clé (unique dans l'espace) et type de l'espace : saisis à la création, figés ensuite.
+  createCartoObject: (
+    spaceId: string,
+    branchId: string,
+    body: CartoObjectBody & { key: string; type: string; source?: string; target?: string },
+  ) =>
+    apiFetch<CartoObjectDetail & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  saveCartoObject: (spaceId: string, branchId: string, key: string, body: CartoObjectBody) =>
+    apiFetch<CartoObjectDetail & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  deleteCartoObject: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      { method: 'DELETE' },
+    ),
+  listCartoModels: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; models: CartoModelSummary[]; rules: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles`,
+    ),
+  getCartoModel: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CartoModelSummary & { problems: CartoProblem[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}`,
+    ),
+  /** Le modèle hydraté que reçoit le composant (forme fixée par son contrat). */
+  getCartoModelHydrated: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<Record<string, unknown>>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/hydrate`,
+    ),
+  getCartoModelToolbox: (spaceId: string, branchId: string, slug: string, viewpoint: string) =>
+    apiFetch<{ groupes: CartoToolGroup[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/outils?point_de_vue=${encodeURIComponent(viewpoint)}`,
+    ),
+  dropCartoModelObject: (spaceId: string, branchId: string, slug: string, key: string) =>
+    apiFetch<CartoDropResult>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/pose/${encodeURIComponent(key)}`,
+    ),
+  createCartoModel: (spaceId: string, branchId: string, body: CartoModelBody) =>
+    apiFetch<CartoModelSummary & { revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  /** Enregistre ce que rend `save()` du composant (modèle, graphique, nouvelles relations). */
+  saveCartoModel: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    body: { modele: Record<string, unknown>; graphique: Record<string, unknown>; nouvellesRelations: Record<string, unknown>[] },
+  ) =>
+    apiFetch<CartoModelSummary & { revision: string | null; created_relations: string[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  deleteCartoModel: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}`,
+      { method: 'DELETE' },
+    ),
+  listCartoProcesses: (spaceId: string, branchId: string) =>
+    apiFetch<{ readonly: boolean; processes: CartoProcessSummary[] }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus`),
+  getCartoProcess: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<CartoProcessSummary & { problems: CartoProblem[] }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}`),
+  /** Le fichier BPMN tel quel et les objets référencés (noms à jour), pour le composant. */
+  getCartoProcessContent: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ key: string; content: string; references: { cle: string; nom: string; type: string }[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/contenu`,
+    ),
+  createCartoProcess: (spaceId: string, branchId: string, body: CartoProcessBody) =>
+    apiFetch<CartoProcessSummary & { revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  checkCartoProcessImport: (spaceId: string, branchId: string, body: { content: string; filename: string }) =>
+    apiFetch<CartoProcessCheck>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/verifier`, { method: 'POST', body: JSON.stringify(body) }),
+  importCartoProcess: (spaceId: string, branchId: string, body: CartoProcessBody & { content: string }) =>
+    apiFetch<CartoProcessSummary & { revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/importer`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  attachCartoProcess: (spaceId: string, branchId: string, key: string, detailOf: string | null) =>
+    apiFetch<CartoProcessSummary & { revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/rattacher`, {
+      method: 'POST',
+      body: JSON.stringify({ detail_of: detailOf }),
+    }),
+  deleteCartoProcess: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ deleted: string; revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+    }),
+  /** La boîte à outils de l'éditeur BPMN : « Liés au processus », puis les autres. */
+  getCartoProcessToolbox: (spaceId: string, branchId: string, key: string) =>
+    apiFetch<{ detail_of: string | null; groupes: CartoToolGroup[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/outils`,
+    ),
+  dropCartoProcessObject: (spaceId: string, branchId: string, key: string, objectKey: string, collaboration: string) =>
+    apiFetch<CartoBpmnDrop>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/pose/${encodeURIComponent(objectKey)}?collaboration=${encodeURIComponent(collaboration)}`,
+    ),
+  listCartoProcessAttachable: (spaceId: string, branchId: string, key: string, element: string) =>
+    apiFetch<{ element: string; objets: CartoBpmnObject[] }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/rattachables?element=${encodeURIComponent(element)}`,
+    ),
+  saveCartoProcess: (spaceId: string, branchId: string, key: string, content: string) =>
+    apiFetch<CartoProcessSummary & { revision: string | null }>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content }),
+    }),
+  createCartoType: (spaceId: string, branchId: string, body: { label: string; slug: string; archimate: string }) =>
+    apiFetch<{ type: CartoTypeSummary; revision: string | null }>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
   previewReferentielModel: (spaceId: string, branchId: string, name: string, model: Record<string, unknown>) =>
     apiFetch<ReferentielModelPreview>(
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/modele/apercu`,
@@ -2181,80 +2660,6 @@ export const api = {
     apiFetch<{ values: Record<string, unknown>[]; count: number; revision: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/valeurs`,
       { method: 'PUT', body: JSON.stringify({ values }) },
-    ),
-  listReferentielImports: (spaceId: string, branchId: string, name: string) =>
-    apiFetch<{ imports: ReferentielImportSummary[] }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`,
-    ),
-  getReferentielImport: (spaceId: string, branchId: string, name: string, slug: string) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
-    ),
-  createReferentielImport: (
-    spaceId: string,
-    branchId: string,
-    name: string,
-    body: { label: string; slug: string; format: 'csv' | 'json' },
-  ) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`,
-      { method: 'POST', body: JSON.stringify(body) },
-    ),
-  renameReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, label: string) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
-      { method: 'PATCH', body: JSON.stringify({ label }) },
-    ),
-  deleteReferentielImport: (spaceId: string, branchId: string, name: string, slug: string) =>
-    apiFetch<void>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}`,
-      { method: 'DELETE' },
-    ),
-  uploadReferentielImportExample: (spaceId: string, branchId: string, name: string, slug: string, file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return apiUpload<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/exemple`,
-      form,
-    )
-  },
-  setReferentielImportReading: (spaceId: string, branchId: string, name: string, slug: string, reading: ImportReading) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/lecture`,
-      { method: 'PUT', body: JSON.stringify(reading) },
-    ),
-  previewReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, reading?: ImportReading) =>
-    apiFetch<ImportPreview>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/apercu`,
-      { method: 'POST', body: reading ? JSON.stringify(reading) : undefined },
-    ),
-  tryReferentielImport: (
-    spaceId: string,
-    branchId: string,
-    name: string,
-    slug: string,
-    template: string,
-    mode: ImportMode = 'merge',
-  ) =>
-    apiFetch<ImportTrial>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/essai`,
-      { method: 'POST', body: JSON.stringify({ template, mode }) },
-    ),
-  /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */
-  runReferentielImport: (spaceId: string, branchId: string, name: string, slug: string, mode: ImportMode, file?: File) => {
-    const form = new FormData()
-    form.append('mode', mode)
-    if (file) form.append('file', file)
-    return apiUpload<ImportRunResult>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/import`,
-      form,
-      'POST',
-    )
-  },
-  saveReferentielImportTemplate: (spaceId: string, branchId: string, name: string, slug: string, template: string) =>
-    apiFetch<ReferentielImportDetail>(
-      `/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports/${encodeURIComponent(slug)}/template`,
-      { method: 'PUT', body: JSON.stringify({ template }) },
     ),
   referentielHistory: (spaceId: string, branchId: string, name: string) =>
     apiFetch<{ commits: ReferentielCommit[] }>(
@@ -2285,6 +2690,27 @@ export const api = {
     apiFetch<void>(`/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     }),
+  // Relations et références d'un domaine à la main (ticket 4e856094).
+  createDomainRelationship: (spaceId: string, branchId: string, name: string, body: DomainRelationship) =>
+    apiFetch<DomainDetail>(`/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/relationships`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  saveDomainRelationship: (spaceId: string, branchId: string, name: string, current: string, body: DomainRelationship) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/relationships/${encodeURIComponent(current)}`,
+      { method: 'PUT', body: JSON.stringify(body) },
+    ),
+  deleteDomainRelationship: (spaceId: string, branchId: string, name: string, relationship: string) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/relationships/${encodeURIComponent(relationship)}`,
+      { method: 'DELETE' },
+    ),
+  deleteDomainReference: (spaceId: string, branchId: string, name: string, reference: string) =>
+    apiFetch<DomainDetail>(
+      `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/references/${encodeURIComponent(reference)}`,
+      { method: 'DELETE' },
+    ),
   removeDomainDataset: (spaceId: string, branchId: string, name: string, dataset: string) =>
     apiFetch<void>(
       `/api/spaces/${spaceId}/branches/${branchId}/domains/${encodeURIComponent(name)}/datasets/${encodeURIComponent(dataset)}`,
@@ -2337,6 +2763,14 @@ export const api = {
       '/api/parsing/code-plugins',
     ),
   listParsingPlugins: () => apiFetch<{ plugins: ParsingPlugin[] }>('/api/parsing/plugins'),
+  listSettings: () => apiFetch<{ settings: AppSetting[] }>('/api/settings'),
+  setSetting: (key: string, value: number) =>
+    apiFetch<AppSetting>(`/api/settings/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+  resetSetting: (key: string) =>
+    apiFetch<AppSetting>(`/api/settings/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   setPluginParam: (pluginId: string, slug: string, value: string) =>
     apiFetch<{ plugin_id: string; slug: string; value: string }>(
       `/api/parsing/plugins/${encodeURIComponent(pluginId)}/parameters/${encodeURIComponent(slug)}`,
@@ -2727,4 +3161,95 @@ export const api = {
   duplicateAgentProfile: (id: string) =>
     apiFetch<AgentProfileItem>(`/api/agent-profiles/${id}/duplicate`, { method: 'POST' }),
   deleteAgentProfile: (id: string) => apiFetch(`/api/agent-profiles/${id}`, { method: 'DELETE' }),
+}
+
+
+// --- Module commun d'import (enabler 4f32c8c6) ---------------------------------------------
+// Les écrans d'import (déclaration, fichier d'exemple, template, essai, import)
+// ne connaissent pas leur cible : ils reçoivent ces appels, liés à l'adresse des
+// imports d'un référentiel ou d'un type de cartographie. Mêmes routes partout
+// sous cette adresse.
+
+export interface ImportsApi {
+  /** Adresse des imports de la cible (sert aussi de clé de cache). */
+  base: string
+  /** Modes que la cible accepte (la cartographie : fusion seulement). */
+  modes: ImportMode[]
+  /** Clés de cache que rend périmées un import abouti (ce que la cible affiche). */
+  invalidates: string[]
+  list: () => Promise<{ imports: ReferentielImportSummary[] }>
+  get: (slug: string) => Promise<ReferentielImportDetail>
+  create: (body: { label: string; slug: string; format: 'csv' | 'json' | 'xlsx' }) => Promise<ReferentielImportDetail>
+  /** « Résoudre le template » d'après le modèle et les colonnes (ticket 0598c41b). */
+  resolve: (slug: string, reading?: ImportReading) => Promise<{ template: string }>
+  /** « Ajouter au modèle » une colonne sans propriété (ticket 221d832b). */
+  addProperty: (slug: string, column: string) => Promise<{ property: string; type: string; revision: string | null }>
+  /** La propriété choisie pour une colonne, "" pour l'ignorer (ticket 47716786). */
+  setMapping: (slug: string, mapping: Record<string, string>) => Promise<ReferentielImportDetail>
+  rename: (slug: string, label: string) => Promise<ReferentielImportDetail>
+  remove: (slug: string) => Promise<void>
+  uploadExample: (slug: string, file: File) => Promise<ReferentielImportDetail>
+  /** « Nettoyer » : retire le fichier d'exemple (ticket 34fa9248). */
+  clearExample: (slug: string) => Promise<ReferentielImportDetail>
+  setReading: (slug: string, reading: ImportReading) => Promise<ReferentielImportDetail>
+  preview: (slug: string, reading?: ImportReading) => Promise<ImportPreview>
+  trial: (slug: string, template: string, mode?: ImportMode) => Promise<ImportTrial>
+  run: (slug: string, mode: ImportMode, file?: File) => Promise<ImportRunResult>
+  saveTemplate: (slug: string, template: string) => Promise<ReferentielImportDetail>
+}
+
+export function importsApi(
+  base: string,
+  options: { modes?: ImportMode[]; invalidates?: string[] } = {},
+): ImportsApi {
+  const one = (slug: string, rest = '') => `${base}/${encodeURIComponent(slug)}${rest}`
+  return {
+    base,
+    modes: options.modes ?? ['merge', 'replace'],
+    invalidates: options.invalidates ?? [],
+    list: () => apiFetch(base),
+    get: (slug) => apiFetch(one(slug)),
+    create: (body) => apiFetch(base, { method: 'POST', body: JSON.stringify(body) }),
+    rename: (slug, label) => apiFetch(one(slug), { method: 'PATCH', body: JSON.stringify({ label }) }),
+    remove: (slug) => apiFetch(one(slug), { method: 'DELETE' }),
+    uploadExample: (slug, file) => {
+      const form = new FormData()
+      form.append('file', file)
+      return apiUpload(one(slug, '/exemple'), form)
+    },
+    clearExample: (slug) => apiFetch(one(slug, '/exemple'), { method: 'DELETE' }),
+    setReading: (slug, reading) => apiFetch(one(slug, '/lecture'), { method: 'PUT', body: JSON.stringify(reading) }),
+    preview: (slug, reading) =>
+      apiFetch(one(slug, '/apercu'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
+    trial: (slug, template, mode = 'merge') =>
+      apiFetch(one(slug, '/essai'), { method: 'POST', body: JSON.stringify({ template, mode }) }),
+    /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */
+    run: (slug, mode, file) => {
+      const form = new FormData()
+      form.append('mode', mode)
+      if (file) form.append('file', file)
+      return apiUpload(one(slug, '/import'), form, 'POST')
+    },
+    saveTemplate: (slug, template) => apiFetch(one(slug, '/template'), { method: 'PUT', body: JSON.stringify({ template }) }),
+    resolve: (slug, reading) =>
+      apiFetch(one(slug, '/resoudre'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
+    addProperty: (slug, column) => apiFetch(one(slug, '/proprietes'), { method: 'POST', body: JSON.stringify({ column }) }),
+    setMapping: (slug, mapping) =>
+      apiFetch(one(slug, '/correspondances'), { method: 'PUT', body: JSON.stringify({ mapping }) }),
+  }
+}
+
+/** Les imports d'un référentiel (première cible). */
+export function referentielImports(spaceId: string, branchId: string, name: string): ImportsApi {
+  return importsApi(`/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`, {
+    invalidates: ['referentielValues', 'referentiel', 'referentiels'],
+  })
+}
+
+/** Les imports d'un type de cartographie (ticket 49952be0) : fusion seulement. */
+export function cartoImports(spaceId: string, branchId: string, typeSlug: string): ImportsApi {
+  return importsApi(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(typeSlug)}/imports`, {
+    modes: ['merge'],
+    invalidates: ['carto-objects', 'carto-types', 'carto-type', 'carto-object'],
+  })
 }

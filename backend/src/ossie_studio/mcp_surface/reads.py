@@ -20,50 +20,34 @@ from ossie_studio.drafts.preparation import changed_upstream
 from ossie_studio.drafts.store import db_get_draft, db_list_objects
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
-from ossie_studio.governance.repo import (
-    CERTIFICATIONS_DIR,
-    CLASSIFICATIONS_DIR,
-    TAGS_DIR,
-    read_certs,
-    read_schemes,
-    read_tags,
-)
 from ossie_studio.mcp_surface.branch import (
     BranchArgs,
+    BranchParam,
     BranchView,
     ObjectArgs,
     SourceArgs,
-    ViewArgs,
     branch_of,
     open_branch,
     source_dir,
 )
-from ossie_studio.mcp_surface.core import NoArgs, PrimitiveContext, PrimitiveError
+from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
 from ossie_studio.models import SpaceBranch, User
-from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.curation import (
-    CurationObject,
     ReviewResult,
     build_review,
     get_object_detail,
     is_schema_file,
-    list_curation,
     published_raw,
     read_enrichment,
     read_source_trees,
     read_tri_rules,
-    read_tri_rules_raw,
 )
-from ossie_studio.sources.paths import ASSETS_DIR, is_valid_source_slug, source_rel_dir
-from ossie_studio.sources.service import SourceEntry, read_sources_tree
+from ossie_studio.sources.paths import ASSETS_DIR
 from ossie_studio.spaces.branch_service import db_list_branches
 from ossie_studio.spaces.service import db_list_spaces, list_visible_spaces
 from ossie_studio.spaces.workdir import WorkdirError
-
-# Au-delà, un schéma brut n'est pas rendu d'un bloc (réponse trop lourde pour un agent).
-_RAW_SCHEMA_MAX_BYTES = 1_000_000
 
 
 def person_of(ctx: PrimitiveContext) -> User:
@@ -91,7 +75,7 @@ def _source_exists(root: Path, directory: str) -> bool:
 # --- Se repérer -----------------------------------------------------------------------
 
 
-async def list_spaces(ctx: PrimitiveContext, _args: NoArgs) -> dict[str, Any]:
+async def list_spaces(ctx: PrimitiveContext, _args: BranchParam) -> dict[str, Any]:
     # Clé d'API : tous les espaces. Connexion OAuth : ceux que la personne voit.
     if ctx.user is None:
         spaces = await db_list_spaces(ctx.conn)
@@ -175,98 +159,6 @@ async def get_publish_readiness(ctx: PrimitiveContext, args: BranchArgs) -> dict
 # --- Sources et schémas bruts ---------------------------------------------------------
 
 
-def _source_payload(entry: SourceEntry, bv: BranchView) -> dict[str, Any]:
-    changes = (
-        bv.unpublished_under(source_rel_dir(entry.slug)) if is_valid_source_slug(entry.slug) else 0
-    )
-    base: dict[str, Any] = {"slug": entry.slug, "unpublished_changes": changes}
-    if entry.manifest is None:
-        return {**base, "ok": False, "error": entry.error}
-    manifest = entry.manifest
-    return {
-        **base,
-        "ok": True,
-        "label": manifest.label,
-        "type": manifest.type,
-        "connection": manifest.connection,
-        "parameters": manifest.parameters,
-    }
-
-
-async def list_sources(ctx: PrimitiveContext, args: ViewArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
-    entries = await bv.read(read_sources_tree)
-    return {"view": bv.view, "sources": [_source_payload(e, bv) for e in entries]}
-
-
-async def _curation_objects(
-    bv: BranchView, slug: str, directory: str, *, with_rules: bool
-) -> list[CurationObject]:
-    def read(root: Path) -> list[CurationObject] | None:
-        if not _source_exists(root, directory):
-            return None
-        rules = read_tri_rules(root, slug) if with_rules else ()
-        return list_curation(root, slug, rules, True)
-
-    objects = await bv.read(read)
-    if objects is None:
-        raise PrimitiveError("source_not_found", source=slug)
-    return objects
-
-
-async def list_raw_schemas(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args, args.view)
-    objects = await _curation_objects(bv, args.source, directory, with_rules=False)
-    return {
-        "view": bv.view,
-        "source": args.source,
-        "schemas": [
-            {
-                "path": o.path,
-                "title": o.title,
-                "kind": o.kind,
-                "fields": o.fields,
-                "retained": o.retained,
-                "unpublished": bv.unpublished(f"{directory}/{RAW_DIR}/{o.path}"),
-            }
-            for o in objects
-            if not o.orphan
-        ],
-    }
-
-
-async def read_raw_schema(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    if not is_schema_file(args.path):
-        raise PrimitiveError("schema_not_found", path=args.path)
-    bv = await open_branch(ctx, args, args.view)
-
-    def read(root: Path) -> tuple[str, Any]:
-        if not _source_exists(root, directory):
-            return "source_not_found", None
-        file = root / directory / RAW_DIR / args.path
-        if not file.is_file():
-            return "schema_not_found", None
-        if file.stat().st_size > _RAW_SCHEMA_MAX_BYTES:
-            return "schema_too_large", None
-        try:
-            return "ok", load_schema(file.read_text(encoding="utf-8"))
-        except (SchemaReadError, UnicodeDecodeError):
-            return "schema_invalid", None
-
-    outcome, schema = await bv.read(read)
-    if outcome != "ok":
-        raise PrimitiveError(outcome, source=args.source, path=args.path)
-    return {
-        "view": bv.view,
-        "source": args.source,
-        "path": args.path,
-        "unpublished": bv.unpublished(f"{directory}/{RAW_DIR}/{args.path}"),
-        "schema": schema,
-    }
-
-
 # --- Assets (curation) ----------------------------------------------------------------
 
 
@@ -275,30 +167,6 @@ def _asset_unpublished(bv: BranchView, directory: str, path: str) -> bool:
     humain, ticket 7a284e55) l'est."""
     base = f"{directory}/{ASSETS_DIR}"
     return bv.unpublished(f"{base}/{path}") or bv.unpublished(f"{base}/{extend_name(path)}")
-
-
-async def list_assets(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args, args.view)
-    objects = await _curation_objects(bv, args.source, directory, with_rules=True)
-    return {
-        "view": bv.view,
-        "source": args.source,
-        "assets": [
-            {
-                "path": o.path,
-                "title": o.title,
-                "kind": o.kind,
-                "fields": o.fields,
-                "retained": o.retained,
-                "orphan": o.orphan,
-                "excluded_by": o.excluded_by,
-                "unpublished": _asset_unpublished(bv, directory, o.path),
-            }
-            for o in objects
-            if o.retained != "none"
-        ],
-    }
 
 
 def _enrichment(scope: Any) -> dict[str, Any]:
@@ -315,26 +183,36 @@ def _enrichment(scope: Any) -> dict[str, Any]:
 
 
 async def read_asset(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
+    """Plus au catalogue (remplacée par `read_schema`, ticket 06ef8679) : gardée
+    pour rendre l'état d'un asset après une écriture (`writes._asset_after`)."""
     if not is_schema_file(args.path):
         raise PrimitiveError("asset_not_retained", path=args.path)
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
+    return await asset_payload(bv, args.source, args.path)
+
+
+async def asset_payload(bv: BranchView, source: str, path: str) -> dict[str, Any]:
+    """Ce qu'on sait d'un asset : enrichissement métier de l'objet et de ses
+    champs, statut (orphelin, non publié). `path` : nom du schéma sous `assets/`."""
+    directory = source_dir(source)
+    if not is_schema_file(path):
+        raise PrimitiveError("asset_not_retained", path=path)
 
     def read(root: Path) -> Any:
         if not _source_exists(root, directory):
             return None
-        rules = read_tri_rules(root, args.source)
+        rules = read_tri_rules(root, source)
         return (
-            get_object_detail(root, args.source, args.path, rules),
-            read_enrichment(root, args.source, args.path),
+            get_object_detail(root, source, path, rules),
+            read_enrichment(root, source, path),
         )
 
     found = await bv.read(read)
     if found is None:
-        raise PrimitiveError("source_not_found", source=args.source)
+        raise PrimitiveError("source_not_found", source=source)
     detail, enrichment = found
     if enrichment is None:
-        raise PrimitiveError("asset_not_retained", path=args.path)
+        raise PrimitiveError("asset_not_retained", path=path)
     by_name = {f.name: f for f in enrichment.fields}
     if detail is not None:
         fields = [
@@ -352,27 +230,14 @@ async def read_asset(ctx: PrimitiveContext, args: ObjectArgs) -> dict[str, Any]:
         fields = [{"name": f.name, "retained": True, **_enrichment(f)} for f in enrichment.fields]
     return {
         "view": bv.view,
-        "source": args.source,
-        "path": args.path,
+        "source": source,
+        "path": path,
         "title": enrichment.title,
         "orphan": detail is None,
-        "unpublished": _asset_unpublished(bv, directory, args.path),
+        "unpublished": _asset_unpublished(bv, directory, path),
         "object": _enrichment(enrichment.object),
         "fields": fields,
     }
-
-
-async def get_tri_rules(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    directory = source_dir(args.source)
-    bv = await open_branch(ctx, args, args.view)
-
-    def read(root: Path) -> list[dict[str, Any]] | None:
-        return read_tri_rules_raw(root, args.source) if _source_exists(root, directory) else None
-
-    rules = await bv.read(read)
-    if rules is None:
-        raise PrimitiveError("source_not_found", source=args.source)
-    return {"view": bv.view, "source": args.source, "rules": rules}
 
 
 async def compute_review(bv: BranchView, slug: str) -> tuple[str, ReviewResult]:
@@ -409,39 +274,6 @@ def review_payload(head_sha: str, review: ReviewResult) -> dict[str, Any]:
 
 
 async def get_review(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
+    bv = await open_branch(ctx, args)
     head_sha, review = await compute_review(bv, args.source)
     return {"view": bv.view, "source": args.source, **review_payload(head_sha, review)}
-
-
-# --- Gouvernance ----------------------------------------------------------------------
-
-
-async def list_tags(ctx: PrimitiveContext, args: ViewArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
-    tags = await bv.read(read_tags)
-    return {
-        "view": bv.view,
-        "unpublished_changes": bv.unpublished_under(TAGS_DIR),
-        "tags": [asdict(t) for t in tags],
-    }
-
-
-async def list_classifications(ctx: PrimitiveContext, args: ViewArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
-    schemes = await bv.read(read_schemes)
-    return {
-        "view": bv.view,
-        "unpublished_changes": bv.unpublished_under(CLASSIFICATIONS_DIR),
-        "schemes": [asdict(s) for s in schemes],
-    }
-
-
-async def list_certifications(ctx: PrimitiveContext, args: ViewArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args, args.view)
-    certs = await bv.read(read_certs)
-    return {
-        "view": bv.view,
-        "unpublished_changes": bv.unpublished_under(CERTIFICATIONS_DIR),
-        "certifications": [asdict(c) for c in certs],
-    }

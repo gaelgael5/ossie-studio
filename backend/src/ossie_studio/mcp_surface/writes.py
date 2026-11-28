@@ -34,20 +34,17 @@ from ossie_studio.sources.curation import (
     is_schema_file,
 )
 from ossie_studio.sources.curation_actions import CurationTarget, UnknownFieldsError, WriteResult
-from ossie_studio.sources.manifest import ManifestError
 from ossie_studio.spaces.workdir import WorkdirError
 
 # --- Arguments --------------------------------------------------------------------------
 
 
 class SourceWriteArgs(BranchArgs):
-    source: str = Field(description="Source slug (from list_sources).")
+    source: str = Field(description="Source slug (list_documents, kind 'source').")
 
 
 class ObjectWriteArgs(SourceWriteArgs):
-    path: str = Field(
-        description="Schema file name, e.g. 'customer.schema.yaml' (from the lists)."
-    )
+    path: str = Field(description="Schema file name, e.g. 'customer.schema.yaml' (from the lists).")
 
 
 class RetainArgs(ObjectWriteArgs):
@@ -72,20 +69,6 @@ class EnrichArgs(ObjectWriteArgs):
     )
     fields: dict[str, EnrichValues] = Field(
         default_factory=dict, description="Enrichment per field name."
-    )
-
-
-class TriRuleArg(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    target: str = Field(description="What the pattern matches, as in get_tri_rules.")
-    pattern: str
-    kind: str = Field(description="'glob' or 'regex'.")
-    label: str = ""
-
-
-class SetTriRulesArgs(SourceWriteArgs):
-    rules: list[TriRuleArg] = Field(
-        description="The complete list of rules (replaces the current one; empty = none)."
     )
 
 
@@ -129,7 +112,7 @@ async def open_for_write(ctx: PrimitiveContext, args: BranchArgs) -> tuple[Branc
     Deuxième barrière derrière le catalogue : sans personne (clé d'API), refus."""
     if ctx.user is None:
         raise PrimitiveError("draft_requires_person")
-    return await open_branch(ctx, args, "draft"), ctx.user
+    return await open_branch(ctx, args, write=True), ctx.user
 
 
 def write_target(ctx: PrimitiveContext, bv: BranchView, author: str) -> CurationTarget:
@@ -187,7 +170,7 @@ async def _asset_after(ctx: PrimitiveContext, args: ObjectWriteArgs) -> dict[str
             ObjectArgs(
                 space_id=args.space_id,
                 branch_id=args.branch_id,
-                view="draft",
+                branch="draft",
                 source=args.source,
                 path=args.path,
             ),
@@ -247,25 +230,6 @@ async def refresh_assets(ctx: PrimitiveContext, args: RefreshArgs) -> dict[str, 
 # --- Règles de tri et revue -------------------------------------------------------------------
 
 _SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
-
-
-async def set_tri_rules(ctx: PrimitiveContext, args: SetTriRulesArgs) -> dict[str, Any]:
-    bv, user = await open_for_write(ctx, args)
-    await _source_ready(bv, args.source)
-    target = write_target(ctx, bv, user.email)
-    try:
-        result, rules = await curation_actions.set_tri_rules(
-            target, args.source, [rule.model_dump() for rule in args.rules]
-        )
-    except curation_actions.RulesInvalidError as exc:
-        raise PrimitiveError("tri_rules_invalid", fields=exc.fields) from None
-    except curation_actions.SourceMissingError:
-        raise PrimitiveError("source_not_found", source=args.source) from None
-    except ManifestError as exc:
-        raise PrimitiveError("manifest_invalid", fields=exc.fields) from None
-    except WorkdirError as exc:
-        raise PrimitiveError(exc.code) from None
-    return {**written_payload(result), "rules": rules}
 
 
 def _group(refs: list[ReviewFieldRef]) -> dict[str, list[str]]:

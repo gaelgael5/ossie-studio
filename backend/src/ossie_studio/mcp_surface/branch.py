@@ -1,12 +1,19 @@
 """Lire une branche pour un agent : la version publiée, ou avec le brouillon de
 la personne pour qui il agit.
 
-- **Connexion OAuth** : vue `draft` par défaut (publiée + brouillon de la
-  personne), pour l'aider sur ce qu'elle est en train de faire ; `published`
-  sur demande. Ce qui vient du brouillon est marqué `unpublished` : pas validé,
-  pas encore publié.
-- **Clé d'API** : personne derrière, donc aucun brouillon : vue `published`
-  seule ; demander `draft` est refusé (`draft_requires_person`).
+Paramètre `branch`, commun à toutes les primitives (ticket aa19569b) :
+
+- **Lecture** : absent → la branche **publiée** (le contenu validé, celui de
+  tout le monde), y compris en connexion OAuth ; `draft` → publiée + brouillon
+  de la personne. Ce qui vient du brouillon est marqué `unpublished`.
+  Décision de Gael : le défaut était `draft` pour une connexion OAuth ; il passe
+  à la version publiée, pour qu'un agent ne prenne pas pour acquis ce que la
+  personne n'a pas encore validé sans l'avoir demandé.
+- **Écriture** : toujours le brouillon de la personne ; absent, vide ou `draft`.
+- Toute autre valeur est refusée (`branch_unsupported`) : on ne lit ni n'écrit
+  encore une autre branche nommée.
+- **Clé d'API** : personne derrière, donc aucun brouillon ; `draft` est refusé
+  (`draft_requires_person`).
 """
 
 from __future__ import annotations
@@ -32,35 +39,53 @@ _T = TypeVar("_T")
 
 View = Literal["draft", "published"]
 
+DRAFT = "draft"
+# Valeurs de `branch` acceptées, citées dans le refus.
+ACCEPTED_BRANCHES = (DRAFT,)
+
 # Une clé d'API n'a pas de personne : en vue publiée, l'identifiant de personne
 # du lecteur n'est jamais consulté (aucun brouillon n'est lu).
 _NO_PERSON = uuid.UUID(int=0)
 
 
-class BranchArgs(BaseModel):
+BRANCH_DESCRIPTION = (
+    "Version to work on. Reading: omit it for the published branch (validated content, "
+    "the default); 'draft' = the published branch plus the user's unpublished draft (items "
+    "marked unpublished). Writing: always the user's draft (omit it or pass 'draft'). "
+    "Any other value is refused (branch_unsupported)."
+)
+
+
+class BranchParam(BaseModel):
+    """Le paramètre `branch`, déclaré par chaque primitive (test de concordance)."""
+
     model_config = ConfigDict(extra="forbid")
+    # Texte libre plutôt qu'un Literal : une valeur inconnue doit donner le refus
+    # nommé `branch_unsupported`, pas un `invalid_arguments` anonyme.
+    branch: str | None = Field(default=None, description=BRANCH_DESCRIPTION)
+
+
+def check_branch(branch: str | None) -> bool:
+    """Vrai si `branch` demande le brouillon ; absent ou vide → faux.
+    Toute autre valeur → `branch_unsupported`."""
+    if not branch:
+        return False
+    if branch != DRAFT:
+        raise PrimitiveError("branch_unsupported", branch=branch, accepted=list(ACCEPTED_BRANCHES))
+    return True
+
+
+class BranchArgs(BranchParam):
     space_id: uuid.UUID = Field(description="Space id (from list_spaces).")
     branch_id: uuid.UUID = Field(description="Branch id (from list_spaces).")
 
 
-class ViewArgs(BranchArgs):
-    view: View | None = Field(
-        default=None,
-        description=(
-            "'draft' = published content plus the user's unpublished draft (default when "
-            "acting for a user); 'published' = validated content only (always, with an API key)."
-        ),
-    )
-
-
-class SourceArgs(ViewArgs):
-    source: str = Field(description="Source slug (from list_sources).")
+class SourceArgs(BranchArgs):
+    source: str = Field(description="Source slug (list_documents, kind 'source').")
 
 
 class ObjectArgs(SourceArgs):
-    path: str = Field(
-        description="Schema file name, e.g. 'customer.schema.yaml' (from the lists)."
-    )
+    path: str = Field(description="Schema file name, e.g. 'customer.schema.yaml' (from the lists).")
 
 
 @dataclass(frozen=True)
@@ -79,8 +104,12 @@ class BranchView:
     async def read(self, fn: Callable[..., _T]) -> _T:
         try:
             return await self.workdir.read_branch(
-                self.space.id, self.branch.git_ref, self.space.repo_url, self.username,
-                self.token, fn,
+                self.space.id,
+                self.branch.git_ref,
+                self.space.repo_url,
+                self.username,
+                self.token,
+                fn,
             )
         except WorkdirError as exc:
             raise PrimitiveError(exc.code) from None
@@ -93,9 +122,9 @@ class BranchView:
         return sum(1 for p in self.draft_paths if p.startswith(prefix))
 
 
-async def branch_of(ctx: PrimitiveContext, space_id: uuid.UUID, branch_id: uuid.UUID) -> tuple[
-    GitSpace, SpaceBranch, str, str | None
-]:
+async def branch_of(
+    ctx: PrimitiveContext, space_id: uuid.UUID, branch_id: uuid.UUID
+) -> tuple[GitSpace, SpaceBranch, str, str | None]:
     """Espace, branche et identifiants git ; erreurs nommées comme dans l'IHM."""
     try:
         space, username, token = await space_credentials(ctx.conn, ctx.state.crypto, space_id)
@@ -107,13 +136,21 @@ async def branch_of(ctx: PrimitiveContext, space_id: uuid.UUID, branch_id: uuid.
     return space, branch, username, token
 
 
-async def open_branch(ctx: PrimitiveContext, args: BranchArgs, view: View | None) -> BranchView:
-    if ctx.user is None:
-        if view == "draft":
-            raise PrimitiveError("draft_requires_person")
-        view = "published"
-    resolved: View = view or "draft"
-    space, branch, username, token = await branch_of(ctx, args.space_id, args.branch_id)
+async def open_branch(
+    ctx: PrimitiveContext, args: BranchArgs, *, write: bool = False
+) -> BranchView:
+    """Branche ouverte selon `args.branch` ; `write` : toujours le brouillon."""
+    with_draft = check_branch(args.branch) or write
+    return await open_view(ctx, args.space_id, args.branch_id, with_draft=with_draft)
+
+
+async def open_view(
+    ctx: PrimitiveContext, space_id: uuid.UUID, branch_id: uuid.UUID, *, with_draft: bool
+) -> BranchView:
+    if with_draft and ctx.user is None:
+        raise PrimitiveError("draft_requires_person")
+    resolved: View = "draft" if with_draft else "published"
+    space, branch, username, token = await branch_of(ctx, space_id, branch_id)
     workdir = DraftWorkdir(
         ctx.state.workdir_manager,
         ctx.state.draft_views,

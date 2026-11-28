@@ -5,6 +5,7 @@ personne ; décisions contrôlées contre la revue lue ; garde review_stale."""
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -13,14 +14,16 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from ossie_studio.cartographie.service import CartographieTarget
 from ossie_studio.mcp_surface.caller import McpCaller
 from ossie_studio.sources.manifest import SourceManifest, dump_manifest
+from ossie_studio.spaces.service import db_get_space
 from tests.mcp_helpers import call_tool, mcp_client, tool_names
-from tests.space_fixture import ApiSpace, draft_write, forge_edit, make_api_space
+from tests.space_fixture import ApiSpace, admin_workdir, draft_write, forge_edit, make_api_space
 
 AGENT = "agent-revue"
 KEY = "cle-revue"
-WRITES = ["set_tri_rules", "apply_review"]
+WRITES = ["write_documents", "patch_document", "apply_review"]
 
 CUSTOMER = {
     "title": "Customer",
@@ -38,7 +41,7 @@ def _asset(raw: dict[str, Any], name: str) -> dict[str, Any]:
 async def space(app: FastAPI, client: AsyncClient, tmp_path: Path) -> ApiSpace:
     """Source « ventes » publiée : deux objets bruts retenus comme assets. Un
     agent connecté pour l'administrateur et une clé, avec un profil
-    « Revue » (toutes les lectures + set_tri_rules + apply_review)."""
+    « Revue » (toutes les lectures + l'écriture commune + apply_review)."""
     api_space = await make_api_space(client, app, tmp_path)
     manifest = SourceManifest(
         slug="ventes",
@@ -86,6 +89,18 @@ def _ids(space: ApiSpace, **extra: Any) -> dict[str, Any]:
     return {"space_id": space.space_id, "branch_id": space.branch_id, "source": "ventes", **extra}
 
 
+def _assets_args(space: ApiSpace, **extra: Any) -> dict[str, Any]:
+    """list_documents des assets de la source (ce que rendait list_assets, ticket
+    56f3784a)."""
+    return {
+        "space_id": space.space_id,
+        "branch_id": space.branch_id,
+        "kind": "schema_asset",
+        "identity": {"source": "ventes"},
+        **extra,
+    }
+
+
 async def _ok(app: FastAPI, token: str, name: str, args: dict[str, Any]) -> dict[str, Any]:
     result = await call_tool(app, token, name, args)
     assert not result.is_error, result.content[0].text
@@ -123,51 +138,112 @@ async def _collected_in_draft(app: FastAPI, space: ApiSpace) -> dict[str, Any]:
     await draft_write(app, space, "sources/ventes/raw/customer.schema.yaml", customer)
     await draft_write(app, space, "sources/ventes/raw/legacy.schema.yaml", None)  # retenu disparu
     await draft_write(app, space, "sources/ventes/raw/order.schema.yaml", {"title": "Order"})
-    return await _ok(app, AGENT, "get_review", _ids(space))
+    return await _ok(app, AGENT, "get_review", _ids(space, branch="draft"))
 
 
 # --- Critères 1 et 2 : règles de tri ------------------------------------------------------
 
 
+TRI = {"kind": "regles_tri", "identity": {"source": "ventes"}}
+
+
+async def _tri(app: FastAPI, space: ApiSpace) -> dict[str, Any]:
+    return await _ok(app, AGENT, "read_document", _branch_ids(space, branch="draft", **TRI))
+
+
+def _branch_ids(space: ApiSpace, **extra: Any) -> dict[str, Any]:
+    return {"space_id": space.space_id, "branch_id": space.branch_id, **extra}
+
+
+async def _write_tri(app: FastAPI, space: ApiSpace, rules: list[Any]) -> dict[str, Any]:
+    version = (await _tri(app, space))["version"]
+    entry = {**TRI, "version": version, "content": rules}
+    return await _ok(
+        app,
+        AGENT,
+        "write_documents",
+        _branch_ids(space, message="règles de tri", documents=[entry]),
+    )
+
+
+async def _manifest(app: FastAPI, space: ApiSpace) -> str:
+    """Le manifeste tel que le brouillon de la personne le contient."""
+    workdir = await admin_workdir(app, space)
+    async with app.state.pool.acquire() as conn:
+        git_space = await db_get_space(conn, uuid.UUID(space.space_id))
+    assert git_space is not None
+    target = CartographieTarget(workdir, git_space, "work/principale", "x", None, "a@a")
+    text: str = await target.read(
+        lambda root: (root / "sources/ventes/manifest.yaml").read_text(encoding="utf-8")
+    )
+    return text
+
+
 async def test_regles_de_tri_posees_rejouees_effacees(app: FastAPI, space: ApiSpace) -> None:
+    """Ticket 71347227 : les règles de tri par l'écriture commune (genre regles_tri) ;
+    critère 5 : le reste du manifeste ne bouge pas, à l'octet près."""
+    before = await _manifest(app, space)
+    assert (await _tri(app, space))["content"] == []
     rules = [
+        {"target": "object-name", "pattern": "*Dto", "kind": "glob", "label": "DTO"},
+        {"target": "field-name", "pattern": "^tmp_", "kind": "regex", "label": ""},
+    ]
+    posed = await _write_tri(app, space, rules)
+    assert posed["changed_paths"] == ["sources/ventes/manifest.yaml"]
+    read = await _tri(app, space)
+    assert read["content"] == [
         {"target": "object-name", "pattern": "*Dto", "kind": "glob", "label": "DTO"},
         {"target": "field-name", "pattern": "^tmp_", "kind": "regex"},
     ]
-    posed = await _ok(app, AGENT, "set_tri_rules", _ids(space, rules=rules))
-    assert posed["changed"] is True
-    assert posed["changed_paths"] == ["sources/ventes/manifest.yaml"]
-    read = await _ok(app, AGENT, "get_tri_rules", _ids(space))
-    assert (
-        read["rules"]
-        == posed["rules"]
-        == [
-            {"target": "object-name", "pattern": "*Dto", "kind": "glob", "label": "DTO"},
-            {"target": "field-name", "pattern": "^tmp_", "kind": "regex"},
-        ]
+    assert read["path"] == "sources/ventes/manifest.yaml" and read["unpublished"] is True
+    replayed = await _write_tri(app, space, read["content"])
+    assert replayed["documents"][0]["action"] == "unchanged"
+    patched = await _ok(
+        app,
+        AGENT,
+        "patch_document",
+        _branch_ids(
+            space,
+            **TRI,
+            version=read["version"],
+            operations=[{"op": "set", "path": "$[0].pattern", "value": "*Snapshot*"}],
+        ),
     )
-    assert (await _ok(app, AGENT, "set_tri_rules", _ids(space, rules=rules)))["changed"] is False
-    cleared = await _ok(app, AGENT, "set_tri_rules", _ids(space, rules=[]))
-    assert (
-        cleared["rules"] == []
-        and (await _ok(app, AGENT, "get_tri_rules", _ids(space)))["rules"] == []
-    )
+    assert patched["written"] is True
+    assert (await _tri(app, space))["content"][0]["pattern"] == "*Snapshot*"
+    await _write_tri(app, space, [])
+    assert (await _tri(app, space))["content"] == []
+    assert await _manifest(app, space) == before
 
 
 async def test_regle_invalide_refusee_en_la_nommant(app: FastAPI, space: ApiSpace) -> None:
-    bad = await _refusal(
+    version = (await _tri(app, space))["version"]
+    bad = [{"target": "object-name", "pattern": "x", "kind": "flou"}]
+    refused = await _refusal(
         app,
         AGENT,
-        "set_tri_rules",
-        _ids(space, rules=[{"target": "object-name", "pattern": "x", "kind": "flou"}]),
+        "write_documents",
+        _branch_ids(space, message="x", documents=[{**TRI, "version": version, "content": bad}]),
     )
-    assert bad["error"] == "tri_rules_invalid"
-    assert any(f.startswith("triage[0]") for f in bad["fields"])
+    [error] = refused["errors"]
+    assert (error["code"], error["path"]) == (
+        "write_content_invalid",
+        "$.documents[0].content[0]",
+    )
+    assert any(f.startswith("triage[0]") for f in error["problems"])
+    assert error["aide"] == {"primitive": "describe_standard", "standard": "regles-tri"}
     assert await _draft_paths(app, space) == set()
     unknown = await _refusal(
-        app, AGENT, "set_tri_rules", {**_ids(space, rules=[]), "source": "inconnue"}
+        app,
+        AGENT,
+        "write_documents",
+        _branch_ids(
+            space,
+            message="x",
+            documents=[{"kind": "regles_tri", "identity": {"source": "inconnue"}, "content": []}],
+        ),
     )
-    assert unknown["error"] == "source_not_found"
+    assert unknown["errors"][0]["code"] == "write_identity_invalid"
 
 
 # --- Critère 3 : la revue appliquée en une écriture, dans le brouillon ---------------------
@@ -204,14 +280,25 @@ async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) 
     assert applied["review"]["objects"] == []
     assert "up_to_date" not in applied["review"]  # plus de point de reprise
 
-    customer = await _ok(app, AGENT, "read_asset", _ids(space, path="customer.schema.yaml"))
-    fields = {f["name"]: f for f in customer["fields"]}
+    customer = await _ok(
+        app,
+        AGENT,
+        "read_schema",
+        {
+            "space_id": space.space_id,
+            "branch_id": space.branch_id,
+            "branch": "draft",
+            "path": "sources/ventes/assets/customer.schema.yaml",
+        },
+    )
+    fields = {f["name"]: f for f in customer["extras"]["fields"]}
     assert fields["email"]["retained"] is True and fields["name"]["type"] == "integer"
-    assets = {a["path"] for a in (await _ok(app, AGENT, "list_assets", _ids(space)))["assets"]}
+    draft = await _ok(app, AGENT, "list_documents", _assets_args(space, branch="draft"))
+    assets = {a["identity"]["name"] for a in draft["documents"]}
     assert assets == {"customer.schema.yaml", "order.schema.yaml"}
     # Rien n'est publié.
-    published = await _ok(app, AGENT, "list_assets", _ids(space, view="published"))
-    assert {a["path"] for a in published["assets"]} == {
+    published = await _ok(app, AGENT, "list_documents", _assets_args(space))
+    assert {a["identity"]["name"] for a in published["documents"]} == {
         "customer.schema.yaml",
         "legacy.schema.yaml",
     }
@@ -221,7 +308,7 @@ async def test_revue_appliquee_dans_le_brouillon(app: FastAPI, space: ApiSpace) 
 
 
 async def test_revue_perimee_refusee_sans_ecriture(app: FastAPI, space: ApiSpace) -> None:
-    first = await _ok(app, AGENT, "get_review", _ids(space))
+    first = await _ok(app, AGENT, "get_review", _ids(space, branch="draft"))
     forge_edit(space, {"sources/ventes/raw/order.schema.yaml": json.dumps({"title": "Order"})})
     before = await _draft_paths(app, space)
     stale = await _refusal(app, AGENT, "apply_review", _ids(space, head_sha=first["head_sha"]))
@@ -259,7 +346,7 @@ async def test_decision_qui_ne_correspond_pas_a_la_revue_refusee(
     ]
     # Aucune écriture partielle : la décision valide n'a pas été appliquée.
     assert await _draft_paths(app, space) == before
-    still = await _ok(app, AGENT, "get_review", _ids(space))
+    still = await _ok(app, AGENT, "get_review", _ids(space, branch="draft"))
     assert still["objects"] == review["objects"]
 
 
@@ -277,9 +364,10 @@ async def test_arguments_de_revue_invalides(app: FastAPI, space: ApiSpace) -> No
 
 async def test_droits_par_capacite_et_jamais_pour_une_cle(app: FastAPI, space: ApiSpace) -> None:
     assert not set(WRITES) & set(await tool_names(app, KEY))
-    assert (await _refusal(app, KEY, "set_tri_rules", _ids(space, rules=[])))["error"] == (
-        "primitive_forbidden"
+    refused_key = await _refusal(
+        app, KEY, "write_documents", _branch_ids(space, message="x", documents=[TRI])
     )
+    assert refused_key["error"] == "primitive_forbidden"
     async with app.state.pool.acquire() as conn:
         user_id = await conn.fetchval(
             "INSERT INTO users (email, role) VALUES ('ana@example.org', 'user') RETURNING id"
@@ -298,8 +386,19 @@ async def test_droits_par_capacite_et_jamais_pour_une_cle(app: FastAPI, space: A
     app.state.mcp_resolvers.append(resolver)
     tools = set(await tool_names(app, "ana"))
     # curation:rules oui, curation:review non.
-    assert "set_tri_rules" in tools and "apply_review" not in tools
-    assert (await _ok(app, "ana", "set_tri_rules", _ids(space, rules=[])))["view"] == "draft"
+    assert "write_documents" in tools and "apply_review" not in tools
+    current = await _ok(app, "ana", "read_document", _branch_ids(space, branch="draft", **TRI))
+    written = await _ok(
+        app,
+        "ana",
+        "write_documents",
+        _branch_ids(
+            space,
+            message="x",
+            documents=[{**TRI, "version": current["version"], "content": []}],
+        ),
+    )
+    assert written["written"] is True
     refused = await _refusal(app, "ana", "apply_review", _ids(space, head_sha="abcdef1"))
     assert refused["error"] == "primitive_forbidden"
 
@@ -311,8 +410,6 @@ async def test_apply_review_annoncee_destructive(app: FastAPI, space: ApiSpace) 
     async with mcp_client(app, AGENT) as client:
         tools = {t.name: t.annotations for t in (await client.list_tools()).tools}
     assert tools["apply_review"].destructive_hint is True
-    assert tools["set_tri_rules"].destructive_hint is False
-    assert tools["set_tri_rules"].idempotent_hint is True
 
 
 # --- L'écran passe par le même service, sans changement de comportement -------------------------

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { Link, RouterProvider, createMemoryRouter } from 'react-router-dom'
+import { Link, RouterProvider, createMemoryRouter, useNavigate } from 'react-router-dom'
 import { UnsavedProvider, useDirty, useSaveShortcut, useUnsaved } from './unsaved'
 
 // Bug 5a6b0213 : demander s'il faut enregistrer avant de quitter l'écran.
@@ -19,6 +19,31 @@ function Editor({ save, shortcut = 'model' }: { save: () => Promise<unknown>; sh
       </button>
       {marked ? <span>pastille</span> : null}
       <Link to="/ailleurs">partir</Link>
+    </>
+  )
+}
+
+// Bug 62a8c315 : un écran qui crée puis navigue tout de suite (la fiche créée)
+// ne doit pas déclencher la garde — elle relançait la création.
+function Creator({ save }: { save: () => Promise<unknown> }) {
+  const [dirty, setDirty] = useState(false)
+  const navigate = useNavigate()
+  const release = useUnsaved('nouveau', { label: 'Nouvel objet', dirty, saveable: true }, save)
+  return (
+    <>
+      <button type="button" onClick={() => setDirty(true)}>
+        saisir
+      </button>
+      <button
+        type="button"
+        onClick={async () => {
+          await save()
+          release()
+          navigate('/ailleurs')
+        }}
+      >
+        créer
+      </button>
     </>
   )
 }
@@ -113,5 +138,30 @@ describe('Cmd+S / Ctrl+S (ticket 718f28e5)', () => {
     await user.click(screen.getByRole('button', { name: 'modifier' }))
     press({ ctrlKey: true })
     expect(save).not.toHaveBeenCalled()
+  })
+
+  it('créer puis naviguer aussitôt : pas de garde, une seule création (bug 62a8c315)', async () => {
+    const user = userEvent.setup()
+    const save = vi.fn(() => Promise.resolve())
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/ecran',
+          element: (
+            <UnsavedProvider>
+              <Creator save={save} />
+            </UnsavedProvider>
+          ),
+        },
+        { path: '/ailleurs', element: <p>ailleurs</p> },
+      ],
+      { initialEntries: ['/ecran'] },
+    )
+    render(<RouterProvider router={router} />)
+    await user.click(screen.getByRole('button', { name: 'saisir' }))
+    await user.click(screen.getByRole('button', { name: 'créer' }))
+    expect(await screen.findByText('ailleurs')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(save).toHaveBeenCalledTimes(1)
   })
 })

@@ -84,6 +84,12 @@ def _check_property(schema: Any, path: str) -> list[Problem]:
     return [Problem(path, "property_type_unsupported", str(kind))]
 
 
+def check_property(schema: Any, path: str) -> list[Problem]:
+    """Les problèmes d'une propriété (types et formats acceptés par un modèle de
+    référentiel) ; sert aussi aux types de la cartographie."""
+    return _check_property(schema, path)
+
+
 def _check_object(schema: dict[str, Any], path: str) -> list[Problem]:
     properties = schema.get("properties")
     if not isinstance(properties, dict) or not properties:

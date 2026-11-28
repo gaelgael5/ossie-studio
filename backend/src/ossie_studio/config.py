@@ -41,8 +41,21 @@ class Settings(BaseSettings):
     # si absente, on la déduit de la requête entrante.
     public_base_url: str = ""
 
+    # Lectures de branche : réaligner la copie sur la forge à chaque lecture
+    # (ticket 2daae568). Faux en service : seule l'application pousse, et la
+    # publication réaligne la copie. Vrai pour les tests qui modifient la forge.
+    git_read_follows_forge: bool = False
+
     # Taille maximale d'un contrat OpenAPI déposé (octets). Au-delà : refus.
     openapi_max_contract_bytes: int = 5 * 1024 * 1024
+
+    # Taille maximale d'un document écrit par un agent (octets), tel qu'il est écrit :
+    # chaque entrée de write_documents, le document obtenu par patch_document, une
+    # valeur de référentiel seule (epic « Primitives MCP — écriture commune par genre »).
+    # Une seule limite pour tous les genres, BPMN compris : 200 Ko (décision de Gael,
+    # pour ne pas refuser les processus). Variable DOCUMENT_MAX_BYTES. C'est la valeur
+    # par défaut : une valeur posée sur la page « Paramètres » prime (app_settings).
+    document_max_bytes: int = 200 * 1024
 
     @field_validator("session_secret")
     @classmethod

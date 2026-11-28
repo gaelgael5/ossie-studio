@@ -14,6 +14,7 @@ import urban_json_editor
 from fastapi import APIRouter
 
 from ossie_studio.api.common import CurrentUser
+from ossie_studio.imports.jslt_engine import function_registry
 
 # Assets du composant. Sous /api : seul préfixe relayé par le nginx du front.
 JSLT_EDITOR_PATH = "/api/jslt-editor"
@@ -23,4 +24,7 @@ router = APIRouter()
 
 @router.get("/api/jslt-functions")
 def jslt_functions(_: CurrentUser) -> dict[str, list[dict[str, Any]]]:
-    return {"functions": urban_json_editor.catalog()}
+    """Les fonctions proposées à la saisie : exactement celles qu'accepte le moteur des
+    imports (registre isolé : cœur seulement, sans plugin ni fonction écartée), pas tout
+    le registre global d'urban-json."""
+    return {"functions": urban_json_editor.catalog(function_registry())}

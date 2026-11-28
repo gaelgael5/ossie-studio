@@ -6,6 +6,7 @@ import type { DomainDataset, DomainImpact, ManualDatasetBody } from '../apiClien
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
 import { ApiRequestError, errorMessages } from '../errors'
+import { IconButton } from '../components/IconButton'
 
 // Dataset manuel d'un domaine (ticket docflow 1c68a20a). Gael, 19/11/2026 : « Deux
 // types de dataset. Les datasets qui dérivent d'un raw [...] et ceux que l'on
@@ -153,9 +154,7 @@ export function ManualDatasetDialog({
       >
         <div className="row dialog-head">
           <h2>{title}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={save.error && !conflict ? errorMessages(t, save.error) : []} />
         <div className="form-grid">
@@ -274,32 +273,9 @@ export function ManualDatasetDialog({
                     />
                   </td>
                   <td className="manual-actions">
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      aria-label={t('manualMoveUp', { name: r.name })}
-                      disabled={index === 0}
-                      onClick={() => move(index, -1)}
-                    >
-                      {'↑'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      aria-label={t('manualMoveDown', { name: r.name })}
-                      disabled={index === rows.length - 1}
-                      onClick={() => move(index, 1)}
-                    >
-                      {'↓'}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      aria-label={t('manualRemoveField', { name: r.name })}
-                      onClick={() => removeRow(r.id)}
-                    >
-                      {'✕'}
-                    </button>
+                    <IconButton icon="up" label={t('manualMoveUp', { name: r.name })} disabled={index === 0} onClick={() => move(index, -1)} />
+                    <IconButton icon="down" label={t('manualMoveDown', { name: r.name })} disabled={index === rows.length - 1} onClick={() => move(index, 1)} />
+                    <IconButton icon="remove" label={t('manualRemoveField', { name: r.name })} onClick={() => removeRow(r.id)} />
                   </td>
                 </tr>
               ))}
@@ -325,14 +301,7 @@ export function ManualDatasetDialog({
                   {r.name || '…'}
                 </label>
               ))}
-              <button
-                type="button"
-                className="btn btn-sm"
-                aria-label={t('manualRemoveUniqueKey', { n: k + 1 })}
-                onClick={() => setUniques((prev) => prev.filter((_, i) => i !== k))}
-              >
-                {'✕'}
-              </button>
+              <IconButton icon="close" label={t('manualRemoveUniqueKey', { n: k + 1 })} onClick={() => setUniques((prev) => prev.filter((_, i) => i !== k))} />
             </div>
           ))}
           <div>

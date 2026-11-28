@@ -22,12 +22,15 @@ from fastapi import APIRouter, Depends, Query, Request
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import AuditRead
 from ossie_studio.audit.git_history import (
+    CARTOGRAPHIE_TYPES,
     GOVERNANCE_TYPES,
     REFERENTIEL_TYPES,
+    cartographie_events,
     governance_events,
     referentiel_events,
 )
 from ossie_studio.audit.service import AuditEvent, AuditFilters, db_list_audit
+from ossie_studio.cartographie.model import CARTO_DIR
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto
 from ossie_studio.errors import ApiError
@@ -58,9 +61,11 @@ DB_TYPES = (
     # Les imports de valeurs d'un référentiel (ticket a909dc66) : les valeurs vivent
     # dans Git, mais chaque import (refusé compris) est une ligne du journal.
     "referentiel_import",
+    # Les paramètres généraux de la page « Paramètres » (ticket ae8fc4b6).
+    "app_setting",
 )
 # Types d'objets tenus dans Git : leur historique est celui des commits publiés.
-GIT_TYPES = (*GOVERNANCE_TYPES, *REFERENTIEL_TYPES)
+GIT_TYPES = (*GOVERNANCE_TYPES, *REFERENTIEL_TYPES, *CARTOGRAPHIE_TYPES)
 
 
 def _payload(event: AuditEvent) -> dict[str, object]:
@@ -131,12 +136,22 @@ async def list_audit(
                 REFERENTIELS_DIR,
                 GIT_LOG_LIMIT,
             )
+            carto_commits = await manager.path_log(
+                space.id,
+                branch.git_ref,
+                space.repo_url,
+                username,
+                token,
+                CARTO_DIR,
+                GIT_LOG_LIMIT,
+            )
         except WorkdirError as exc:
             raise ApiError(exc.code, status_code=502) from None
         events = [
             *events,
             *governance_events(commits, filters),
             *referentiel_events(ref_commits, filters),
+            *cartographie_events(carto_commits, filters),
         ]
     events.sort(key=lambda e: e.at, reverse=True)
     page, more = _page(events, limit)

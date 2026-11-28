@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { api, sessionCapabilities } from '../apiClient'
+import { api, referentielImports, sessionCapabilities } from '../apiClient'
 import type { ReferentielDetail, ReferentielModelPreview } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
@@ -12,10 +12,10 @@ import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
 import { asciiLower } from '../slug'
-import { UnsavedProvider, useDirty, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
+import { UnsavedProvider, useDirty, useSaveShortcut, useSwitchGuard, useUnsaved } from '../referentiels/unsaved'
 import SchemaEditor from '../referentiels/SchemaEditor'
 import { ValuesTab } from '../referentiels/ValuesTab'
-import { ImportsTab } from '../referentiels/ImportsTab'
+import { ImportsTab } from '../imports/ImportsTab'
 import {
   type KeyViolation,
   type RefModel,
@@ -27,6 +27,7 @@ import {
   simpleProperties,
   withKey,
 } from '../referentiels/modelRules'
+import { IconButton, IconLink } from '../components/IconButton'
 
 // Référentiels (epic dc0bba30, ticket 829a86a7). Gael : « La partie modélisation
 // doit pouvoir gérer un objet JSON avec plusieurs propriétés » ; l'éditeur du modèle
@@ -120,14 +121,7 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
                   {r.title || r.name}
                 </Link>
                 {editable ? (
-                  <Link
-                    to={refPath(r.name, true)}
-                    className={`btn btn-sm ref-edit${r.name === name && settings ? ' active' : ''}`}
-                    aria-label={t('refEdit', { name: r.title || r.name })}
-                    title={t('refEdit', { name: r.title || r.name })}
-                  >
-                    {'✎'}
-                  </Link>
+                  <IconLink icon="edit" label={t('refEdit', { name: r.title || r.name })} className={`ref-edit${r.name === name && settings ? ' active' : ''}`} to={refPath(r.name, true)} />
                 ) : null}
               </div>
               <div className="muted mono small">{r.name}</div>
@@ -189,9 +183,7 @@ function CreateDialog({ spaceId, branchId, onClose }: { spaceId: string; branchI
       >
         <div className="row dialog-head">
           <h2>{t('refNew')}</h2>
-          <button type="button" className="btn btn-sm" onClick={onClose} aria-label={t('close')}>
-            {'✕'}
-          </button>
+          <IconButton icon="close" label={t('close')} onClick={onClose} />
         </div>
         <ErrorList messages={create.error ? errorMessages(t, create.error) : []} />
         <div className="form-grid">
@@ -246,6 +238,9 @@ function ReferentielView({
     imports: useDirty('import:').length > 0,
     history: false,
   }
+  // Imports lit le modèle enregistré : y aller avec un modèle modifié le demande
+  // (bug 9cf80cdb). Les autres passages ne dépendent pas du non-enregistré.
+  const { guard: guardSwitch, dialog: switchDialog } = useSwitchGuard()
   const [valueErrors, setValueErrors] = useState(0)
   const detail = useQuery({
     queryKey: ['referentiel', spaceId, branchId, name],
@@ -293,8 +288,12 @@ function ReferentielView({
               aria-selected={tab === key}
               className={`tab${tab === key ? ' active' : ''}`}
               onClick={() => {
-                setTab(key)
-                setOpened((prev) => new Set(prev).add(key))
+                const go = () => {
+                  setTab(key)
+                  setOpened((prev) => new Set(prev).add(key))
+                }
+                if (key === 'imports' && tab !== 'imports') guardSwitch(['model'], go)
+                else go()
               }}
             >
               {t(`refTab_${key}`)}
@@ -307,6 +306,7 @@ function ReferentielView({
           ))}
         </div>
       ) : null}
+      {switchDialog}
       <ErrorList messages={detail.error ? errorMessages(t, detail.error) : []} />
       {detail.isLoading ? <p className="muted">{t('loading')}</p> : null}
       {data && !settings ? (
@@ -332,7 +332,7 @@ function ReferentielView({
       ) : null}
       {data && settings && opened.has('imports') ? (
         <div hidden={tab !== 'imports'}>
-          <ImportsTab spaceId={spaceId} branchId={branchId} name={name} readOnly={readOnly} />
+          <ImportsTab spaceId={spaceId} branchId={branchId} name={name} imports={referentielImports(spaceId, branchId, name)} readOnly={readOnly} />
         </div>
       ) : null}
       {settings && tab === 'history' ? <HistoryTab spaceId={spaceId} branchId={branchId} name={name} /> : null}
@@ -370,24 +370,8 @@ function KeyBar({
             <span className="badge">{t('refKeyBadge')}</span> <code>{property}</code>
             {!readOnly && key.length > 1 ? (
               <>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  aria-label={t('refKeyUp', { property })}
-                  disabled={index === 0}
-                  onClick={() => move(index, -1)}
-                >
-                  {'↑'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  aria-label={t('refKeyDown', { property })}
-                  disabled={index === key.length - 1}
-                  onClick={() => move(index, 1)}
-                >
-                  {'↓'}
-                </button>
+                <IconButton icon="up" label={t('refKeyUp', { property })} disabled={index === 0} onClick={() => move(index, -1)} />
+                <IconButton icon="down" label={t('refKeyDown', { property })} disabled={index === key.length - 1} onClick={() => move(index, 1)} />
               </>
             ) : null}
           </span>
@@ -541,6 +525,10 @@ function ModelTab({
     'model',
     { label: t('refTab_model'), dirty: !readOnly && dirty, saveable: parsed.ok && !violation },
     () => (parsed.ok ? save.mutateAsync(parsed.model) : Promise.reject(new Error('unreadable'))),
+    () => {
+      setText(detail.model_yaml)
+      setViolation(null)
+    },
   )
   return (
     <div className="stack">

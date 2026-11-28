@@ -14,7 +14,6 @@ comprise), sinon refus avec les problèmes. L'aperçu le dit avant d'enregistrer
 from __future__ import annotations
 
 import uuid
-from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -24,13 +23,14 @@ from pydantic import BaseModel, ConfigDict
 from ossie_studio.api.branches import WorkdirDep, space_credentials
 from ossie_studio.api.common import ReferentielsRead, ReferentielsWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
+from ossie_studio.api.list_index import ListIndex
 from ossie_studio.deps import ConnDep
 from ossie_studio.drafts.store import db_get_draft, db_list_object_states
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
+from ossie_studio.imports.errors import ImportsError
 from ossie_studio.models import User
 from ossie_studio.referentiels import published
-from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import dump_model
 from ossie_studio.referentiels.model_change import adapt_values, preview
 from ossie_studio.referentiels.repo import (
@@ -71,7 +71,7 @@ class ValuesBody(BaseModel):
     values: list[Any]
 
 
-def api_error(exc: ReferentielError) -> ApiError:
+def api_error(exc: ImportsError) -> ApiError:
     code = "referentiel_unreadable" if exc.code in _UNREADABLE else exc.code
     extra: dict[str, object] = dict(exc.detail)
     if exc.problems:
@@ -111,20 +111,14 @@ async def _unpublished(conn: ConnDep, workdir: DraftWorkdir, branch_id: uuid.UUI
 
 
 # Index de la liste (ticket 0373780f, Gael : « le chargement de la liste des
-# référentiels est assez long ; indexe-la »). Une lecture matérialise la vue du
-# brouillon (fetch, puis tout le brouillon chargé depuis la base) : 2 à 4 s sur
-# test1. La liste ne dépend que de la tête publiée et de `referentiels/` dans le
-# brouillon : tant que leur empreinte ne bouge pas, elle est rendue d'ici.
-# En mémoire et non en base : rien à migrer, et l'index se refait au premier appel
-# après un redémarrage. Borné : une entrée par (espace, branche, personne, vue).
-_LIST_INDEX: OrderedDict[tuple[object, ...], tuple[str, list[dict[str, Any]]]] = OrderedDict()
-LIST_INDEX_MAX = 256
+# référentiels est assez long ; indexe-la ») : voir `api/list_index.py`.
+_LIST_INDEX: ListIndex[list[dict[str, Any]]] = ListIndex()
 
 
 async def read_in[T](target: ReferentielTarget, fn: Any) -> T:
     try:
         result: T = await target.read(fn)
-    except ReferentielError as exc:
+    except ImportsError as exc:  # ReferentielError comprise (module commun d'import)
         raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
@@ -134,7 +128,7 @@ async def read_in[T](target: ReferentielTarget, fn: Any) -> T:
 async def write_in[T](target: ReferentielTarget, intent: str, fn: Any) -> tuple[T, str | None]:
     try:
         result: tuple[T, str | None] = await target.write(intent, fn)
-    except ReferentielError as exc:
+    except ImportsError as exc:  # ReferentielError comprise (module commun d'import)
         raise api_error(exc) from None
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
@@ -181,16 +175,12 @@ async def list_referentiels(
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     key = (space_id, branch_id, workdir.user_id, workdir.published_only)
-    cached = _LIST_INDEX.get(key)
-    if cached is not None and cached[0] == signature:
-        _LIST_INDEX.move_to_end(key)
-        items = cached[1]
+    cached = _LIST_INDEX.get(key, signature)
+    if cached is None:
+        items: list[dict[str, Any]] = await read_in(target, published.summaries)
+        _LIST_INDEX.put(key, signature, items)
     else:
-        items = await read_in(target, published.summaries)
-        _LIST_INDEX[key] = (signature, items)
-        _LIST_INDEX.move_to_end(key)
-        while len(_LIST_INDEX) > LIST_INDEX_MAX:
-            _LIST_INDEX.popitem(last=False)
+        items = cached
     touched = _touched(draft_paths)
     return {
         "readonly": False,
@@ -357,7 +347,7 @@ async def referentiel_history(
     d'histoire)."""
     try:
         rel = referentiel_dir(name)
-    except ReferentielError as exc:
+    except ImportsError as exc:  # ReferentielError comprise (module commun d'import)
         raise api_error(exc) from None
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:

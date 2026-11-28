@@ -180,8 +180,11 @@ async def test_une_erreur_bloque_tout_et_la_ligne_est_donnee(app: FastAPI, space
     report = body["error_args"]["report"]
     wheres = {(e["where"], e["code"]) for e in report["error_details"]}
     assert ("ligne 3", "template_conversion") in wheres
-    # La clé LU+site deux fois dans le fichier.
-    assert any(e["code"] == "key_duplicate" for e in report["error_details"])
+    # La clé LU+site deux fois dans le fichier (même code et message que par MCP).
+    assert any(
+        e["code"] == "values_invalid" and "est déjà présente" in e["message"]
+        for e in report["error_details"]
+    )
     assert len(await _values(space)) == len(VALUES)
     [row] = await _journal(app)
     assert row["detail"]["outcome"] == "refused"
@@ -244,12 +247,7 @@ async def test_une_cle_d_api_ne_peut_pas_importer(
     key = await _key(
         app,
         space.client,
-        [
-            "list_referentiels",
-            "read_referentiel_model",
-            "search_referentiel_values",
-            "get_referentiel_value",
-        ],
+        ["list_documents", "read_document", "read_schema"],
     )
     refused = await anonymous.post(
         _url(space, "/transporteur/import"),

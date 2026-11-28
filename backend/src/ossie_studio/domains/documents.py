@@ -368,6 +368,18 @@ def check_domain(domain: Domain) -> None:
             raise DomainError("relationship_cross_document", r.name)
         if len(r.from_columns) != len(r.to_columns) or not r.from_columns:
             raise DomainError("relationship_columns_mismatch", r.name)
+        # Les colonnes désignent des champs déclarés de leur dataset (ticket
+        # 4e856094) : une relation vers un champ absent rendrait le modèle faux.
+        for ds, columns in ((src, r.from_columns), (dst, r.to_columns)):
+            declared = {f.name for f in ds.fields}
+            missing = next((c for c in columns if c not in declared), None)
+            if missing is not None:
+                raise DomainError("relationship_column_unknown", f"{ds.name}.{missing}")
+    for kind, links in (("relationship", domain.relationships), ("reference", domain.references)):
+        seen = [link.name for link in links]
+        duplicate = next((n for n in seen if seen.count(n) > 1), None)
+        if duplicate:
+            raise DomainError(f"{kind}_name_taken", duplicate)
     for ref in domain.references:
         if ref.from_dataset not in by_name or ref.to_dataset not in by_name:
             raise DomainError("reference_dataset_missing", ref.name)
