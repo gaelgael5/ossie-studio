@@ -9,6 +9,7 @@ import structlog
 
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.models import GitSpace
+from ossie_studio.roundtrip import write_document
 from ossie_studio.sources.exclusion_prune import prune_excluded_raw
 from ossie_studio.sources.manifest import (
     GIT_TYPE,
@@ -94,7 +95,10 @@ def _write_manifest_fn(manifest: SourceManifest, *, must_be_new: bool) -> Callab
         if not must_be_new and not (target / MANIFEST_FILENAME).is_file():
             raise SourceNotFoundError(manifest.slug)
         target.mkdir(parents=True, exist_ok=True)
-        (target / MANIFEST_FILENAME).write_text(dump_manifest(manifest), encoding="utf-8")
+        # Aller-retour (14bb8eb8) : un manifeste modifié garde commentaires et forme.
+        write_document(
+            target / MANIFEST_FILENAME, manifest.to_mapping(), lambda _m: dump_manifest(manifest)
+        )
         if manifest.type == GIT_TYPE:
             # Dans la même écriture : un objet venu d'un répertoire exclu sort
             # aussitôt du brouillon (ticket docflow 64e7b42f).

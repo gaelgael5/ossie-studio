@@ -49,6 +49,7 @@ import yaml
 
 from ossie_studio.governance.repo import GOVERNANCE_DIR, Tag, read_tags, write_tag
 from ossie_studio.governance.tags import is_valid_tag_id, normalize_tag_id
+from ossie_studio.roundtrip import write_yaml
 
 TAG_RULES_DIR = f"{GOVERNANCE_DIR}/tag-rules"
 
@@ -274,10 +275,7 @@ def write_builtin_disabled(root: Path, disabled: set[str]) -> None:
             file.unlink()
         return
     file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(
-        yaml.safe_dump({"disabled": sorted(disabled)}, sort_keys=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    write_yaml(file, {"disabled": sorted(disabled)})
 
 
 def rule_document(rule: TagRule) -> dict[str, Any]:
@@ -298,12 +296,7 @@ def rule_document(rule: TagRule) -> dict[str, Any]:
 def write_tag_rule(root: Path, rule: TagRule) -> None:
     target = root / rule_path(rule.id)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        yaml.safe_dump(
-            rule_document(rule), sort_keys=False, allow_unicode=True, default_flow_style=False
-        ),
-        encoding="utf-8",
-    )
+    write_yaml(target, rule_document(rule))
 
 
 # Enregistrer une règle crée les tags gouvernés qu'elle cite et qui n'existent pas encore
@@ -498,10 +491,7 @@ def write_tag_removals(root: Path, removals: list[TagRemoval]) -> None:
             for r in sorted(unique.values(), key=lambda r: (r.object, r.tag))
         ]
     }
-    target.write_text(
-        yaml.safe_dump(doc, sort_keys=False, allow_unicode=True, default_flow_style=False),
-        encoding="utf-8",
-    )
+    write_yaml(target, doc)
 
 
 def field_matches(name: str, patterns: tuple[str, ...]) -> str | None:

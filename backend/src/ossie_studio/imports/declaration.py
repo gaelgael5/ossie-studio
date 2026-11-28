@@ -103,6 +103,12 @@ def check_declaration(decl: ImportDeclaration) -> list[Problem]:
 
 
 def dump_declaration(decl: ImportDeclaration) -> str:
+    return yaml.safe_dump(
+        declaration_document(decl), sort_keys=False, allow_unicode=True, default_flow_style=False
+    )
+
+
+def declaration_document(decl: ImportDeclaration) -> dict[str, Any]:
     data: dict[str, Any] = {"label": decl.label.strip(), "format": decl.format}
     if decl.format == "csv":
         data.update({"separator": decl.separator, "encoding": decl.encoding, "header": decl.header})
@@ -114,7 +120,7 @@ def dump_declaration(decl: ImportDeclaration) -> str:
         data["mapping"] = dict(decl.mapping)
     if decl.deletion != KEEP:
         data["deletion"] = decl.deletion
-    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return data
 
 
 def parse_declaration(slug: str, text: str) -> ImportDeclaration:

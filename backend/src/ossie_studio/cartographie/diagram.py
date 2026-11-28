@@ -66,6 +66,7 @@ from ossie_studio.cartographie.rules import viewpoints
 from ossie_studio.cartographie.space import Cartographie, read_cartographie, save_object
 from ossie_studio.cartographie.space import delete_object as delete_space_object
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
+from ossie_studio.roundtrip import write_document
 from ossie_studio.slugs import is_valid_slug
 
 MODELS_DIR = f"{CARTO_DIR}/modeles"
@@ -838,13 +839,23 @@ def save_diagram(
         (root / RULES_DIR).mkdir(parents=True, exist_ok=True)
         (root / diagram.rules).write_text(dump_rules(Rules(lang=DEFAULT_LANG)), encoding="utf-8")
     (root / MODELS_DIR).mkdir(parents=True, exist_ok=True)
-    _write_if_changed(root / path, diagram, parse_diagram, dump_diagram)
-    _write_if_changed(root / diagram.graphic, graphic.pruned(diagram), parse_graphic, dump_graphic)
+    _write_if_changed(root / path, diagram, parse_diagram, dump_diagram, Diagram.document)
+    _write_if_changed(
+        root / diagram.graphic,
+        graphic.pruned(diagram),
+        parse_graphic,
+        dump_graphic,
+        Graphic.document,
+    )
     return sorted(set(warnings))
 
 
 def _write_if_changed[T](
-    file: Path, value: T, parse: Callable[[str, str], T], dump: Callable[[T], str]
+    file: Path,
+    value: T,
+    parse: Callable[[str, str], T],
+    dump: Callable[[T], str],
+    document: Callable[[T], Any],
 ) -> None:
     """Écrit `value` sauf si le fichier dit déjà la même chose : un fichier écrit à la
     main garde sa mise en forme (et ses commentaires) tant que son contenu ne change
@@ -855,7 +866,8 @@ def _write_if_changed[T](
                 return
         except (CartographieError, UnicodeDecodeError):
             pass  # illisible : réécrit
-    file.write_text(dump(value), encoding="utf-8")
+    # Contenu changé : aller-retour (14bb8eb8), seules les lignes changées bougent.
+    write_document(file, document(value), lambda _d: dump(value))
 
 
 def _diagram_id(root: Path, slug: str) -> str | None:
@@ -877,8 +889,7 @@ def save_rules(root: Path, slug: str, rules: Rules, cat: Catalog | None = None) 
         problems = check_rules(rules, path, read_cartographie(root, cat), cat)
     if problems:
         raise CartographieError("rules_invalid", problems=problems)
-    (root / RULES_DIR).mkdir(parents=True, exist_ok=True)
-    (root / path).write_text(dump_rules(rules), encoding="utf-8")
+    write_document(root / path, rules.document(), lambda _d: dump_rules(rules))
     return rules
 
 

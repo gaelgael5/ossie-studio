@@ -146,6 +146,7 @@ def write_referentiel(
         sorted_values(checked_model, checked_values),
         lambda values: dump_values(checked_model, values),
         identity=lambda value: key_of(value, key) if isinstance(value, dict) else None,
+        keep_order=True,
     )
     return Referentiel(
         name,

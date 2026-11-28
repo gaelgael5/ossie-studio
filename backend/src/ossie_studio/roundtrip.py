@@ -30,11 +30,12 @@ from __future__ import annotations
 import io
 import json
 import re
-from collections.abc import Callable, Hashable, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+import yaml as yaml_lib
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.error import YAMLError
@@ -79,8 +80,20 @@ def plain(value: Any) -> Any:
 
 
 def _same(a: Any, b: Any) -> bool:
-    """Égalité stricte : `True` n'est pas `1`, `1` n'est pas `1.0`."""
-    a, b = plain(a), plain(b)
+    """Égalité de contenu : `True` n'est pas `1`, mais `400` et `400.0` sont le même
+    nombre (l'application écrit volontairement `40.0` sous la forme `40`)."""
+    return _equal(plain(a), plain(b))
+
+
+def _equal(a: Any, b: Any) -> bool:
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_equal(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_equal(x, y) for x, y in zip(a, b, strict=True))
     return type(a) is type(b) and a == b
 
 
@@ -123,14 +136,18 @@ def _is_sorted(keys: list[Any]) -> bool:
 
 
 def _merge_map(
-    old: dict[Any, Any], new: dict[Any, Any], insert: Callable[..., None], identity: Identity | None
+    old: dict[Any, Any],
+    new: dict[Any, Any],
+    insert: Callable[..., None],
+    identity: Identity | None,
+    keep_order: bool,
 ) -> None:
     for key in [k for k in old if k not in new]:
         del old[key]
     sorted_before = _is_sorted(list(old))
     for key, value in new.items():
         if key in old:
-            old[key] = merge(old[key], value, identity)
+            old[key] = merge(old[key], value, identity, keep_order)
             continue
         if sorted_before:
             position = sum(1 for k in old if str(k) < str(key))
@@ -150,19 +167,29 @@ def _insert_plain(target: dict[Any, Any], position: int, key: Any, value: Any) -
     target.update(items)
 
 
-def _merge_list(old: list[Any], new: list[Any], identity: Identity | None) -> list[Any]:
-    """Nouvelle liste : éléments existants dans leur ordre, mis à jour ; retirés
-    supprimés ; ajoutés après leur prédécesseur dans `new`."""
+def _merge_list(
+    old: list[Any], new: list[Any], identity: Identity | None, keep_order: bool
+) -> list[Any]:
+    """Nouvelle liste, éléments rapprochés réutilisés (leur mise en forme reste).
+    Ordre : celui de `new` (un réordonnancement voulu est respecté) ; avec
+    `keep_order`, celui du fichier, un ajout se plaçant après son prédécesseur
+    dans `new` (`valeurs.json`, décision de Gael du 28/11)."""
     ident = identity or default_identity(old, new)
     old_ids = [ident(i) for i in old]
     new_ids = [ident(i) for i in new]
     if any(i is None for i in old_ids + new_ids) or len(set(new_ids)) != len(new_ids):
         # Sans identité : par position.
-        out = [merge(o, n, identity) for o, n in zip(old, new, strict=False)]
+        out = [merge(o, n, identity, keep_order) for o, n in zip(old, new, strict=False)]
         return out + list(new[len(old) :])
+    if not keep_order:
+        by_old = dict(zip(old_ids, old, strict=True))
+        return [merge(by_old[i], n, identity, keep_order) if i in by_old else n
+                for i, n in zip(new_ids, new, strict=True)]  # fmt: skip
     by_id = dict(zip(new_ids, new, strict=True))
     result: list[tuple[Hashable, Any]] = [
-        (i, merge(o, by_id[i], identity)) for i, o in zip(old_ids, old, strict=True) if i in by_id
+        (i, merge(o, by_id[i], identity, keep_order))
+        for i, o in zip(old_ids, old, strict=True)
+        if i in by_id
     ]
     placed = {i for i, _ in result}
     for index, (i, value) in enumerate(zip(new_ids, new, strict=True)):
@@ -186,16 +213,30 @@ def _restyle(old: Any, new: str) -> Any:
     return new
 
 
-def merge(old: Any, new: Any, identity: Identity | None = None) -> Any:
+def normalize(value: Any) -> Any:
+    """Valeur écrivable par ruamel : dictionnaires et listes ordinaires. Les
+    documents de l'application portent parfois des n-uplets ou des sous-classes de
+    dict, que ruamel refuse (`RepresenterError`)."""
+    if isinstance(value, (CommentedMap, CommentedSeq)):
+        return value
+    if isinstance(value, Mapping):
+        return {k: normalize(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [normalize(v) for v in value]
+    return value
+
+
+def merge(old: Any, new: Any, identity: Identity | None = None, keep_order: bool = False) -> Any:
     """`new` appliqué sur `old` en gardant ce qui ne change pas (nœuds, styles)."""
+    new = normalize(new)
     if _same(old, new):
         return old
     if isinstance(old, dict) and isinstance(new, dict):
         insert = _insert_ruamel if isinstance(old, CommentedMap) else _insert_plain
-        _merge_map(old, new, insert, identity)
+        _merge_map(old, new, insert, identity, keep_order)
         return old
     if isinstance(old, list) and isinstance(new, list):
-        merged = _merge_list(old, new, identity)
+        merged = _merge_list(old, new, identity, keep_order)
         if isinstance(old, CommentedSeq):
             # Remplacement élément par élément : les commentaires rattachés aux
             # positions restent tant que la liste ne se réordonne pas.
@@ -231,7 +272,11 @@ def _finish(text: str, like: str) -> str:
 
 
 def update_yaml(
-    old_text: str, new: Any, fresh: Callable[[Any], str], identity: Identity | None = None
+    old_text: str,
+    new: Any,
+    fresh: Callable[[Any], str],
+    identity: Identity | None = None,
+    keep_order: bool = False,
 ) -> str:
     """Texte YAML de `new`, écrit sur `old_text` (voir l'en-tête du module)."""
     if (
@@ -251,12 +296,23 @@ def update_yaml(
         return fresh(new)
     if _same(data, new):
         return old_text
-    data = merge(data, new, identity)
+    data = merge(data, _styled(yaml, new, fresh), identity, keep_order)
     sequence = indent or 2
     yaml.indent(mapping=_mapping_indent(old_text, sequence), sequence=sequence, offset=offset or 0)
     out = io.StringIO()
     yaml.dump(data, out)
     return _finish(out.getvalue(), old_text)
+
+
+def _styled(yaml: YAML, new: Any, fresh: Callable[[Any], str]) -> Any:
+    """`new` relu depuis son rendu neuf : une partie ajoutée ou modifiée prend le
+    style que l'application lui donne d'ordinaire (une liste de points sur une
+    ligne dans un graphique…) ; ce qui ne change pas garde celui du fichier."""
+    try:
+        styled = yaml.load(fresh(new))
+    except YAMLError:
+        return new
+    return styled if _same(styled, new) else new
 
 
 def _yaml() -> YAML:
@@ -291,7 +347,11 @@ def _json_indent(text: str) -> int | None:
 
 
 def update_json(
-    old_text: str, new: Any, fresh: Callable[[Any], str], identity: Identity | None = None
+    old_text: str,
+    new: Any,
+    fresh: Callable[[Any], str],
+    identity: Identity | None = None,
+    keep_order: bool = False,
 ) -> str:
     """Texte JSON de `new`, écrit sur `old_text` : ordre des clés et indentation
     d'origine."""
@@ -301,9 +361,9 @@ def update_json(
         return fresh(new)
     if _same(data, new):
         return old_text
-    data = merge(data, new, identity)
-    text = json.dumps(data, ensure_ascii="\\u" in old_text and not _has_non_ascii(old_text),
-                      indent=_json_indent(old_text))  # fmt: skip
+    data = merge(data, new, identity, keep_order)
+    ascii_only = "\\u" in old_text and not _has_non_ascii(old_text)
+    text = json.dumps(data, ensure_ascii=ascii_only, indent=_json_indent(old_text))
     return _finish(text + "\n", old_text)
 
 
@@ -314,30 +374,53 @@ def _has_non_ascii(text: str) -> bool:
 # --- Point d'écriture unique ----------------------------------------------------------
 
 
-def render(path: str, old_text: str | None, new: Any, fresh: Callable[[Any], str],
-           identity: Identity | None = None) -> str:  # fmt: skip
+def render(
+    path: str,
+    old_text: str | None,
+    new: Any,
+    fresh: Callable[[Any], str],
+    identity: Identity | None = None,
+    keep_order: bool = False,
+) -> str:
     """Texte à écrire pour `path` : aller-retour sur `old_text` s'il existe, sinon
     rendu neuf (déjà stable et déterministe)."""
     if old_text is None or not old_text.strip():
         return fresh(new)
     if path.endswith(".json"):
-        return update_json(old_text, new, fresh, identity)
+        return update_json(old_text, new, fresh, identity, keep_order)
     if path.endswith((".yaml", ".yml")):
-        return update_yaml(old_text, new, fresh, identity)
+        return update_yaml(old_text, new, fresh, identity, keep_order)
     return fresh(new)
 
 
-def write_document(target: Path, new: Any, fresh: Callable[[Any], str],
-                   identity: Identity | None = None) -> None:  # fmt: skip
+def write_document(
+    target: Path,
+    new: Any,
+    fresh: Callable[[Any], str],
+    identity: Identity | None = None,
+    keep_order: bool = False,
+) -> None:
     """Écrit `new` dans `target` sans réécrire ce qui n'a pas changé."""
     try:
         old_text: str | None = target.read_text(encoding="utf-8")
     except (FileNotFoundError, UnicodeDecodeError):
         old_text = None
-    text = render(target.name, old_text, new, fresh, identity)
+    text = render(target.name, old_text, new, fresh, identity, keep_order)
     if text == old_text:
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     # newline="" : le texte porte déjà ses fins de ligne (CRLF conservé).
     with target.open("w", encoding="utf-8", newline="") as handle:
         handle.write(text)
+
+
+def dump_yaml(value: Any) -> str:
+    """Rendu neuf habituel de l'application pour un YAML ordinaire : clés dans
+    l'ordre du document, blocs, Unicode conservé."""
+    return yaml_lib.safe_dump(value, sort_keys=False, allow_unicode=True, default_flow_style=False)
+
+
+def write_yaml(target: Path, value: Any, identity: Identity | None = None) -> None:
+    """`write_document` avec le rendu YAML ordinaire (`dump_yaml`) pour un nouveau
+    fichier."""
+    write_document(target, value, dump_yaml, identity)
