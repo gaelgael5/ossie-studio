@@ -4933,6 +4933,12 @@ urban-bpmn {
 .merge-base .code-merge {
   margin-top: 0;
 }
+.code-merge-1 .CodeMirror-merge-pane {
+  /* Un seul panneau (fichier créé, base) : CodeMirror le cale à droite sans
+     largeur ; il prend toute la place. */
+  width: 100%;
+  position: static;
+}
 .code-merge .CodeMirror {
   font-family: var(--mono);
   font-size: 0.8rem;
