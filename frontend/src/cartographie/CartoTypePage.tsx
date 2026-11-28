@@ -13,7 +13,7 @@ import { useWorkspace } from '../workspace'
 import SchemaEditor from '../referentiels/SchemaEditor'
 import { fromVisual, modelText, parseModel } from '../referentiels/modelRules'
 import type { RefModel } from '../referentiels/modelRules'
-import { UnsavedProvider, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
+import { UnsavedProvider, useSaveShortcut, useSwitchGuard, useUnsaved } from '../referentiels/unsaved'
 import { ImportsTab } from '../imports/ImportsTab'
 import { ArchimateIcon } from './ArchimateIcon'
 import { TypeObjects } from './TypeObjects'
@@ -166,10 +166,24 @@ function TypeEditor({
     },
   })
   const saveable = parsed.ok && guard === null
-  useUnsaved(EDITOR_ID, { label: detail.title, dirty: !readOnly && dirty, saveable }, () =>
-    parsed.ok ? save.mutateAsync(parsed.model) : Promise.reject(new Error('unreadable')),
+  useUnsaved(
+    EDITOR_ID,
+    { label: detail.title, dirty: !readOnly && dirty, saveable },
+    () => (parsed.ok ? save.mutateAsync(parsed.model) : Promise.reject(new Error('unreadable'))),
+    () => setText(detail.yaml),
   )
   useSaveShortcut(() => EDITOR_ID)
+  // Changer d'onglet (bug 9cf80cdb) : Résumé, Propriétés et Relations partagent le
+  // texte en mémoire, rien à demander entre eux. Imports lit le type enregistré :
+  // y aller avec un type modifié le demande. En sortir démonte l'import ouvert :
+  // un template, des réglages ou des correspondances en attente le demandent aussi.
+  const { guard: guardSwitch, dialog: switchDialog } = useSwitchGuard()
+  const openTab = (key: Tab) => {
+    if (key === tab) return
+    if (key === 'imports') guardSwitch([EDITOR_ID], () => setTab(key))
+    else if (tab === 'imports') guardSwitch(['import:', 'import-mapping:'], () => setTab(key))
+    else setTab(key)
+  }
   const onVisual = (schema: Record<string, unknown>) => {
     if (!parsed.ok) return
     // L'éditeur visuel ne connaît que les propriétés : le libellé et le type
@@ -326,12 +340,13 @@ function TypeEditor({
             role="tab"
             aria-selected={tab === key}
             className={`tab${tab === key ? ' active' : ''}`}
-            onClick={() => setTab(key)}
+            onClick={() => openTab(key)}
           >
             {t(`cartoTypeTab_${key}`)}
           </button>
         ))}
       </div>
+      {switchDialog}
       {/* Le bandeau ArchiMate vit dans l'onglet « Résumé », ouvert en premier
           (ticket e2b9d7de). */}
       {tab === 'summary' ? (
@@ -352,24 +367,6 @@ function TypeEditor({
         ) : (
           <p className="empty-note text-danger">{t('cartoRelationsUnreadable')}</p>
         )
-      ) : null}
-      {tab === 'imports' && !readOnly && dirty ? (
-        // Les imports lisent le type enregistré sur le serveur : une propriété
-        // renommée dans l'éditeur n'y apparaît qu'une fois la définition enregistrée.
-        // On le dit au lieu de laisser croire que le renommage est perdu (bug f1a6758d).
-        <div className="notice row carto-imports-unsaved" role="note">
-          <span>{t('cartoImportsUnsaved')}</span>
-          <BusyButton
-            type="button"
-            className="btn btn-primary btn-sm"
-            busy={save.isPending}
-            busyText={t('refSaveBusy')}
-            disabled={!saveable}
-            onClick={() => parsed.ok && save.mutate(parsed.model)}
-          >
-            {t('cartoImportsUnsavedSave')}
-          </BusyButton>
-        </div>
       ) : null}
       {tab === 'imports' ? (
         // Une ligne = un objet du type ; fusion seulement (ticket 49952be0). Sans le

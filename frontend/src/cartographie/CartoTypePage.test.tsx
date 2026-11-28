@@ -320,20 +320,57 @@ describe('Cartographie — personnaliser un type (ticket 5c39d4df)', () => {
   })
 })
 
-describe('Cartographie — imports d’un type dont la définition n’est pas enregistrée (bug f1a6758d)', () => {
-  it('avertit sur l’onglet Imports et permet d’enregistrer la définition', async () => {
-    const calls = setup()
-    await screen.findByRole('heading', { name: 'Processus de vente' })
-    const user = userEvent.setup()
-    await user.click(screen.getByRole('tab', { name: 'Imports' }))
-    expect(screen.queryByText(/modifications non enregistrées/)).not.toBeInTheDocument()
+describe('Cartographie — aller sur Imports avec une définition non enregistrée (bugs f1a6758d, 9cf80cdb)', () => {
+  const modify = async () => {
     await openProperties()
     visualChange.current = (m) => ({ ...m, properties: { canal: CANAL } })
-    await user.click(screen.getByRole('button', { name: 'visuel' }))
+    await userEvent.setup().click(screen.getByRole('button', { name: 'visuel' }))
+  }
+
+  it('sans modification : Imports s’ouvre sans fenêtre', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Imports' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Imports' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('Rester : la fenêtre se ferme, l’onglet et la modification restent', async () => {
+    const calls = setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    await modify()
+    const user = userEvent.setup()
     await user.click(screen.getByRole('tab', { name: 'Imports' }))
-    expect(screen.getByText(/modifications non enregistrées/)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Enregistrer la définition' }))
+    expect(screen.getByRole('dialog', { name: 'Modifications non enregistrées' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Rester' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Propriétés' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeEnabled()
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false)
+  })
+
+  it('Enregistrer et continuer : la définition est enregistrée, puis Imports s’ouvre', async () => {
+    const calls = setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    await modify()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: 'Imports' }))
+    await user.click(screen.getByRole('button', { name: 'Enregistrer et continuer' }))
     await waitFor(() => expect(lastPut(calls)).toEqual({ ...documentOf(), properties: { canal: CANAL } }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Imports' })).toHaveAttribute('aria-selected', 'true'))
+  })
+
+  it('Continuer sans enregistrer : la modification est abandonnée, Imports s’ouvre', async () => {
+    const calls = setup()
+    await screen.findByRole('heading', { name: 'Processus de vente' })
+    await modify()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: 'Imports' }))
+    await user.click(screen.getByRole('button', { name: 'Continuer sans enregistrer' }))
+    expect(screen.getByRole('tab', { name: 'Imports' })).toHaveAttribute('aria-selected', 'true')
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false)
+    await user.click(screen.getByRole('tab', { name: 'Propriétés' }))
+    expect(screen.getByRole('button', { name: 'Enregistrer' })).toBeDisabled()
   })
 })
 

@@ -12,7 +12,7 @@ import { NoBranchNote } from '../components/NoBranchNote'
 import { useSession } from '../hooks'
 import { useWorkspace } from '../workspace'
 import { asciiLower } from '../slug'
-import { UnsavedProvider, useDirty, useSaveShortcut, useUnsaved } from '../referentiels/unsaved'
+import { UnsavedProvider, useDirty, useSaveShortcut, useSwitchGuard, useUnsaved } from '../referentiels/unsaved'
 import SchemaEditor from '../referentiels/SchemaEditor'
 import { ValuesTab } from '../referentiels/ValuesTab'
 import { ImportsTab } from '../imports/ImportsTab'
@@ -246,6 +246,9 @@ function ReferentielView({
     imports: useDirty('import:').length > 0,
     history: false,
   }
+  // Imports lit le modèle enregistré : y aller avec un modèle modifié le demande
+  // (bug 9cf80cdb). Les autres passages ne dépendent pas du non-enregistré.
+  const { guard: guardSwitch, dialog: switchDialog } = useSwitchGuard()
   const [valueErrors, setValueErrors] = useState(0)
   const detail = useQuery({
     queryKey: ['referentiel', spaceId, branchId, name],
@@ -293,8 +296,12 @@ function ReferentielView({
               aria-selected={tab === key}
               className={`tab${tab === key ? ' active' : ''}`}
               onClick={() => {
-                setTab(key)
-                setOpened((prev) => new Set(prev).add(key))
+                const go = () => {
+                  setTab(key)
+                  setOpened((prev) => new Set(prev).add(key))
+                }
+                if (key === 'imports' && tab !== 'imports') guardSwitch(['model'], go)
+                else go()
               }}
             >
               {t(`refTab_${key}`)}
@@ -307,6 +314,7 @@ function ReferentielView({
           ))}
         </div>
       ) : null}
+      {switchDialog}
       <ErrorList messages={detail.error ? errorMessages(t, detail.error) : []} />
       {detail.isLoading ? <p className="muted">{t('loading')}</p> : null}
       {data && !settings ? (
@@ -541,6 +549,10 @@ function ModelTab({
     'model',
     { label: t('refTab_model'), dirty: !readOnly && dirty, saveable: parsed.ok && !violation },
     () => (parsed.ok ? save.mutateAsync(parsed.model) : Promise.reject(new Error('unreadable'))),
+    () => {
+      setText(detail.model_yaml)
+      setViolation(null)
+    },
   )
   return (
     <div className="stack">

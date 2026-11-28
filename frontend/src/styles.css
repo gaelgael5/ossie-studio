@@ -3730,12 +3730,6 @@ td.cell-error {
 .carto-base {
   margin-top: 16px;
 }
-/* Onglet Imports d'un type dont la définition n'est pas enregistrée (bug f1a6758d). */
-.carto-imports-unsaved {
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-}
 /* Éditeur visuel (jsonjoy-builder) aux couleurs d’Ossie (ticket 1a03b29d) :
    la couleur principale (« Ajouter un champ ») et les pastilles du choix du type,
    bleues, violettes, vertes… d'origine. `.model-editor` devant : la feuille de la

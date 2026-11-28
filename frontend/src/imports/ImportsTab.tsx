@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useUnsaved } from '../referentiels/unsaved'
+import { useSwitchGuard, useUnsaved } from '../referentiels/unsaved'
 import { useTranslation } from 'react-i18next'
 import type { ImportsApi, ImportMode, ImportPreview, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
 import { errorMessages } from '../errors'
@@ -122,8 +122,11 @@ function useMapping(imports: ImportsApi, slug: string, label: string, preview: I
       setPending({})
     },
   })
-  useUnsaved(`import-mapping:${slug}`, { label: `${t('refImportColumns')} · ${label}`, dirty, saveable: true }, () =>
-    save.mutateAsync(),
+  useUnsaved(
+    `import-mapping:${slug}`,
+    { label: `${t('refImportColumns')} · ${label}`, dirty, saveable: true },
+    () => save.mutateAsync(),
+    () => setPending({}),
   )
   return { pending, setPending, dirty, save }
 }
@@ -646,6 +649,11 @@ function ImportView({
       }
       if (templateDirty) await saveTemplate.mutateAsync()
     },
+    () => {
+      if (!data) return
+      setReading({ separator: data.separator, encoding: data.encoding, header: data.header, sheet: data.sheet ?? '' })
+      setTemplate(data.template)
+    },
   )
   if (!data || !effective) {
     return detail.isLoading ? <p className="muted">{t('loading')}</p> : <ErrorList messages={detail.error ? errorMessages(t, detail.error) : []} />
@@ -838,12 +846,17 @@ export function ImportsTab({
   })
   const items = list.data?.imports ?? []
   const current = selected ?? items[0]?.slug ?? null
+  // Ouvrir un autre import (ou en créer un) remonte la vue : un template, des
+  // réglages ou des correspondances en attente sur l'import ouvert le demandent
+  // (bug 9cf80cdb ; avant, ils étaient perdus sans un mot).
+  const { guard, dialog } = useSwitchGuard()
+  const leaving = current ? [`import:${current}`, `import-mapping:${current}`] : []
   return (
     <div className="ref-imports-layout">
       <aside className="panel stack" aria-label={t('refImports')}>
         <ErrorList messages={list.error ? errorMessages(t, list.error) : []} />
         {!readOnly ? (
-          <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}>
+          <button type="button" className="btn btn-primary" onClick={() => guard(leaving, () => setAdding(true))}>
             {t('refValuesAdd')}
           </button>
         ) : null}
@@ -851,7 +864,11 @@ export function ImportsTab({
         <ul className="plain-list">
           {items.map((imp) => (
             <li key={imp.slug} className={imp.slug === current ? 'ref-item active' : 'ref-item'}>
-              <button type="button" className="link-button link-strong" onClick={() => setSelected(imp.slug)}>
+              <button
+                type="button"
+                className="link-button link-strong"
+                onClick={() => imp.slug !== current && guard(leaving, () => setSelected(imp.slug))}
+              >
                 {imp.label}
               </button>
               <div className="muted small">
@@ -863,6 +880,7 @@ export function ImportsTab({
         </ul>
       </aside>
       <section className="stack">
+        {dialog}
         {adding ? (
           <AddImportDialog
             imports={imports}
