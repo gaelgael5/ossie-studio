@@ -39,12 +39,12 @@ from ossie_studio.cartographie.space import (
     save_type,
 )
 from ossie_studio.drafts.store import git_blob_sha
-from ossie_studio.governance import actions, classification_rules, tag_rules
+from ossie_studio.governance import actions, classification_rules, relation_profiles, tag_rules
 from ossie_studio.governance import repo as governance_repo
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
 from ossie_studio.mcp_surface.kind_base import Document, KindError, Location
-from ossie_studio.parsers.conventions import load_schema
+from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.problems import Problem
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
@@ -77,6 +77,14 @@ def _yaml(data: bytes) -> Any:
 
 def _text(data: bytes) -> str:
     return data.decode("utf-8")
+
+
+def _readable(data: bytes) -> Any:
+    """YAML ou JSON lu ; le texte brut si le fichier est illisible."""
+    try:
+        return load_schema(data)
+    except SchemaReadError:
+        return data.decode("utf-8", errors="replace")
 
 
 def _dump(content: Mapping[str, Any]) -> str:
@@ -650,7 +658,7 @@ class TriRulesStore:
             raise KindError(
                 "write_identity_invalid",
                 "source",
-                f"La source « {source} » n'existe pas (list_sources).",
+                f"La source « {source} » n'existe pas (list_documents, genre « source »).",
                 received=source,
             )
         set_tri_rules_fn(source, cleaned)(root)
@@ -668,16 +676,18 @@ class TriRulesStore:
 # --- Genres en lecture seule (ticket 56f3784a) ----------------------------------------------
 
 
-class ReadOnlySchemaStore:
-    """Un schéma raw ou d'asset : lisible, jamais écrit directement. Il est produit par
-    une action (la collecte, la curation), qui seule sait le tenir à jour."""
+class ReadOnlyStore:
+    """Un document lisible, jamais écrit directement (schéma raw ou d'asset, manifeste
+    d'une source…). Il est produit par une action (la collecte, la curation, la
+    déclaration d'une source), qui seule sait le tenir à jour. Un fichier illisible
+    (YAML cassé) est rendu en texte : l'agent voit ce qui ne va pas."""
 
     def __init__(self, label: str, actions: tuple[str, ...]) -> None:
         self.label = label
         self.actions = actions
 
     def read(self, root: Path, location: Location) -> Document | None:
-        return _file_document(root, location.path, load_schema)
+        return _file_document(root, location.path, _readable)
 
     def _refused(self) -> KindError:
         return read_only(self.label, self.actions)
@@ -698,6 +708,84 @@ def read_only(label: str, actions: tuple[str, ...]) -> KindError:
         f"{' / '.join(actions)}. Utiliser cette action à la place.",
         actions=list(actions),
     )
+
+
+# --- Profils de relations (epic « lectures communes », ticket 970c90ae) --------------------
+
+_PROFILE_FIELDS = {
+    "relation_profile_id_invalid": "$.id",
+    "relation_profile_id_reserved": "$.id",
+    "relation_profile_rules_missing": "$.rules",
+}
+_PROFILE_RULE_FIELDS = {
+    "relation_rule_pattern_invalid": ".column",
+    "relation_rule_template_invalid": ".table",
+}
+
+
+def _profile_refused(profile_id: str, data: Mapping[str, Any], errors: list[str]) -> KindError:
+    """Les refus du service des profils (`parse_profile`, celui de l'écran), au champ en
+    cause : pour une règle, la première refusée, retrouvée par le même service."""
+    path = _PROFILE_FIELDS.get(errors[0], "$")
+    rules = data.get("rules")
+    if errors[0].startswith("relation_rule_") and isinstance(rules, list):
+        for index, rule in enumerate(rules):
+            _found, own = relation_profiles.parse_profile(
+                profile_id, {"id": profile_id, "rules": [rule]}
+            )
+            if own:
+                path = f"$.rules[{index}]{_PROFILE_RULE_FIELDS.get(own[0], '')}"
+                break
+    return KindError(
+        "write_content_invalid",
+        path,
+        f"Profil de relations refusé par le service : {', '.join(errors)}.",
+        problems=errors,
+    )
+
+
+class RelationProfileStore:
+    """Un profil de relations virtuelles (`governance/relation-profiles/<id>.yaml`),
+    validé par le service de l'écran. Le profil **fourni** par Ossie (« Data Vault
+    2.0 ») existe sans fichier ; l'écrire sous son identifiant le personnalise, et
+    supprimer la personnalisation le rétablit — comme à l'écran (ticket 1bce7eb9)."""
+
+    label = "profil de relations"
+
+    def _builtin(self, profile_id: str) -> dict[str, Any] | None:
+        found = next((p for p in relation_profiles.builtin_profiles() if p.id == profile_id), None)
+        return relation_profiles.profile_document(found) if found else None
+
+    def read(self, root: Path, location: Location) -> Document | None:
+        own = _file_document(root, location.path, _readable)
+        if own is not None:
+            return own
+        builtin = self._builtin(location.identity["id"])
+        if builtin is None:
+            return None
+        return Document(builtin, value_version(builtin), location.path or "")
+
+    def write(self, root: Path, location: Location, content: Any, *, create: bool) -> list[str]:
+        profile_id = location.identity["id"]
+        data = _mapping(content, self.label)
+        _same("id", data.get("id"), profile_id, self.label)
+        document = {**data, "id": profile_id}
+        profile, errors = relation_profiles.parse_profile(profile_id, document)
+        if profile is None:
+            raise _profile_refused(profile_id, document, errors)
+        relation_profiles.write_profile(root, profile)
+        return []
+
+    def delete(self, root: Path, location: Location) -> None:
+        profile_id = location.identity["id"]
+        if not relation_profiles.delete_profile(root, profile_id):
+            raise KindError(
+                "write_delete_unsupported",
+                "delete",
+                f"Le profil fourni « {profile_id} » ne se supprime pas : seule sa version "
+                "personnalisée dans l'espace se supprime (pour rétablir l'original), comme à "
+                "l'écran.",
+            )
 
 
 # --- Gouvernance --------------------------------------------------------------------------

@@ -44,8 +44,7 @@ from ossie_studio.sources.curation import (
     read_source_trees,
     read_tri_rules,
 )
-from ossie_studio.sources.paths import ASSETS_DIR, is_valid_source_slug, source_rel_dir
-from ossie_studio.sources.service import SourceEntry, read_sources_tree
+from ossie_studio.sources.paths import ASSETS_DIR
 from ossie_studio.spaces.branch_service import db_list_branches
 from ossie_studio.spaces.service import db_list_spaces, list_visible_spaces
 from ossie_studio.spaces.workdir import WorkdirError
@@ -158,30 +157,6 @@ async def get_publish_readiness(ctx: PrimitiveContext, args: BranchArgs) -> dict
 
 
 # --- Sources et schémas bruts ---------------------------------------------------------
-
-
-def _source_payload(entry: SourceEntry, bv: BranchView) -> dict[str, Any]:
-    changes = (
-        bv.unpublished_under(source_rel_dir(entry.slug)) if is_valid_source_slug(entry.slug) else 0
-    )
-    base: dict[str, Any] = {"slug": entry.slug, "unpublished_changes": changes}
-    if entry.manifest is None:
-        return {**base, "ok": False, "error": entry.error}
-    manifest = entry.manifest
-    return {
-        **base,
-        "ok": True,
-        "label": manifest.label,
-        "type": manifest.type,
-        "connection": manifest.connection,
-        "parameters": manifest.parameters,
-    }
-
-
-async def list_sources(ctx: PrimitiveContext, args: BranchArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args)
-    entries = await bv.read(read_sources_tree)
-    return {"view": bv.view, "sources": [_source_payload(e, bv) for e in entries]}
 
 
 # --- Assets (curation) ----------------------------------------------------------------

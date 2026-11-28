@@ -40,6 +40,7 @@ from ossie_studio.governance import classification_rules as classification_rule_
 from ossie_studio.governance import tag_rules as tag_rule_service
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
+from ossie_studio.governance.relation_profiles import profile_path as relation_profile_path
 from ossie_studio.governance.repo import (
     InvalidGovernanceId,
     cert_path,
@@ -58,15 +59,19 @@ from ossie_studio.mcp_surface.kind_base import (
     Location,
     Store,
 )
+from ossie_studio.parsers.application import extend_file, key_of
+from ossie_studio.parsers.openapi import is_valid_version_name
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import load_model, model_key
 from ossie_studio.referentiels.repo import model_path, values_path
 from ossie_studio.slugs import is_valid_slug
 from ossie_studio.sources.asset_files import is_extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
+from ossie_studio.sources.contracts import read_contracts_view
 from ossie_studio.sources.curation import is_schema_file
 from ossie_studio.sources.paths import (
     ASSETS_DIR,
+    CONTRATS_DIR,
     MANIFEST_FILENAME,
     is_valid_source_slug,
     source_rel_dir,
@@ -325,6 +330,76 @@ def _certification(root: Path | None, identity: Mapping[str, Any]) -> Location:
     return Location("certification", {"slug": slug}, cert_path(found.id) if found else None)
 
 
+def _source(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """Une source : son manifeste, `sources/<slug>/manifest.yaml`."""
+    source = identity["source"]
+    if not isinstance(source, str) or not is_valid_source_slug(source):
+        raise _bad("source", "source", source, "le slug d'une source (list_documents)")
+    return Location("source", {"source": source}, f"{source_rel_dir(source)}/{MANIFEST_FILENAME}")
+
+
+def _contract(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """Un contrat OpenAPI déposé : le fichier que l'index `contrats.yaml` de la source
+    range pour cette version (aucun si la version n'y est pas)."""
+    source = identity["source"]
+    if not isinstance(source, str) or not is_valid_source_slug(source):
+        raise _bad("contrat", "source", source, "le slug d'une source (list_documents)")
+    version = identity["version"]
+    if not isinstance(version, str) or not is_valid_version_name(version):
+        raise _bad("contrat", "version", version, "une version déposée (ex. « v1 »)")
+    views = read_contracts_view(root, source) if root else []
+    found = next((v.entry for v in views if v.entry.version == version), None)
+    path = f"{source_rel_dir(source)}/{CONTRATS_DIR}/{found.file}" if found else None
+    return Location("contrat", {"source": source, "version": version}, path)
+
+
+def _raw_extension(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """L'extension d'un objet raw : `<source>/raw/<clé>.extend.yaml`, à côté du schéma
+    que l'identité désigne (même identité que `schema_raw`)."""
+    schema = _schema_file("extension_raw", RAW_DIR)(root, identity)
+    assert schema.path is not None
+    folder, _sep, name = schema.path.rpartition("/")
+    return Location("extension_raw", schema.identity, f"{folder}/{extend_file(key_of(name))}")
+
+
+def _entry_point(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """Un point d'entrée : une entrée du `.extend.yaml` du schéma qui le porte (classe
+    ou module) ; l'identité ne contient aucun chemin."""
+    try:
+        carrier = _schema_file("point_entree", RAW_DIR)(
+            root, {**identity, "name": identity["owner"]}
+        )
+    except KindError as exc:
+        if exc.field != "name":
+            raise
+        raise _bad(
+            "point_entree", "owner", identity["owner"], "le schéma qui le porte (la liste le rend)"
+        ) from None
+    assert carrier.path is not None
+    for name in ("method", "endpoint"):
+        if not isinstance(identity[name], str):
+            raise _bad("point_entree", name, identity[name], "le texte que la liste rend")
+    folder, _sep, schema = carrier.path.rpartition("/")
+    ids = _ids(identity, "source", "owner", "method", "endpoint")
+    return Location(
+        "point_entree",
+        ids,
+        f"{folder}/{extend_file(key_of(schema))}",
+        (ids["method"], ids["endpoint"]),
+    )
+
+
+def _relation_profile(root: Path | None, identity: Mapping[str, Any]) -> Location:
+    """Un profil de relations : `governance/relation-profiles/<id>.yaml` (le chemin du
+    service de l'écran)."""
+    value = identity["id"]
+    try:
+        path = relation_profile_path(str(value))
+    except ValueError:
+        raise _bad("profil_relation", "id", value, "un identifiant sûr (ex. « etoile »)") from None
+    return Location("profil_relation", _ids(identity, "id"), path)
+
+
 def _schema_file(kind: str, folder: str) -> Locator:
     """Un schéma d'une source : `<source>/<folder>/<nom>` (raw/ ou assets/). Le nom est
     celui que rend la liste (un fichier de schéma, jamais « .. »)."""
@@ -332,7 +407,9 @@ def _schema_file(kind: str, folder: str) -> Locator:
     def locate(root: Path | None, identity: Mapping[str, Any]) -> Location:
         source = identity["source"]
         if not isinstance(source, str) or not is_valid_source_slug(source):
-            raise _bad(kind, "source", source, "le slug d'une source (list_sources)")
+            raise _bad(
+                kind, "source", source, "le slug d'une source (list_documents, genre « source »)"
+            )
         name = identity["name"]
         pure = PurePosixPath(str(name))
         valid = (
@@ -351,6 +428,7 @@ def _schema_file(kind: str, folder: str) -> Locator:
 
 
 _SLUG = "lowercase letters, digits and dashes"
+_SOURCE_SLUG = "Slug of the source (list_documents, kind 'source')."
 _KEY = "uppercase letters, digits and dashes"
 
 KINDS: tuple[WriteKind, ...] = (
@@ -556,7 +634,12 @@ def _rule(kind: str, service: Any, builtin_ids: Callable[[], set[str]]) -> Locat
 def _tri_rules(root: Path | None, identity: Mapping[str, Any]) -> Location:
     source = identity["source"]
     if not isinstance(source, str) or not is_valid_source_slug(source):
-        raise _bad("regles_tri", "source", source, "le slug d'une source (list_sources)")
+        raise _bad(
+            "regles_tri",
+            "source",
+            source,
+            "le slug d'une source (list_documents, genre « source »)",
+        )
     return Location(
         "regles_tri", {"source": source}, f"{source_rel_dir(source)}/{MANIFEST_FILENAME}"
     )
@@ -618,7 +701,7 @@ KINDS = (
             "whole list, in the source's manifest. Nothing else of the manifest is touched."
         ),
         label="règles de tri",
-        identity=(IdentityField("source", "Slug of the source (list_sources).", _SLUG),),
+        identity=(IdentityField("source", _SOURCE_SLUG, _SLUG),),
         standard="regles-tri",
         syntax="jsonpath",
         capability="curation:rules",
@@ -626,6 +709,29 @@ KINDS = (
         locator=_tri_rules,
         store=stores.TriRulesStore(),
         lister=lists.tri_rules,
+    ),
+    WriteKind(
+        name="profil_relation",
+        description=(
+            "A relation profile: naming conventions that give the virtual relations of SQL "
+            "sources without declared foreign keys (e.g. ACCOUNT_HK points to "
+            "ACCOUNT_HUB.ACCOUNT_HK). The profile provided by Ossie ('Data Vault 2.0') is "
+            "listed too: writing its id customizes it, deleting the customization restores it."
+        ),
+        label="profil de relations",
+        identity=(
+            IdentityField(
+                "id", "Id of the profile.", "lowercase letters, digits, '_' and '-'; e.g. 'etoile'"
+            ),
+        ),
+        standard="profil-relation",
+        syntax="jsonpath",
+        capability="governance:write",
+        read_capability="governance:read",
+        locator=_relation_profile,
+        store=stores.RelationProfileStore(),
+        lister=lists.relation_profile_items,
+        identity_paths=("$.id",),
     ),
 )
 
@@ -708,13 +814,57 @@ KINDS = (
     ),
 )
 
-# Les schémas d'une source, en lecture seule (ticket 56f3784a).
-_SOURCE_FIELD = IdentityField("source", "Slug of the source (list_sources).", _SLUG)
+# Les sources et leurs schémas, en lecture seule (tickets 56f3784a et 88fd2cc5).
+_SOURCE_FIELD = IdentityField("source", _SOURCE_SLUG, _SLUG)
 _SCHEMA_NAME = IdentityField(
     "name", "Name of the schema file, as list_documents gives it.", "the listed file name"
 )
+_SOURCE_ACTIONS = ("declare_source", "update_source", "delete_source")
+_CONTRACT_ACTIONS = ("deposit_contract", "remove_contract")
 KINDS = (
     *KINDS,
+    WriteKind(
+        name="source",
+        description=(
+            "A data source declared in the space: its manifest (label, type, connection name, "
+            "parameters, relation profiles, sorting rules). Read-only: produced by "
+            "declare_source, update_source and delete_source; the sorting rules are the "
+            "kind 'regles_tri'."
+        ),
+        label="source",
+        identity=(_SOURCE_FIELD,),
+        standard="source",
+        syntax="jsonpath",
+        capability="sources:declare",
+        read_capability="sources:read",
+        locator=_source,
+        store=stores.ReadOnlyStore("source", _SOURCE_ACTIONS),
+        lister=lists.sources,
+        list_filters=(lists.SOURCE_TYPE,),
+        writable=False,
+        produced_by=_SOURCE_ACTIONS,
+    ),
+    WriteKind(
+        name="contrat",
+        description=(
+            "An OpenAPI contract deposited on an OpenAPI source, one per version: its content "
+            "as deposited. Read-only: produced by deposit_contract and remove_contract."
+        ),
+        label="contrat",
+        identity=(
+            _SOURCE_FIELD,
+            IdentityField("version", "Version name the contract was deposited under.", "e.g. 'v1'"),
+        ),
+        standard="contrat",
+        syntax="jsonpath",
+        capability="sources:declare",
+        read_capability="sources:read",
+        locator=_contract,
+        store=stores.ReadOnlyStore("contrat", _CONTRACT_ACTIONS),
+        lister=lists.contracts,
+        writable=False,
+        produced_by=_CONTRACT_ACTIONS,
+    ),
     WriteKind(
         name="schema_raw",
         description=(
@@ -728,11 +878,71 @@ KINDS = (
         capability="sources:collect",
         read_capability="sources:read",
         locator=_schema_file("schema_raw", RAW_DIR),
-        store=stores.ReadOnlySchemaStore("schéma raw", ("collect_source",)),
+        store=stores.ReadOnlyStore("schéma raw", ("collect_source",)),
         lister=lists.raw_schemas,
+        list_filters=(lists.RAW_KIND, lists.RAW_MODULE),
         writable=False,
         produced_by=("collect_source",),
         is_schema=True,
+    ),
+    WriteKind(
+        name="extension_raw",
+        description=(
+            "The extension of a raw object, written by the parser next to its schema: the "
+            "methods of a class, the free functions of a module, their entry points (HTTP "
+            "route, background task, message consumer) and their contract status. Same "
+            "identity as the raw schema. Read-only: produced by collect_source."
+        ),
+        label="extension raw",
+        identity=(_SOURCE_FIELD, _SCHEMA_NAME),
+        standard="extension-raw",
+        syntax="jsonpath",
+        capability="sources:collect",
+        read_capability="sources:read",
+        locator=_raw_extension,
+        store=stores.ReadOnlyStore("extension raw", ("collect_source",)),
+        lister=lists.raw_extensions,
+        list_filters=(lists.RAW_MODULE,),
+        writable=False,
+        produced_by=("collect_source",),
+    ),
+    WriteKind(
+        name="point_entree",
+        description=(
+            "An entry point of the code: an HTTP route (verb and route), a background task or "
+            "a message consumer, with the method and the class or module that carries it, its "
+            "module and its status against the OpenAPI contract of the source (linked, absent, "
+            "not_compared). Read-only: produced by collect_source."
+        ),
+        label="point d'entrée",
+        identity=(
+            _SOURCE_FIELD,
+            IdentityField(
+                "owner",
+                "Schema of the class or module that carries it (its schema_raw name).",
+                "the listed value",
+            ),
+            IdentityField(
+                "method",
+                "Method or function name; '*' when the class itself is the entry point.",
+                "the listed value",
+            ),
+            IdentityField(
+                "endpoint",
+                "'VERB /route' for an HTTP entry point; 'task' or 'message' otherwise.",
+                "the listed value",
+            ),
+        ),
+        standard="point-entree",
+        syntax="jsonpath",
+        capability="sources:collect",
+        read_capability="sources:read",
+        locator=_entry_point,
+        store=lists.EntryPointStore("point d'entrée", ("collect_source",)),
+        lister=lists.entry_points,
+        list_filters=(lists.ENTRY_MODULE, lists.ENTRY_CONTRACT, lists.ENTRY_KIND),
+        writable=False,
+        produced_by=("collect_source",),
     ),
     WriteKind(
         name="schema_asset",
@@ -747,7 +957,7 @@ KINDS = (
         capability="curation:write",
         read_capability="curation:read",
         locator=_schema_file("schema_asset", ASSETS_DIR),
-        store=stores.ReadOnlySchemaStore(
+        store=stores.ReadOnlyStore(
             "schéma d'asset", ("retain_asset", "enrich_asset", "refresh_assets")
         ),
         lister=lists.asset_schemas,

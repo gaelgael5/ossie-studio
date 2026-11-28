@@ -4,7 +4,7 @@ The sorting rules of a source set noise aside in the curation (generated objects
 tables...). They live in the `triage` section of the source's manifest; Ossie rewrites that
 section only, never the rest of the manifest.
 
-Identity: `source` (slug of the source, `list_sources`), frozen.
+Identity: `source` (slug of the source, `list_documents(kind: source)`), frozen.
 
 Content — the **whole list** of rules (an empty list: none). Each rule:
 

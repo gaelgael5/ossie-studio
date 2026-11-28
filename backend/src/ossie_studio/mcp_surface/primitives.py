@@ -5,7 +5,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from ossie_studio.mcp_surface import application as app_map
 from ossie_studio.mcp_surface import (
     document_reads,
     document_writes,
@@ -17,7 +16,7 @@ from ossie_studio.mcp_surface import (
     writes,
 )
 from ossie_studio.mcp_surface import preparation as prep
-from ossie_studio.mcp_surface.branch import BranchArgs, BranchParam, ObjectArgs, SourceArgs
+from ossie_studio.mcp_surface.branch import BranchArgs, BranchParam, SourceArgs
 from ossie_studio.mcp_surface.core import (
     Implementation,
     PrimitiveContext,
@@ -41,15 +40,10 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "accept_validation_warning": Implementation(prep.WarningArgs, prep.accept_validation_warning),
     # Lire un schéma, quel que soit son domaine (ticket 06ef8679)
     "read_schema": Implementation(schemas.ReadSchemaArgs, schemas.read_schema),
-    "list_sources": Implementation(BranchArgs, reads.list_sources),
     "get_reference_graph": Implementation(
         references.ReferenceGraphArgs, references.get_reference_graph
     ),
     # Cartographie applicative (ticket 72ce32b3)
-    "list_modules": Implementation(SourceArgs, app_map.list_modules),
-    "get_module": Implementation(app_map.ModuleArgs, app_map.get_module),
-    "get_functions": Implementation(ObjectArgs, app_map.get_functions),
-    "list_entry_points": Implementation(app_map.EntryPointsArgs, app_map.list_entry_points),
     "get_review": Implementation(SourceArgs, reads.get_review),
     # Écriture et lecture communes par genre (epic « Primitives MCP — écriture commune »)
     "write_documents": Implementation(
@@ -84,7 +78,6 @@ IMPLEMENTATIONS: Mapping[str, Implementation] = {
     "delete_source": Implementation(writes.SourceWriteArgs, source_writes.delete_source_primitive),
     "collect_source": Implementation(source_writes.CollectSourceArgs, source_writes.collect_source),
     "get_collect_status": Implementation(writes.SourceWriteArgs, source_writes.get_collect_status),
-    "list_contracts": Implementation(SourceArgs, source_writes.list_contracts),
     "deposit_contract": Implementation(
         source_writes.DepositContractArgs, source_writes.deposit_contract
     ),

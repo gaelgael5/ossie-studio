@@ -210,16 +210,6 @@ CATALOG: tuple[Primitive, ...] = (
     ),
     # --- Sources et schémas bruts
     Primitive(
-        id="list_sources",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "List the data sources declared on a branch (type, connection, parameters)."
-            + _DRAFT_NOTE
-        ),
-    ),
-    Primitive(
         id="get_reference_graph",
         domain="sources",
         access="read",
@@ -232,64 +222,6 @@ CATALOG: tuple[Primitive, ...] = (
             "the objects that reference an object instead of reading every schema. Limits: a "
             "reference left unresolved (external type) has no incoming side; across two "
             "sources only SQL foreign keys are linked. Truncated beyond 40 nodes." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    # --- Cartographie applicative (modules, fonctions, points d'entrée ; ticket 72ce32b3)
-    Primitive(
-        id="list_modules",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "List the modules of a source (one per project file: .csproj, .sqlproj, Gradle or "
-            "Maven module, package.json, pyproject.toml) with their nature (library, web, "
-            "worker, console, test, sql), targets, language, project file, counts (classes, "
-            "entry points, public methods) and dependencies in both directions (depends_on, "
-            "used_by; a project outside the source is external). Empty list if the source has "
-            "no module. Truncated beyond 200." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="get_module",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "One module of a source (path or title from list_modules): the raw objects that "
-            "belong to it (nearest project file up the tree), its free functions (minimal API, "
-            "module-level functions) and its entry points (HTTP verb and route, background "
-            "task, message consumer; method and owner; contract status: linked, absent or "
-            "not_compared). Truncated beyond 200 items per list." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="get_functions",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "Methods of a raw object (a class): name, parameters and types, return type, "
-            "visibility (public, internal, protected; private methods are not collected), "
-            "static, async, and the entry point when the method is one (HTTP verb and route). "
-            "Read from the object's .extend.yaml; its schema stays standard JSON Schema. "
-            "Truncated beyond 200." + _DRAFT_NOTE
-        ),
-        idempotent=True,
-    ),
-    Primitive(
-        id="list_entry_points",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description=(
-            "Entry points of a source or of one module: HTTP endpoints (verb, route), "
-            "background tasks, message consumers, with the method and owner. "
-            "contract_status='absent' answers 'which routes of the code are missing from the "
-            "OpenAPI contract?'; 'linked' returns those matched to a contract operation. "
-            "Truncated beyond 200." + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
@@ -369,13 +301,6 @@ CATALOG: tuple[Primitive, ...] = (
         destructive=True,
     ),
     # --- Sources (lectures, puis écritures dans le brouillon de la personne)
-    Primitive(
-        id="list_contracts",
-        domain="sources",
-        access="read",
-        capability="sources:read",
-        description="List the OpenAPI contract versions deposited on an OpenAPI source.",
-    ),
     Primitive(
         id="get_collect_status",
         domain="sources",

@@ -8,7 +8,7 @@ import { AgentProfilesPage } from './AgentProfilesPage'
 const CATALOG = [
   { id: 'list_spaces', domain: 'spaces', access: 'read', capability: 'spaces:read', person_only: false },
   { id: 'get_my_draft', domain: 'drafts', access: 'read', capability: 'spaces:read', person_only: true },
-  { id: 'list_sources', domain: 'sources', access: 'read', capability: 'sources:read', person_only: false },
+  { id: 'get_reference_graph', domain: 'sources', access: 'read', capability: 'sources:read', person_only: false },
   { id: 'retain_asset', domain: 'curation', access: 'write', capability: 'curation:write', person_only: true },
 ]
 const LECTURE = {
@@ -19,7 +19,7 @@ const LECTURE = {
   primitives: [],
   all_read: true,
   is_builtin: true,
-  effective: ['get_my_draft', 'list_sources', 'list_spaces'],
+  effective: ['get_my_draft', 'get_reference_graph', 'list_spaces'],
   used_by: { keys: ['Clé CI'], connections: [] },
 }
 const REPERAGE = {
@@ -103,7 +103,7 @@ describe('AgentProfilesPage', () => {
     expect(within(form).getByText(/suppose : Sources — Consulter/)).toBeInTheDocument()
     expect(within(form).getAllByText(/agent connecté pour une personne seulement/).length).toBeGreaterThan(0)
     await user.type(within(form).getByLabelText('Nom'), 'Sources seules')
-    await user.click(within(form).getByRole('checkbox', { name: /Lister les sources/ }))
+    await user.click(within(form).getByRole('checkbox', { name: /Voisinage d.un objet raw/ }))
     await user.click(within(form).getByRole('button', { name: 'Créer le profil' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
     const post = calls.find((c) => c.method === 'POST')
@@ -112,7 +112,7 @@ describe('AgentProfilesPage', () => {
       slug: 'sources-seules',
       description: '',
       all_read: false,
-      primitives: ['list_sources'],
+      primitives: ['get_reference_graph'],
     })
   })
 
@@ -145,12 +145,12 @@ describe('AgentProfilesPage', () => {
     expect(row).toHaveClass('selected')
     expect(within(form).getByLabelText('Nom')).toHaveValue('Repérage')
     expect(within(form).getByRole('checkbox', { name: /Lister les espaces/ })).toBeChecked()
-    await user.click(within(form).getByRole('checkbox', { name: /Lister les sources/ }))
+    await user.click(within(form).getByRole('checkbox', { name: /Voisinage d.un objet raw/ }))
     await user.click(within(form).getByRole('button', { name: 'Enregistrer' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true))
     const put = calls.find((c) => c.method === 'PUT')
     expect(put?.path).toBe('/api/agent-profiles/p-reperage')
-    expect(JSON.parse(put?.body ?? '{}').primitives.sort()).toEqual(['list_sources', 'list_spaces'])
+    expect(JSON.parse(put?.body ?? '{}').primitives.sort()).toEqual(['get_reference_graph', 'list_spaces'])
   })
 
   it('suppression confirmée ; en service, le refus nomme les clés et connexions', async () => {

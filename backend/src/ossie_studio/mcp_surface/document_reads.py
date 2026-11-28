@@ -241,6 +241,8 @@ def _listed(kind: WriteKind, bv: BranchView, root: Path, item: Item) -> dict[str
     }
     if any(bv.unpublished(p) for p in (item.path, *item.related)):
         out["unpublished"] = True
+    if item.changes_under is not None:
+        out["unpublished_changes"] = bv.unpublished_under(item.changes_under)
     return {**out, **item.summary}
 
 

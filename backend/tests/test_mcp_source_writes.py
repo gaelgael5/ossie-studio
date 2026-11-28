@@ -113,9 +113,14 @@ async def _refusal(app: FastAPI, token: str, name: str, args: dict[str, Any]) ->
     return data
 
 
+def _contracts(space: ApiSpace) -> dict[str, Any]:
+    return _branch(space, branch="draft", kind="contrat", identity={"source": "boutique"})
+
+
 async def _sources(app: FastAPI, space: ApiSpace, branch: str = "draft") -> dict[str, Any]:
-    listed = await _ok(app, AGENT, "list_sources", _branch(space, branch=branch))
-    return {s["slug"]: s for s in listed["sources"]}
+    args = _branch(space, branch=branch, kind="source")
+    listed = await _ok(app, AGENT, "list_documents", args)
+    return {s["identity"]["source"]: s for s in listed["documents"]}
 
 
 # --- Déclarer, modifier, supprimer ----------------------------------------------------
@@ -213,10 +218,8 @@ async def test_parcours_openapi_jusqu_a_la_collecte(
     )
     assert deposited["contract"]["schema_count"] == 2
     assert any(p.startswith("sources/boutique/contrats/") for p in deposited["changed_paths"])
-    contracts = await _ok(
-        app, AGENT, "list_contracts", _branch(space, branch="draft", source="boutique")
-    )
-    assert [c["version"] for c in contracts["contracts"]] == ["v1"]
+    contracts = await _ok(app, AGENT, "list_documents", _contracts(space))
+    assert [c["identity"]["version"] for c in contracts["documents"]] == ["v1"]
 
     # L'agent ne remplace jamais une version existante.
     taken = await _refusal(
@@ -247,9 +250,7 @@ async def test_parcours_openapi_jusqu_a_la_collecte(
         app, AGENT, "remove_contract", _branch(space, source="boutique", version="v1")
     )
     assert removed["changed_paths"]
-    assert (
-        await _ok(app, AGENT, "list_contracts", _branch(space, branch="draft", source="boutique"))
-    )["contracts"] == []
+    assert (await _ok(app, AGENT, "list_documents", _contracts(space)))["documents"] == []
     gone = await _refusal(
         app, AGENT, "remove_contract", _branch(space, source="boutique", version="v1")
     )
@@ -293,7 +294,7 @@ async def test_jamais_pour_une_cle_et_bornee_par_les_capacites(
 ) -> None:
     key_tools = set(await tool_names(app, KEY))
     assert not (set(WRITES) | {"get_collect_status"}) & key_tools
-    assert "list_contracts" in key_tools  # simple lecture
+    assert "list_documents" in key_tools  # simple lecture
     assert (await _refusal(app, KEY, "declare_source", _branch(space, **GIT_SOURCE)))[
         "error"
     ] == "primitive_forbidden"
@@ -330,7 +331,7 @@ async def test_annotations_et_aucun_secret(
     assert tools["remove_contract"].destructive_hint is True
     assert tools["declare_source"].destructive_hint is False
     assert tools["update_source"].idempotent_hint is True
-    assert tools["list_contracts"].read_only_hint is True
+    assert tools["list_documents"].read_only_hint is True
 
     capsys.readouterr()
     declared = await _ok(app, AGENT, "declare_source", _branch(space, **GIT_SOURCE))

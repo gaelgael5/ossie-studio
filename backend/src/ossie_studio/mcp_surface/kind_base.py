@@ -101,7 +101,9 @@ class ListFilter:
 class Item:
     """Un document dans une liste : son identité, son nom, son fichier et les champs de
     synthèse que rendaient les lectures par domaine. `version` None : celle du
-    fichier ; `related` : d'autres fichiers du document (non publié si l'un l'est)."""
+    fichier ; `related` : d'autres fichiers du document (non publié si l'un l'est) ;
+    `changes_under` : un répertoire dont la liste compte les fichiers non publiés
+    (`unpublished_changes`, comme le rendait `list_sources`)."""
 
     identity: dict[str, Any]
     name: str
@@ -110,6 +112,7 @@ class Item:
     text: str = ""  # cherché par `search`, en plus du nom et de l'identité
     version: str | None = None
     related: tuple[str, ...] = ()
+    changes_under: str | None = None
 
 
 @dataclass(frozen=True)

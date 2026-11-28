@@ -27,9 +27,7 @@ from ossie_studio.errors import ApiError
 from ossie_studio.mcp_surface.branch import (
     BranchArgs,
     BranchView,
-    SourceArgs,
     branch_of,
-    open_branch,
     source_dir,
 )
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
@@ -42,7 +40,6 @@ from ossie_studio.sources.contracts import (
     ContractExistsError,
     ContractNotFoundError,
     deposit_contract_fn,
-    read_contracts_view,
     remove_contract_fn,
 )
 from ossie_studio.sources.jobs import FAILED, CollectJobs
@@ -76,7 +73,8 @@ class DeclareSourceArgs(BranchArgs):
     type: str = Field(description="'git', a database engine, or 'openapi'.")
     connection: str = Field(default="", description="Connection slug (none for 'openapi').")
     parameters: dict[str, Any] = Field(
-        default_factory=dict, description="Type-specific parameters, as in list_sources."
+        default_factory=dict,
+        description="Type-specific parameters, as in the manifest (kind 'source').",
     )
 
 
@@ -312,16 +310,6 @@ async def get_collect_status(ctx: PrimitiveContext, args: SourceWriteArgs) -> di
 
 
 # --- Contrats OpenAPI ----------------------------------------------------------------------------
-
-
-async def list_contracts(ctx: PrimitiveContext, args: SourceArgs) -> dict[str, Any]:
-    bv = await open_branch(ctx, args)
-    views = await bv.read(lambda root: read_contracts_view(root, args.source))
-    return {
-        "view": bv.view,
-        "source": args.source,
-        "contracts": [sources_api._contract_payload(v) for v in views],
-    }
 
 
 async def _require_openapi(ctx: PrimitiveContext, bv: BranchView, source: str) -> None:

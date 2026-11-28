@@ -36,6 +36,9 @@ from ossie_studio.governance import tag_rules as tag_rule_service
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
 from ossie_studio.governance.builtin_tag_rules import builtin_rules
 from ossie_studio.governance.classification_rules import read_classification_rules
+from ossie_studio.governance.relation_profiles import builtin_profiles, read_profile_files
+from ossie_studio.governance.relation_profiles import profile_document as relation_profile_document
+from ossie_studio.governance.relation_profiles import profile_path as relation_profile_path
 from ossie_studio.governance.repo import (
     cert_path,
     read_certs,
@@ -45,12 +48,23 @@ from ossie_studio.governance.repo import (
     tag_path,
 )
 from ossie_studio.governance.tag_rules import read_tag_rules
-from ossie_studio.mcp_surface.kind_base import Item, KindError, ListFilter, ListQuery
+from ossie_studio.mcp_surface.kind_base import (
+    Document,
+    Item,
+    KindError,
+    ListFilter,
+    ListQuery,
+    Location,
+)
 from ossie_studio.mcp_surface.kind_stores import (
     ClassificationRuleStore,
+    ReadOnlyStore,
     TagRuleStore,
     value_version,
 )
+from ossie_studio.parsers.application import MODULE_KIND, extend_file
+from ossie_studio.parsers.application import key_of as raw_key_of
+from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.referentiels import published
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import model_key
@@ -58,8 +72,22 @@ from ossie_studio.referentiels.repo import list_referentiels, model_path, values
 from ossie_studio.referentiels.values import key_of
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
+from ossie_studio.sources.contracts import read_contracts_view
 from ossie_studio.sources.curation import list_curation, read_tri_rules, read_tri_rules_raw
-from ossie_studio.sources.paths import ASSETS_DIR, MANIFEST_FILENAME, source_rel_dir
+from ossie_studio.sources.explorer import collect_source_entries
+from ossie_studio.sources.explorer_application import (
+    application_view,
+    members_by_module,
+    module_detail,
+)
+from ossie_studio.sources.paths import (
+    ASSETS_DIR,
+    CONTRATS_DIR,
+    MANIFEST_FILENAME,
+    SOURCES_DIR,
+    is_valid_source_slug,
+    source_rel_dir,
+)
 from ossie_studio.sources.service import read_sources_tree
 
 # --- Les filtres déclarés -----------------------------------------------------------------
@@ -75,6 +103,29 @@ CIBLE = ListFilter("cible", "Key of an object: the relationships that end on it.
 CONTAINS = ListFilter("contains", "Key of an object or relationship: the models that keep it.")
 DETAIL_OF = ListFilter(
     "detail_of", "Key of a business process of the map: the BPMN processes that detail it."
+)
+SOURCE_TYPE = ListFilter("type", "Type of the source, e.g. 'git', 'snowflake', 'openapi'.")
+RAW_KIND = ListFilter(
+    "kind", "Nature of the raw object (its x-kind), e.g. 'module', 'class', 'table', 'view'."
+)
+RAW_MODULE = ListFilter(
+    "module",
+    "A module of the source (its name or its title, from filters {kind: 'module'}): the raw "
+    "objects that belong to it (nearest project file up the tree, as the Explorer does).",
+)
+ENTRY_MODULE = ListFilter(
+    "module",
+    "A module of the source (its name or its title, from list_documents(kind='schema_raw', "
+    "filters={kind: 'module'})): its entry points.",
+)
+ENTRY_CONTRACT = ListFilter(
+    "contract_status",
+    "'absent' = entry points missing from the OpenAPI contract of the source; 'linked' = "
+    "matched to an operation; 'not_compared' = never compared to a contract.",
+    choices=("linked", "absent", "not_compared"),
+)
+ENTRY_KIND = ListFilter(
+    "kind", "'http' (verb and route), 'task' or 'message'.", choices=("http", "task", "message")
 )
 EQUALS = ListFilter(
     "equals",
@@ -297,6 +348,70 @@ def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
     return out
 
 
+# --- Sources, en lecture seule (epic « lectures communes », ticket 88fd2cc5) --------------
+
+
+def sources(root: Path, query: ListQuery) -> list[Item]:
+    """Ce que rendait `list_sources` : chaque source et son manifeste ; un manifeste
+    illisible est listé avec son erreur (`ok: false`), jamais ignoré en silence."""
+    wanted = _given(query, "type")
+    out = []
+    for entry in read_sources_tree(root):
+        manifest = entry.manifest
+        if wanted is not None and (manifest is None or manifest.type != wanted):
+            continue
+        valid = is_valid_source_slug(entry.slug)
+        directory = source_rel_dir(entry.slug) if valid else f"{SOURCES_DIR}/{entry.slug}"
+        if manifest is None:
+            summary: dict[str, Any] = {"ok": False, "error": entry.error}
+            name, text = entry.slug, ""
+        else:
+            summary = {
+                "ok": True,
+                "label": manifest.label,
+                "type": manifest.type,
+                "connection": manifest.connection,
+                "parameters": manifest.parameters,
+            }
+            name, text = manifest.label or entry.slug, f"{manifest.type} {manifest.connection}"
+        out.append(
+            Item(
+                {"source": entry.slug},
+                name,
+                f"{directory}/{MANIFEST_FILENAME}",
+                summary,
+                text=text,
+                changes_under=directory,
+            )
+        )
+    return out
+
+
+def contracts(root: Path, query: ListQuery) -> list[Item]:
+    """Ce que rendait `list_contracts` : chaque version déposée d'un contrat OpenAPI,
+    ses faits de dépôt (index `contrats.yaml`) et si la collecte l'a pris."""
+    out = []
+    for source in _sources(root, query):
+        base = f"{source_rel_dir(source)}/{CONTRATS_DIR}"
+        for view in read_contracts_view(root, source):
+            entry = view.entry
+            out.append(
+                Item(
+                    {"source": source, "version": entry.version},
+                    f"{source} {entry.version}",
+                    f"{base}/{entry.file}",
+                    # La version déposée est dans l'identité : « version » reste celle du
+                    # document (à donner telle quelle à une écriture).
+                    {
+                        **{k: v for k, v in entry.to_mapping().items() if k != "version"},
+                        "collected": view.collected,
+                    },
+                    text=f"{entry.original_file} {entry.declared_version}",
+                )
+            )
+    return out
+
+
 # --- Schémas raw et d'assets, en lecture seule (ticket 56f3784a) --------------------------
 
 
@@ -310,28 +425,247 @@ def _sources(root: Path, query: ListQuery) -> list[str]:
         raise KindError(
             "write_identity_invalid",
             "source",
-            f"La source « {wanted} » n'existe pas dans l'espace (list_sources).",
+            f"La source « {wanted} » n'existe pas dans l'espace "
+            "(list_documents, genre « source »).",
             received=wanted,
         )
     return [str(wanted)]
 
 
+class _Application:
+    """La cartographie applicative d'une source, calculée comme la vue « Application »
+    de l'Explorateur (même lecture de raw, mêmes règles) : ce que rendait
+    `list_modules` pour chaque module, et les objets qui appartiennent à chacun."""
+
+    def __init__(self, root: Path, source: str) -> None:
+        view = application_view(entries := collect_source_entries(root, source))
+        modules: list[dict[str, Any]] = view["modules"]
+        self.root, self.source, self.entries, self.modules = root, source, entries, modules
+        by_id = {m["id"]: m for m in modules}
+        members = members_by_module(entries)
+
+        def ref(module: dict[str, Any]) -> dict[str, str]:
+            return {"name": module["file"], "title": module["title"]}
+
+        self.summaries = {
+            m["file"]: {
+                "nature": m["nature"],
+                "targets": m["targets"],
+                "language": m["language"],
+                "project": m["project"],
+                "counts": {
+                    "classes": m["counts"]["classes"],
+                    "entry_points": m["counts"]["entry_points"],
+                    "public_methods": m["counts"]["methods"],
+                },
+                "depends_on": [
+                    ref(by_id[d["id"]])
+                    if d["id"] in by_id
+                    else {"project": d["project"], "external": True}
+                    for d in m["dependencies"]
+                ],
+                "used_by": [ref(by_id[d]) for d in m["dependents"] if d in by_id],
+            }
+            for m in modules
+        }
+        self.members = {m["file"]: {o.file for o in members[m["id"]]} for m in modules}
+        self.titles = {m["title"].casefold(): m["file"] for m in modules}
+
+    def members_of(self, source: str, wanted: str) -> set[str]:
+        """Les objets d'un module, désigné par son nom de schéma ou son titre."""
+        return self.members[self.module_name(source, wanted)]
+
+    def module_name(self, source: str, wanted: str) -> str:
+        """Le nom de schéma d'un module désigné par son nom ou son titre."""
+        name = wanted if wanted in self.members else self.titles.get(wanted.casefold())
+        if name is None:
+            raise KindError(
+                "list_filter_invalid",
+                "$.filters.module",
+                f"« {wanted} » n'est pas un module de la source « {source} » "
+                "(list_documents, genre « schema_raw », filters {kind: 'module'}).",
+                received=wanted,
+                expected=sorted(self.members),
+            )
+        return name
+
+    def entry_points(self) -> list[tuple[dict[str, str], dict[str, Any]]]:
+        """Les points d'entrée de chaque module, comme l'aperçu d'un module de la vue
+        « Application » (`module_detail`) : (identité, contenu)."""
+        raw = self.root / source_rel_dir(self.source) / RAW_DIR
+
+        def read(name: str) -> str | None:
+            file = raw / name
+            return file.read_text(encoding="utf-8") if file.is_file() else None
+
+        out = []
+        for module in self.modules:
+            detail = module_detail(self.entries, module["file"], read) or {}
+            out += [_entry_point(p, module) for p in detail.get("entry_points", [])]
+        return out
+
+
+def _entry_point(
+    point: dict[str, Any], module: dict[str, Any]
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Un point d'entrée : son identité (le schéma qui le porte, la méthode, et pour
+    une route HTTP le verbe et la route ; jamais un chemin de fichier) et ce que
+    rendait `list_entry_points`."""
+    contract = point.get("contract")
+    owner = point.get("owner_file") or module["file"]
+    kind = str(point.get("kind") or "")
+    verb_route = f"{point.get('verb') or ''} {point.get('route') or ''}".strip()
+    endpoint = (verb_route or kind) if kind == "http" else kind
+    # « * » : la classe elle-même est le point d'entrée (aucune méthode).
+    identity = {"owner": owner, "method": point.get("method") or "*", "endpoint": endpoint}
+    content = {
+        "kind": point.get("kind"),
+        "verb": point.get("verb"),
+        "route": point.get("route"),
+        "method": point.get("method"),
+        "owner": point.get("owner"),
+        "owner_name": owner,
+        "module": module["title"],
+        "module_name": module["file"],
+        "contract_status": contract["status"] if contract else "not_compared",
+        "contract_operations": (contract or {}).get("operations") or [],
+    }
+    return identity, content
+
+
+def _extension_path(source: str, owner: str) -> str:
+    return f"{source_rel_dir(source)}/{RAW_DIR}/{extend_file(raw_key_of(owner))}"
+
+
+def entry_points(root: Path, query: ListQuery) -> list[Item]:
+    """Ce que rendait `list_entry_points` (ticket 15c43ed1) : les points d'entrée d'une
+    source, filtrables par module, par état au contrat et par nature."""
+    wanted_module = _module_filter(query)
+    status = _given(query, "contract_status")
+    nature = _given(query, "kind")
+    out = []
+    for source in _sources(root, query):
+        app = _Application(root, source)
+        module = app.module_name(source, wanted_module) if wanted_module else None
+        for identity, content in app.entry_points():
+            if module is not None and content["module_name"] != module:
+                continue
+            if status is not None and content["contract_status"] != status:
+                continue
+            if nature is not None and content["kind"] != nature:
+                continue
+            carrier = content["owner"] or content["module"]
+            name = f"{carrier}.{identity['method']}"
+            if content["kind"] == "http":
+                name = identity["endpoint"]
+            out.append(
+                Item(
+                    {"source": source, **identity},
+                    name,
+                    _extension_path(source, identity["owner"]),
+                    content,
+                    text=f"{content['method'] or ''} {content['owner'] or ''} {content['module']}",
+                    version=value_version(content),
+                )
+            )
+    return out
+
+
+class EntryPointStore(ReadOnlyStore):
+    """Un point d'entrée, lu comme la liste le calcule (une entrée du `.extend.yaml` de
+    son porteur ; sa version est celle de son contenu)."""
+
+    def read(self, root: Path, location: Location) -> Document | None:
+        source = str(location.identity["source"])
+        for identity, content in _Application(root, source).entry_points():
+            if {"source": source, **identity} == dict(location.identity):
+                return Document(content, value_version(content), location.path or "")
+        return None
+
+
+def _module_filter(query: ListQuery) -> Any:
+    wanted = _given(query, "module")
+    if wanted is not None and "source" not in query.identity:
+        raise KindError(
+            "list_filter_invalid",
+            "$.filters.module",
+            "« module » désigne un module d'une source : donner aussi identity.source.",
+        )
+    return wanted
+
+
 def raw_schemas(root: Path, query: ListQuery) -> list[Item]:
     """Ce que rendait `list_raw_schemas` : chaque schéma collecté, son nombre de champs
-    et s'il est retenu en asset."""
+    et s'il est retenu en asset. Un module porte en plus ce que rendait `list_modules`
+    (ticket dcc52af7) ; filtres `kind` (nature de l'objet) et `module` (ses objets)."""
+    wanted_kind = _given(query, "kind")
+    wanted_module = _module_filter(query)
     out = []
     for source in _sources(root, query):
         directory = source_rel_dir(source)
-        for obj in list_curation(root, source, (), True):
-            if obj.orphan:
+        objects = [o for o in list_curation(root, source, (), True) if not o.orphan]
+        needed = wanted_module is not None or any(o.kind == MODULE_KIND for o in objects)
+        app = _Application(root, source) if needed else None
+        members = app.members_of(source, wanted_module) if app and wanted_module else None
+        for obj in objects:
+            if wanted_kind is not None and obj.kind != wanted_kind:
+                continue
+            if members is not None and obj.path not in members:
                 continue
             summary = {"title": obj.title, "kind": obj.kind, "fields": obj.fields}
+            module = app.summaries.get(obj.path, {}) if app else {}
             out.append(
                 Item(
                     {"source": source, "name": obj.path},
                     obj.title or obj.path,
                     f"{directory}/{RAW_DIR}/{obj.path}",
-                    {**summary, "retained": obj.retained},
+                    {**summary, "retained": obj.retained, **module},
+                )
+            )
+    return out
+
+
+def _functions_summary(file: Path) -> dict[str, Any]:
+    try:
+        data = load_schema(file.read_bytes())
+    except SchemaReadError:
+        data = None
+    if not isinstance(data, dict):
+        return {"readable": False}
+    return {
+        "methods": len(data.get("methods") or []),
+        "functions": len(data.get("functions") or []),
+        "entry_point": isinstance(data.get("entryPoint"), dict),
+    }
+
+
+def raw_extensions(root: Path, query: ListQuery) -> list[Item]:
+    """Les objets raw qui ont une extension (`<clé>.extend.yaml` : méthodes d'une classe,
+    fonctions libres d'un module), ce que lisait `get_functions` (ticket 2c069134).
+    Filtre `module` : les objets d'un module (la règle de l'Explorateur)."""
+    wanted_module = _module_filter(query)
+    out = []
+    for source in _sources(root, query):
+        directory = f"{source_rel_dir(source)}/{RAW_DIR}"
+        objects = [o for o in list_curation(root, source, (), True) if not o.orphan]
+        members = (
+            _Application(root, source).members_of(source, wanted_module)
+            if (wanted_module is not None)
+            else None
+        )
+        for obj in objects:
+            if members is not None and obj.path not in members:
+                continue
+            extension = f"{directory}/{extend_file(raw_key_of(obj.path))}"
+            file = root / extension
+            if not file.is_file():
+                continue
+            out.append(
+                Item(
+                    {"source": source, "name": obj.path},
+                    obj.title or obj.path,
+                    extension,
+                    {"title": obj.title, "kind": obj.kind, **_functions_summary(file)},
                 )
             )
     return out
@@ -445,6 +779,39 @@ def tri_rules(root: Path, query: ListQuery) -> list[Item]:
 
 
 # --- Gouvernance --------------------------------------------------------------------------
+
+
+def relation_profile_items(root: Path, query: ListQuery) -> list[Item]:
+    """Les profils de relations, comme l'écran les liste : le profil fourni n'apparaît
+    qu'une fois (sa version de l'espace s'il en a une), puis ceux de l'espace."""
+    files = {f.rel.rsplit("/", 1)[-1].removesuffix(".yaml"): f for f in read_profile_files(root)}
+    builtins = {p.id: p for p in builtin_profiles()}
+    out = []
+    for profile_id in [*builtins, *sorted(set(files) - set(builtins))]:
+        file = files.get(profile_id)
+        profile = file.profile if file else builtins[profile_id]
+        summary: dict[str, Any] = {
+            "builtin": profile_id in builtins,
+            "customized": file is not None and profile_id in builtins,
+        }
+        if profile is None:
+            summary["errors"] = list(file.errors) if file else []
+        else:
+            summary |= {"name": profile.name, "rules": len(profile.rules)}
+        doc = relation_profile_document(profile) if profile else None
+        out.append(
+            Item(
+                {"id": profile_id},
+                profile.name if profile else profile_id,
+                relation_profile_path(profile_id),
+                summary,
+                text=profile.description if profile else "",
+                # Le profil fourni non personnalisé n'a pas de fichier : la version de
+                # son contenu, comme à la lecture.
+                version=value_version(doc) if file is None and doc else None,
+            )
+        )
+    return out
 
 
 def tags(root: Path, query: ListQuery) -> list[Item]:

@@ -60,11 +60,16 @@ def test_le_registre_declare_les_genres_du_tableau() -> None:
         "regle_tag",
         "regle_classification",
         "regles_tri",
+        "profil_relation",
         "domaine",
         "dataset",
         "relation_dataset",
         "reference_dataset",
+        "source",
+        "contrat",
         "schema_raw",
+        "extension_raw",
+        "point_entree",
         "schema_asset",
     ]
     for kind in KINDS:
