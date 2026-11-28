@@ -28,9 +28,11 @@ from ossie_studio.cartographie.diagram import (
     rules_path,
 )
 from ossie_studio.cartographie.errors import CartographieError
+from ossie_studio.cartographie.indexed import IndexedCartographie
 from ossie_studio.cartographie.model import object_path, split_ref, type_path
 from ossie_studio.cartographie.process import list_processes, parse_process, process_path
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
+from ossie_studio.doc_index.search import Snapshot
 from ossie_studio.governance import classification_rules as classification_rule_service
 from ossie_studio.governance import tag_rules as tag_rule_service
 from ossie_studio.governance.builtin_classification_rules import builtin_classification_rules
@@ -224,6 +226,75 @@ def carto_objects(root: Path, query: ListQuery) -> list[Item]:
             summary["source"] = _end(space, obj.source)
             summary["target"] = _end(space, obj.target)
         out.append(Item({"type": obj.type, "key": obj.key}, obj.name, path, summary))
+    out.sort(key=lambda i: (i.name.casefold(), i.identity["key"]))
+    return out
+
+
+# --- Cartographie, tirée de l'index (ticket 06171fd3) ------------------------------------
+#
+# Mêmes éléments que `carto_types` et `carto_objects`, sans lire les fichiers
+# (`cartographie/indexed.py`).
+
+
+def carto_types_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    space = IndexedCartographie(snap)
+    cat = catalog()
+    counts: dict[str, int] = {}
+    for obj in space.objects.values():
+        counts[obj.type] = counts.get(obj.type, 0) + 1
+    out = []
+    ordered = sorted(
+        space.types.items(), key=lambda t: (str(t[1].get("title") or "").casefold(), t[0])
+    )
+    for slug, fields in ordered:
+        archimate = str(fields.get("archimate") or "")
+        base = cat.get(archimate)
+        nature = _nature(base)
+        if _given(query, "nature") not in (None, nature):
+            continue
+        if _given(query, "archimate") not in (None, archimate):
+            continue
+        out.append(
+            Item(
+                {"slug": slug},
+                str(fields.get("title") or ""),
+                type_path(slug),
+                {
+                    "archimate": archimate,
+                    "layer": base.layer if base and not base.is_relation else None,
+                    "nature": nature,
+                    "objects": counts.get(slug, 0),
+                },
+                version=space.type_versions.get(slug),
+            )
+        )
+    return out
+
+
+def carto_objects_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    space = IndexedCartographie(snap)
+    cat = catalog()
+    out = []
+    for obj in space.objects.values():
+        fields = space.types.get(obj.type)
+        archimate = str(fields.get("archimate") or "") if fields is not None else None
+        nature = _nature(cat.get(archimate or ""))
+        wanted = {"nature": nature, "archimate": archimate}
+        if any(_given(query, f) not in (None, value) for f, value in wanted.items()):
+            continue
+        ends = (space.resolve(obj.source), space.resolve(obj.target))
+        if any(
+            _given(query, f) is not None and (end is None or space.resolve(_given(query, f)) != end)
+            for f, end in (("source", ends[0]), ("cible", ends[1]))
+        ):
+            continue
+        summary: dict[str, Any] = {"archimate": archimate, "nature": nature}
+        if obj.is_relation:
+            summary["source"] = space.end(obj.source)
+            summary["target"] = space.end(obj.target)
+        out.append(
+            Item({"type": obj.type, "key": obj.key}, obj.name, obj.path, summary, version=obj.blob)
+        )
     out.sort(key=lambda i: (i.name.casefold(), i.identity["key"]))
     return out
 

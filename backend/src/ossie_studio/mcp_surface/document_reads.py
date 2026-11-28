@@ -28,6 +28,7 @@ la seule valeur demandée, jamais tout `valeurs.json`.
 
 from __future__ import annotations
 
+import json
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -35,6 +36,7 @@ from typing import Any
 from pydantic import Field
 
 from ossie_studio.authz.catalog import SPACE_SCOPED
+from ossie_studio.doc_index import search
 from ossie_studio.drafts.store import git_blob_sha
 from ossie_studio.mcp_surface.branch import BranchArgs, BranchView, open_branch
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
@@ -59,7 +61,9 @@ class ReadDocumentArgs(BranchArgs):
         description=(
             "Identity fields the document type requires, e.g. {type: 'application', key: "
             "'APP-CAISSE'} "
-            "for carto_objet, {referentiel: 'pays', key: 'FR'} for referentiel_valeur."
+            "for carto_objet, {referentiel: 'pays', key: 'FR'} for referentiel_valeur. A partial "
+            "identity (e.g. {key: 'APP-CAISSE'} without its type) is completed when exactly one "
+            "document carries it; several: refusal identity_ambiguous with the candidates."
         )
     )
     path: str | None = Field(
@@ -105,14 +109,51 @@ async def require_read(
         )
 
 
+async def _complete_identity(
+    ctx: PrimitiveContext, bv: BranchView, doc_type: DocumentType, identity: dict[str, Any]
+) -> dict[str, Any]:
+    """Une identité partielle (une clé de cartographie sans son type, par exemple)
+    complétée par l'index des documents (ticket 06171fd3) : le seul document du type qui
+    la porte ; aucun, introuvable ; plusieurs, refus qui les nomme."""
+    found = await search.find(ctx.conn, await bv.indexed_view(), doc_type.name, identity)
+    candidates = list({json.dumps(d.identity, sort_keys=True): d.identity for d in found}.values())
+    if len(candidates) == 1:
+        return dict(candidates[0])
+    if not candidates:
+        raise PrimitiveError(
+            "document_not_found",
+            document_type=doc_type.name,
+            identity=identity,
+            message=(
+                f"Aucun document « {doc_type.label} » de cette identité dans la vue {bv.view} "
+                "(list_documents, ou branch='draft' pour un document du brouillon)."
+            ),
+        )
+    raise PrimitiveError(
+        "identity_ambiguous",
+        document_type=doc_type.name,
+        identity=identity,
+        candidates=candidates,
+        message=(
+            f"Plusieurs documents « {doc_type.label} » portent cette identité partielle : "
+            "donnez l'identité complète (candidates)."
+        ),
+    )
+
+
 async def read_document(ctx: PrimitiveContext, args: ReadDocumentArgs) -> dict[str, Any]:
     doc_type = resolve_document_type(args.document_type)
     await require_read(ctx, args.space_id, doc_type, "read_document")
     bv = await open_branch(ctx, args)
+    identity = dict(args.identity)
+    names = [f.name for f in doc_type.identity]
+    partial = identity and all(n in names for n in identity) and len(identity) < len(names)
+    if partial and args.path is None and all(_given_value(v) for v in identity.values()):
+        identity = await _complete_identity(ctx, bv, doc_type, identity)
 
     def read(root: Path) -> tuple[Location, Document | None]:
         try:
-            location = doc_type.locate(root, args.identity, args.path)
+            location = doc_type.locate(root, identity, args.path)
             return location, doc_type.store.read(root, location)
         except DOMAIN_ERRORS as exc:
             raise document_error(exc, doc_type.standard) from None
@@ -138,6 +179,10 @@ async def read_document(ctx: PrimitiveContext, args: ReadDocumentArgs) -> dict[s
         "unpublished": bv.unpublished(found.path),
         "content": found.content,
     }
+
+
+def _given_value(value: Any) -> bool:
+    return value is not None and not (isinstance(value, str) and not value.strip())
 
 
 # --- list_documents -----------------------------------------------------------------------
@@ -237,9 +282,11 @@ def _matches(item: Item, identity: dict[str, Any], needle: str) -> bool:
     return needle in fold(f"{item.name} {shown} {item.text}")
 
 
-def _listed(doc_type: DocumentType, bv: BranchView, root: Path, item: Item) -> dict[str, Any]:
+def _listed(
+    doc_type: DocumentType, bv: BranchView, root: Path | None, item: Item
+) -> dict[str, Any]:
     version = item.version
-    if version is None:
+    if version is None and root is not None:
         file = root / item.path
         version = git_blob_sha(file.read_bytes()) if file.is_file() else None
     out: dict[str, Any] = {
@@ -263,11 +310,7 @@ async def list_documents(ctx: PrimitiveContext, args: ListDocumentsArgs) -> dict
     bv = await open_branch(ctx, args)
     needle = fold(args.search.strip()) if args.search else ""
 
-    def read(root: Path) -> dict[str, Any]:
-        try:
-            items = doc_type.lister(root, query)
-        except DOMAIN_ERRORS as exc:
-            raise document_error(exc, doc_type.standard) from None
+    def page_of(items: list[Item], root: Path | None) -> dict[str, Any]:
         matching = [i for i in items if _matches(i, args.identity, needle)]
         page = matching[args.offset : args.offset + args.limit]
         return {
@@ -275,6 +318,24 @@ async def list_documents(ctx: PrimitiveContext, args: ListDocumentsArgs) -> dict
             "has_more": args.offset + len(page) < len(matching),
             "documents": [_listed(doc_type, bv, root, item) for item in page],
         }
+
+    if doc_type.index_lister is not None:
+        # La recherche passe par l'index (ticket 06171fd3) : sans parcourir le dépôt.
+        index_lister = doc_type.index_lister
+        key = await bv.indexed_view()
+        snap = await search.snapshot(ctx.conn, key, doc_type.index_types)
+        try:
+            items = index_lister(snap, query)
+        except DOMAIN_ERRORS as exc:
+            raise document_error(exc, doc_type.standard) from None
+        return {"view": bv.view, "document_type": doc_type.name, **page_of(items, None)}
+
+    def read(root: Path) -> dict[str, Any]:
+        try:
+            items = doc_type.lister(root, query)
+        except DOMAIN_ERRORS as exc:
+            raise document_error(exc, doc_type.standard) from None
+        return page_of(items, root)
 
     found = await bv.read(read)
     return {"view": bv.view, "document_type": doc_type.name, **found}

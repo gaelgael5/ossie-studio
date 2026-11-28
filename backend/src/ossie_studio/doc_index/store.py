@@ -58,6 +58,8 @@ class IndexedRow:
     keys: list[str]
     refs: list[str]
     documents: list[dict[str, object]]
+    # La version de l'extraction qui a indexé ce contenu (`INDEXER_VERSION`).
+    indexer_version: int = INDEXER_VERSION
 
 
 def _view(row: asyncpg.Record, key: ViewKey) -> View:
@@ -174,7 +176,9 @@ async def db_put_content(
         path,
         blob,
         INDEXER_VERSION,
-        json.dumps([d.payload() for d in indexed.documents], ensure_ascii=False),
+        # La liste elle-même : le codec jsonb de la connexion l'encode (ticket 06171fd3 ;
+        # avant, un texte JSON encodé deux fois, illisible pour les requêtes jsonb).
+        [d.payload() for d in indexed.documents],
         indexed.keys,
         indexed.refs,
     )
@@ -211,7 +215,8 @@ async def db_view_files(
     only = list(paths) if paths is not None else None
     rows = await conn.fetch(
         """
-        SELECT f.path, c.blob, f.content_id, f.status, c.keys, c.refs, c.documents
+        SELECT f.path, c.blob, f.content_id, f.status, c.keys, c.refs, c.documents,
+            c.indexer_version
         FROM doc_index_file f JOIN doc_index_content c ON c.id = f.content_id
         WHERE f.view_id = $1 AND ($2::text[] IS NULL OR f.path = ANY($2::text[]))
         """,
@@ -227,9 +232,24 @@ async def db_view_files(
             list(r["keys"]),
             list(r["refs"]),
             json.loads(r["documents"]) if isinstance(r["documents"], str) else r["documents"],
+            r["indexer_version"],
         )
         for r in rows
     }
+
+
+async def db_view_outdated(conn: asyncpg.Connection, view_id: int) -> bool:
+    """La vue a-t-elle des contenus indexés par une version plus ancienne de
+    l'extraction ?"""
+    return bool(
+        await conn.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM doc_index_file f "
+            "JOIN doc_index_content c ON c.id = f.content_id "
+            "WHERE f.view_id = $1 AND c.indexer_version <> $2)",
+            view_id,
+            INDEXER_VERSION,
+        )
+    )
 
 
 async def db_set_files(conn: asyncpg.Connection, view_id: int, rows: dict[str, int]) -> None:
@@ -324,7 +344,7 @@ async def db_set_document_result(
     await conn.execute(
         "UPDATE doc_index_content SET problems = $2::jsonb, rules_version = $3 WHERE id = $1",
         content_id,
-        json.dumps(problems, ensure_ascii=False),
+        problems,
         version,
     )
 

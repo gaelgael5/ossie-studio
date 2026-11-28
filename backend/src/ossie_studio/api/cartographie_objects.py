@@ -32,6 +32,7 @@ from ossie_studio.cartographie.catalog import catalog
 from ossie_studio.cartographie.diagram import delete_object, models_retaining
 from ossie_studio.cartographie.errors import CartographieError, problem_payload
 from ossie_studio.cartographie.history import FileDates, file_dates
+from ossie_studio.cartographie.indexed import users_from_index
 from ossie_studio.cartographie.model import (
     CARTO_DIR,
     OBJECTS_DIR,
@@ -465,6 +466,11 @@ async def delete_object_route(
     ref = object_ref(type_slug, key)
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     try:
+        # Qui l'utilise : recherche inverse dans l'index (ticket 06171fd3), sans lire
+        # toute la cartographie. La suppression revérifie sur les fichiers.
+        users = await users_from_index(conn, await target.indexed_view(), ref)
+        if users:
+            raise CartographieError("object_in_use", status=409, key=ref, relations=users)
         _none, revision = await target.write(
             f"supprime l'objet {ref}", lambda root: delete_object(root, ref)
         )

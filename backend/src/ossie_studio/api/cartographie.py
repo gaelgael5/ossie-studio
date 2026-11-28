@@ -22,9 +22,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import CartographieRead, CartographieWrite
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
-from ossie_studio.api.list_index import ListIndex
 from ossie_studio.cartographie.catalog import ArchimateType, catalog
 from ossie_studio.cartographie.errors import CartographieError, problem_payload
+from ossie_studio.cartographie.indexed import IndexedCartographie
+from ossie_studio.cartographie.indexed import load as indexed_load
 from ossie_studio.cartographie.model import (
     ARCHIMATE_KEY,
     BASE_PROPERTIES,
@@ -57,10 +58,6 @@ ARCHIMATE_EDITOR_PATH = "/api/archimate"
 BPMN_EDITOR_PATH = "/api/bpmn"
 
 router = APIRouter(prefix="/api/spaces/{space_id}/branches/{branch_id}/cartographie")
-
-# Liste des types : lue une fois par empreinte de `cartographie/` (ticket 0373780f).
-_TYPES_INDEX: ListIndex[list[dict[str, Any]]] = ListIndex()
-
 
 class TypeBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -148,23 +145,26 @@ def _catalog_payload() -> dict[str, object]:
     }
 
 
-def _summaries(space: Cartographie) -> list[dict[str, Any]]:
+def _summaries(space: IndexedCartographie) -> list[dict[str, Any]]:
     """Les types de l'espace, par libellé, avec le nombre de propriétés ajoutées et
-    d'objets ; et le nombre de problèmes trouvés à la lecture."""
+    d'objets, lus dans l'index des documents (ticket 06171fd3) : sans parcourir la
+    cartographie."""
     counts: dict[str, int] = {}
-    for _path, obj in space.objects.values():
+    for obj in space.objects.values():
         counts[obj.type] = counts.get(obj.type, 0) + 1
-    types = sorted(space.types.values(), key=lambda t: (t.title.casefold(), t.slug))
+    types = sorted(
+        space.types.items(), key=lambda t: (str(t[1].get("title") or "").casefold(), t[0])
+    )
     return [
         {
-            "slug": t.slug,
-            "title": t.title,
-            "archimate": t.archimate,
-            "path": type_path(t.slug),
-            "properties": len(t.properties),
-            "objects": counts.get(t.slug, 0),
+            "slug": slug,
+            "title": str(fields.get("title") or ""),
+            "archimate": str(fields.get("archimate") or ""),
+            "path": type_path(slug),
+            "properties": int(fields.get("properties") or 0),
+            "objects": counts.get(slug, 0),
         }
-        for t in types
+        for slug, fields in types
     ]
 
 
@@ -194,14 +194,7 @@ async def list_types(
     son brouillon, pas encore publié) ou « modified »."""
     target = await cartographie_target(conn, crypto, workdir, space_id, branch_id, user)
     try:
-        # Les objets comptent aussi (nombre par type) : tout `cartographie/`.
-        signature, _paths = await target.signature(f"{CARTO_DIR}/")
-        key = (space_id, branch_id, workdir.user_id, workdir.published_only)
-        items = _TYPES_INDEX.get(key, signature)
-        if items is None:
-            space = await target.cartographie()
-            items = _summaries(space)
-            _TYPES_INDEX.put(key, signature, items)
+        items = _summaries(await indexed_load(conn, await target.indexed_view()))
     except WorkdirError as exc:
         raise ApiError(exc.code, status_code=502) from None
     states = await draft_states(conn, workdir, branch_id)

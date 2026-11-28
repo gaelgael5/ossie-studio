@@ -26,6 +26,7 @@ from typing import Literal, TypeVar
 from pydantic import BaseModel, ConfigDict, Field
 
 from ossie_studio.api.branches import space_credentials
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.drafts.store import db_get_draft, db_list_objects
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.errors import ApiError
@@ -110,6 +111,19 @@ class BranchView:
                 self.username,
                 self.token,
                 fn,
+            )
+        except WorkdirError as exc:
+            raise PrimitiveError(exc.code) from None
+
+    async def indexed_view(self) -> ViewKey:
+        """La vue lue, dans l'index des documents, d'accord avec Git (ticket 06171fd3)."""
+        try:
+            return await self.workdir.indexed_view(
+                self.space.id,
+                self.branch.git_ref,
+                self.space.repo_url,
+                self.username,
+                self.token,
             )
         except WorkdirError as exc:
             raise PrimitiveError(exc.code) from None

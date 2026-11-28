@@ -25,7 +25,7 @@ from ossie_studio.doc_index.service import (
     compare_published,
     record_draft_write,
 )
-from ossie_studio.doc_index.store import ViewKey
+from ossie_studio.doc_index.store import View, ViewKey, db_get_view, db_view_outdated
 from ossie_studio.drafts.store import (
     DraftChange,
     DraftObject,
@@ -81,6 +81,14 @@ async def _blob_bytes(copy: Path, env: dict[str, str], blob: str | None) -> byte
     )
     out, _ = await proc.communicate()
     return out if proc.returncode == 0 else None
+
+
+async def _stale(conn: asyncpg.Connection, view: View | None, head: str) -> bool:
+    """La vue de l'index est-elle à comparer de nouveau à Git (ticket 06171fd3) : jamais
+    comparée, tirée d'une autre tête, ou indexée par une extraction plus ancienne ?"""
+    if view is None or not view.compared or view.head != head:
+        return True
+    return await db_view_outdated(conn, view.id)
 
 
 class DraftWorkdir:
@@ -316,6 +324,47 @@ class DraftWorkdir:
                 published = await compare_published(conn, key, ctx.path, ctx.env, ctx.head)
                 draft = await compare_draft(conn, key, ctx.path, ctx.env, ctx.head, overrides)
             return published, draft
+
+        return await self.run_in_view(space_id, slug, repo_url, username, token, fn)
+
+    async def indexed_view(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+    ) -> ViewKey:
+        """La vue que lit la personne, dans l'index des documents, d'accord avec Git
+        (ticket 06171fd3) : comparée de nouveau seulement si la tête de la branche a
+        bougé depuis (ou jamais comparée). Les écritures du brouillon la tiennent à
+        jour d'elles-mêmes. Sans brouillon, ou en lecture publiée : la vue publiée
+        (comme `read_branch`)."""
+        published = ViewKey(space_id, self.branch_id)
+        if self.published_only or not await self.has_draft():
+            async with self._manager.read_copy(space_id, slug, repo_url, username, token) as (
+                root,
+                env,
+                head,
+            ):
+                async with self._db() as conn:
+                    if await _stale(conn, await db_get_view(conn, published), head):
+                        async with conn.transaction():
+                            await compare_published(conn, published, root, env, head)
+            return published
+        key = ViewKey(space_id, self.branch_id, self.user_id)
+
+        async def fn(ctx: ViewContext, state: DraftState) -> ViewKey:
+            overrides = {o.path: o.content for o in state.objects}
+            async with self._db() as conn:
+                base_stale = await _stale(conn, await db_get_view(conn, published), ctx.head)
+                mine_stale = await _stale(conn, await db_get_view(conn, key), ctx.head)
+                async with conn.transaction():
+                    if base_stale:
+                        await compare_published(conn, key, ctx.path, ctx.env, ctx.head)
+                    if mine_stale:
+                        await compare_draft(conn, key, ctx.path, ctx.env, ctx.head, overrides)
+            return key
 
         return await self.run_in_view(space_id, slug, repo_url, username, token, fn)
 

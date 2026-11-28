@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.drafts.workdir import DraftWorkdir
 from ossie_studio.models import GitSpace
 
@@ -39,6 +40,12 @@ class CartographieTarget:
         brouillon sous ce préfixe (voir `DraftWorkdir.prefix_signature`)."""
         return await self.workdir.prefix_signature(
             self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token, prefix
+        )
+
+    async def indexed_view(self) -> ViewKey:
+        """La vue lue, dans l'index des documents, d'accord avec Git (ticket 06171fd3)."""
+        return await self.workdir.indexed_view(
+            self.space.id, self.branch_ref, self.space.repo_url, self.username, self.token
         )
 
     async def cartographie(self) -> Cartographie:

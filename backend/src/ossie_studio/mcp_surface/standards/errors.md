@@ -51,6 +51,8 @@ fields at the top level (`error` for the code, `path` in your request, `message`
 - `document_not_found`: no document of that document type and identity in the version read (with
   `expected_path` when known). Not a format error: no `aide`. Read with `branch: draft` a
   document you have just written.
+- `identity_ambiguous`: a partial identity given to `read_document` (e.g. a map key without its
+  type) is carried by several documents; `candidates` lists their full identities.
 - `list_filter_unknown`: an identity field or a filter the document type does not declare (`expected`
   lists the possible ones); `list_filter_invalid`: a filter value of the wrong form.
 - `schema_document_type_untyped`: the content of that document type depends on no type; read its standard.

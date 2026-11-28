@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
+from ossie_studio.doc_index.search import Snapshot
+
 # --- Règles de validation déclarées par type de document (ticket d7139b17) --------------------
 
 # Portée d'une règle : le document seul (réutilisable par empreinte), ses références
@@ -147,3 +149,6 @@ class ListQuery:
 
 
 Lister = Callable[[Path, ListQuery], list[Item]]
+# La liste tirée de l'index des documents (ticket 06171fd3) : mêmes éléments que le
+# `Lister`, sans lire les fichiers.
+IndexLister = Callable[[Snapshot, ListQuery], list[Item]]

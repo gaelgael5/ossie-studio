@@ -22,6 +22,12 @@ validation le dira, ticket des règles). Un fichier que rien ne reconnaît non p
 
 `INDEXER_VERSION` : à augmenter quand l'extraction change ; un contenu indexé par une
 version plus ancienne est réindexé.
+
+**Cartographie** (ticket 06171fd3, la recherche passe par l'index) : un type et un objet
+sont aussi lus par le service de la cartographie (`parse_type`, `parse_object`), aux
+mêmes chemins que `read_cartographie` ; leurs champs gardent ce qu'il en lit
+(`readable`, et pour un objet `object` : clé, type, nom, extrémités). Les listes tirées
+de l'index rendent ainsi exactement ce que rendait la lecture des fichiers.
 """
 
 from __future__ import annotations
@@ -32,9 +38,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from ossie_studio.cartographie.errors import CartographieError
+from ossie_studio.cartographie.model import parse_object, parse_type
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 
-INDEXER_VERSION = 1
+INDEXER_VERSION = 2
 
 ANY_TYPE = "*"
 
@@ -119,11 +127,20 @@ def _carto_type(m: re.Match[str], data: bytes) -> IndexedFile:
         for targets in _mapping(side).values():
             if isinstance(targets, list):
                 refs += [doc_key("carto_type", t) for t in targets if isinstance(t, str)]
+    fields: dict[str, Any] = {"archimate": _text(doc.get("x-archimate")), "readable": False}
+    try:
+        ctype = parse_type(slug, data.decode("utf-8"))
+    except (CartographieError, UnicodeDecodeError):
+        pass
+    else:
+        fields.update(
+            readable=True,
+            title=ctype.title,
+            archimate=ctype.archimate,
+            properties=len(ctype.properties),
+        )
     document = IndexedDocument(
-        "carto_type",
-        {"slug": slug},
-        _text(doc.get("title")) or slug,
-        {"archimate": _text(doc.get("x-archimate"))},
+        "carto_type", {"slug": slug}, _text(doc.get("title")) or slug, fields
     )
     return IndexedFile([document], [doc_key("carto_type", slug)], refs)
 
@@ -153,6 +170,19 @@ def _carto_objet(m: re.Match[str], data: bytes) -> IndexedFile:
     fields: dict[str, Any] = {"nom": _text(doc.get("nom"))}
     if "source" in doc or "cible" in doc:
         fields.update(source=_text(doc.get("source")), cible=_text(doc.get("cible")))
+    try:
+        obj = parse_object(data.decode("utf-8"))
+    except (CartographieError, UnicodeDecodeError):
+        fields["readable"] = False
+    else:
+        fields["readable"] = True
+        fields["object"] = {
+            "key": obj.key,
+            "type": obj.type,
+            "name": obj.name,
+            "source": obj.source,
+            "cible": obj.target,
+        }
     document = IndexedDocument(
         "carto_objet", {"type": type_slug, "key": key}, _text(doc.get("nom")) or key, fields
     )
@@ -343,12 +373,10 @@ _SCHEMA = r"(?:\.schema\.yaml|\.schema\.json|\.json)"
 
 # Dans l'ordre : la première reconnaissance qui correspond au chemin l'emporte.
 _RECOGNIZERS: list[tuple[re.Pattern[str], Extractor]] = [
-    (re.compile(rf"^cartographie/types/(?P<slug>{_SLUG})\.schema\.yaml$"), _carto_type),
-    (re.compile(rf"^cartographie/types/(?P<slug>{_SLUG})\.extend\.yaml$"), _carto_type_extend),
-    (
-        re.compile(rf"^cartographie/objets/(?P<type>{_SLUG})/(?P<stem>[a-z0-9-]+)\.yaml$"),
-        _carto_objet,
-    ),
+    # Types et objets : les chemins que lit `read_cartographie` (tout nom de fichier).
+    (re.compile(r"^cartographie/types/(?P<slug>[^/]+)\.extend\.yaml$"), _carto_type_extend),
+    (re.compile(r"^cartographie/types/(?P<slug>[^/]+)\.schema\.yaml$"), _carto_type),
+    (re.compile(r"^cartographie/objets/(?P<type>[^/]+)/(?P<stem>[^/]+)\.yaml$"), _carto_objet),
     (re.compile(rf"^cartographie/modeles/(?P<slug>{_SLUG})\.modele\.yaml$"), _carto_modele),
     (
         re.compile(rf"^cartographie/modeles/(?P<slug>{_SLUG})\.graphique\.yaml$"),

@@ -34,7 +34,7 @@ import asyncpg
 import structlog
 
 from ossie_studio.doc_index import store
-from ossie_studio.doc_index.extract import index_file
+from ossie_studio.doc_index.extract import INDEXER_VERSION, index_file
 from ossie_studio.doc_index.store import View, ViewKey
 from ossie_studio.drafts.store import git_blob_sha
 
@@ -171,6 +171,15 @@ async def compare_view(
     result = Comparison()
     stale = {p: b for p, b in listing.items() if p not in indexed or indexed[p].blob != b}
     gone = [p for p in indexed if p not in listing]
+    # Un contenu inchangé mais indexé par une version plus ancienne de l'extraction est
+    # réindexé sur place (même fichier, même empreinte) : ni nouveau, ni à revalider.
+    outdated = {
+        p: row.blob
+        for p, row in indexed.items()
+        if p not in stale and p in listing and row.indexer_version != INDEXER_VERSION
+    }
+    if outdated:
+        await ensure_contents(conn, key.space_id, outdated, read, known)
     contents = await ensure_contents(conn, key.space_id, stale, read, known)
     keys: set[str] = set()
     for path in stale:

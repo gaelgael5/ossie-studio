@@ -191,3 +191,35 @@ asynchrone. Le bouton publier ne s'active que quand tout est validé. »
   est posé.
 - `GET …/draft/validation` (journal après une passe à jour, qui attend) reste pour les
   usages qui veulent un verdict final ; l'écran ne l'appelle plus.
+
+## La recherche passe par l'index (ticket 06171fd3)
+
+Gael : l'index est « un outil de validation **et un outil de recherche** ».
+
+- **Lecture** : `doc_index/search.py` — `snapshot` (les documents de quelques types dans
+  une vue, avec leur fichier et sa version), `citing` (les fichiers qui citent une
+  identité : recherche inverse sur les références sortantes), `holding` (ceux qui la
+  portent), `find` (identité partielle).
+- **Fraîcheur** : `DraftWorkdir.indexed_view` rend la vue lue (publiée, ou brouillon de
+  la personne s'il existe) et la compare de nouveau à Git seulement si la tête de la
+  branche a bougé. Les écritures du brouillon mettent l'index à jour à l'enregistrement,
+  avant toute validation : la recherche est à jour même quand la validation ne l'est pas.
+- **Cartographie dans l'index** : un type et un objet sont lus par le service de la
+  cartographie (`parse_type`, `parse_object`), aux chemins que lit `read_cartographie` ;
+  leurs champs gardent `readable` et ce qu'il en lit (`INDEXER_VERSION` 2).
+  `cartographie/indexed.py` les range comme `Cartographie` (fichier illisible ignoré,
+  première occurrence d'un identifiant, clé seule résolue si un seul type la porte).
+- **list_documents** : un type de document qui déclare `index_lister` (registre) est
+  listé par l'index, sans parcourir le dépôt. Aujourd'hui : `carto_type`, `carto_objet`.
+  Les autres gardent leur `lister`.
+- **Qui utilise** : supprimer un objet de cartographie visé par une relation est refusé
+  avec les relations tirées de l'index (`users_from_index`) ; la suppression revérifie
+  sur les fichiers.
+- **Identité seule** : `read_document` complète une identité partielle (une clé de
+  cartographie sans son type) par l'index ; plusieurs candidats : `identity_ambiguous`.
+  Le contenu vient toujours du fichier.
+- **Écrans** : la liste des types de cartographie lit l'index.
+- **Index corrigé** : la liste des documents d'un contenu est rangée telle quelle en
+  `jsonb` (elle était encodée deux fois, illisible pour les requêtes) ; un contenu
+  inchangé mais indexé par une version plus ancienne de l'extraction est réindexé sur
+  place à la comparaison suivante (sans être compté comme nouveau ni à revalider).

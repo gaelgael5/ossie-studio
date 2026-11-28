@@ -54,6 +54,7 @@ from ossie_studio.mcp_surface import document_type_stores as stores
 from ossie_studio.mcp_surface.document_type_base import (
     DocumentError,
     IdentityField,
+    IndexLister,
     Lister,
     ListFilter,
     Location,
@@ -125,6 +126,11 @@ class DocumentType:
     # Les règles de validation du type de document (ticket d7139b17) : ajouter une règle
     # revient à la déclarer ici, sans toucher à la publication (`doc_index/rules.py`).
     validation: tuple[RuleDeclaration, ...] = ()
+    # La liste tirée de l'index des documents (ticket 06171fd3) : list_documents la
+    # préfère au `lister`, qui parcourt le dépôt ; `index_types` : les types de document
+    # qu'elle lit dans l'index.
+    index_lister: IndexLister | None = None
+    index_types: tuple[str, ...] = ()
 
     def locate(
         self, root: Path | None, identity: Mapping[str, Any], path: str | None = None
@@ -477,6 +483,8 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
         locator=_carto_type,
         store=stores.CartoTypeStore(),
         lister=lists.carto_types,
+        index_lister=lists.carto_types_indexed,
+        index_types=("carto_type", "carto_objet"),
         list_filters=(lists.NATURE, lists.ARCHIMATE),
     ),
     DocumentType(
@@ -498,6 +506,8 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
         locator=_carto_objet,
         store=stores.CartoObjectStore(),
         lister=lists.carto_objects,
+        index_lister=lists.carto_objects_indexed,
+        index_types=("carto_type", "carto_objet"),
         list_filters=(lists.NATURE, lists.ARCHIMATE, lists.SOURCE, lists.CIBLE),
         identity_paths=("$.cle", "$.type"),
         frozen=("$.source", "$.cible"),
