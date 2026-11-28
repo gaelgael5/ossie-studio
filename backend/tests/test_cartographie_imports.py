@@ -83,8 +83,9 @@ async def _import(space: ApiSpace, type_slug: str, content: bytes, mode: str = "
     )
 
 
-async def _object(space: ApiSpace, key: str) -> dict[str, Any] | None:
-    answer = await space.client.get(f"{space.base}/cartographie/objets/{key}")
+async def _object(space: ApiSpace, ref: str) -> dict[str, Any] | None:
+    """La fiche d'un objet, désigné par `type/CLÉ` (ticket 421832ee)."""
+    answer = await space.client.get(f"{space.base}/cartographie/objets/{ref}")
     return answer.json() if answer.status_code == 200 else None
 
 
@@ -96,15 +97,15 @@ async def test_importer_dix_applications_puis_reimporter(space: ApiSpace) -> Non
     body = first.json()
     assert (body["new"], body["modified"], body["unchanged"]) == (10, 0, 0)
     assert body["revision"].startswith("draft:") and body["last_import"]
-    app_03 = await _object(space, "APP-03")
+    app_03 = await _object(space, "application/APP-03")
     assert app_03 is not None and app_03["type"] == "application"
     again = (await _import(space, "application", _apps())).json()
     assert (again["new"], again["unchanged"], again["revision"]) == (0, 10, None)
     renamed = (await _import(space, "application", _apps(rename={4: "Quatre"}))).json()
     assert (renamed["modified"], renamed["new"]) == (1, 0)
-    app_04 = await _object(space, "APP-04") or {}
+    app_04 = await _object(space, "application/APP-04") or {}
     assert (app_04["name"], app_04["key"], app_04["type"]) == ("Quatre", "APP-04", "application")
-    assert await _object(space, "APP-OLD") is not None  # absent du fichier : inchangé
+    assert await _object(space, "application/APP-OLD") is not None  # absent du fichier : inchangé
 
 
 async def test_une_propriete_invalide_refuse_tout(space: ApiSpace) -> None:
@@ -119,7 +120,7 @@ async def test_une_propriete_invalide_refuse_tout(space: ApiSpace) -> None:
     # Même code, même champ et même message que par write_documents (ticket 1612cce4).
     assert (error["code"], error["field"]) == ("carto_object_invalid", "$.proprietes.criticite")
     assert error["message"].startswith("criticite doit être")
-    assert await _object(space, "APP-01") is None
+    assert await _object(space, "application/APP-01") is None
 
 
 async def test_importer_des_relations(space: ApiSpace) -> None:
@@ -128,8 +129,11 @@ async def test_importer_des_relations(space: ApiSpace) -> None:
     await _declare(space, "acces", REL_TEMPLATE)
     ok = await _import(space, "acces", b"cle;nom;source;cible\nREL-1;Lit;PRC-X;DOC-Y\n")
     assert ok.status_code == 200, ok.text
-    relation = await _object(space, "REL-1") or {}
-    assert relation["source"] == "PRC-X" and relation["target"] == "DOC-Y"
+    relation = await _object(space, "acces/REL-1") or {}
+    # Écrites en clés seules dans le fichier, les extrémités sont enregistrées `type/CLÉ`.
+    assert (relation["source"], relation["target"]) == ("processus/PRC-X", "document/DOC-Y")
+    again = await _import(space, "acces", b"cle;nom;source;cible\nREL-1;Lit;PRC-X;DOC-Y\n")
+    assert again.json()["unchanged"] == 1  # même relation : rien n'est réécrit
     missing = await _import(space, "acces", b"cle;nom;source;cible\nREL-2;Lit;PRC-ABSENT;DOC-Y\n")
     assert missing.status_code == 422
     [error] = missing.json()["error_args"]["report"]["error_details"]
@@ -139,7 +143,8 @@ async def test_importer_des_relations(space: ApiSpace) -> None:
         "$.source",
     )
     assert error["message"] == (
-        "La source PRC-ABSENT n'existe ni dans l'espace ni dans la liste envoyée."
+        "La source PRC-ABSENT n'existe ni dans l'espace ni dans la liste envoyée "
+        "(désigner un objet par type/CLÉ, ex. application/APP-01)."
     )
     await space.client.delete(_url(space, "acces", "/fichier"))
     await _declare(space, "composition", REL_TEMPLATE)
@@ -149,18 +154,88 @@ async def test_importer_des_relations(space: ApiSpace) -> None:
     assert (error["where"], error["code"]) == ("ligne 2", "relation_not_allowed")
 
 
-async def test_pas_de_remplacement_et_type_absent(space: ApiSpace) -> None:
-    """Aucune suppression par import : le mode « remplacement » est refusé."""
-    await _declare(space, "application", APP_TEMPLATE)
-    replace = await _import(space, "application", _apps(1), mode="replace")
-    assert replace.status_code == 400
-    trial = await space.client.post(
-        _url(space, "application", "/fichier/essai"),
-        json={"template": APP_TEMPLATE, "mode": "replace"},
-    )
-    assert trial.status_code == 400
+async def test_type_absent(space: ApiSpace) -> None:
     absent = await space.client.get(_url(space, "inconnu"))
     assert absent.status_code == 404 and absent.json()["error"] == "carto_type_not_found"
+
+
+async def test_objet_a_supprimer_mais_utilise_est_garde(space: ApiSpace) -> None:
+    """Ticket 6d36073b, critères 6 et 7 : un objet absent du fichier, que la stratégie
+    supprimerait, mais qu'une relation vise encore, est gardé ; le reste de l'import
+    s'applique ; la page de l'exécution l'explique, avec des liens."""
+    await _declare(space, "acces", REL_TEMPLATE)
+    ok = await _import(space, "acces", b"cle;nom;source;cible\nREL-1;Lit;PRC-X;DOC-Y\n")
+    assert ok.status_code == 200, ok.text
+    await space.client.delete(_url(space, "acces", "/fichier"))
+    await _declare(space, "document", '{"cle": $.cle, "nom": $.nom}')
+    strategy = await space.client.put(
+        _url(space, "document", "/fichier/suppression"), json={"deletion": "all"}
+    )
+    assert strategy.json()["deletion"] == "all"
+    content = b"cle;nom\nDOC-NEUF;Nouveau\n"
+    trial = await space.client.post(
+        _url(space, "document", "/fichier/essai"),
+        json={"template": '{"cle": $.cle, "nom": $.nom}'},
+    )
+    # Critère 9 : l'essai annonce l'objet gardé car utilisé, sans rien écrire.
+    assert (trial.json()["deleted"], trial.json()["kept_in_use"]) == (0, 1)
+    done = await _import(space, "document", content)
+    assert done.status_code == 200, done.text
+    body = done.json()
+    assert (body["new"], body["deleted"], body["kept_in_use"]) == (1, 0, 1)
+    [kept] = [d for d in body["differences"] if d["kind"] == "kept"]
+    assert (kept["key"], kept["ref"], kept["reason"]) == ("DOC-Y", "document/DOC-Y", "in_use")
+    assert await _object(space, "document/DOC-Y") is not None
+    assert await _object(space, "document/DOC-NEUF") is not None
+    run = await space.client.get(_url(space, "document", f"/fichier/executions/{body['run_id']}"))
+    assert run.status_code == 200, run.text
+    page = run.json()
+    assert (page["label"], page["file"], page["deletion"]) == ("Fichier", "f.csv", "all")
+    assert page["deletion_label"] == "On supprime tous les éléments absents"
+    [item] = page["kept_in_use"]
+    assert (item["key"], item["ref"]) == ("DOC-Y", "document/DOC-Y")
+    [usage] = item["usages"]
+    assert (usage["ref"], usage["type_title"], usage["role"]) == ("acces/REL-1", "Accès", "target")
+    assert (usage["other"]["ref"], usage["other"]["name"]) == ("processus/PRC-X", "PRC-X")
+    # Une autre exécution, ou un autre import, n'a pas cette page.
+    missing = await space.client.get(_url(space, "document", "/fichier/executions/999999"))
+    assert (missing.status_code, missing.json()["error"]) == (404, "import_run_not_found")
+
+
+def test_relation_supprimee_dans_le_meme_import_ne_retient_rien(tmp_path: Path) -> None:
+    """Critère 8 : l'état final compte. Une association visée par une autre association
+    part si celle-ci part aussi ; gardée si celle-ci reste."""
+    from ossie_studio.cartographie import import_target as carto_import
+    from ossie_studio.cartographie import space as carto_space
+    from ossie_studio.imports.declaration import ALL
+    from ossie_studio.imports.engine import Example, Record, deletion_plan, transform
+
+    root = _carto_root(tmp_path)
+    files = {
+        "cartographie/types/association.schema.yaml": (
+            "title: Association\nx-archimate: Association\ntype: object\n"
+        ),
+        "cartographie/objets/association/rel-b.yaml": (
+            "cle: REL-B\ntype: association\nsource: processus/PRC-X\n"
+            "cible: document/DOC-Y\nnom: B\n"
+        ),
+        "cartographie/objets/association/rel-a.yaml": (
+            "cle: REL-A\ntype: association\nsource: document/DOC-Y\n"
+            "cible: association/REL-B\nnom: A\n"
+        ),
+    }
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text, encoding="utf-8")
+    target = carto_import.target_of(carto_space.read_cartographie(root), "association")
+    template = '{"cle": $.cle, "nom": $.nom, "source": $.source, "cible": $.cible}'
+    nothing = transform(target, template, Example([]))
+    gone = deletion_plan(target, target.current(), nothing, ALL)
+    assert sorted(a.ref or "" for a in gone.deleted) == ["association/REL-A", "association/REL-B"]
+    row = {"cle": "REL-A", "nom": "A", "source": "DOC-Y", "cible": "association/REL-B"}
+    keep_a = transform(target, template, Example([Record(row, "ligne 2")]))
+    plan = deletion_plan(target, target.current(), keep_a, ALL)
+    assert not plan.deleted and [a.ref for a in plan.in_use] == ["association/REL-B"]
 
 
 async def test_sans_le_droit_de_modifier(app: FastAPI, space: ApiSpace) -> None:
@@ -338,7 +413,7 @@ async def test_renommer_une_propriete_suit_imports_et_objets(space: ApiSpace) ->
     detail = (await space.client.get(_url(space, "application", "/fichier"))).json()
     assert '"niveau": $.criticite' in detail["template"]
     assert '"criticite":' not in detail["template"]
-    app_01 = await _object(space, "APP-01") or {}
+    app_01 = await _object(space, "application/APP-01") or {}
     assert app_01["properties"] == {"niveau": "haute"}
 
 
@@ -399,7 +474,7 @@ def test_ecriture_d_un_import_sans_relire_par_objet(
     applications), et écrit les mêmes fichiers que l'écriture objet par objet."""
     from ossie_studio.cartographie import space as carto_space
     from ossie_studio.cartographie.import_target import target_of
-    from ossie_studio.mcp_surface import kind_stores, kinds
+    from ossie_studio.mcp_surface import document_type_stores, document_types
 
     root = _carto_root(tmp_path)
     items = [
@@ -416,7 +491,7 @@ def test_ecriture_d_un_import_sans_relire_par_objet(
         return real(*args, **kwargs)
 
     target = target_of(real(root), "application")
-    for module in (carto_space, kind_stores, kinds):
+    for module in (carto_space, document_type_stores, document_types):
         monkeypatch.setattr(module, "read_cartographie", counted)
     target.write(root, items)
     assert reads["n"] <= 1
@@ -443,3 +518,26 @@ def test_ecriture_d_un_import_tout_ou_rien(tmp_path: Path) -> None:
         target.write(root, items)
     assert [p.code for p in refused.value.problems] == ["relation_endpoint_unknown"]
     assert not (root / "cartographie/objets/acces").exists()
+
+
+async def test_cle_unique_dans_le_type_importe(space: ApiSpace) -> None:
+    """Ticket 421832ee : l'unicité d'une clé est contrôlée dans le type importé
+    seulement ; les extrémités d'une relation importée se vérifient par (type, clé)."""
+    await _declare(space, "processus", '{"cle": $.cle, "nom": $.nom}')
+    homonym = await _import(space, "processus", b"cle;nom\nDOC-Y;Traiter le document\n")
+    assert homonym.status_code == 200, homonym.text
+    assert homonym.json()["new"] == 1
+    assert await _object(space, "processus/DOC-Y") is not None
+    assert await _object(space, "document/DOC-Y") is not None  # l'autre type n'a pas bougé
+    await _declare(space, "acces", REL_TEMPLATE)
+    typed = await _import(
+        space, "acces", b"cle;nom;source;cible\nREL-T;Lit;processus/DOC-Y;document/DOC-Y\n"
+    )
+    assert typed.status_code == 200, typed.text
+    relation = await _object(space, "acces/REL-T") or {}
+    assert (relation["source"], relation["target"]) == ("processus/DOC-Y", "document/DOC-Y")
+    ambiguous = await _import(space, "acces", b"cle;nom;source;cible\nREL-U;Lit;PRC-X;DOC-Y\n")
+    assert ambiguous.status_code == 422
+    [error] = ambiguous.json()["error_args"]["report"]["error_details"]
+    assert (error["where"], error["field"]) == ("ligne 2", "$.cible")
+    assert "plusieurs types" in error["message"]

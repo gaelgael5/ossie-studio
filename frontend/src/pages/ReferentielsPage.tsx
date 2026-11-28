@@ -22,10 +22,13 @@ import {
   fromVisual,
   keyViolation,
   modelKey,
+  modelTags,
   modelText,
   parseModel,
   simpleProperties,
+  tagProblem,
   withKey,
+  withTags,
 } from '../referentiels/modelRules'
 import { IconButton, IconLink } from '../components/IconButton'
 
@@ -71,6 +74,8 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   const { name = '' } = useParams()
   const settings = useLocation().pathname.endsWith(SETTINGS_SUFFIX)
   const [filter, setFilter] = useState('')
+  // Filtre par tag (ticket 43478978) : « entreprise », « contrainte »…
+  const [tag, setTag] = useState('')
   const session = useSession()
   const canWrite = sessionCapabilities(session.data).includes('referentiels:write')
   const [creating, setCreating] = useState(false)
@@ -83,9 +88,12 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   // Filtre sur le libellé et le nom technique, sans casse ni accents :
   // « pays » trouve « Pays de livraison ».
   const needle = asciiLower(filter.trim())
-  const items = needle
-    ? all.filter((r) => asciiLower(`${r.title ?? ''} ${r.name}`).includes(needle))
-    : all
+  const tags = [...new Set(all.flatMap((r) => r.tags ?? []))].sort((a, b) => a.localeCompare(b))
+  const items = all.filter(
+    (r) =>
+      (!needle || asciiLower(`${r.title ?? ''} ${r.name}`).includes(needle)) &&
+      (!tag || (r.tags ?? []).includes(tag)),
+  )
   const editable = canWrite && !readonly
   return (
     <UnsavedProvider>
@@ -111,6 +119,16 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
             onChange={(e) => setFilter(e.target.value)}
           />
         ) : null}
+        {tags.length > 0 ? (
+          <select className="input ref-filter" aria-label={t('refTagFilter')} value={tag} onChange={(e) => setTag(e.target.value)}>
+            <option value="">{t('refTagFilterAll')}</option>
+            {tags.map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+        ) : null}
         {list.data && all.length === 0 ? <p className="empty-note">{t('refEmpty')}</p> : null}
         {all.length > 0 && items.length === 0 ? <p className="empty-note">{t('refFilterNone')}</p> : null}
         <ul className="plain-list">
@@ -125,6 +143,15 @@ function ReferentielsScreen({ spaceId, branchId }: { spaceId: string; branchId: 
                 ) : null}
               </div>
               <div className="muted mono small">{r.name}</div>
+              {(r.tags ?? []).length > 0 ? (
+                <div className="row ref-tags" aria-label={t('refTags')}>
+                  {(r.tags ?? []).map((name) => (
+                    <span key={name} className="badge badge-muted">
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <div className="muted small">
                 {r.error ? t(`errors.${r.error}`, { defaultValue: r.error }) : t('refValuesCount', { count: r.count ?? 0 })}
                 {r.unpublished ? <span className="badge badge-warn">{t('refUnpublished')}</span> : null}
@@ -223,6 +250,8 @@ function ReferentielView({
   settings: boolean
 }) {
   const { t } = useTranslation()
+  // « Voir dans le référentiel » depuis une fiche de cartographie : `?valeur=FR`.
+  const valueQuery = new URLSearchParams(useLocation().search).get('valeur') ?? ''
   const [tab, setTab] = useState<Tab>('model')
   // Les onglets modifiables restent montés une fois ouverts : leurs
   // modifications non enregistrées survivent à un changement d'onglet (bug
@@ -317,6 +346,7 @@ function ReferentielView({
           model={data.model as RefModel}
           readOnly={readOnly}
           onErrorCount={setValueErrors}
+          initialQuery={valueQuery}
         />
       ) : null}
       {data && settings && opened.has('model') ? (
@@ -428,6 +458,59 @@ function KeyBar({
   )
 }
 
+// Les tags du référentiel (ticket 43478978) : libres, réglés ici comme la clé, et
+// enregistrés avec le modèle (`x-tags`).
+function TagsBar({ model, readOnly, onTags }: { model: RefModel; readOnly: boolean; onTags: (tags: string[]) => void }) {
+  const { t } = useTranslation()
+  const tags = modelTags(model)
+  const [draft, setDraft] = useState('')
+  const value = draft.trim()
+  const problem = value ? tagProblem(tags, value) : null
+  const add = () => {
+    if (!value || problem) return
+    onTags([...tags, value])
+    setDraft('')
+  }
+  return (
+    <section className="panel ref-key-bar" aria-label={t('refTags')}>
+      <div className="row">
+        <strong>{t('refTags')}</strong>
+        {tags.length === 0 ? <span className="muted">{t('refTagsNone')}</span> : null}
+        {tags.map((name) => (
+          <span key={name} className="ref-key-chip">
+            <span className="badge badge-muted">{name}</span>
+            {!readOnly ? (
+              <IconButton icon="close" label={t('refTagRemove', { tag: name })} onClick={() => onTags(tags.filter((x) => x !== name))} />
+            ) : null}
+          </span>
+        ))}
+        {!readOnly ? (
+          <>
+            <input
+              className="input ref-tag-input"
+              aria-label={t('refTagNew')}
+              placeholder={t('refTagNew')}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  add()
+                }
+              }}
+            />
+            <button type="button" className="btn btn-sm" disabled={!value || problem !== null} onClick={add}>
+              {t('refTagAdd')}
+            </button>
+          </>
+        ) : null}
+      </div>
+      {problem ? <p className="field-hint text-danger">{t(`refTagProblem_${problem}`)}</p> : null}
+      <p className="field-hint">{t('refTagsHelp')}</p>
+    </section>
+  )
+}
+
 function PreviewNotice({ preview }: { preview: ReferentielModelPreview }) {
   const { t } = useTranslation()
   if (preview.model_problems.length > 0) {
@@ -533,6 +616,7 @@ function ModelTab({
   return (
     <div className="stack">
       <KeyBar model={model} readOnly={readOnly || !parsed.ok} onKey={(key) => apply(withKey(model, key), key)} />
+      <TagsBar model={model} readOnly={readOnly || !parsed.ok} onTags={(tags) => apply(withTags(model, tags), modelKey(model))} />
       {violation ? (
         <p className="empty-note text-danger" role="alert">
           {t(`refGuard_${violation.kind}`, { property: violation.property })}

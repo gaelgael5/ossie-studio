@@ -189,7 +189,12 @@ async def _error(app: FastAPI, tool: str, args: dict[str, Any]) -> str:
 
 def _raw(space: ApiSpace, source: str = "boutique", **filters: Any) -> dict[str, Any]:
     ids = {"space_id": space.space_id, "branch_id": space.branch_id}
-    return {**ids, "kind": "schema_raw", "identity": {"source": source}, "filters": filters}
+    return {
+        **ids,
+        "document_type": "schema_raw",
+        "identity": {"source": source},
+        "filters": filters,
+    }
 
 
 async def test_modules_par_schema_raw(app: FastAPI, space: ApiSpace) -> None:
@@ -249,8 +254,10 @@ def _migration(name: str) -> str:
 async def test_list_modules_retiree(app: FastAPI, space: ApiSpace) -> None:
     """Plus au catalogue ; schema_raw déclare ses deux filtres ; profils migrés."""
     assert "list_modules" not in {p.id for p in CATALOG}
-    kinds = (await call_tool(app, KEY, "list_write_kinds", {})).structured_content["kinds"]
-    raw = next(k for k in kinds if k["kind"] == "schema_raw")
+    kinds = (await call_tool(app, KEY, "list_document_types", {})).structured_content[
+        "document_types"
+    ]
+    raw = next(k for k in kinds if k["document_type"] == "schema_raw")
     assert [f["name"] for f in raw["list_filters"]] == ["kind", "module"]
     async with app.state.pool.acquire() as conn:
         profile = await conn.fetchval(
@@ -269,7 +276,12 @@ async def test_list_modules_retiree(app: FastAPI, space: ApiSpace) -> None:
 
 def _entries(space: ApiSpace, **filters: Any) -> dict[str, Any]:
     ids = {"space_id": space.space_id, "branch_id": space.branch_id}
-    return {**ids, "kind": "point_entree", "identity": {"source": "boutique"}, "filters": filters}
+    return {
+        **ids,
+        "document_type": "point_entree",
+        "identity": {"source": "boutique"},
+        "filters": filters,
+    }
 
 
 async def test_un_module_en_quatre_lectures(app: FastAPI, space: ApiSpace) -> None:
@@ -280,7 +292,7 @@ async def test_un_module_en_quatre_lectures(app: FastAPI, space: ApiSpace) -> No
     ids = {"space_id": space.space_id, "branch_id": space.branch_id, **draft}
     identity = {"source": "boutique", "name": name}
     module = await _ok(
-        app, AGENT, "read_document", {**ids, "kind": "schema_raw", "identity": identity}
+        app, AGENT, "read_document", {**ids, "document_type": "schema_raw", "identity": identity}
     )
     assert module["view"] == "draft"
     assert module["content"]["x-module"]["project"] == PROJECTS["Api"]
@@ -303,7 +315,7 @@ async def test_un_module_en_quatre_lectures(app: FastAPI, space: ApiSpace) -> No
 def _ext(space: ApiSpace, name: str) -> dict[str, Any]:
     ids = {"space_id": space.space_id, "branch_id": space.branch_id}
     identity = {"source": "boutique", "name": name}
-    return {**ids, "kind": "extension_raw", "identity": identity}
+    return {**ids, "document_type": "extension_raw", "identity": identity}
 
 
 async def test_methodes_d_une_classe(app: FastAPI, space: ApiSpace) -> None:
@@ -358,7 +370,7 @@ async def test_une_extension_ne_s_ecrit_pas(app: FastAPI, space: ApiSpace) -> No
 
     app.state.mcp_resolvers.append(resolver)
     document = {
-        "kind": "extension_raw",
+        "document_type": "extension_raw",
         "identity": {"source": "boutique", "name": "commande.schema.yaml"},
         "content": {"methods": []},
     }
@@ -367,7 +379,7 @@ async def test_une_extension_ne_s_ecrit_pas(app: FastAPI, space: ApiSpace) -> No
         app, "writer", "write_documents", {**ids, "message": "x", "documents": [document]}
     )
     [refusal] = json.loads(result.content[0].text)["errors"]
-    assert refusal["code"] == "write_kind_read_only" and "collect_source" in refusal["message"]
+    assert refusal["code"] == "document_type_read_only" and "collect_source" in refusal["message"]
 
 
 def test_l_exemple_du_standard_passe_le_schema_du_parseur() -> None:
@@ -423,7 +435,10 @@ async def test_lire_un_point_d_entree(app: FastAPI, space: ApiSpace) -> None:
     }
     ids = {"space_id": space.space_id, "branch_id": space.branch_id}
     read = await _ok(
-        app, KEY, "read_document", {**ids, "kind": "point_entree", "identity": listed["identity"]}
+        app,
+        KEY,
+        "read_document",
+        {**ids, "document_type": "point_entree", "identity": listed["identity"]},
     )
     assert read["content"]["contract_operations"][0]["operationId"] == "lire"
     assert read["version"] == listed["version"]
@@ -435,7 +450,7 @@ async def test_lire_un_point_d_entree(app: FastAPI, space: ApiSpace) -> None:
     assert again["documents"][0]["version"] == listed["version"]
     module = {**listed["identity"], "owner": schema_file(module_key(PROJECTS["Api"]))}
     missing = await call_tool(
-        app, KEY, "read_document", {**ids, "kind": "point_entree", "identity": module}
+        app, KEY, "read_document", {**ids, "document_type": "point_entree", "identity": module}
     )
     assert json.loads(missing.content[0].text)["error"] == "document_not_found"
 
@@ -445,8 +460,10 @@ async def test_un_point_d_entree_ne_s_ecrit_pas_et_primitives_retirees(
 ) -> None:
     assert not {"list_entry_points", "get_module"} & {p.id for p in CATALOG}
     assert len(CATALOG) == 32
-    kinds = (await call_tool(app, KEY, "list_write_kinds", {})).structured_content["kinds"]
-    point = next(k for k in kinds if k["kind"] == "point_entree")
+    kinds = (await call_tool(app, KEY, "list_document_types", {})).structured_content[
+        "document_types"
+    ]
+    point = next(k for k in kinds if k["document_type"] == "point_entree")
     assert point["writable"] is False and point["produced_by"] == ["collect_source"]
     assert [f["name"] for f in point["list_filters"]] == ["module", "contract_status", "kind"]
     async with app.state.pool.acquire() as conn:

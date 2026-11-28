@@ -88,7 +88,10 @@ function setup(url: string, options: { readonly?: boolean; capabilities?: string
       else if (path === BASE && method === 'GET')
         body = {
           readonly: options.readonly ?? false,
-          referentiels: [{ name: 'delais', title: 'Délais', key: ['pays', 'mode'], count: 412, unpublished: true }, { name: 'tarifs', title: 'Tarifs', key: ['code'], count: 3 }],
+          referentiels: [
+            { name: 'delais', title: 'Délais', key: ['pays', 'mode'], tags: ['entreprise'], count: 412, unpublished: true },
+            { name: 'tarifs', title: 'Tarifs', key: ['code'], tags: ['contrainte'], count: 3 },
+          ],
         }
       else if (path === BASE) body = { ...DETAIL, name: 'tarifs', title: 'Tarifs' }
       else if (path === `${BASE}/delais/modele/apercu`) body = PREVIEW
@@ -297,5 +300,38 @@ describe('Référentiels — aller sur Imports avec un modèle non enregistré (
     await modify()
     await userEvent.setup().click(screen.getByRole('tab', { name: 'Historique' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+describe('Référentiels — tags (ticket 43478978)', () => {
+  it('les tags s’affichent dans la liste et la filtrent', async () => {
+    setup('/referentiels')
+    expect(await screen.findByText('Délais')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filtrer par tag' }), 'contrainte')
+    expect(screen.queryByText('Délais')).not.toBeInTheDocument()
+    expect(screen.getByText('Tarifs')).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filtrer par tag' }), '')
+    expect(screen.getByText('Délais')).toBeInTheDocument()
+  })
+
+  it('ajouter et retirer un tag dans le modèle, puis enregistrer', async () => {
+    const calls = setup('/referentiels/delais/parametrage')
+    const bar = await screen.findByRole('region', { name: 'Tags' })
+    expect(within(bar).getByText('aucun tag')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.type(within(bar).getByRole('textbox', { name: 'Nouveau tag' }), 'Contrainte{Enter}')
+    await user.type(within(bar).getByRole('textbox', { name: 'Nouveau tag' }), 'contrainte')
+    expect(within(bar).getByText('Ce tag est déjà là.')).toBeInTheDocument()
+    expect(within(bar).getByRole('button', { name: 'Ajouter' })).toBeDisabled()
+    await user.clear(within(bar).getByRole('textbox', { name: 'Nouveau tag' }))
+    await user.type(within(bar).getByRole('textbox', { name: 'Nouveau tag' }), 'entreprise')
+    await user.click(within(bar).getByRole('button', { name: 'Ajouter' }))
+    await user.click(within(bar).getByRole('button', { name: 'Retirer le tag Contrainte' }))
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.path === `${BASE}/delais/modele`)).toBe(true))
+    const saved = JSON.parse(calls.find((c) => c.method === 'PUT' && c.path === `${BASE}/delais/modele`)!.body!)
+    expect(saved.model['x-tags']).toEqual(['entreprise'])
+    expect(saved.model['x-key']).toEqual(['pays', 'mode'])
   })
 })

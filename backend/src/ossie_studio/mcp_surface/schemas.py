@@ -1,5 +1,5 @@
 """Primitive commune de lecture des schémas : `read_schema` (ticket 06ef8679 ; désignation
-par genre, ticket 69be2ef9).
+par type de document, ticket 69be2ef9).
 
 Gael : « Est-ce que pour la lecture des schémas il y a moyen de mutualiser ? »
 Une seule primitive lit tout schéma de l'espace par son **chemin** et remplace
@@ -17,17 +17,20 @@ La **nature** se déduit du chemin :
 
 Tout autre chemin est refusé en le nommant (`schema_path_unknown`).
 
-**Désignation par genre** (epic « Primitives MCP — écriture commune par genre »,
+**Désignation par type de document** (epic « Primitives MCP — écriture commune par type de document
+»,
 ticket 69be2ef9 ; Gael : « un path optionnel, un type ») : le schéma du contenu d'un
-genre d'écriture se demande par le genre et ce qui le type, sans chemin —
-`read_schema(kind='carto_objet', type='application')`,
-`read_schema(kind='referentiel_valeur', referentiel='pays')`. Le registre dit quel
-champ type un genre (`typed_by`) et quel document porte son schéma (`schema_kind`) ;
+type de document d'écriture se demande par le type de document et ce qui le type, sans chemin —
+`read_schema(document_type='carto_objet', type='application')`,
+`read_schema(document_type='referentiel_valeur', referentiel='pays')`. Le registre dit quel
+champ type un type de document (`typed_by`) et quel document porte son schéma
+(`schema_document_type`) ;
 l'emplacement en est déduit, puis lu exactement comme par chemin (même réponse). Un
-`path` donné avec un genre suit la règle de ce genre (interdit aujourd'hui). Un genre
+`path` donné avec un type de document suit la règle de ce type de document (interdit aujourd'hui).
+Un type de document
 dont le contenu ne dépend d'aucun type (modèle, processus, tag…) n'a pas de schéma
 par type : son format est décrit par `describe_standard`. Le chemin reste l'entrée
-des schémas qui ne sont pas des genres d'écriture (raw, asset), et reste accepté
+des schémas qui ne sont pas des types de document d'écriture (raw, asset), et reste accepté
 pour un référentiel ou un type de cartographie.
 
 **Droits** : la primitive suppose `spaces:read` (elle est visible de qui lit un
@@ -73,6 +76,11 @@ from ossie_studio.cartographie.model import (
     object_document_schema,
     parse_type,
 )
+from ossie_studio.cartographie.referentiel_links import (
+    EXTEND_SUFFIX,
+    ReferentielLink,
+    parse_extend,
+)
 from ossie_studio.drafts.store import git_blob_sha
 from ossie_studio.mcp_surface.branch import (
     BranchArgs,
@@ -82,9 +90,9 @@ from ossie_studio.mcp_surface.branch import (
     open_view,
 )
 from ossie_studio.mcp_surface.core import PrimitiveContext, PrimitiveError
-from ossie_studio.mcp_surface.document_reads import kind_error, resolve_kind
-from ossie_studio.mcp_surface.kind_base import KindError
-from ossie_studio.mcp_surface.kinds import WriteKind, write_kind
+from ossie_studio.mcp_surface.document_reads import document_error, resolve_document_type
+from ossie_studio.mcp_surface.document_type_base import DocumentError
+from ossie_studio.mcp_surface.document_types import DocumentType, get_document_type
 from ossie_studio.mcp_surface.reads import asset_payload
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.profiles.service import load_capabilities
@@ -116,32 +124,36 @@ _CARTO_TYPE = re.compile(rf"^{TYPES_DIR}/([^/]+){re.escape(TYPE_SUFFIX)}$")
 
 
 class ReadSchemaArgs(BranchArgs):
-    kind: str | None = Field(
+    document_type: str | None = Field(
         default=None,
         description=(
-            "Kind of document whose content schema is wanted (list_write_kinds), with the "
-            "field that types it: kind='carto_objet' + type, kind='referentiel_valeur' + "
+            "Kind of document whose content schema is wanted (list_document_types), with the "
+            "field that types it: document_type='carto_objet' + type, "
+            "document_type='referentiel_valeur' + "
             "referentiel. Omit it to read a raw or asset schema by path."
         ),
     )
     type: str | None = Field(
-        default=None, description="With kind='carto_objet': slug of the type of the map."
+        default=None, description="With document_type='carto_objet': slug of the type of the map."
     )
     referentiel: str | None = Field(
-        default=None, description="With kind='referentiel_valeur': slug of the reference list."
+        default=None,
+        description="With document_type='referentiel_valeur': slug of the reference list.",
     )
     identity: dict[str, Any] | None = Field(
         default=None,
         description=(
-            "With a kind whose document is itself a schema (schema_raw, schema_asset): its "
+            "With a document type whose document is itself a schema (schema_raw, schema_asset): "
+            "its "
             "identity, e.g. {source: 'ventes', name: 'customer.schema.yaml'}."
         ),
     )
     path: str | None = Field(
         default=None,
         description=(
-            "Path of the schema in the space, without kind (prefer kind). With kind: never "
-            "needed (refused for a kind whose path is fixed)."
+            "Path of the schema in the space, without document_type (prefer document_type). With "
+            "document_type: never "
+            "needed (refused for a document type whose path is fixed)."
         ),
     )
     resolved: bool = Field(
@@ -187,7 +199,7 @@ def classify(path: str) -> Target:
     raise unknown
 
 
-# Les champs qui typent un genre : nom du paramètre de read_schema.
+# Les champs qui typent un type de document : nom du paramètre de read_schema.
 _TYPING_FIELDS = ("type", "referentiel")
 
 
@@ -200,72 +212,79 @@ def _typing_values(args: ReadSchemaArgs) -> dict[str, str | None]:
 
 
 def designate(args: ReadSchemaArgs) -> Target:
-    """Le schéma désigné : par genre (et ce qui le type), ou par chemin."""
+    """Le schéma désigné : par type de document (et ce qui le type), ou par chemin."""
     given = _typing_values(args)
-    if not args.kind:
+    if not args.document_type:
         stray = [name for name, value in given.items() if value]
         if args.identity:
             stray.append("identity")
         if stray:
-            raise _invalid(stray[0], f"« {stray[0]} » accompagne un genre : donner aussi « kind ».")
+            raise _invalid(
+                stray[0],
+                f"« {stray[0]} » accompagne un type de document : donner aussi « document_type ».",
+            )
         if not (args.path or "").strip():
             raise _invalid(
-                "kind",
-                "Désigner le schéma par son genre (kind, avec type ou referentiel) ; le "
+                "document_type",
+                "Désigner le schéma par son type de document (document_type, avec type ou "
+                "referentiel) ; le "
                 "chemin (path) ne sert qu'aux schémas bruts et d'assets.",
             )
         return classify(args.path or "")
-    return _by_kind(resolve_kind(args.kind), args, given)
+    return _by_document_type(resolve_document_type(args.document_type), args, given)
 
 
-def _by_kind(kind: WriteKind, args: ReadSchemaArgs, given: dict[str, str | None]) -> Target:
-    if kind.is_schema:
+def _by_document_type(
+    doc_type: DocumentType, args: ReadSchemaArgs, given: dict[str, str | None]
+) -> Target:
+    if doc_type.is_schema:
         # Le document est lui-même un schéma (raw, asset, ticket 56f3784a) : désigné
         # par son identité, lu comme par chemin.
         try:
-            location = kind.locate(None, args.identity or {}, args.path)
-        except KindError as exc:
-            raise kind_error(exc, kind.standard) from None
+            location = doc_type.locate(None, args.identity or {}, args.path)
+        except DocumentError as exc:
+            raise document_error(exc, doc_type.standard) from None
         assert location.path is not None
         return classify(location.path)
     if args.identity:
         raise _invalid(
             "identity",
-            f"Le schéma d'un document « {kind.label} » ne se désigne pas par une identité.",
+            f"Le schéma d'un document « {doc_type.label} » ne se désigne pas par une identité.",
         )
-    if kind.typed_by is None or kind.schema_kind is None:
+    if doc_type.typed_by is None or doc_type.schema_document_type is None:
         raise PrimitiveError(
-            "schema_kind_untyped",
-            path="$.kind",
-            kind=kind.name,
+            "schema_document_type_untyped",
+            path="$.document_type",
+            document_type=doc_type.name,
             message=(
-                f"Le contenu d'un document « {kind.label} » ne dépend d'aucun type : son "
+                f"Le contenu d'un document « {doc_type.label} » ne dépend d'aucun type : son "
                 "format est décrit par son standard."
             ),
-            aide={"primitive": "describe_standard", "standard": kind.standard},
+            aide={"primitive": "describe_standard", "standard": doc_type.standard},
         )
-    value = given.pop(kind.typed_by)
+    value = given.pop(doc_type.typed_by)
     stray = [name for name, v in given.items() if v]
     if stray:
         raise _invalid(
             stray[0],
-            f"Le schéma d'un document « {kind.label} » se désigne par « {kind.typed_by} » seul.",
+            f"Le schéma d'un document « {doc_type.label} » se désigne par « {doc_type.typed_by} » "
+            f"seul.",
         )
     if not (value or "").strip():
         raise _invalid(
-            kind.typed_by,
-            f"read_schema(kind='{kind.name}') demande « {kind.typed_by} ».",
+            doc_type.typed_by,
+            f"read_schema(document_type='{doc_type.name}') demande « {doc_type.typed_by} ».",
         )
-    holder = write_kind(kind.schema_kind)
+    holder = get_document_type(doc_type.schema_document_type)
     field = holder.identity[0]
     try:
         location = holder.locate(None, {field.name: value}, args.path)
-    except KindError as exc:
+    except DocumentError as exc:
         if exc.field != field.name:
-            raise kind_error(exc, kind.standard) from None
+            raise document_error(exc, doc_type.standard) from None
         raise _invalid(
-            kind.typed_by,
-            f"« {kind.typed_by} » invalide : {field.format} ; reçu « {value} ».",
+            doc_type.typed_by,
+            f"« {doc_type.typed_by} » invalide : {field.format} ; reçu « {value} ».",
             received=value,
         ) from None
     assert location.path is not None
@@ -323,15 +342,42 @@ def _effective(target: Target, file: Path, text: str, raw: Any) -> tuple[Any, di
         ctype = parse_type(target.name, text)
         base = catalog().get(ctype.archimate)
         relation = base is not None and base.is_relation
-        extras = {
+        extras: dict[str, Any] = {
             "slug": ctype.slug,
             "name": ctype.title,
             "archimate": ctype.archimate,
             "layer": base.layer if base and not relation else None,
             "nature": "relation" if relation else "object",
         }
-        return object_document_schema(ctype, base), extras
+        schema = object_document_schema(ctype, base)
+        links = _referentiel_links(file.with_name(f"{ctype.slug}{EXTEND_SUFFIX}"))
+        if links:
+            # Liens vers les référentiels (ticket 43478978) : une valeur absente du
+            # référentiel est refusée à l'écriture.
+            extras["referentiels"] = [link.payload() for link in links]
+            props = schema["properties"]["proprietes"]["properties"]
+            for link in links:
+                for prop, target_prop in link.properties.items():
+                    if isinstance(props.get(prop), dict):
+                        props[prop] = {
+                            **props[prop],
+                            "x-referentiel": {
+                                "referentiel": link.referentiel,
+                                "propriete": target_prop,
+                            },
+                        }
+        return schema, extras
     return raw, {}
+
+
+def _referentiel_links(file: Path) -> list[ReferentielLink]:
+    """Les liens du fichier d'extension d'un type ; illisible ou absent : aucun."""
+    if not file.is_file():
+        return []
+    try:
+        return parse_extend(file.read_text(encoding="utf-8"))
+    except (CartographieError, UnicodeDecodeError):
+        return []
 
 
 def _unpublished(bv: BranchView, target: Target) -> bool:
@@ -354,14 +400,14 @@ async def _open(ctx: PrimitiveContext, args: ReadSchemaArgs, target: Target) -> 
 
 
 def _code_schema(args: ReadSchemaArgs) -> dict[str, Any] | None:
-    """Le schéma du contenu d'un genre qui le définit dans le code (ticket b4aeae83 :
+    """Le schéma du contenu d'un type de document qui le définit dans le code (ticket b4aeae83 :
     un dataset, sa part Ossie 0.1.1 officielle et sa part extension), sinon None."""
-    if not args.kind:
+    if not args.document_type:
         return None
-    kind = resolve_kind(args.kind)
-    if kind.content_schema is None:
+    doc_type = resolve_document_type(args.document_type)
+    if doc_type.content_schema is None:
         return None
-    schema = kind.content_schema()
+    schema = doc_type.content_schema()
     text = json.dumps(schema, sort_keys=True, ensure_ascii=False).encode("utf-8")
     return {
         "view": None,
@@ -371,7 +417,7 @@ def _code_schema(args: ReadSchemaArgs) -> dict[str, Any] | None:
         "unpublished": False,
         "resolved": True,
         "schema": schema,
-        "extras": {"kind": kind.name, "standard": kind.standard},
+        "extras": {"document_type": doc_type.name, "standard": doc_type.standard},
     }
 
 

@@ -206,16 +206,17 @@ async def test_supprimer_un_modele_garde_les_objets(space: ApiSpace) -> None:
 
 async def test_objet_retenu_par_un_modele(space: ApiSpace) -> None:
     objects = f"{space.base}/cartographie/objets"
-    detail = (await space.client.get(f"{objects}/OBJ-COMMANDE")).json()
+    detail = (await space.client.get(f"{objects}/document-metier/OBJ-COMMANDE")).json()
     assert detail["models"] == [
         {"slug": "boutique-applicatif", "name": "Boutique — vue applicative"}
     ]
-    assert (await space.client.get(f"{objects}/OBJ-FACTURE")).json()["models"] == []
-    refused = await space.client.delete(f"{objects}/REL-ECRIT-COMMANDE")
+    facture = (await space.client.get(f"{objects}/document-metier/OBJ-FACTURE")).json()
+    assert facture["models"] == []
+    refused = await space.client.delete(f"{objects}/acces/REL-ECRIT-COMMANDE")
     assert (refused.status_code, refused.json()["error"]) == (409, "carto_object_in_model")
     assert refused.json()["error_args"]["models"] == "Boutique — vue applicative"
     assert refused.json()["error_args"]["slugs"] == ["boutique-applicatif"]
-    assert (await space.client.delete(f"{objects}/OBJ-FACTURE")).status_code == 200
+    assert (await space.client.delete(f"{objects}/document-metier/OBJ-FACTURE")).status_code == 200
 
 
 # --- Critère 5 et droits ---------------------------------------------------------------------
@@ -267,7 +268,7 @@ async def test_modele_hydrate_pour_le_composant(space: ApiSpace) -> None:
     # Critère 6 : rien n'est recopié, un objet modifié se voit à la prochaine ouverture.
     objects = f"{space.base}/cartographie/objets"
     renamed = await space.client.put(
-        f"{objects}/APP-BOUTIQUE", json={"name": "Boutique web", "documentation": ""}
+        f"{objects}/application/APP-BOUTIQUE", json={"name": "Boutique web", "documentation": ""}
     )
     assert renamed.status_code == 200, renamed.text
     again = (await space.client.get(_url(space, "/boutique-applicatif/hydrate"))).json()
@@ -298,12 +299,16 @@ async def test_boite_a_outils_objets_existants_par_type(space: ApiSpace) -> None
         ("document-metier", "Document métier"),
         ("relations", ""),
     ]
-    assert [t["cle"] for t in groups[1]["outils"]] == ["OBJ-COMMANDE", "OBJ-FACTURE"]
+    # L'outil porte l'identifiant `type/CLÉ` (ticket 421832ee), rendu tel quel à la pose.
+    assert [t["cle"] for t in groups[1]["outils"]] == [
+        "document-metier/OBJ-COMMANDE",
+        "document-metier/OBJ-FACTURE",
+    ]
     assert groups[1]["outils"][1]["libelle"] == "Facture"
     assert groups[1]["outils"][1]["icone"].startswith("<svg")  # pictogramme du type ArchiMate
     assert groups[2]["outils"] == [
         {
-            "cle": "REL-ECRIT-COMMANDE",
+            "cle": "acces/REL-ECRIT-COMMANDE",
             "libelle": "Écrit la commande (Boutique en ligne → Commande)",
             "icone": groups[2]["outils"][0]["icone"],
         }
@@ -331,7 +336,10 @@ async def test_delegue_de_pose(space: ApiSpace) -> None:
 
 async def test_relations_permises_avec_le_schema_du_type(space: ApiSpace) -> None:
     objects = f"{space.base}/cartographie/objets"
-    answer = await space.client.get(f"{objects}/APP-BOUTIQUE/relations-permises?cible=OBJ-FACTURE")
+    answer = await space.client.get(
+        f"{objects}/application/APP-BOUTIQUE/relations-permises",
+        params={"cible": "document-metier/OBJ-FACTURE"},
+    )
     [access] = answer.json()["types"]
     assert access["slug"] == "acces"
     assert access["type_schema"] == {"title": "Accès", "x-archimate": "Access", "type": "object"}
@@ -410,7 +418,7 @@ async def test_poser_un_objet_et_tracer_une_relation(space: ApiSpace) -> None:
     keys = [d["data"]["cle"] for d in hydrated["documents"]]
     assert "OBJ-FACTURE" in keys and "REL-BOUTIQUE-LIT-FACTURE" in keys
     detail = (
-        await space.client.get(f"{space.base}/cartographie/objets/REL-BOUTIQUE-LIT-FACTURE")
+        await space.client.get(f"{space.base}/cartographie/objets/acces/REL-BOUTIQUE-LIT-FACTURE")
     ).json()
     assert detail["properties"] == {"acces": "Read"}
 
@@ -461,7 +469,7 @@ async def test_retirer_un_objet_de_toutes_les_vues(space: ApiSpace) -> None:
     assert answer.status_code == 200, answer.text
     assert answer.json()["keys"] == ["APP-BOUTIQUE"]
     objects = f"{space.base}/cartographie/objets"
-    assert (await space.client.get(f"{objects}/OBJ-COMMANDE")).status_code == 200
+    assert (await space.client.get(f"{objects}/document-metier/OBJ-COMMANDE")).status_code == 200
     # Le graphique ne garde que les nœuds encore présents.
     hydrated = (await space.client.get(_url(space, "/boutique-applicatif/hydrate"))).json()
     assert list(hydrated["graphique"]["data"]["vues"]["VUE-COOPERATION"]["noeuds"]) == ["N1"]
@@ -476,3 +484,59 @@ async def test_enregistrer_un_modele_incoherent_refuse(space: ApiSpace) -> None:
     )
     assert answer.json()["error"] == "carto_model_invalid"
     assert await _draft_paths(space) == set()
+
+
+# --- Ticket 421832ee : deux types, une même clé --------------------------------------------
+
+
+async def test_meme_cle_dans_deux_types_et_modele(space: ApiSpace) -> None:
+    """Le composant reçoit les extrémités d'une relation par leur clé seule (celle des
+    nœuds) ; une nouvelle relation tracée est écrite en `type/CLÉ`, lue par les
+    documents du modèle même si sa clé existe dans un autre type ; un modèle qui
+    retiendrait deux objets de même clé est refusé."""
+    objects = f"{space.base}/cartographie/objets"
+    homonym = await space.client.post(
+        objects, json={"key": "OBJ-FACTURE", "type": "application", "name": "Facturation"}
+    )
+    assert homonym.status_code == 201, homonym.text
+    stored = (await space.client.get(f"{objects}/acces/REL-ECRIT-COMMANDE")).json()["yaml"]
+    assert "source: APP-BOUTIQUE\n" in stored  # forme d'avant, pas réécrite
+    hydrated = (await space.client.get(_url(space, "/boutique-applicatif/hydrate"))).json()
+    relation = next(d for d in hydrated["documents"] if d["data"]["cle"] == "REL-ECRIT-COMMANDE")
+    assert (relation["data"]["source"], relation["data"]["cible"]) == (
+        "APP-BOUTIQUE",
+        "OBJ-COMMANDE",
+    )
+    modele, graphique = await _saved_form(space)
+    modele["documents"].append("cartographie/objets/document-metier/obj-facture.yaml")
+    modele["elements"].append("OBJ-FACTURE")
+    modele["relationships"].append("REL-LIT-FACTURE")
+    view = modele["vues"][0]
+    view["noeuds"].append({"id": "N3", "element": "OBJ-FACTURE"})
+    view["connexions"].append(
+        {"id": "C2", "relationship": "REL-LIT-FACTURE", "de": "N1", "vers": "N3"}
+    )
+    traced = {
+        "cle": "REL-LIT-FACTURE",
+        "type": "acces",
+        "nom": "Lit la facture",
+        "source": "APP-BOUTIQUE",
+        "cible": "OBJ-FACTURE",  # ambiguë dans l'espace, pas dans le modèle
+    }
+    answer = await space.client.put(
+        _url(space, "/boutique-applicatif"),
+        json={"modele": modele, "graphique": graphique, "nouvellesRelations": [traced]},
+    )
+    assert answer.status_code == 200, answer.text
+    written = (await space.client.get(f"{objects}/acces/REL-LIT-FACTURE")).json()
+    assert written["target"] == "document-metier/OBJ-FACTURE"
+    # Retenir aussi la facturation (même clé, autre type) : refusé, nommé.
+    modele, graphique = await _saved_form(space)
+    modele["documents"].append("cartographie/objets/application/obj-facture.yaml")
+    refused = await space.client.put(
+        _url(space, "/boutique-applicatif"),
+        json={"modele": modele, "graphique": graphique, "nouvellesRelations": []},
+    )
+    assert refused.status_code >= 400, refused.text
+    codes = {p["code"] for p in refused.json()["error_args"]["problems"]}
+    assert "model_key_ambiguous" in codes

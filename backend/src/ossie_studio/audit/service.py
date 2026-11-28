@@ -94,16 +94,19 @@ class AuditEntry:
             self.object_label = label
 
 
-async def record(conn: asyncpg.Connection, actor: User | None, entry: AuditEntry) -> None:
+async def record(conn: asyncpg.Connection, actor: User | None, entry: AuditEntry) -> int:
+    """Écrit la ligne ; rend son identifiant (pour y rattacher un détail, ex. les
+    éléments gardés d'un import)."""
     if entry.action not in ACTIONS:
         raise ValueError(f"action d'audit inconnue : {entry.action}")
     if not entry.object_id:
         raise ValueError("ligne d'audit sans identifiant d'objet")
-    await conn.execute(
+    row_id: int = await conn.fetchval(
         """
         INSERT INTO audit_log
             (actor_id, actor_label, action, object_type, object_id, object_label, detail)
         VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+        RETURNING id
         """,
         actor.id if actor is not None else None,
         actor_label(actor),
@@ -114,6 +117,7 @@ async def record(conn: asyncpg.Connection, actor: User | None, entry: AuditEntry
         # Codec jsonb du pool (db/__init__.py) : le dict est encodé par lui.
         clean_detail(entry.detail),
     )
+    return row_id
 
 
 @asynccontextmanager

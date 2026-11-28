@@ -188,11 +188,12 @@ CATALOG: tuple[Primitive, ...] = (
         # l'appel, sur l'espace visé.
         capability="spaces:read",
         description=(
-            "Read a schema of the space. For the content of a kind of document, by kind and "
-            "what types it, never a path: kind='carto_objet' + type (schema of an object of "
-            "that map type), kind='referentiel_valeur' + referentiel (model of the reference "
-            "list). A kind whose content depends on no type (models, processes, tags...) is "
-            "described by describe_standard instead. A raw or asset schema: kind='schema_raw' "
+            "Read a schema of the space. For the content of a document type, by document type "
+            "and what types it, never a path: document_type='carto_objet' + type (schema of an "
+            "object of that map type), document_type='referentiel_valeur' + referentiel (model "
+            "of the reference list). A document type whose content depends on no type (models, "
+            "processes, tags...) is described by describe_standard instead. A raw or asset "
+            "schema: document_type='schema_raw' "
             "or 'schema_asset' + identity {source, name} (list_documents). Returns "
             "kind ('raw', 'asset', 'referentiel', 'carto_type'), "
             "version (content id in the branch read), unpublished, schema and extras. By "
@@ -382,29 +383,32 @@ CATALOG: tuple[Primitive, ...] = (
         person_only=True,
         destructive=True,
     ),
-    # --- Écriture commune par genre (epic « Primitives MCP — écriture commune par genre »)
+    # --- Écriture commune par type de document (epic « Primitives MCP — écriture commune par type
+    # de document »)
     Primitive(
         id="write_documents",
         domain="documents",
         access="write",
         capability="spaces:read",
         description=(
-            "Write a list of documents of any writable kind (map types, objects and "
+            "Write a list of documents of any writable document type (map types, objects and "
             "relationships, models, BPMN processes, reference-list models and values, "
             "governance, tag / classification / sorting rules, domains and their datasets, "
             "relationships and references) to the user's draft, all together or not at "
-            "all (one draft change, never published). Each entry gives its kind and identity "
-            "(list_write_kinds): the system computes where the document goes, never give a "
+            "all (one draft change, never published). Each entry gives its document_type and "
+            "identity "
+            "(list_document_types): the system computes where the document goes, never give a "
             "path. Absent document = creation (no version); present = complete replacement, "
             "version required (read_document); delete: true = deletion, version required. "
             "Content is the whole document as stored (describe_standard). Order is free: a "
             "relationship may target an object created later in the list; an object may be "
             "deleted with the relationships that use it. Each document is checked like the "
-            "screen before anything is written, and needs the screen's right for its kind. On "
+            "screen before anything is written, and needs the screen's right for its document "
+            "type. On "
             "any refusal nothing is written and every error is returned (write_refused): "
             "JSONPath in your request (e.g. $.documents[2].content.proprietes.volume_jour), "
             "code, French message with what was received and expected, and 'aide' pointing to "
-            "describe_standard or list_write_kinds for a format error. Returns each "
+            "describe_standard or list_document_types for a format error. Returns each "
             "document's path and new version, and warnings."
         ),
         person_only=True,
@@ -414,26 +418,26 @@ CATALOG: tuple[Primitive, ...] = (
         id="list_documents",
         domain="documents",
         access="read",
-        # Visible de qui lit un espace ; la capacité de lecture du genre (celle de
+        # Visible de qui lit un espace ; la capacité de lecture du type de document (celle de
         # l'écran) est vérifiée à l'appel, sur l'espace visé.
         capability="spaces:read",
         description=(
-            "List the documents of one kind (list_write_kinds): map types, objects and "
+            "List the documents of one document type (list_document_types): map types, objects and "
             "relationships, models, BPMN processes, reference lists, governance, rules, "
             "domains and datasets, raw and asset schemas. Filters: identity fields as "
             "partial filters "
             "(e.g. identity={type: 'application'} for carto_objet, {referentiel: 'pays'} for "
             "referentiel_valeur), 'search' (part of the name or identity, case and accents "
-            "ignored; any simple property of a reference-list value), and the kind's own "
-            "'filters' declared by list_write_kinds (e.g. {source: 'APP-CAISSE'}: the "
+            "ignored; any simple property of a reference-list value), and the document type's own "
+            "'filters' declared by list_document_types (e.g. {source: 'APP-CAISSE'}: the "
             "relationships starting from that object; {contains: KEY}: the models keeping "
             "it; {equals: {pays: 'FR'}}: reference-list values). Paginated (limit, offset, "
-            "has_more). Each document: kind, identity, name, path, version (to give to "
+            "has_more). Each document: document_type, identity, name, path, version (to give to "
             "write_documents / patch_document), unpublished when read from the draft, and a "
             "summary (ArchiMate type and nature of a map type or object, ends of a "
             "relationship, counts and views of a model, the value of a reference-list "
             "entry...). Read a whole document with read_document. Needs the screen's right "
-            "to read that kind." + _DRAFT_NOTE
+            "to read that document type." + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
@@ -441,27 +445,28 @@ CATALOG: tuple[Primitive, ...] = (
         id="read_document",
         domain="documents",
         access="read",
-        # Visible de qui lit un espace ; la capacité de lecture du genre (celle de
+        # Visible de qui lit un espace ; la capacité de lecture du type de document (celle de
         # l'écran) est vérifiée à l'appel, sur l'espace visé.
         capability="spaces:read",
         description=(
-            "Read one document of any kind by its kind and identity (list_write_kinds), never "
+            "Read one document of any document type by its document_type and identity "
+            "(list_document_types), never "
             "a path: its raw content (an object for YAML/JSON; the XML text for a BPMN "
             "process; for a reference-list value, that value alone), its real path and its "
             "version, to give as is to write_documents or patch_document. Read with "
             "branch='draft' a document you are about to modify: writes go to the user's "
             "draft. Unknown identity: document_not_found. Needs the screen's right to read "
-            "that kind." + _DRAFT_NOTE
+            "that document type." + _DRAFT_NOTE
         ),
         idempotent=True,
     ),
     Primitive(
-        id="list_write_kinds",
+        id="list_document_types",
         domain="documents",
         access="read",
         capability="spaces:read",
         description=(
-            "List every kind of document (map types, objects and relationships, models, "
+            "List every document type (map types, objects and relationships, models, "
             "BPMN processes, reference lists, governance, rules, domains and datasets; raw "
             "and asset schemas, read-only): for each, whether it is writable (or the action "
             "that produces it), its identity fields and their "
@@ -479,7 +484,7 @@ CATALOG: tuple[Primitive, ...] = (
         capability="spaces:read",
         description=(
             "Explain a standard in full, in markdown, with valid examples: the format of each "
-            "kind of document, the JSONPath and XPath syntaxes of patch_document, the common "
+            "document type, the JSONPath and XPath syntaxes of patch_document, the common "
             "writing rules (an identity never changes, a batch is checked on its final state, "
             "size limit) and the shape of errors. Without argument, list the standards. Format "
             "errors of every tool point here through their 'aide' field."
@@ -492,7 +497,8 @@ CATALOG: tuple[Primitive, ...] = (
         access="write",
         capability="spaces:read",
         description=(
-            "Modify one document of the user's draft, given its kind, identity and version "
+            "Modify one document of the user's draft, given its document_type, identity and "
+            "version "
             "(read_document), by operations set / add / remove. Paths are JSONPath (RFC 9535 "
             "singular query, e.g. '$.proprietes.volume_jour') or, for a BPMN process, XPath "
             "with the bpmn:, bpmndi:, dc:, di: and urban: prefixes; each path designates "

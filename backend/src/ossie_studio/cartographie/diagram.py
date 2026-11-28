@@ -10,7 +10,12 @@ deux dépôts ; le modèle stocké est le modèle hydraté sans les `data`.
 description, chemin du fichier de règles et du fichier graphique, `documents`
 (chemins des objets chargés), ce qu'on en **retient** (`elements`,
 `relationships` : des clés) et les `vues`, dont les nœuds et connexions désignent
-les objets par leur clé (notes et cadres n'existent que dans la vue). Ni
+les objets par leur clé (notes et cadres n'existent que dans la vue). Deux types
+pouvant porter la même clé (ticket 421832ee), une clé d'un modèle se lit par ses
+`documents` (le chemin d'un objet porte son type) : un modèle ne retient pas deux
+objets de même clé (`model_key_ambiguous`). Le format du standard ne change pas :
+dans le modèle et pour le composant, une relation désigne ses extrémités par leur
+clé seule ; dans la cartographie, par `type/CLÉ`. Ni
 coordonnée ni contenu d'objet (décisions de Gael : « pas de graphique dans ce
 document », les objets ne sont jamais recopiés).
 
@@ -50,7 +55,13 @@ from jsonschema import Draft202012Validator
 
 from ossie_studio.cartographie.catalog import Catalog, catalog
 from ossie_studio.cartographie.errors import CartographieError, Problem
-from ossie_studio.cartographie.model import CARTO_DIR, CartoObject, object_path, type_path
+from ossie_studio.cartographie.model import (
+    CARTO_DIR,
+    CartoObject,
+    object_path,
+    split_ref,
+    type_path,
+)
 from ossie_studio.cartographie.rules import viewpoints
 from ossie_studio.cartographie.space import Cartographie, read_cartographie, save_object
 from ossie_studio.cartographie.space import delete_object as delete_space_object
@@ -621,6 +632,8 @@ def check_diagram(
             add("model_document_duplicate", doc, f"documents[{i}]")
         elif obj is None:
             add("model_document_missing", doc, f"documents[{i}]")
+        elif obj.key in loaded:  # deux types, même clé : la clé du modèle serait ambiguë
+            add("model_key_ambiguous", obj.key, f"documents[{i}]")
         else:
             loaded[obj.key] = doc
 
@@ -642,8 +655,12 @@ def check_diagram(
                     add("model_element_is_relation", key, where)
             elif relation:  # contrôle 2
                 obj = by_path[loaded[key]]
-                for end in (obj.source, obj.target):
-                    if end not in retained:
+                for found in (space.find(obj.source), space.find(obj.target)):
+                    if (
+                        found is None
+                        or found[1].key not in retained
+                        or loaded.get(found[1].key) != found[0]
+                    ):
                         add("model_relation_end_not_retained", key, where)
 
     known_viewpoints = viewpoints()
@@ -896,32 +913,54 @@ def list_rules(root: Path) -> list[str]:
     return sorted(f.name[: -len(RULES_SUFFIX)] for f in folder.glob(f"*{RULES_SUFFIX}"))
 
 
-def models_retaining(root: Path, key: str) -> list[tuple[str, str]]:
-    """Les modèles (slug, nom) qui retiennent un objet ou une relation."""
+def models_retaining(root: Path, ref: str) -> list[tuple[str, str]]:
+    """Les modèles (slug, nom) qui retiennent un objet ou une relation (`type/CLÉ`) :
+    son document est chargé et sa clé retenue."""
+    type_slug, key = split_ref(ref)
+    document = object_path(type_slug or "", key)
     out: list[tuple[str, str]] = []
     for slug in list_diagrams(root):
         try:
             diagram = parse_diagram((root / diagram_path(slug)).read_text(encoding="utf-8"))
         except (CartographieError, UnicodeDecodeError):
             continue
-        if key in diagram.elements or key in diagram.relationships:
+        retained = key in diagram.elements or key in diagram.relationships
+        if retained and document in diagram.documents:
             out.append((slug, diagram.name or diagram.id))
     return out
 
 
-def delete_object(root: Path, key: str, cat: Catalog | None = None) -> None:
-    """Supprime un objet : refusé tant qu'un modèle le retient (« object_in_model »,
-    avec les modèles), puis comme `space.delete_object` (relations qui l'utilisent)."""
-    models = models_retaining(root, key)
+def delete_object(root: Path, ref: str, cat: Catalog | None = None) -> None:
+    """Supprime un objet (`type/CLÉ`) : refusé tant qu'un modèle le retient
+    (« object_in_model », avec les modèles), puis comme `space.delete_object`
+    (relations qui l'utilisent)."""
+    models = models_retaining(root, ref)
     if models:
         raise CartographieError(
             "object_in_model",
             status=409,
-            key=key,
+            key=ref,
             models=", ".join(name for _slug, name in models),
             slugs=[slug for slug, _name in models],
         )
-    delete_space_object(root, key, cat)
+    delete_space_object(root, ref, cat)
+
+
+def _by_key(diagram: Diagram, space: Cartographie) -> dict[str, CartoObject]:
+    """Les objets d'un modèle par leur clé, lus par ses documents."""
+    by_path = {p: o for p, o in space.objects.values()}
+    return {by_path[d].key: by_path[d] for d in diagram.documents if d in by_path}
+
+
+def model_document(space: Cartographie, obj: CartoObject) -> dict[str, Any]:
+    """Le contenu d'un objet tel que le reçoit le composant : une relation y désigne
+    ses extrémités par leur clé seule (celle des nœuds du modèle)."""
+    doc = obj.document()
+    for field_name, value in (("source", obj.source), ("cible", obj.target)):
+        end = space.find(value)
+        if field_name in doc and end is not None:
+            doc[field_name] = end[1].key
+    return doc
 
 
 # --- L'aperçu d'une vignette ----------------------------------------------------------------
@@ -971,12 +1010,13 @@ def preview(diagram: Diagram, graphic: Graphic, space: Cartographie) -> dict[str
         return {"boxes": [], "links": []}
     view = diagram.views[0]
     geometry = resolve_geometry(view, graphic.views.get(view.id))
+    objects = _by_key(diagram, space)
     boxes: list[dict[str, Any]] = []
     for _w, node in view.walk():
         x, y, width, height = geometry[node.id]
         if node.element is not None:
-            found = space.objects.get(node.element)
-            label, kind = (found[1].name if found else node.element), "element"
+            found = objects.get(node.element)
+            label, kind = (found.name if found else node.element), "element"
         elif node.note is not None:
             label, kind = node.note, "note"
         else:
@@ -1001,10 +1041,11 @@ RELATIONS_GROUP = "relations"
 def toolbox(
     space: Cartographie, viewpoint: str = "", cat: Catalog | None = None
 ) -> list[dict[str, Any]]:
-    """La boîte à outils d'une vue : un outil (libellé, pictogramme, clé) par objet
-    existant de l'espace, rangé par type, puis les relations existantes. Le point de
-    vue de la vue (s'il en a un) filtre les types. Aucun outil de création d'objet
-    (Gael : « juste ceux qui existent déjà ») ; notes et cadres viennent du composant."""
+    """La boîte à outils d'une vue : un outil (libellé, pictogramme, identifiant
+    `type/CLÉ`, que le composant rend tel quel au délégué de pose) par objet existant
+    de l'espace, rangé par type, puis les relations existantes. Le point de vue de la
+    vue (s'il en a un) filtre les types. Aucun outil de création d'objet (Gael :
+    « juste ceux qui existent déjà ») ; notes et cadres viennent du composant."""
     cat = cat or catalog()
     vp = viewpoints().get(viewpoint) if viewpoint else None
     groups: list[dict[str, Any]] = []
@@ -1020,7 +1061,7 @@ def toolbox(
             relations += [_relation_tool(space, obj, base.icon()) for _path, obj in objects]
         elif objects:
             tools = [
-                {"cle": o.key, "libelle": o.name or o.key, "icone": base.icon()}
+                {"cle": o.ref, "libelle": o.name or o.key, "icone": base.icon()}
                 for _p, o in objects
             ]
             groups.append({"id": ctype.slug, "libelle": ctype.title, "outils": tools})
@@ -1034,24 +1075,25 @@ def _relation_tool(space: Cartographie, obj: CartoObject, icon: str) -> dict[str
     """Une relation existante : son nom, puis ses deux extrémités par leur nom."""
 
     def name(key: str | None) -> str:
-        found = space.objects.get(key or "")
+        found = space.find(key)
         return found[1].name if found else str(key)
 
     label = f"{obj.name or obj.key} ({name(obj.source)} → {name(obj.target)})"
-    return {"cle": obj.key, "libelle": label, "icone": icon}
+    return {"cle": obj.ref, "libelle": label, "icone": icon}
 
 
 def drop(
     read: DiagramRead, space: Cartographie, key: str, cat: Catalog | None = None
 ) -> dict[str, Any]:
-    """Ce que rend le délégué de pose pour une clé : l'objet (chemin et contenu), le
-    schéma de son type, et son bloc de règles (règle propre au type, sinon celle de
-    son type ArchiMate, sinon la règle par défaut). Refus nommé si l'objet n'existe pas."""
-    found = space.objects.get(key)
+    """Ce que rend le délégué de pose pour un outil (`type/CLÉ`) : l'objet (chemin
+    et contenu), le schéma de son type, et son bloc de règles (règle propre au type,
+    sinon celle de son type ArchiMate, sinon la règle par défaut). Refus nommé si
+    l'objet n'existe pas."""
+    found = space.find(key)
     if found is None:
         raise CartographieError("object_not_found", status=404, key=key)
     path, obj = found
-    out: dict[str, Any] = {"objet": {"chemin": path, "data": obj.document()}}
+    out: dict[str, Any] = {"objet": {"chemin": path, "data": model_document(space, obj)}}
     ctype = space.types.get(obj.type)
     if ctype is not None:
         out["schemaType"] = {"chemin": type_path(ctype.slug), "data": ctype.document()}
@@ -1088,11 +1130,21 @@ def save_drawing(
     problems += _shape("graphic", graphic_path(slug), graphique)
     if problems:
         raise CartographieError("model_invalid", problems=problems)
+    # Le composant désigne les extrémités d'une nouvelle relation par la clé de leur
+    # nœud : on la lit par les documents du modèle rendu (ticket 421832ee).
+    space = read_cartographie(root, cat)
+    by_path = {p: o for p, o in space.objects.values()}
+    refs = {by_path[d].key: by_path[d].ref for d in diagram_from(modele).documents if d in by_path}
     created: list[CartoObject] = []
     for index, data in enumerate(new_relations):
         relation = _new_relation(data, index)
+        relation = replace(
+            relation,
+            source=refs.get(relation.source or "", relation.source),
+            target=refs.get(relation.target or "", relation.target),
+        )
         try:
-            save_object(root, relation, create=True, cat=cat)
+            relation = save_object(root, relation, create=True, cat=cat)
         except CartographieError as exc:
             raise CartographieError(
                 "model_relation_refused",
@@ -1162,7 +1214,7 @@ def hydrate(read: DiagramRead, space: Cartographie) -> dict[str, Any]:
         for slug in used
         if slug in space.types
     ]
-    out["documents"] = [{"chemin": doc, "data": obj.document()} for doc, obj in objects]
+    out["documents"] = [{"chemin": doc, "data": model_document(space, obj)} for doc, obj in objects]
     stored = diagram.document()
     for key in ("elements", "relationships", "vues"):
         if key in stored:

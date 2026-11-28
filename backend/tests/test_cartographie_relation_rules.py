@@ -48,9 +48,14 @@ def _types(space: ApiSpace, rest: str = "") -> str:
     return f"{space.base}/cartographie/types{rest}"
 
 
+# L'identifiant `type/CLÉ` des objets du jeu d'essai (ticket 421832ee).
+REFS = {"APP-A": "application/APP-A", "APP-B": "application/APP-B", "PRC-X": "processus/PRC-X"}
+
+
 async def _choices(space: ApiSpace, source: str, target: str) -> list[str]:
     answer = await space.client.get(
-        f"{space.base}/cartographie/objets/{source}/relations-permises", params={"cible": target}
+        f"{space.base}/cartographie/objets/{REFS[source]}/relations-permises",
+        params={"cible": REFS[target]},
     )
     assert answer.status_code == 200, answer.text
     return [t["slug"] for t in answer.json()["types"]]
@@ -139,7 +144,7 @@ async def test_ajouter_un_couple_hors_archimate(space: ApiSpace) -> None:
         },
     )
     assert created.status_code == 201, created.text
-    listed = await space.client.get(f"{space.base}/cartographie/objets/REL-A-COMPOSE-X")
+    listed = await space.client.get(f"{space.base}/cartographie/objets/composition/REL-A-COMPOSE-X")
     assert listed.status_code == 200
     assert not [p for p in listed.json().get("problems", []) if p["code"] == "relation_not_allowed"]
 
@@ -159,7 +164,7 @@ async def test_desactiver_un_couple_utilise_refuse(space: ApiSpace) -> None:
     body = answer.json()
     assert body["error"] == "carto_type_relations_in_use"
     assert body["error_args"]["relations"] == [
-        {"key": "REL-AB", "source": "APP-A", "target": "APP-B"}
+        {"key": "REL-AB", "ref": "flux/REL-AB", "source": "APP-A", "target": "APP-B"}
     ]
     assert "x-relations" not in await _file(space)
 

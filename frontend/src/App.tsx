@@ -31,6 +31,7 @@ import { CartoTypePage } from './cartographie/CartoTypePage'
 import { CartoObjectPage } from './cartographie/CartoObjectPage'
 import { CartoModelPage } from './cartographie/CartoModelPage'
 import { CartoProcessPage } from './cartographie/CartoProcessPage'
+import { CartoImportRunPage, ReferentielImportRunPage } from './imports/ImportRunPage'
 import { ReferentielsPage } from './pages/ReferentielsPage'
 import { SourceDetailPage } from './pages/SourceDetailPage'
 import { ParsingPluginsPage } from './pages/ParsingPluginsPage'
@@ -145,12 +146,20 @@ function AppRoutes() {
         <Route path="/referentiels" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/referentiels/:name" element={gate('referentiels:read', <ReferentielsPage />)} />
         <Route path="/referentiels/:name/parametrage" element={gate('referentiels:read', <ReferentielsPage />)} />
+        <Route
+          path="/referentiels/:name/imports/:importSlug/executions/:runId"
+          element={gate('referentiels:read', <ReferentielImportRunPage />)}
+        />
         <Route path="/cartographie" element={<Navigate to="/cartographie/objets" replace />} />
         <Route path="/cartographie/types" element={gate('cartographie:read', <CartographiePage />)} />
         <Route path="/cartographie/types/:slug" element={gate('cartographie:read', <CartoTypePage />)} />
+        <Route
+          path="/cartographie/types/:slug/imports/:importSlug/executions/:runId"
+          element={gate('cartographie:read', <CartoImportRunPage />)}
+        />
         <Route path="/cartographie/objets" element={gate('cartographie:read', <CartographiePage />)} />
         <Route path="/cartographie/objets/nouveau" element={gate('cartographie:read', <CartoObjectPage />)} />
-        <Route path="/cartographie/objets/:key" element={gate('cartographie:read', <CartoObjectPage />)} />
+        <Route path="/cartographie/objets/:type/:key" element={gate('cartographie:read', <CartoObjectPage />)} />
         <Route path="/cartographie/modeles" element={gate('cartographie:read', <CartographiePage />)} />
         <Route path="/cartographie/modeles/:slug" element={gate('cartographie:read', <CartoModelPage />)} />
         <Route path="/cartographie/processus" element={gate('cartographie:read', <CartographiePage />)} />

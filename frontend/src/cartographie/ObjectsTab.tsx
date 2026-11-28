@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
+import { cartoRefPath } from '../apiClient'
 import type { CartoCatalog, CartoObjectSummary, CartoTypeSummary } from '../apiClient'
 import { asciiLower } from '../slug'
 import { ArchimateIcon } from './ArchimateIcon'
@@ -16,8 +17,9 @@ export const NEW_OBJECT_PATH = '/cartographie/objets/nouveau'
 export const RELATIONS_FILTER = '@relations'
 const PAGE = 24
 
-export function cartoObjectPath(key: string): string {
-  return `/cartographie/objets/${encodeURIComponent(key)}`
+/** La fiche d'un objet : `/cartographie/objets/<type>/<CLÉ>` (ticket 421832ee). */
+export function cartoObjectPath(ref: string): string {
+  return `/cartographie/objets/${cartoRefPath(ref)}`
 }
 
 type Sort = 'name' | 'name_desc' | 'updated'
@@ -124,7 +126,7 @@ export function ObjectsTab({
       {objects.length === 0 && !editable ? <p className="empty-note">{t('cartoObjectsEmpty')}</p> : null}
       <div className="carto-grid carto-object-grid">
         {visible.map((o) => (
-          <ObjectCard key={o.key} object={o} icon={icons.get(o.archimate)} onRelate={editable ? () => setRelating(o) : null} />
+          <ObjectCard key={o.ref} object={o} icon={icons.get(o.archimate)} onRelate={editable ? () => setRelating(o) : null} />
         ))}
         {editable && type !== RELATIONS_FILTER ? (
           <Link to={NEW_OBJECT_PATH} className="carto-card carto-card-add">
@@ -182,7 +184,7 @@ function ObjectCard({
   return (
     // Toute la vignette ouvre la fiche (lien étendu) ; « Relier… » apparaît au survol.
     <article className="carto-card carto-card-link carto-object-card">
-      <Link to={cartoObjectPath(object.key)} className="carto-card-cover" aria-label={object.name} />
+      <Link to={cartoObjectPath(object.ref)} className="carto-card-cover" aria-label={object.name} />
       <div className="carto-object-head">
         <span className="carto-icon-tile">{icon ? <ArchimateIcon svg={icon} /> : null}</span>
         <span className="mono muted small">{object.type_title}</span>

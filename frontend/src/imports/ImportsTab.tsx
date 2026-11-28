@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSwitchGuard, useUnsaved } from '../referentiels/unsaved'
 import { useTranslation } from 'react-i18next'
-import type { ImportsApi, ImportMode, ImportPreview, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
+import { IMPORT_DELETIONS } from '../apiClient'
+import type { ImportDeletion, ImportsApi, ImportPreview, ImportReading, ImportTrial, ReferentielImportDetail } from '../apiClient'
 import { errorMessages } from '../errors'
 import { BusyButton } from '../components/BusyButton'
 import { ErrorList } from '../components/ErrorList'
@@ -167,6 +168,12 @@ function ExampleTab({
     mutationFn: () => imports.setReading(detail.slug, reading),
     onSuccess: refresh,
   })
+  // La stratégie de suppression (ticket 6d36073b) : enregistrée dès qu'on la choisit.
+  const saveDeletion = useMutation({
+    mutationFn: (deletion: ImportDeletion) => imports.setDeletion(detail.slug, deletion),
+    onSuccess: refresh,
+  })
+  const deletion = saveDeletion.isPending && saveDeletion.variables ? saveDeletion.variables : detail.deletion
   const readingChanged =
     reading.separator !== detail.separator ||
     reading.encoding !== detail.encoding ||
@@ -213,7 +220,31 @@ function ExampleTab({
   const { pending, setPending, dirty: mappingDirty, save: setMapping } = mapping
   return (
     <div className="stack">
-      <ErrorList messages={[upload.error, saveReading.error, previewError].flatMap((e) => (e ? errorMessages(t, e) : []))} />
+      <ErrorList
+        messages={[upload.error, saveReading.error, saveDeletion.error, previewError].flatMap((e) =>
+          e ? errorMessages(t, e) : [],
+        )}
+      />
+      <div className="row ref-import-deletion">
+        <label className="field">
+          <span className="field-label">{t('refImportDeletion')}</span>
+          <select
+            className="input"
+            value={deletion}
+            disabled={readOnly || saveDeletion.isPending}
+            onChange={(e) => saveDeletion.mutate(e.target.value as ImportDeletion)}
+          >
+            {IMPORT_DELETIONS.map((d) => (
+              <option key={d} value={d}>
+                {t(`refImportDeletion_${d}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="field-hint ref-import-deletion-help" aria-live="polite">
+          {t(`refImportDeletionHelp_${deletion}`)}
+        </p>
+      </div>
       <p className="muted">
         {detail.example_size > 0
           ? t('refImportExampleCurrent', { name: detail.example_name, size: detail.example_size })
@@ -584,8 +615,6 @@ function ImportView({
   const [reading, setReading] = useState<ImportReading | null>(null)
   const [template, setTemplate] = useState<string | null>(null)
   const [trial, setTrial] = useState<ImportTrial | null>(null)
-  // Le mode de l'import : l'essai le suit (en remplacement, il compte les suppressions).
-  const [mode, setMode] = useState<ImportMode>('merge')
   useEffect(() => {
     if (data) {
       setReading({ separator: data.separator, encoding: data.encoding, header: data.header, sheet: data.sheet ?? '' })
@@ -621,7 +650,8 @@ function ImportView({
   // doit montrer ce que le moteur a lu, même si l'éditeur a changé depuis.
   const [trialSource, setTrialSource] = useState('')
   const run = useMutation({
-    mutationFn: (source: string) => imports.trial(slug, source, mode),
+    // L'essai suit la stratégie de suppression enregistrée (ticket 6d36073b).
+    mutationFn: (source: string) => imports.trial(slug, source),
     onSuccess: (result, source) => {
       setTrial(result)
       setTrialSource(source)
@@ -829,19 +859,12 @@ function ImportView({
               </a>
             </p>
             {!readOnly ? (
-              <ImportRunPanel
-                name={name}
-                imports={imports}
-                detail={data}
-                mode={mode}
-                onMode={setMode}
-                templateSaved={template === data.template}
-              />
+              <ImportRunPanel imports={imports} detail={data} templateSaved={template === data.template} />
             ) : null}
             <div className="stack">
               <h4>{t('refImportResult')}</h4>
               {data.example_size === 0 ? <p className="empty-note">{t('refImportExampleNone')}</p> : null}
-              {trial ? <ImportReport report={trial} source={trialSource} /> : <p className="muted">{t('refImportResultHint')}</p>}
+              {trial ? <ImportReport report={trial} source={trialSource} itemPath={imports.itemPath} /> : <p className="muted">{t('refImportResultHint')}</p>}
             </div>
           </div>
         </div>

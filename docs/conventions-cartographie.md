@@ -99,6 +99,44 @@ properties:
   pas réécrite ; une propriété ajoutée ne peut pas porter le nom d'un attribut
   ArchiMate du type.
 
+### Liens vers les référentiels (ticket 43478978)
+
+`cartographie/types/<slug>.extend.yaml` — à côté du type, pas dans son JSON Schema
+(Gael : « on fait propre puisqu'on n'est plus tenu de respecter des schémas JSON ») :
+
+```yaml
+referentiels:
+- referentiel: pays
+  proprietes:
+    pays_livraison: code        # propriété du type: propriété de la clé du référentiel
+- referentiel: sites            # clé composée : une propriété du type par partie
+  proprietes:
+    site_pays: pays
+    site: site
+```
+
+- un lien couvre **toute la clé** du référentiel, avec des propriétés de même type
+  simple (une énumération ou une date sont des chaînes) ; une propriété du type
+  n'est liée qu'à un seul référentiel ; attributs ArchiMate compris ;
+- n'importe quel référentiel peut être visé, quels que soient ses **tags**
+  (`x-tags` du modèle du référentiel : étiquettes libres, « entreprise »,
+  « contrainte »…) ;
+- réglé dans l'onglet « Propriétés » de l'écran du type, bloc « Liens vers les
+  référentiels », enregistré à chaque ajout ou retrait (`cartographie.space.save_links`,
+  refus `type_links_invalid` avec les problèmes) ; sans lien, le fichier disparaît ;
+- une propriété liée renommée : le lien suit ; retirée : refusé (`property_linked`) ;
+  son type changé pour un autre que la clé : refusé (`type_invalid`) ; le type
+  supprimé : son fichier d'extension aussi ;
+- **valeur absente** du référentiel : refusée à l'écran et par l'agent quand elle est
+  nouvelle (`object_invalid`, problème `property_referentiel_unknown`, détail
+  « <référentiel> : <valeur> ») ; une valeur inchangée qui a quitté le référentiel
+  n'est pas refusée, elle est signalée ; à l'import, la ligne est taguée et la
+  personne peut la refuser (`docs/conventions-imports.md`) ;
+- la fiche d'un objet choisit la valeur dans une liste des valeurs du référentiel (une
+  clé composée d'un coup) et mène à la valeur (`/referentiels/<nom>?valeur=…`) ;
+- l'agent lit le lien dans `read_schema` (`x-referentiel` sur la propriété,
+  `extras.referentiels`).
+
 ## Un objet, une relation
 
 Un fichier par objet : `cartographie/objets/<slug du type>/<clé en minuscules>.yaml`.
@@ -119,21 +157,30 @@ proprietes:
   volume_jour: 160
 ```
 
-Une **relation** est un objet comme les autres, avec `source` et `cible` (clés
-d'objets ou de relations) :
+Une **relation** est un objet comme les autres, avec `source` et `cible` (objets ou
+relations, désignés par `<slug du type>/<CLÉ>`) :
 
 ```yaml
 cle: REL-PRISE-COMMANDE-ECRIT-COMMANDE
 type: acces
-source: PRC-PRISE-COMMANDE
-cible: OBJ-COMMANDE
+source: processus-de-vente/PRC-PRISE-COMMANDE
+cible: objet-metier/OBJ-COMMANDE
 nom: Écrit la commande
 proprietes:
   acces: Write
 ```
 
-- **clé fonctionnelle** : majuscules, chiffres et tirets, **unique dans l'espace tous
-  types confondus**, **figée** ; c'est l'identifiant de l'objet partout ;
+- **clé fonctionnelle** : majuscules, chiffres et tirets, **unique dans son type**,
+  **figée**. L'identité d'un objet est **(type, clé)**, écrite `<type>/<CLÉ>` : deux
+  types peuvent porter la même clé (ticket 421832ee, Gael : « On ne peut pas garantir
+  dans les imports que les clefs que nous définissons sont uniques à travers tous les
+  types. On assure l'unicité uniquement dans un type. »). La fiche d'un objet est
+  `/cartographie/objets/<type>/<CLÉ>` (écran et API) ;
+- **extrémités d'une relation** : `<type>/<CLÉ>`. Une clé seule (forme d'avant) se lit
+  encore quand elle n'existe que dans un type, et la relation est réécrite en
+  `type/CLÉ` à sa prochaine écriture (pas de réécriture en masse). Présente dans
+  plusieurs types, elle est signalée sur la relation (`relation_endpoint_ambiguous`),
+  sans bloquer le reste de l'espace ;
 - `documentation` : du markdown (rédigé avec BlockNote) ;
 - `proprietes` : attributs ArchiMate (valeurs ArchiMate, jamais le libellé
   français) et propriétés ajoutées, validés par le schéma du type ; rien d'autre
@@ -149,13 +196,21 @@ proprietes:
 `cartographie.space.read_cartographie` lit toute la cartographie d'une branche et
 signale : fichier illisible ; objet rangé hors de `cartographie/objets/<type>/`
 (`object_misplaced`) ou sous le dossier d'un autre type (`object_wrong_folder`) ;
-clé différente du nom du fichier (`object_key_mismatch`) ; **clé en double**
-(`object_key_duplicate` — aucune écriture n'est acceptée tant que ce n'est pas
-corrigé) ; extrémité de relation absente (`relation_endpoint_unknown`) ; relation
+clé différente du nom du fichier (`object_key_mismatch`) ; **clé en double dans un
+même type** (`object_key_duplicate` — aucune écriture n'est acceptée tant que ce
+n'est pas corrigé ; deux types qui portent la même clé n'en sont pas une) ; extrémité
+de relation absente (`relation_endpoint_unknown`) ou désignée par une clé seule
+présente dans plusieurs types (`relation_endpoint_ambiguous`) ; relation
 que les règles d'ArchiMate ne permettent pas entre les types de ses extrémités
 (`relation_not_allowed`, avec « source -> cible : relation ») ; propriété
 hors du schéma (`property_invalid`, `property_unknown`, `property_required`, avec
-la propriété en cause) ; type inconnu ou mal formé.
+la propriété en cause) ; type inconnu ou mal formé. Liens vers les référentiels
+(ticket 43478978) : fichier d'extension illisible (`type_extend_unreadable`) ou sans
+type (`type_extend_orphan`), lien cassé (`referentiel_link_unknown`,
+`referentiel_link_incomplete`, `referentiel_link_type_mismatch`,
+`referentiel_link_field`, `referentiel_link_taken`, sur le fichier d'extension), et
+valeur d'un objet absente du référentiel lié (`property_referentiel_unknown`, sur
+l'objet : signalée sur sa fiche).
 
 ## Écriture
 
@@ -166,7 +221,7 @@ n'atteint la branche avant la publication. L'écran « Cartographie » et ses ro
 `type_exists`, `type_not_found`, `type_archimate_frozen`, `type_invalid`,
 `object_key_taken`, `object_not_found`, `object_type_frozen`, `object_invalid`,
 `object_keys_duplicate`, `object_in_use`, `property_in_use`, `type_objects_invalid`,
-`type_in_use`. Une relation non permise est refusée (`object_invalid`, problème
+`type_in_use`, `type_links_invalid`, `property_linked`. Une relation non permise est refusée (`object_invalid`, problème
 `relation_not_allowed`).
 
 Modifier un type ne doit jamais rendre ses objets invalides : retirer une propriété
@@ -259,8 +314,12 @@ et ses délégués : `toolbox` → `GET …/{slug}/outils?point_de_vue=` (objets
 par type avec le pictogramme de leur type ArchiMate, puis les relations existantes ;
 le point de vue filtre ; aucun outil de création), `drop` → `GET …/{slug}/pose/{clé}`
 (objet, schéma de son type, bloc de règles), `allowedRelations` → `GET
-…/objets/{source}/relations-permises?cible=` (types de relation de l'espace avec leur
-`type_schema`). Un modèle « à nettoyer » s'ouvre sans ses documents inutiles ; tout
+…/objets/{type}/{clé}/relations-permises?cible=<type>/<CLÉ>` (types de relation de
+l'espace avec leur `type_schema`). Le composant désigne un objet par la clé de son
+nœud ; l'écran la traduit en `type/CLÉ` par les documents du modèle. Un outil de la
+boîte porte `type/CLÉ` (le composant le rend tel quel au délégué de pose). Un modèle
+ne retient pas deux objets de même clé (`model_key_ambiguous`) : son format ne change
+pas, ses clés se lisent par ses `documents`. Un modèle « à nettoyer » s'ouvre sans ses documents inutiles ; tout
 autre problème refuse l'ouverture (`model_invalid`, 409). Sans le droit
 « Cartographie : modifier », le diagramme est en lecture seule. Le thème suit Ossie
 par le raccord `urban-archimate { --ua-* }` de `styles.css` (repris du contrat).
@@ -306,7 +365,11 @@ Epic « Cartographie — processus BPMN » (docflow f97e7afe), enabler 1d35290d.
   processus métier détaillé (`BusinessProcess`) ; sur `bpmn:collaboration` : la
   collaboration métier (`BusinessCollaboration`, une seule) ; sur un participant, un
   couloir, un objet ou un stockage de données : l'objet Ossie. Quand Ossie ajoute une
-  référence, il déclare l'espace de noms sur la balise elle-même.
+  référence, il déclare l'espace de noms sur la balise elle-même. L'objet se retrouve
+  par son type et sa clé ; à défaut (pas de type, ou un type que l'objet n'a pas —
+  fichier venu d'un autre espace), par sa clé seule si elle n'existe que dans un type
+  (ticket 421832ee). Un outil de la boîte porte la clé seule, sauf si elle est ambiguë :
+  il porte alors `type/CLÉ`, et l'enregistrement remet la clé seule dans `cle`.
 - **Noms** : le XML garde le nom de chaque élément rattaché ; la source est l'objet Ossie.
   `referenced_objects` donne la liste (clé, nom à jour, type) que le composant reçoit à
   l'ouverture (`references`) et applique.

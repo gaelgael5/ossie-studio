@@ -3,7 +3,7 @@
 A dataset of a domain. Its content has **two parts, kept apart**:
 
 - `ossie`: the dataset **exactly as the Ossie 0.1.1 document writes it** (official JSON Schema,
-  `read_schema(kind: dataset)`): `name` (optional, must match the identity), `source`,
+  `read_schema(document_type: dataset)`): `name` (optional, must match the identity), `source`,
   `description`, `primary_key`, `unique_keys`, `fields`. A field: `name`, `expression` with
   **one** dialect `ANSI_SQL` whose expression is the column name (or the property, for a
   non-consultable dataset), `label`, `description`. Ossie-studio does not keep `ai_context`,
@@ -21,10 +21,10 @@ dataset cited by a relationship or a reference cannot be deleted alone: delete t
 batch.
 
 ```yaml example
-- kind: domaine
+- document_type: domaine
   identity: {name: ventes}
   content: {label: Ventes}
-- kind: dataset
+- document_type: dataset
   identity: {domain: ventes, name: commande}
   content:
     ossie:

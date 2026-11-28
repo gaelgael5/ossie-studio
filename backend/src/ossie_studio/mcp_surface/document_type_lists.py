@@ -1,13 +1,13 @@
-"""Ce que rend la liste de chaque genre (`list_documents`, epic « Primitives MCP —
-écriture commune par genre », ticket 2113e7bc).
+"""Ce que rend la liste de chaque type de document (`list_documents`, epic « Primitives MCP —
+écriture commune par type de document », ticket 2113e7bc).
 
-Un lister par genre lit l'espace **par le service de l'écran** (cartographie,
+Un lister par type de document lit l'espace **par le service de l'écran** (cartographie,
 modèles, processus, référentiels, gouvernance) et rend ses documents triés, avec
 leur identité, leur nom, leur fichier et les champs de synthèse que rendaient les
 lectures par domaine qu'il remplace (`list_carto_types`, `list_carto_objects`,
 `list_carto_models`, `list_referentiels`, `search_referentiel_values`,
 `list_tags`, `list_classifications`, `list_certifications`). Il applique les
-filtres propres à son genre (déclarés dans le registre) ; l'identité partielle, la
+filtres propres à son type de document (déclarés dans le registre) ; l'identité partielle, la
 recherche texte, la pagination et les versions sont communes (`document_reads`).
 """
 
@@ -28,7 +28,7 @@ from ossie_studio.cartographie.diagram import (
     rules_path,
 )
 from ossie_studio.cartographie.errors import CartographieError
-from ossie_studio.cartographie.model import type_path
+from ossie_studio.cartographie.model import object_path, split_ref, type_path
 from ossie_studio.cartographie.process import list_processes, parse_process, process_path
 from ossie_studio.cartographie.space import Cartographie, read_cartographie
 from ossie_studio.governance import classification_rules as classification_rule_service
@@ -48,15 +48,15 @@ from ossie_studio.governance.repo import (
     tag_path,
 )
 from ossie_studio.governance.tag_rules import read_tag_rules
-from ossie_studio.mcp_surface.kind_base import (
+from ossie_studio.mcp_surface.document_type_base import (
     Document,
+    DocumentError,
     Item,
-    KindError,
     ListFilter,
     ListQuery,
     Location,
 )
-from ossie_studio.mcp_surface.kind_stores import (
+from ossie_studio.mcp_surface.document_type_stores import (
     ClassificationRuleStore,
     ReadOnlyStore,
     TagRuleStore,
@@ -98,9 +98,16 @@ NATURE = ListFilter(
     choices=("object", "relation"),
 )
 ARCHIMATE = ListFilter("archimate", "ArchiMate type, e.g. 'ApplicationComponent'.")
-SOURCE = ListFilter("source", "Key of an object: the relationships that start from it.")
-CIBLE = ListFilter("cible", "Key of an object: the relationships that end on it.")
-CONTAINS = ListFilter("contains", "Key of an object or relationship: the models that keep it.")
+SOURCE = ListFilter(
+    "source", "An object, as 'type/KEY' (or its key alone): the relationships that start from it."
+)
+CIBLE = ListFilter(
+    "cible", "An object, as 'type/KEY' (or its key alone): the relationships that end on it."
+)
+CONTAINS = ListFilter(
+    "contains",
+    "An object or relationship, as 'type/KEY' (or its key alone): the models that keep it.",
+)
 DETAIL_OF = ListFilter(
     "detail_of", "Key of a business process of the map: the BPMN processes that detail it."
 )
@@ -115,7 +122,8 @@ RAW_MODULE = ListFilter(
 )
 ENTRY_MODULE = ListFilter(
     "module",
-    "A module of the source (its name or its title, from list_documents(kind='schema_raw', "
+    "A module of the source (its name or its title, from "
+    "list_documents(document_type='schema_raw', "
     "filters={kind: 'module'})): its entry points.",
 )
 ENTRY_CONTRACT = ListFilter(
@@ -176,14 +184,17 @@ def carto_types(root: Path, query: ListQuery) -> list[Item]:
     return out
 
 
-def _end(space: Cartographie, key: str | None) -> dict[str, Any] | None:
-    if key is None:
+def _end(space: Cartographie, value: str | None) -> dict[str, Any] | None:
+    """Une extrémité de relation : `ref` (`type/CLÉ`), clé, nom, type."""
+    if value is None:
         return None
-    found = space.objects.get(key)
+    found = space.find(value)
     if found is None:
-        return {"key": key, "name": None, "type": None, "exists": False}
+        key = split_ref(value)[1]
+        return {"ref": value, "key": key, "name": None, "type": None, "exists": False}
     return {
-        "key": key,
+        "ref": found[1].ref,
+        "key": found[1].key,
         "name": found[1].name,
         "type": found[1].type,
         "exists": True,
@@ -199,13 +210,14 @@ def carto_objects(root: Path, query: ListQuery) -> list[Item]:
         ctype = space.types.get(obj.type)
         archimate = ctype.archimate if ctype else None
         nature = _nature(cat.get(archimate or ""))
-        wanted = {
-            "nature": nature,
-            "archimate": archimate,
-            "source": obj.source,
-            "cible": obj.target,
-        }
+        wanted = {"nature": nature, "archimate": archimate}
         if any(_given(query, f) not in (None, value) for f, value in wanted.items()):
+            continue
+        ends = space.ends(obj)
+        if any(
+            _given(query, f) is not None and (end is None or space.resolve(_given(query, f)) != end)
+            for f, end in (("source", ends[0]), ("cible", ends[1]))
+        ):
             continue
         summary: dict[str, Any] = {"archimate": archimate, "nature": nature}
         if obj.is_relation:
@@ -230,7 +242,8 @@ def carto_models(root: Path, query: ListQuery) -> list[Item]:
                 summary = {"readable": False, "problems": problems}
                 out.append(Item({"slug": slug}, slug, read.path, summary, related=related))
             continue
-        if wanted and wanted not in diagram.elements and wanted not in diagram.relationships:
+        retained = diagram.elements + diagram.relationships
+        if wanted and not _keeps(retained, diagram.documents, wanted):
             continue
         summary = {
             "readable": True,
@@ -248,6 +261,14 @@ def carto_models(root: Path, query: ListQuery) -> list[Item]:
         name = diagram.name or diagram.id
         out.append(Item({"slug": slug}, name, read.path, summary, related=related))
     return out
+
+
+def _keeps(retained: list[str], documents: list[str], wanted: str) -> bool:
+    """Le modèle retient-il cet objet (`type/CLÉ`, ou une clé seule) ?"""
+    type_slug, key = split_ref(wanted)
+    if key not in retained:
+        return False
+    return type_slug is None or object_path(type_slug, key) in documents
 
 
 def carto_graphics(root: Path, query: ListQuery) -> list[Item]:
@@ -307,7 +328,7 @@ def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
     name = query.identity.get("referentiel")
     equals = _given(query, "equals") or {}
     if equals and not name:
-        raise KindError(
+        raise DocumentError(
             "list_filter_invalid",
             "$.filters.equals",
             "« equals » filtre les valeurs d'un référentiel : donner aussi identity.referentiel.",
@@ -320,7 +341,7 @@ def referentiel_values(root: Path, query: ListQuery) -> list[Item]:
         except ReferentielError as exc:
             if exc.code == "referentiel_filter_unknown":
                 prop = exc.detail.get("property")
-                raise KindError(
+                raise DocumentError(
                     "list_filter_invalid",
                     f"$.filters.equals.{prop}",
                     f"« {prop} » n'est pas une propriété simple de premier niveau du "
@@ -422,11 +443,11 @@ def _sources(root: Path, query: ListQuery) -> list[str]:
     if wanted is None:
         return known
     if wanted not in known:
-        raise KindError(
+        raise DocumentError(
             "write_identity_invalid",
             "source",
             f"La source « {wanted} » n'existe pas dans l'espace "
-            "(list_documents, genre « source »).",
+            "(list_documents, type de document « source »).",
             received=wanted,
         )
     return [str(wanted)]
@@ -479,11 +500,11 @@ class _Application:
         """Le nom de schéma d'un module désigné par son nom ou son titre."""
         name = wanted if wanted in self.members else self.titles.get(wanted.casefold())
         if name is None:
-            raise KindError(
+            raise DocumentError(
                 "list_filter_invalid",
                 "$.filters.module",
                 f"« {wanted} » n'est pas un module de la source « {source} » "
-                "(list_documents, genre « schema_raw », filters {kind: 'module'}).",
+                "(list_documents, type de document « schema_raw », filters {kind: 'module'}).",
                 received=wanted,
                 expected=sorted(self.members),
             )
@@ -586,7 +607,7 @@ class EntryPointStore(ReadOnlyStore):
 def _module_filter(query: ListQuery) -> Any:
     wanted = _given(query, "module")
     if wanted is not None and "source" not in query.identity:
-        raise KindError(
+        raise DocumentError(
             "list_filter_invalid",
             "$.filters.module",
             "« module » désigne un module d'une source : donner aussi identity.source.",

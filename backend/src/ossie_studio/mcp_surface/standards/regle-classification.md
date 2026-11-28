@@ -23,14 +23,14 @@ exist is refused (`write_content_invalid`, at `$.values`). In one `write_documen
 classification and the rule can come together.
 
 ```yaml example
-- kind: classification
+- document_type: classification
   identity: {id: rgpd}
   content:
     name: RGPD
     levels:
       - {name: Donnée personnelle, short_name: DP}
       - {name: Publique, short_name: PUB}
-- kind: regle_classification
+- document_type: regle_classification
   identity: {id: rgpd-emails}
   content:
     name: Emails

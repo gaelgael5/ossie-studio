@@ -114,19 +114,19 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
         body = {
           readonly: false,
           objects: [
-            { key: 'PRC-B', type: 'processus-de-vente', name: 'Vente B' },
-            { key: 'APP-X', type: 'application', name: 'Autre type' },
-            { key: 'PRC-A', type: 'processus-de-vente', name: 'Vente A' },
+            { key: 'PRC-B', type: 'processus-de-vente', ref: 'processus-de-vente/PRC-B', name: 'Vente B' },
+            { key: 'APP-X', type: 'application', ref: 'application/APP-X', name: 'Autre type' },
+            { key: 'PRC-A', type: 'processus-de-vente', ref: 'processus-de-vente/PRC-A', name: 'Vente A' },
           ],
         }
-      else if (path === `${BASE}/objets/PRC-A` && method === 'DELETE') body = { deleted: 'PRC-A', revision: 'draft:4' }
-      else if (path === `${BASE}/objets/PRC-B` && method === 'DELETE')
+      else if (path === `${BASE}/objets/processus-de-vente/PRC-A` && method === 'DELETE') body = { deleted: 'PRC-A', revision: 'draft:4' }
+      else if (path === `${BASE}/objets/processus-de-vente/PRC-B` && method === 'DELETE')
         return Promise.resolve({
           ok: false,
           status: 409,
           text: () => Promise.resolve(JSON.stringify({ detail: { code: 'object_in_use', key: 'PRC-B' } })),
         })
-      else if (path === `${BASE}/objets/PRC-A`) body = { key: 'PRC-A', yaml: 'cle: PRC-A\nnom: Vente A\n' }
+      else if (path === `${BASE}/objets/processus-de-vente/PRC-A`) body = { key: 'PRC-A', yaml: 'cle: PRC-A\nnom: Vente A\n' }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
   )
@@ -136,7 +136,7 @@ function setup(options: { capabilities?: string[]; detail?: ReturnType<typeof de
         <Routes>
           <Route path="/cartographie/types" element={<p>liste des types</p>} />
           <Route path="/cartographie/types/:slug" element={<CartoTypePage />} />
-          <Route path="/cartographie/objets/:key" element={<p>fiche de l’objet</p>} />
+          <Route path="/cartographie/objets/:type/:key" element={<p>fiche de l’objet</p>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -467,7 +467,7 @@ describe('Cartographie — imports d’un type (ticket 49952be0)', () => {
     await user.click(screen.getByRole('button', { name: 'Supprimer PRC-A' }))
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
     await user.click(screen.getByRole('button', { name: 'Confirmer la suppression' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.path === `${BASE}/objets/PRC-A`)).toBe(true))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.path === `${BASE}/objets/processus-de-vente/PRC-A`)).toBe(true))
     expect(await screen.findByText('Cliquez sur une ligne pour afficher l’objet.')).toBeInTheDocument()
   })
 

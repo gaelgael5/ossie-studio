@@ -80,7 +80,7 @@ def _folder(slug: str) -> str:
 
 def _current(root: Path, slug: str) -> tuple[ImportTarget, list[Any]]:
     _require(root, slug)
-    target = target_of(read_cartographie(root), slug)
+    target = target_of(read_cartographie(root), slug, root)
     return target, list(target.current())
 
 
@@ -139,7 +139,6 @@ def _skeleton(root: Path, slug: str) -> Skeleton:
 
 ADAPTER = ImportAdapter(
     journal_type=JOURNAL_TYPE,
-    modes=("merge",),
     read_dependency=require_capability("cartographie:read"),
     write_dependency=require_capability("cartographie:write"),
     open=_open,

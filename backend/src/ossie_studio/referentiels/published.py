@@ -23,7 +23,7 @@ import asyncpg
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.crypto import CryptoService
 from ossie_studio.referentiels.errors import ReferentielError
-from ossie_studio.referentiels.model import model_key
+from ossie_studio.referentiels.model import model_key, model_tags
 from ossie_studio.referentiels.repo import list_referentiels, read_referentiel
 from ossie_studio.referentiels.values import key_of, sorted_values
 from ossie_studio.spaces.branch_service import db_get_base
@@ -76,7 +76,7 @@ def _read(root: Path, name: str) -> Any:
 
 
 def summaries(root: Path) -> list[dict[str, Any]]:
-    """Les référentiels : nom, titre, description, propriétés de la clé, nombre
+    """Les référentiels : nom, titre, description, propriétés de la clé, tags, nombre
     de valeurs. Un référentiel illisible est listé avec son erreur, sans casser
     la liste."""
     out: list[dict[str, Any]] = []
@@ -92,6 +92,7 @@ def summaries(root: Path) -> list[dict[str, Any]]:
                 "title": str(ref.model.get("title") or ""),
                 "description": str(ref.model.get("description") or ""),
                 "key": model_key(ref.model),
+                "tags": model_tags(ref.model),
                 "count": len(ref.values),
             }
         )

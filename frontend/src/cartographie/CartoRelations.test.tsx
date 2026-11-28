@@ -37,7 +37,7 @@ const TYPES = [
   { slug: 'association', title: 'Association', archimate: 'Association', path: 'p', properties: 0, objects: 1, state: null },
   { slug: 'flux', title: 'Flux', archimate: 'Flow', path: 'p', properties: 0, objects: 1, state: null },
 ]
-const summary = (key: string, type: string, type_title: string, archimate: string, name: string, extra: Record<string, unknown> = {}) => ({ key, type, type_title, archimate, name, excerpt: '', properties: [], relations: 0, is_relation: false, source: null, target: null, path: 'p', dates: null, state: null, ...extra })
+const summary = (key: string, type: string, type_title: string, archimate: string, name: string, extra: Record<string, unknown> = {}) => ({ key, type, ref: `${type}/${key}`, type_title, archimate, name, excerpt: '', properties: [], relations: 0, is_relation: false, source: null, target: null, path: 'p', dates: null, state: null, ...extra })
 const OBJECTS = [
   summary('ACT-CLIENT', 'acteur', 'Acteur', 'BusinessActor', 'Client'),
   summary('PRC-PRISE-COMMANDE', 'processus', 'Processus de vente', 'BusinessProcess', 'Prise de commande'),
@@ -50,12 +50,12 @@ const EMPTY_SCHEMA = { type: 'object', additionalProperties: false, properties: 
 const choice = (slug: string, title: string, archimate: string, schema = EMPTY_SCHEMA) => ({ slug, title, archimate, object_schema: schema })
 // Ce que les règles d'ArchiMate permettent pour chaque couple (source, cible).
 const PERMITTED: Record<string, { archimate: string[]; types: ReturnType<typeof choice>[] }> = {
-  'ACT-CLIENT>PRC-PRISE-COMMANDE': { archimate: ['Assignment', 'Serving', 'Triggering', 'Flow', 'Association'], types: [choice('affectation', 'Affectation', 'Assignment'), choice('association', 'Association', 'Association'), choice('flux', 'Flux', 'Flow')] },
-  'OBJ-COMMANDE>REL-FLUX': { archimate: ['Association'], types: [choice('association', 'Association', 'Association')] },
-  'PRC-PRISE-COMMANDE>OBJ-COMMANDE': { archimate: ['Access', 'Association'], types: [choice('acces', 'Accès', 'Access', ACCES_SCHEMA), choice('association', 'Association', 'Association')] },
+  'acteur/ACT-CLIENT>processus/PRC-PRISE-COMMANDE': { archimate: ['Assignment', 'Serving', 'Triggering', 'Flow', 'Association'], types: [choice('affectation', 'Affectation', 'Assignment'), choice('association', 'Association', 'Association'), choice('flux', 'Flux', 'Flow')] },
+  'document/OBJ-COMMANDE>flux/REL-FLUX': { archimate: ['Association'], types: [choice('association', 'Association', 'Association')] },
+  'processus/PRC-PRISE-COMMANDE>document/OBJ-COMMANDE': { archimate: ['Access', 'Association'], types: [choice('acces', 'Accès', 'Access', ACCES_SCHEMA), choice('association', 'Association', 'Association')] },
 }
-const objectDetail = (key: string, name: string, type: string, type_title: string, archimate: string, relations = { outgoing: [] as unknown[], incoming: [] as unknown[] }) => ({ key, type, type_title, archimate, name, documentation: '', properties: {}, source: null, target: null, path: 'p', schema: EMPTY_SCHEMA, relations, dates: null, state: null, problems: [] })
-const ECRIT_ROW = { key: 'REL-ECRIT', name: 'Écrit la commande', type: 'acces', type_title: 'Accès', archimate: 'Access', properties: { acces: 'Write' }, other: { key: 'OBJ-COMMANDE', name: 'Commande', type_title: 'Document métier', exists: true } }
+const objectDetail = (key: string, name: string, type: string, type_title: string, archimate: string, relations = { outgoing: [] as unknown[], incoming: [] as unknown[] }) => ({ key, type, ref: `${type}/${key}`, type_title, archimate, name, documentation: '', properties: {}, source: null, target: null, path: 'p', schema: EMPTY_SCHEMA, relations, dates: null, state: null, problems: [] })
+const ECRIT_ROW = { key: 'REL-ECRIT', ref: 'acces/REL-ECRIT', name: 'Écrit la commande', type: 'acces', type_title: 'Accès', archimate: 'Access', properties: { acces: 'Write' }, other: { key: 'OBJ-COMMANDE', ref: 'document/OBJ-COMMANDE', name: 'Commande', type_title: 'Document métier', exists: true } }
 
 type Call = { method: string; path: string; body?: string }
 
@@ -64,15 +64,15 @@ function setup(url: string) {
   let ecrit: Record<string, unknown> = {
     ...objectDetail('REL-ECRIT', 'Écrit la commande', 'acces', 'Accès', 'Access', {
       outgoing: [],
-      incoming: [{ key: 'REL-NOTE', name: 'Note', type: 'association', type_title: 'Association', archimate: 'Association', properties: {}, other: { key: 'OBJ-COMMANDE', name: 'Commande', type_title: 'Document métier', exists: true } }],
+      incoming: [{ key: 'REL-NOTE', ref: 'association/REL-NOTE', name: 'Note', type: 'association', type_title: 'Association', archimate: 'Association', properties: {}, other: { key: 'OBJ-COMMANDE', ref: 'document/OBJ-COMMANDE', name: 'Commande', type_title: 'Document métier', exists: true } }],
     }),
     properties: { acces: 'Write' },
     schema: ACCES_SCHEMA,
-    source: 'PRC-PRISE-COMMANDE',
-    target: 'OBJ-COMMANDE',
+    source: 'processus/PRC-PRISE-COMMANDE',
+    target: 'document/OBJ-COMMANDE',
     ends: {
-      source: { key: 'PRC-PRISE-COMMANDE', name: 'Prise de commande', type_title: 'Processus de vente', archimate: 'BusinessProcess', is_relation: false, exists: true },
-      target: { key: 'OBJ-COMMANDE', name: 'Commande', type_title: 'Document métier', archimate: 'BusinessObject', is_relation: false, exists: true },
+      source: { key: 'PRC-PRISE-COMMANDE', ref: 'processus/PRC-PRISE-COMMANDE', name: 'Prise de commande', type_title: 'Processus de vente', archimate: 'BusinessProcess', is_relation: false, exists: true },
+      target: { key: 'OBJ-COMMANDE', ref: 'document/OBJ-COMMANDE', name: 'Commande', type_title: 'Document métier', archimate: 'BusinessObject', is_relation: false, exists: true },
     },
     rule: ['Access', 'Association'],
   }
@@ -84,7 +84,7 @@ function setup(url: string) {
       const [path, query] = raw.split('?')
       calls.push({ method, path: raw, body: init?.body as string | undefined })
       let body: unknown = {}
-      const permitted = /\/objets\/([^/]+)\/relations-permises$/.exec(path)
+      const permitted = /\/objets\/([^/]+\/[^/]+)\/relations-permises$/.exec(path)
       if (path === '/api/session') body = { authenticated: true, capabilities: ['cartographie:read', 'cartographie:write'] }
       else if (path === `${BASE}/catalogue`) body = CATALOG
       else if (path === `${BASE}/types`) body = { readonly: false, types: TYPES }
@@ -95,16 +95,19 @@ function setup(url: string) {
       else if (path === `${BASE}/objets` && method === 'POST') {
         const sent = JSON.parse(String(init?.body)) as Record<string, unknown>
         body = { ...objectDetail(String(sent.key), String(sent.name), String(sent.type), 'Accès', 'Access'), revision: 'draft:1' }
-      } else if (path === `${BASE}/objets/REL-ECRIT` && method === 'PUT') {
+      } else if (path === `${BASE}/objets/acces/REL-ECRIT` && method === 'PUT') {
         const sent = JSON.parse(String(init?.body)) as { properties: Record<string, unknown> }
         ecrit = { ...ecrit, properties: sent.properties }
         prise = { ...prise, relations: { outgoing: [{ ...ECRIT_ROW, properties: sent.properties }], incoming: [] } }
         body = { ...ecrit, revision: 'draft:2' }
-      } else if (path === `${BASE}/objets/REL-ECRIT`) body = ecrit
-      else if (path === `${BASE}/objets/PRC-PRISE-COMMANDE`) body = prise
-      else if (path === `${BASE}/objets/ACT-CLIENT`) body = objectDetail('ACT-CLIENT', 'Client', 'acteur', 'Acteur', 'BusinessActor')
-      else if (path === `${BASE}/objets/OBJ-COMMANDE`) body = objectDetail('OBJ-COMMANDE', 'Commande', 'document', 'Document métier', 'BusinessObject')
-      else if (path.startsWith(`${BASE}/objets/`)) body = objectDetail(decodeURIComponent(path.split('/').at(-1)!), 'Créée', 'acces', 'Accès', 'Access')
+      } else if (path === `${BASE}/objets/acces/REL-ECRIT`) body = ecrit
+      else if (path === `${BASE}/objets/processus/PRC-PRISE-COMMANDE`) body = prise
+      else if (path === `${BASE}/objets/acteur/ACT-CLIENT`) body = objectDetail('ACT-CLIENT', 'Client', 'acteur', 'Acteur', 'BusinessActor')
+      else if (path === `${BASE}/objets/document/OBJ-COMMANDE`) body = objectDetail('OBJ-COMMANDE', 'Commande', 'document', 'Document métier', 'BusinessObject')
+      else if (path.startsWith(`${BASE}/objets/`)) {
+        const [type, key] = path.split('/').slice(-2).map(decodeURIComponent)
+        body = objectDetail(key, 'Créée', type, 'Accès', 'Access')
+      }
       return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) })
     }),
   )
@@ -113,7 +116,7 @@ function setup(url: string) {
       <MemoryRouter initialEntries={[url]}>
         <Routes>
           <Route path="/cartographie/objets" element={<CartographiePage />} />
-          <Route path="/cartographie/objets/:key" element={<CartoObjectPage />} />
+          <Route path="/cartographie/objets/:type/:key" element={<CartoObjectPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -133,7 +136,7 @@ afterEach(() => {
 
 describe('Cartographie — relations (ticket b58a0a13)', () => {
   it('d’un acteur vers un processus : affectation proposée, composition absente (critère 1)', async () => {
-    setup('/cartographie/objets/ACT-CLIENT')
+    setup('/cartographie/objets/acteur/ACT-CLIENT')
     const user = userEvent.setup()
     const dialog = await openRelate(user, 'Client')
     await user.click(within(dialog).getByRole('option', { name: /Prise de commande/ }))
@@ -142,7 +145,7 @@ describe('Cartographie — relations (ticket b58a0a13)', () => {
   })
 
   it('d’un objet métier vers une relation de flux : association proposée (critère 2)', async () => {
-    setup('/cartographie/objets/OBJ-COMMANDE')
+    setup('/cartographie/objets/document/OBJ-COMMANDE')
     const user = userEvent.setup()
     const dialog = await openRelate(user, 'Commande')
     await user.type(within(dialog).getByRole('searchbox'), 'paiement')
@@ -152,7 +155,7 @@ describe('Cartographie — relations (ticket b58a0a13)', () => {
   })
 
   it('accès : le sens est demandé et écrit avec sa valeur ArchiMate (critères 3 et 6)', async () => {
-    const calls = setup('/cartographie/objets/PRC-PRISE-COMMANDE')
+    const calls = setup('/cartographie/objets/processus/PRC-PRISE-COMMANDE')
     const user = userEvent.setup()
     const dialog = await openRelate(user, 'Prise de commande')
     await user.click(within(dialog).getByRole('option', { name: /Commande OBJ-COMMANDE/ }))
@@ -170,13 +173,13 @@ describe('Cartographie — relations (ticket b58a0a13)', () => {
       name: 'Accède à Commande',
       documentation: '',
       properties: { acces: 'Write' },
-      source: 'PRC-PRISE-COMMANDE',
-      target: 'OBJ-COMMANDE',
+      source: 'processus/PRC-PRISE-COMMANDE',
+      target: 'document/OBJ-COMMANDE',
     })
   })
 
   it('fiche de la relation : passer à « lecture », le retour ramène à l’objet (critère 4)', async () => {
-    const calls = setup('/cartographie/objets/PRC-PRISE-COMMANDE')
+    const calls = setup('/cartographie/objets/processus/PRC-PRISE-COMMANDE')
     const user = userEvent.setup()
     await user.click(await screen.findByRole('link', { name: 'Accès Commande' }))
     expect(await screen.findByRole('heading', { name: 'Écrit la commande' })).toBeInTheDocument()
@@ -195,7 +198,7 @@ describe('Cartographie — relations (ticket b58a0a13)', () => {
   })
 
   it('relation cible d’une association : Supprimer grisé, l’association listée (critère 5)', async () => {
-    setup('/cartographie/objets/REL-ECRIT')
+    setup('/cartographie/objets/acces/REL-ECRIT')
     await screen.findByRole('heading', { name: 'Écrit la commande' })
     expect(screen.getByRole('button', { name: 'Supprimer' })).toBeDisabled()
     expect(screen.getByRole('note')).toHaveTextContent('REL-NOTE')

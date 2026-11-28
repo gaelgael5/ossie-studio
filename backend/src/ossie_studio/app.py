@@ -25,6 +25,9 @@ from ossie_studio.api.cartographie_imports import router as api_cartographie_imp
 from ossie_studio.api.cartographie_models import router as api_cartographie_models_router
 from ossie_studio.api.cartographie_objects import router as api_cartographie_objects_router
 from ossie_studio.api.cartographie_processes import router as api_cartographie_processes_router
+from ossie_studio.api.cartographie_referentiels import (
+    router as api_cartographie_referentiels_router,
+)
 from ossie_studio.api.classification_rules import (
     removals_router as api_classification_removals_router,
 )
@@ -55,6 +58,7 @@ from ossie_studio.api.relation_profiles import router as api_relation_profiles_r
 from ossie_studio.api.secrets import router as api_secrets_router
 from ossie_studio.api.session import router as api_session_router
 from ossie_studio.api.sources import router as api_sources_router
+from ossie_studio.api.sources import source_error_handler
 from ossie_studio.api.space_plugins import router as api_space_plugins_router
 from ossie_studio.api.space_teams import router as api_space_teams_router
 from ossie_studio.api.spaces import router as api_spaces_router
@@ -67,6 +71,7 @@ from ossie_studio.config import Settings
 from ossie_studio.crypto import CryptoService
 from ossie_studio.db import create_pool
 from ossie_studio.db.migrate import run_migrations
+from ossie_studio.doc_index.passes import Validation
 from ossie_studio.domains import rules as _domain_rules  # noqa: F401 — règle de publication des domaines
 from ossie_studio.errors import ApiError, api_error_handler
 from ossie_studio.governance import rules as _governance_rules  # noqa: F401 — enregistre les règles
@@ -81,6 +86,7 @@ from ossie_studio.oidc.login_routes import router as oidc_login_router
 from ossie_studio.sources.collect import SourceCollector
 from ossie_studio.sources.download import SourceDownloader
 from ossie_studio.sources.jobs import CollectJobs
+from ossie_studio.sources.source_error import SourceError
 from ossie_studio.spaces.git_probe import prove_five_rights
 from ossie_studio.spaces.views import DraftViewManager
 from ossie_studio.spaces.workdir import WorkdirManager
@@ -139,15 +145,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.oauth_endpoints = OAuthEndpoints(pool, app.state.crypto)
         await run_migrations(pool)
         purge = asyncio.create_task(_purge_forever(app))
+        # File de validation (enabler 6b171b74) : une passe à la fois, en fond.
+        app.state.validation = Validation(
+            pool, app.state.crypto, app.state.workdir_manager, app.state.draft_views, settings
+        )
+        worker = (
+            asyncio.create_task(app.state.validation.forever())
+            if settings.validation_worker
+            else None
+        )
         async with app.state.mcp_session_manager.run():
             yield
         purge.cancel()
+        if worker is not None:
+            worker.cancel()
         await pool.close()
 
     app = FastAPI(title="Ossie Studio", lifespan=lifespan)
     # L'API renvoie des codes d'erreur traduits par l'interface, jamais un
     # message rédigé côté backend.
     app.add_exception_handler(ApiError, api_error_handler)
+    # Refus du service des sources, commun à l'écran et à l'agent (ticket 1920df67).
+    app.add_exception_handler(SourceError, source_error_handler)
     app.state.settings = settings
     app.state.bootstrap_done = False
     app.state.crypto = CryptoService(settings.master_key_bytes())
@@ -192,6 +211,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_referentiels_router)
     app.include_router(api_cartographie_router)
     app.include_router(api_cartographie_objects_router)
+    app.include_router(api_cartographie_referentiels_router)
     app.include_router(api_cartographie_models_router)
     app.include_router(api_cartographie_processes_router)
     app.include_router(api_referentiel_imports_router)

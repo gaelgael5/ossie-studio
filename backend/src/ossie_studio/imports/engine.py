@@ -10,6 +10,19 @@ donne, à la ligne du template).
 L'essai ne modifie rien : il compte les valeurs nouvelles, modifiées,
 inchangées et en erreur par rapport aux valeurs actuelles (comparées par la
 clé), et liste les différences.
+
+**Fusion seulement, et stratégie de suppression** (ticket 6d36073b) : un import
+corrige les éléments existants qui diffèrent et ajoute ceux qui manquent ; les
+éléments absents du fichier sont supprimés ou gardés selon la stratégie de
+l'import (`declaration.KEEP`, `CREATED`, `ALL`, voir `deletion_plan`). Un élément à
+supprimer mais **encore utilisé** dans l'état final (la cible le dit, `in_use`)
+est gardé, et le reste de l'import s'applique.
+
+**Lignes taguées** (ticket 43478978) : la cible peut taguer un élément valide sans le
+refuser (`tags`, par exemple une valeur absente du référentiel lié). Gael : « taguer
+la ligne et laisser l'utilisateur la refuser ». Une ligne refusée par la personne
+(`refused`, désignée par sa place dans le fichier) n'est pas écrite ; elle n'est pas
+non plus absente du fichier : la stratégie de suppression ne la touche pas.
 """
 
 from __future__ import annotations
@@ -17,13 +30,14 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Hashable, Set
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
-from typing import Any, Final
+from typing import Any
 
 import openpyxl
 
-from ossie_studio.imports.declaration import ImportDeclaration
+from ossie_studio.imports.declaration import ALL, CREATED, KEEP, ImportDeclaration
 from ossie_studio.imports.jslt_engine import (
     EvaluationError,
     TemplateSyntaxError,
@@ -44,10 +58,10 @@ DIFF_MAX = 200
 BUDGET = 100_000
 ROOT = "$"
 
-# Modes d'import (fusion par défaut).
-MERGE: Final = "merge"
-REPLACE: Final = "replace"
-MODES = (MERGE, REPLACE)
+# Pourquoi un élément absent du fichier est gardé (ticket 6d36073b).
+KEPT_STRATEGY = "strategy_keep"
+KEPT_NOT_CREATED = "not_created"
+KEPT_IN_USE = "in_use"
 
 
 class ExampleError(Exception):
@@ -329,6 +343,8 @@ class Transformed:
     origins: list[str] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
     invalid: frozenset[int] = frozenset()
+    # Éléments valides tagués par la cible (rang → tags), que la personne peut refuser.
+    tags: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -336,6 +352,11 @@ class Transformed:
 
     def valid(self) -> list[tuple[int, Any]]:
         return [(i, v) for i, v in enumerate(self.produced) if i not in self.invalid]
+
+    def refused_indices(self, refused: Set[str]) -> frozenset[int]:
+        """Les rangs des lignes taguées que la personne refuse (désignées par leur
+        place dans le fichier, « ligne 3 ») ; une ligne non taguée ne se refuse pas."""
+        return frozenset(i for i in self.tags if self.origins[i] in refused)
 
 
 def transform(target: ImportTarget, source: str, example: Example) -> Transformed:
@@ -384,31 +405,149 @@ def transform(target: ImportTarget, source: str, example: Example) -> Transforme
                 "key": p.key,
             }
         )
+    invalid = frozenset(p.index for p in value_problems)
+    tagger = getattr(target, "tags", None)
+    found: dict[int, list[dict[str, Any]]] = tagger(produced) if tagger is not None else {}
     return Transformed(
         [],
         len(example.records),
         produced,
         origins,
         errors,
-        frozenset(p.index for p in value_problems),
+        invalid,
+        {i: t for i, t in sorted(found.items()) if t and i not in invalid},
     )
+
+
+@dataclass(frozen=True)
+class Absent:
+    """Un élément actuel absent du fichier : supprimé, ou gardé avec sa raison et,
+    s'il est encore utilisé, ses utilisations (forme donnée par la cible)."""
+
+    key: Hashable
+    label: str
+    item: Any
+    reason: str = ""  # vide : supprimé
+    usages: tuple[dict[str, Any], ...] = ()
+    ref: str | None = None  # l'identifiant de sa fiche, si la cible en a une
+
+
+@dataclass(frozen=True)
+class DeletionPlan:
+    deleted: list[Absent] = field(default_factory=list)
+    kept: list[Absent] = field(default_factory=list)
+
+    @property
+    def deleted_keys(self) -> set[Hashable]:
+        return {a.key for a in self.deleted}
+
+    @property
+    def in_use(self) -> list[Absent]:
+        return [a for a in self.kept if a.reason == KEPT_IN_USE]
+
+
+def deletion_plan(
+    target: ImportTarget,
+    current: list[Any],
+    done: Transformed,
+    deletion: str = KEEP,
+    created: Set[Hashable] = frozenset(),
+) -> DeletionPlan:
+    """Ce que devient chaque élément actuel absent du fichier, selon la stratégie :
+    `keep` les garde ; `created` supprime ceux que cet import a créés (`created`) ;
+    `all` les supprime tous. Un élément à supprimer encore utilisé dans l'état final
+    (par un élément qui reste, `target.in_use`) est gardé ; on recommence jusqu'à ce
+    que plus rien ne change (un élément gardé peut en retenir un autre)."""
+    produced = [v for _i, v in done.valid()]
+    keys = {target.key(v) for v in produced}
+    labels: dict[Hashable, tuple[str, Any]] = {}
+    for index, before in enumerate(current):
+        key = target.key(before)
+        if key is not None and key not in keys:
+            labels[key] = (target.label(before, index), before)
+    reasons: dict[Hashable, str] = {}
+    for key in labels:
+        if deletion == KEEP:
+            reasons[key] = KEPT_STRATEGY
+        elif deletion == CREATED and key not in created:
+            reasons[key] = KEPT_NOT_CREATED
+    deleting = {k for k in labels if k not in reasons}
+    usages: dict[Hashable, tuple[dict[str, Any], ...]] = {}
+    in_use = getattr(target, "in_use", None)
+    while deleting and in_use is not None:
+        used: dict[Hashable, list[dict[str, Any]]] = in_use(produced, deleting)
+        if not used:
+            break
+        for key, found in used.items():
+            deleting.discard(key)
+            reasons[key] = KEPT_IN_USE
+            usages[key] = tuple(found)
+    ref_of = getattr(target, "ref", None)
+
+    def absent(key: Hashable, reason: str = "") -> Absent:
+        label, item = labels[key]
+        ref = ref_of(item) if ref_of is not None else None
+        return Absent(key, label, item, reason, usages.get(key, ()), ref)
+
+    return DeletionPlan(
+        deleted=[absent(k) for k in labels if k in deleting],
+        kept=[absent(k, reasons[k]) for k in labels if k not in deleting],
+    )
+
+
+def _absent_payload(a: Absent) -> dict[str, Any]:
+    out: dict[str, Any] = {"key": a.label, "where": "", "value": a.item}
+    if a.ref is not None:
+        out["ref"] = a.ref
+    if a.reason:
+        out.update({"kind": "kept", "reason": a.reason})
+        if a.usages:
+            out["usages"] = list(a.usages)
+    else:
+        out["kind"] = "deleted"
+    return out
+
+
+def _tagged_payload(
+    target: ImportTarget, done: Transformed, by_key: dict[Any, Any], refused: frozenset[int]
+) -> list[dict[str, Any]]:
+    out = []
+    for index, tags in list(done.tags.items())[:DIFF_MAX]:
+        value = done.produced[index]
+        before = by_key.get(target.key(value))
+        kind = "new" if before is None else "unchanged" if before == value else "modified"
+        out.append(
+            {
+                "where": done.origins[index],
+                "key": target.label(value, index),
+                "kind": kind,
+                "tags": tags,
+                "refused": index in refused,
+            }
+        )
+    return out
 
 
 def report(
     target: ImportTarget,
     current: list[Any],
     done: Transformed,
-    mode: str = MERGE,
+    plan: DeletionPlan | None = None,
+    refused: frozenset[int] = frozenset(),
 ) -> dict[str, Any]:
     """Compte rendu par rapport aux valeurs actuelles (comparées par la clé) :
-    nouvelles, modifiées, inchangées, supprimées (remplacement seulement), en
-    erreur, et les différences."""
+    nouvelles, modifiées, inchangées, en erreur, et — selon le plan de suppression —
+    supprimées et absentes gardées (avec la raison) ; les lignes taguées et celles
+    que la personne a refusées (`refused`, des rangs : comptées à part, ni écrites
+    ni absentes) ; et les différences."""
     if done.template_problems:
         return {"ok": False, "template_problems": [p.payload() for p in done.template_problems]}
     by_key = {target.key(v): v for v in current if target.key(v) is not None}
     new = modified = unchanged = 0
     differences: list[dict[str, Any]] = []
     for index, value in done.valid():
+        if index in refused:
+            continue
         label = target.label(value, index)
         before = by_key.get(target.key(value))
         if before is None:
@@ -430,22 +569,13 @@ def report(
                         "changes": _changes(before, value),
                     }
                 )
-    deleted = 0
-    if mode == REPLACE:
-        kept = {target.key(v) for _i, v in done.valid()}
-        for index, before in enumerate(current):
-            if target.key(before) in kept:
-                continue
-            deleted += 1
-            if len(differences) < DIFF_MAX:
-                differences.append(
-                    {
-                        "key": target.label(before, index),
-                        "kind": "deleted",
-                        "where": "",
-                        "value": before,
-                    }
-                )
+    plan = plan or DeletionPlan()
+    # Les gardés car utilisés d'abord : ce sont eux qui demandent une action.
+    absents = [*plan.deleted, *plan.in_use, *(a for a in plan.kept if a.reason != KEPT_IN_USE)]
+    for absent in absents:
+        if len(differences) >= DIFF_MAX:
+            break
+        differences.append(_absent_payload(absent))
     return {
         "ok": done.ok,
         "template_problems": [],
@@ -453,9 +583,14 @@ def report(
         "new": new,
         "modified": modified,
         "unchanged": unchanged,
-        "deleted": deleted,
+        "deleted": len(plan.deleted),
+        "kept": len(plan.kept),
+        "kept_in_use": len(plan.in_use),
         "errors": len({e["where"] for e in done.errors}),
         "error_details": done.errors[:DIFF_MAX],
+        "tagged": len(done.tags),
+        "refused": len(refused),
+        "tagged_lines": _tagged_payload(target, done, by_key, refused),
         "differences": differences,
     }
 
@@ -465,29 +600,34 @@ def run_template(
     current: list[Any],
     source: str,
     example: Example,
-    mode: str = MERGE,
+    deletion: str = KEEP,
+    created: Set[Hashable] = frozenset(),
 ) -> dict[str, Any]:
     """L'essai : applique le template au fichier et compare aux valeurs
-    actuelles. Rien n'est écrit."""
-    return report(target, current, transform(target, source, example), mode)
+    actuelles, suppressions prévues comprises. Rien n'est écrit."""
+    done = transform(target, source, example)
+    plan = deletion_plan(target, current, done, deletion, created) if done.ok else None
+    return report(target, current, done, plan)
 
 
 def imported_items(
-    target: ImportTarget, current: list[Any], done: Transformed, mode: str
+    target: ImportTarget,
+    current: list[Any],
+    done: Transformed,
+    plan: DeletionPlan,
+    refused: frozenset[int] = frozenset(),
 ) -> list[Any] | None:
-    """Les valeurs du référentiel après l'import, ou None s'il est refusé
-    (**tout ou rien** : la moindre erreur bloque).
-
-    - fusion (`merge`) : les valeurs du fichier remplacent celles de même clé,
-      les nouvelles s'ajoutent, les autres restent ;
-    - remplacement (`replace`) : exactement les valeurs du fichier."""
+    """Les éléments après l'import, ou None s'il est refusé (**tout ou rien** : la
+    moindre erreur bloque) : les éléments du fichier remplacent ceux de même clé,
+    les nouveaux s'ajoutent, les absents restent sauf ceux que le plan supprime. Une
+    ligne refusée par la personne (`refused`) n'est pas écrite : l'élément actuel de
+    même clé, s'il y en a un, reste tel quel."""
     if not done.ok:
         return None
-    produced = [v for _i, v in done.valid()]
-    if mode == REPLACE:
-        return produced
-    merged = list(current)
-    position = {target.key(v): i for i, v in enumerate(current) if target.key(v) is not None}
+    produced = [v for i, v in done.valid() if i not in refused]
+    deleted = plan.deleted_keys
+    merged = [v for v in current if target.key(v) not in deleted]
+    position = {target.key(v): i for i, v in enumerate(merged) if target.key(v) is not None}
     for value in produced:
         index = position.get(target.key(value))
         if index is None:
@@ -495,3 +635,24 @@ def imported_items(
         else:
             merged[index] = value
     return merged
+
+
+def created_after(
+    target: ImportTarget,
+    current: list[Any],
+    items: list[Any],
+    created: Set[Hashable],
+) -> set[Hashable]:
+    """La provenance après un import réussi : les clés qu'il avait créées et qui
+    existent toujours, plus celles qu'il vient de créer (absentes avant)."""
+    before = {target.key(v) for v in current}
+    after = {target.key(v) for v in items} - {None}
+    return {k for k in after if k in created or k not in before}
+
+
+# Libellés des stratégies, pour la page des éléments gardés et le journal.
+DELETION_LABELS = {
+    KEEP: "On garde les éléments existants qui ne sont pas dans la liste",
+    CREATED: "On supprime les éléments absents que cet import a créés",
+    ALL: "On supprime tous les éléments absents",
+}

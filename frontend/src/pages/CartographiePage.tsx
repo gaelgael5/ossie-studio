@@ -121,7 +121,7 @@ function CartographieScreen({ spaceId, branchId }: { spaceId: string; branchId: 
   // Les processus métier de l'espace : ce qu'un processus BPMN peut détailler.
   const businessProcesses = (objects.data?.objects ?? [])
     .filter((o) => o.archimate === 'BusinessProcess')
-    .map((o) => ({ key: o.key, name: o.name }))
+    .map((o) => ({ key: o.key, ref: o.ref, name: o.name }))
     .sort((a, b) => a.name.localeCompare(b.name))
   const processKeys = new Set((processes.data?.processes ?? []).map((p) => p.key))
   return (

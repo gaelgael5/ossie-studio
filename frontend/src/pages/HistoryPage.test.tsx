@@ -75,6 +75,24 @@ describe('HistoryPage (ticket cf4434da)', () => {
     await waitFor(() => expect(calls.some((c) => c.includes('type=secret'))).toBe(true))
   })
 
+  it('un import qui a gardé des éléments car utilisés mène à leur page (ticket 6d36073b)', async () => {
+    const run = {
+      at: '2026-11-28T10:00:00+00:00',
+      actor_label: 'Camille',
+      actor_id: 'u1',
+      action: 'updated',
+      object_type: 'carto_import',
+      object_id: 'b1/document/fichier',
+      object_label: 'document › fichier',
+      detail: { outcome: 'imported', deletion: 'all', kept_in_use: 1 },
+      origin: 'db',
+      ref: '41',
+    }
+    setup([{ events: [run, { ...run, ref: '40', detail: { outcome: 'imported', kept_in_use: 0 } }], next: null, types: [] }])
+    const links = await screen.findAllByRole('link', { name: 'Éléments gardés car utilisés' })
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/cartographie/types/document/imports/fichier/executions/41'])
+  })
+
   it('état vide explicite', async () => {
     setup([{ events: [], next: null, types: [] }])
     expect(await screen.findByText('Aucun événement pour ces critères.')).toBeInTheDocument()

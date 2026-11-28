@@ -10,7 +10,7 @@ Identity: `id` (lowercase letters, digits, `_`, `-`), frozen. Ossie computes whe
 `governance/relation-profiles/<id>.yaml`.
 
 The profile **provided** by Ossie, `ossie-datavault` ("Data Vault 2.0"), exists without any
-file: `list_documents(kind: profil_relation)` lists it (`builtin: true`). Writing a profile
+file: `list_documents(document_type: profil_relation)` lists it (`builtin: true`). Writing a profile
 under its id customizes it for the space (`customized: true`); deleting that customization
 restores the provided profile. The provided profile itself is never deleted, and the
 `ossie-` prefix is reserved to it.
@@ -31,7 +31,7 @@ refused (`write_content_invalid`, at `$.rules[i].column` or `$.rules[i].table`, 
 service's code: `relation_rule_pattern_invalid`, `relation_rule_template_invalid`).
 
 ```yaml example
-kind: profil_relation
+document_type: profil_relation
 identity: {id: etoile}
 content:
   id: etoile
@@ -45,7 +45,7 @@ content:
 ```
 
 ```yaml example-patch
-kind: profil_relation
+document_type: profil_relation
 document:
   id: etoile
   name: Modèle en étoile
@@ -57,7 +57,7 @@ operations:
 
 Reading:
 
-- `list_documents(kind: profil_relation)`: each profile with `name`, `rules` (their number),
+- `list_documents(document_type: profil_relation)`: each profile with `name`, `rules` (their number),
   `builtin`, `customized`, and `errors` for a file Ossie cannot read;
-- `read_document(kind: profil_relation, identity: {id})`: the profile (the space's version, or
+- `read_document(document_type: profil_relation, identity: {id})`: the profile (the space's version, or
   the provided one).

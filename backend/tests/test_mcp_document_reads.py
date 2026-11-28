@@ -102,7 +102,9 @@ async def _call(
 async def _read(
     app: FastAPI, space: ApiSpace, kind: str, identity: dict[str, Any], **args: Any
 ) -> dict[str, Any]:
-    error, body = await _call(app, "read_document", space, kind=kind, identity=identity, **args)
+    error, body = await _call(
+        app, "read_document", space, document_type=kind, identity=identity, **args
+    )
     assert not error, body
     return body
 
@@ -122,7 +124,7 @@ async def test_contenu_chemin_version_puis_patch(app: FastAPI, space: ApiSpace) 
         app,
         "patch_document",
         space,
-        kind="carto_objet",
+        document_type="carto_objet",
         identity=PRC_ID,
         version=found["version"],
         operations=[{"op": "set", "path": "$.nom", "value": "Prise de commande en boutique"}],
@@ -142,7 +144,7 @@ async def test_relire_ce_qu_on_vient_d_ecrire(app: FastAPI, space: ApiSpace) -> 
         message="Renommer",
         documents=[
             {
-                "kind": "carto_objet",
+                "document_type": "carto_objet",
                 "identity": PRC_ID,
                 "version": published["version"],
                 "content": content,
@@ -177,7 +179,7 @@ async def test_valeur_de_referentiel_seule(app: FastAPI, space: ApiSpace) -> Non
         app,
         "patch_document",
         space,
-        kind="referentiel_valeur",
+        document_type="referentiel_valeur",
         identity={"referentiel": "pays", "key": "FR"},
         version=found["version"],
         operations=[{"op": "set", "path": "$.nom", "value": "République française"}],
@@ -190,26 +192,32 @@ async def test_valeur_de_referentiel_seule(app: FastAPI, space: ApiSpace) -> Non
 async def test_identite_inconnue_ou_invalide_et_chemin(app: FastAPI, space: ApiSpace) -> None:
     """Critère 4 : identité inconnue → erreur explicite ; chemin fourni → refus."""
     ghost = {"type": "processus-de-vente", "key": "PRC-FANTOME"}
-    error, body = await _call(app, "read_document", space, kind="carto_objet", identity=ghost)
+    error, body = await _call(
+        app, "read_document", space, document_type="carto_objet", identity=ghost
+    )
     assert error and body["error"] == "document_not_found"
     assert body["identity"] == ghost
     assert body["expected_path"] == "cartographie/objets/processus-de-vente/prc-fantome.yaml"
     assert "aide" not in body
     error, body = await _call(
-        app, "read_document", space, kind="carto_objet", identity={"type": "inconnu", "key": "A"}
+        app,
+        "read_document",
+        space,
+        document_type="carto_objet",
+        identity={"type": "inconnu", "key": "A"},
     )
     assert error and body["error"] == "write_identity_invalid"
     assert body["path"] == "$.identity.type"
     error, body = await _call(
-        app, "read_document", space, kind="carto_objet", identity=PRC_ID, path=PRC
+        app, "read_document", space, document_type="carto_objet", identity=PRC_ID, path=PRC
     )
     assert error and body["error"] == "write_path_forbidden" and body["expected"] == PRC
     assert body["aide"] == {"primitive": "describe_standard", "standard": "writing-rules"}
-    error, body = await _call(app, "read_document", space, kind="inconnu", identity={})
-    assert error and body["error"] == "write_kind_unknown"
-    assert body["aide"] == {"primitive": "list_write_kinds"}
+    error, body = await _call(app, "read_document", space, document_type="inconnu", identity={})
+    assert error and body["error"] == "document_type_unknown"
+    assert body["aide"] == {"primitive": "list_document_types"}
     error, body = await _call(
-        app, "read_document", space, kind="certification", identity={"slug": "or"}
+        app, "read_document", space, document_type="certification", identity={"slug": "or"}
     )
     assert error and body["error"] == "document_not_found" and "expected_path" not in body
 
@@ -220,14 +228,20 @@ async def test_droits_et_cle_d_api(app: FastAPI, space: ApiSpace) -> None:
     found = await _read(app, space, "carto_objet", PRC_ID, token=LIMITED)
     assert found["path"] == PRC
     error, body = await _call(
-        app, "read_document", space, LIMITED, kind="tag", identity={"id": "pii/email"}
+        app, "read_document", space, LIMITED, document_type="tag", identity={"id": "pii/email"}
     )
     assert error and body["error"] == "primitive_forbidden"
-    assert body["capability"] == "governance:read" and body["kind"] == "tag"
+    assert body["capability"] == "governance:read" and body["document_type"] == "tag"
     tag = await _read(app, space, "tag", {"id": "pii/email"}, token=KEY)
     assert tag["content"]["info"] == {"owner": "dpo"}
     error, body = await _call(
-        app, "read_document", space, KEY, kind="tag", identity={"id": "pii/email"}, branch="draft"
+        app,
+        "read_document",
+        space,
+        KEY,
+        document_type="tag",
+        identity={"id": "pii/email"},
+        branch="draft",
     )
     assert error and body["error"] == "draft_requires_person"
 
@@ -238,7 +252,7 @@ async def test_droits_et_cle_d_api(app: FastAPI, space: ApiSpace) -> None:
 async def _list(
     app: FastAPI, space: ApiSpace, kind: str, token: str = AGENT, **args: Any
 ) -> dict[str, Any]:
-    error, body = await _call(app, "list_documents", space, token, kind=kind, **args)
+    error, body = await _call(app, "list_documents", space, token, document_type=kind, **args)
     assert not error, body
     return body
 
@@ -277,7 +291,11 @@ async def test_lister_valeurs_de_tous_les_referentiels(app: FastAPI, space: ApiS
     )
     assert [d["value"]["nom"] for d in one["documents"]] == ["Belgique"]
     error, body = await _call(
-        app, "list_documents", space, kind="referentiel_valeur", filters={"equals": {"code": "FR"}}
+        app,
+        "list_documents",
+        space,
+        document_type="referentiel_valeur",
+        filters={"equals": {"code": "FR"}},
     )
     assert error and body["error"] == "list_filter_invalid" and body["path"] == "$.filters.equals"
 
@@ -295,7 +313,7 @@ async def test_lister_la_gouvernance_et_le_brouillon(app: FastAPI, space: ApiSpa
         message="Certification",
         documents=[
             {
-                "kind": "certification",
+                "document_type": "certification",
                 "identity": {"slug": "or"},
                 "content": {"name": "Or", "tag": "certification/or"},
             }
@@ -313,7 +331,7 @@ async def test_lister_la_gouvernance_et_le_brouillon(app: FastAPI, space: ApiSpa
 async def test_lister_demande_le_droit_de_lire_le_genre(app: FastAPI, space: ApiSpace) -> None:
     """Comme read_document : la capacité de lecture du genre (celle de l'écran)."""
     assert (await _list(app, space, "carto_objet", LIMITED))["total"] == 1
-    error, body = await _call(app, "list_documents", space, LIMITED, kind="tag")
+    error, body = await _call(app, "list_documents", space, LIMITED, document_type="tag")
     assert error and body["error"] == "primitive_forbidden"
     assert body["capability"] == "governance:read"
 
@@ -350,7 +368,7 @@ RAW_SCHEMA = {"title": "Client", "type": "object", "properties": {"id": {"type":
 
 
 async def test_schemas_raw_et_assets_se_lisent_sans_s_ecrire(app: FastAPI, space: ApiSpace) -> None:
-    """Critères 3 et 4 : l'écriture est refusée en nommant l'action ; list_write_kinds
+    """Critères 3 et 4 : l'écriture est refusée en nommant l'action ; list_document_types
     les montre lisibles, non écrivables ; read_document les lit."""
     forge_edit(
         space,
@@ -372,11 +390,14 @@ async def test_schemas_raw_et_assets_se_lisent_sans_s_ecrire(app: FastAPI, space
             "write_documents",
             space,
             message="x",
-            documents=[{"kind": kind, "identity": raw_id, "content": RAW_SCHEMA}],
+            documents=[{"document_type": kind, "identity": raw_id, "content": RAW_SCHEMA}],
         )
         assert error, body
         [refusal] = body["errors"]
-        assert (refusal["code"], refusal["path"]) == ("write_kind_read_only", "$.documents[0].kind")
+        assert (refusal["code"], refusal["path"]) == (
+            "document_type_read_only",
+            "$.documents[0].document_type",
+        )
         assert refusal["actions"] == actions
         assert all(action in refusal["message"] for action in actions)
         assert refusal["aide"]["primitive"] == "describe_standard"
@@ -384,14 +405,14 @@ async def test_schemas_raw_et_assets_se_lisent_sans_s_ecrire(app: FastAPI, space
         app,
         "patch_document",
         space,
-        kind="schema_raw",
+        document_type="schema_raw",
         identity=raw_id,
         version=read["version"],
         operations=[{"op": "set", "path": "$.title", "value": "Autre"}],
     )
-    assert error and body["errors"][0]["code"] == "write_kind_read_only"
-    kinds = await call_tool(app, AGENT, "list_write_kinds", {})
-    listed = {k["kind"]: k for k in kinds.structured_content["kinds"]}
+    assert error and body["errors"][0]["code"] == "document_type_read_only"
+    kinds = await call_tool(app, AGENT, "list_document_types", {})
+    listed = {k["document_type"]: k for k in kinds.structured_content["document_types"]}
     assert listed["schema_raw"]["writable"] is False
     assert listed["schema_raw"]["produced_by"] == ["collect_source"]
     assert listed["schema_raw"]["write_capability"] is None
@@ -400,7 +421,7 @@ async def test_schemas_raw_et_assets_se_lisent_sans_s_ecrire(app: FastAPI, space
         app,
         "read_document",
         space,
-        kind="schema_raw",
+        document_type="schema_raw",
         identity={"source": "ventes", "name": "../manifest.yaml"},
     )
     assert bad[0] and bad[1]["error"] == "write_identity_invalid"

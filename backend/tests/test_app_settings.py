@@ -1,7 +1,7 @@
 """Page « Paramètres » (epic « Primitives MCP — écriture commune par genre », ticket
 ae8fc4b6) : la taille maximale d'un document écrit par un agent, 200 Ko par défaut
 dans la configuration, réglable par un administrateur ; la valeur posée prime, vaut
-sans redémarrage, et se voit dans list_write_kinds et dans les refus de taille."""
+sans redémarrage, et se voit dans list_document_types et dans les refus de taille."""
 
 from __future__ import annotations
 
@@ -60,14 +60,14 @@ async def simple(app: FastAPI, space: ApiSpace) -> AsyncIterator[AsyncClient]:
 async def _setting(http: AsyncClient) -> dict[str, Any]:
     response = await http.get(URL)
     assert response.status_code == 200, response.text
-    [found] = response.json()["settings"]
-    assert found["key"] == KEY
+    # La page a plusieurs paramètres (l'intervalle de la file de validation, 6b171b74).
+    [found] = [s for s in response.json()["settings"] if s["key"] == KEY]
     data: dict[str, Any] = found
     return data
 
 
 async def _kinds_limit(app: FastAPI) -> int:
-    result = await call_tool(app, AGENT, "list_write_kinds", {})
+    result = await call_tool(app, AGENT, "list_document_types", {})
     limit: int = result.structured_content["document_max_bytes"]
     return limit
 
@@ -86,7 +86,7 @@ async def _write_role(
             "message": "taille",
             "documents": [
                 {
-                    "kind": "carto_objet",
+                    "document_type": "carto_objet",
                     "identity": {"type": "role", "key": key},
                     "content": content,
                 }
@@ -108,7 +108,7 @@ async def test_par_defaut_la_configuration(app: FastAPI, space: ApiSpace) -> Non
 
 async def test_modifier_vaut_sans_redemarrage(app: FastAPI, space: ApiSpace) -> None:
     """Critères 2 et 3 : la valeur posée s'applique à l'écriture suivante et se voit
-    dans list_write_kinds ; une entrée plus grande est refusée avec taille, limite,
+    dans list_document_types ; une entrée plus grande est refusée avec taille, limite,
     chemin et `aide`, rien n'est écrit. Revenir à la valeur par défaut."""
     error, _body = await _write_role(app, space, 7000)
     assert not error

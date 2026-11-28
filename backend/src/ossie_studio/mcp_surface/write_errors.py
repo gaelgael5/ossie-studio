@@ -1,5 +1,5 @@
 """Les refus des écritures par l'agent, localisés et expliqués (epic « Primitives MCP —
-écriture commune par genre », ticket 10cc4ed6).
+écriture commune par type de document », ticket 10cc4ed6).
 
 Gael : « À chaque fois le JSONPath où se trouve l'erreur et la description. » Chaque
 refus porte : le JSONPath de la donnée fautive **dans la requête**
@@ -26,23 +26,23 @@ from ossie_studio.cartographie.model import properties_schema
 from ossie_studio.cartographie.space import Cartographie
 from ossie_studio.domains.documents import DomainError as SemanticModelError
 from ossie_studio.governance.actions import GovernanceRefused
-from ossie_studio.mcp_surface.kind_base import KindError
+from ossie_studio.mcp_surface.document_type_base import DocumentError
 from ossie_studio.problems import Problem
 from ossie_studio.referentiels.errors import ReferentielError
 from ossie_studio.referentiels.model import SEPARATOR
 
 DomainError = (
-    CartographieError | ReferentielError | GovernanceRefused | KindError | SemanticModelError
+    CartographieError | ReferentielError | GovernanceRefused | DocumentError | SemanticModelError
 )
 DOMAIN_ERRORS = (
     CartographieError,
     ReferentielError,
     GovernanceRefused,
-    KindError,
+    DocumentError,
     SemanticModelError,
 )
 
-# Les refus de forme : ils renvoient vers le standard du genre.
+# Les refus de forme : ils renvoient vers le standard du type de document.
 _FORMAT_CODES = frozenset(
     {
         "write_content_invalid",
@@ -74,7 +74,7 @@ def aide_standard(standard: str) -> dict[str, str]:
     return {"primitive": "describe_standard", "standard": standard}
 
 
-AIDE_KINDS = {"primitive": "list_write_kinds"}
+AIDE_KINDS = {"primitive": "list_document_types"}
 
 
 @dataclass
@@ -153,8 +153,8 @@ def translate(
     """Un refus d'un service ou du registre, en erreurs localisées. `base` : le
     JSONPath de l'entrée dans la requête ($.documents[i], ou $ pour une
     modification) ; `content_path` : celui de son contenu."""
-    if isinstance(exc, KindError):
-        refusals = [_kind(exc, base, content_path)]
+    if isinstance(exc, DocumentError):
+        refusals = [_document(exc, base, content_path)]
     elif isinstance(exc, CartographieError):
         refusals = _carto(exc, base, content_path, content, space)
     elif isinstance(exc, ReferentielError):
@@ -178,10 +178,10 @@ def translate(
     return refusals
 
 
-def _kind(exc: KindError, base: str, content_path: str) -> Refusal:
+def _document(exc: DocumentError, base: str, content_path: str) -> Refusal:
     if exc.field.startswith("$"):
         where = content_path + exc.field[1:]
-    elif exc.field in ("path", "delete", "kind", "version"):
+    elif exc.field in ("path", "delete", "document_type", "version"):
         where = jsonpath(base, exc.field)
     else:
         where = jsonpath(base, "identity", exc.field)
@@ -194,7 +194,7 @@ def _kind(exc: KindError, base: str, content_path: str) -> Refusal:
         received=exc.extra.get("received"),
         extra=extra,
     )
-    if exc.code == "write_kind_unknown":
+    if exc.code == "document_type_unknown":
         refusal.aide = dict(AIDE_KINDS)
     return refusal
 
@@ -338,11 +338,12 @@ def _whole(
 ) -> Refusal:
     key = exc.detail.get("key", content.get("cle"))
     if exc.code == "object_key_taken":
+        type_slug = exc.detail.get("type", content.get("type"))
         return Refusal(
             jsonpath(prefix, "cle"),
             code,
-            f"La clé {key} est déjà prise dans l'espace ; une clé est unique, tous types "
-            "confondus. Pour remplacer cet objet, donner sa version.",
+            f"La clé {key} est déjà prise dans le type {type_slug} ; une clé est unique dans "
+            "son type. Pour remplacer cet objet, donner sa version.",
             received=key,
         )
     if exc.code == "object_type_frozen":
@@ -390,6 +391,16 @@ def _problem(p: Problem, prefix: str, content: dict[str, Any], space: Cartograph
         where = jsonpath(prefix, "proprietes", *segs)
         received = _get(content.get("proprietes"), segs)
         name = ".".join(segs) or "proprietes"
+        if p.code == "property_referentiel_unknown":
+            referentiel = p.detail.split(" : ", 1)[0]
+            return Refusal(
+                where,
+                "property_referentiel_unknown",
+                f"La valeur {show(received)} de {name} n'existe pas dans le référentiel "
+                f"{referentiel}, auquel le type lie cette propriété (lister ses valeurs avec "
+                f"list_documents, document_type referentiel_valeur, referentiel {referentiel}).",
+                received=received,
+            )
         if p.code == "property_unknown":
             return Refusal(
                 where,
@@ -437,15 +448,17 @@ def _problem(p: Problem, prefix: str, content: dict[str, Any], space: Cartograph
             "nouvelle relation et supprimer l'ancienne",
         ),
     }
-    if p.code == "relation_endpoint_unknown":
+    if p.code in ("relation_endpoint_unknown", "relation_endpoint_ambiguous"):
         end = "source" if p.field == "source" else "cible"
         value = content.get(end)
-        return Refusal(
-            jsonpath(prefix, end),
-            code,
-            f"La {end} {value} n'existe ni dans l'espace ni dans la liste envoyée.",
-            received=value,
+        text = (
+            f"La {end} {value} n'existe ni dans l'espace ni dans la liste envoyée "
+            "(désigner un objet par type/CLÉ, ex. application/APP-01)."
+            if p.code == "relation_endpoint_unknown"
+            else f"La clé {value} existe dans plusieurs types : désigner la {end} par "
+            "type/CLÉ (ex. application/APP-01)."
         )
+        return Refusal(jsonpath(prefix, end), code, text, received=value)
     name, text = fields.get(p.code, ("", f"Refus : {p.code}"))
     if p.code == "object_type_unknown":
         code = "carto_type_not_found"

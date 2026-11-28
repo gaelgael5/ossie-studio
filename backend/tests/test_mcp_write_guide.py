@@ -1,5 +1,5 @@
 """Pour qu'un agent ne soit jamais perdu (epic « Primitives MCP — écriture commune par
-genre », ticket c7838a43) : `list_write_kinds` généré depuis le registre,
+genre », ticket c7838a43) : `list_document_types` généré depuis le registre,
 `describe_standard` et ses exemples vérifiés par les validateurs, et le renvoi `aide`
 dans les erreurs de format de toutes les primitives."""
 
@@ -19,8 +19,9 @@ from httpx import AsyncClient
 from ossie_studio.cartographie.process import check_bpmn_schema
 from ossie_studio.mcp_surface import write_guide
 from ossie_studio.mcp_surface.caller import McpCaller
+from ossie_studio.mcp_surface.catalog import BY_ID
 from ossie_studio.mcp_surface.doc_paths import Operation, apply_json, apply_xml
-from ossie_studio.mcp_surface.kinds import KINDS, write_kind
+from ossie_studio.mcp_surface.document_types import DOCUMENT_TYPES, get_document_type
 from ossie_studio.sources.manifest import SourceManifest, dump_manifest
 from tests.mcp_helpers import call_tool
 from tests.space_fixture import ApiSpace, make_api_space
@@ -75,7 +76,7 @@ def _apply(root: Path, entries: list[dict[str, Any]]) -> None:
     while pending:
         failures: list[tuple[dict[str, Any], Exception]] = []
         for entry in pending:
-            kind = write_kind(entry["kind"])
+            kind = get_document_type(entry["document_type"])
             try:
                 location = kind.locate(root, entry["identity"])
                 current = kind.store.read(root, location)
@@ -100,7 +101,12 @@ def _examples() -> list[tuple[str, str, str]]:
 
 def test_chaque_standard_a_un_titre_et_un_resume() -> None:
     known = write_guide.standards()
-    expected = {k.standard for k in KINDS} | {"jsonpath", "xpath", "writing-rules", "errors"}
+    expected = {k.standard for k in DOCUMENT_TYPES} | {
+        "jsonpath",
+        "xpath",
+        "writing-rules",
+        "errors",
+    }
     assert expected <= set(known)
     for standard, found in known.items():
         assert found["title"] and found["summary"], standard
@@ -117,7 +123,7 @@ def test_les_exemples_passent_leur_validateur(
         _apply(root, data if isinstance(data, list) else [data])
         return
     operations = [Operation(o["op"], o["path"], o.get("value")) for o in data["operations"]]
-    if write_kind(data["kind"]).syntax == "xpath":
+    if get_document_type(data["document_type"]).syntax == "xpath":
         check_bpmn_schema(apply_xml(data["document"], operations))
     else:
         apply_json(data["document"], operations)
@@ -127,7 +133,7 @@ def test_chaque_genre_et_chaque_syntaxe_ont_un_exemple() -> None:
     """Chaque genre qu'on peut écrire a un exemple ; un genre en lecture seule
     (ticket 56f3784a) a son standard, qui nomme l'action qui le produit."""
     standards_with_examples = {s for s, _n, _t in _examples()}
-    for kind in KINDS:
+    for kind in DOCUMENT_TYPES:
         if not kind.writable:
             text = write_guide.standards()[kind.standard]["markdown"]
             assert all(action in text for action in kind.produced_by), kind.name
@@ -162,22 +168,26 @@ def _ctx(limit: int = 5120) -> Any:
     )
 
 
-async def test_list_write_kinds_genere_depuis_le_registre(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_list_document_types_genere_depuis_le_registre(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Critère 1 : tous les genres ; un genre ajouté au registre y apparaît."""
-    listed = await write_guide.list_write_kinds(_ctx(), write_guide.ListWriteKindsArgs())
-    assert [k["kind"] for k in listed["kinds"]] == [k.name for k in KINDS]
+    listed = await write_guide.list_document_types(_ctx(), write_guide.ListDocumentTypesArgs())
+    assert [k["document_type"] for k in listed["document_types"]] == [
+        k.name for k in DOCUMENT_TYPES
+    ]
     assert listed["document_max_bytes"] == 5120
-    objet = next(k for k in listed["kinds"] if k["kind"] == "carto_objet")
+    objet = next(k for k in listed["document_types"] if k["document_type"] == "carto_objet")
     assert [f["name"] for f in objet["identity"]] == ["type", "key"]
     assert objet["path"] == {"rule": "forbidden"} and objet["syntax"] == "jsonpath"
     assert objet["standard"] == "carto-objet" and "read_schema" in objet["schema"]
     assert objet["identity_fields"] == ["$.cle", "$.type"]
-    bpmn = next(k for k in listed["kinds"] if k["kind"] == "processus")
+    bpmn = next(k for k in listed["document_types"] if k["document_type"] == "processus")
     assert bpmn["syntax"] == "xpath" and bpmn["standard"] == "bpmn"
-    extra = KINDS[0].__class__(**{**KINDS[0].__dict__, "name": "essai"})
-    monkeypatch.setattr(write_guide, "KINDS", (*KINDS, extra))
-    again = await write_guide.list_write_kinds(_ctx(), write_guide.ListWriteKindsArgs())
-    assert again["kinds"][-1]["kind"] == "essai"
+    extra = DOCUMENT_TYPES[0].__class__(**{**DOCUMENT_TYPES[0].__dict__, "name": "essai"})
+    monkeypatch.setattr(write_guide, "DOCUMENT_TYPES", (*DOCUMENT_TYPES, extra))
+    again = await write_guide.list_document_types(_ctx(), write_guide.ListDocumentTypesArgs())
+    assert again["document_types"][-1]["document_type"] == "essai"
 
 
 async def test_describe_standard() -> None:
@@ -220,26 +230,57 @@ async def _call(app: FastAPI, tool: str, args: dict[str, Any]) -> dict[str, Any]
 
 async def test_aide_dans_les_erreurs_de_format(app: FastAPI, space: ApiSpace) -> None:
     """Critères 4 et 5 : write_documents, read_schema, list_documents ; un genre inconnu
-    renvoie vers list_write_kinds."""
+    renvoie vers list_document_types."""
     ids = {"space_id": space.space_id, "branch_id": space.branch_id}
     malformed = await _call(app, "write_documents", {**ids, "message": "x", "documents": [{}]})
     assert malformed["error"] == "invalid_arguments"
-    assert malformed["aide"] == {"primitive": "list_write_kinds"}
+    assert malformed["aide"] == {"primitive": "list_document_types"}
     unknown = await _call(
         app,
         "write_documents",
-        {**ids, "message": "x", "documents": [{"kind": "inconnu", "identity": {}, "content": {}}]},
+        {
+            **ids,
+            "message": "x",
+            "documents": [{"document_type": "inconnu", "identity": {}, "content": {}}],
+        },
     )
-    assert unknown["errors"][0]["aide"] == {"primitive": "list_write_kinds"}
+    assert unknown["errors"][0]["aide"] == {"primitive": "list_document_types"}
     schema = await _call(app, "read_schema", {**ids, "path": "pas/un/schema"})
-    assert schema["aide"] == {"primitive": "list_write_kinds"}
+    assert schema["aide"] == {"primitive": "list_document_types"}
     listing = await _call(app, "list_documents", ids)  # sans genre
     assert listing["error"] == "invalid_arguments"
-    assert listing["aide"] == {"primitive": "list_write_kinds"}
-    stray = await _call(app, "list_documents", {**ids, "kind": "tag", "filters": {"x": 1}})
+    assert listing["aide"] == {"primitive": "list_document_types"}
+    stray = await _call(app, "list_documents", {**ids, "document_type": "tag", "filters": {"x": 1}})
     assert stray["error"] == "list_filter_unknown"
-    assert stray["aide"] == {"primitive": "list_write_kinds"}
+    assert stray["aide"] == {"primitive": "list_document_types"}
     standard = await _call(app, "describe_standard", {"standard": "inconnu"})
     assert standard["error"] == "standard_unknown" and "carto-objet" in standard["expected"]
-    branch = await _call(app, "list_write_kinds", {"branch": "main"})
+    branch = await _call(app, "list_document_types", {"branch": "main"})
     assert branch["aide"] == {"primitive": "describe_standard", "standard": "writing-rules"}
+
+
+async def test_document_type_remplace_genre(app: FastAPI, space: ApiSpace) -> None:
+    """Ticket b90fcc85 : `genre` n'est plus un paramètre (aucun alias) ;
+    `list_write_kinds` devient `list_document_types`, et les profils agents suivent."""
+    ids = {"space_id": space.space_id, "branch_id": space.branch_id}
+    old = {"genre": "carto_objet", "identity": {}, "content": {}}
+    refused = await _call(app, "write_documents", {**ids, "message": "x", "documents": [old]})
+    assert refused["error"] == "invalid_arguments"
+    assert refused["aide"] == {"primitive": "list_document_types"}
+    listing = await _call(app, "list_documents", {**ids, "genre": "tag"})
+    assert listing["error"] == "invalid_arguments"
+    assert listing["aide"] == {"primitive": "list_document_types"}
+    assert "list_document_types" in BY_ID and "list_write_kinds" not in BY_ID
+    migration = (
+        Path(__file__).parents[1] / "src/ossie_studio/db/migrations/0052_list_document_types.sql"
+    ).read_text(encoding="utf-8")
+    async with app.state.pool.acquire() as conn:
+        profile = await conn.fetchval(
+            "INSERT INTO agent_profiles (name, primitives) VALUES ('ancien', $1) RETURNING id",
+            ["list_write_kinds", "write_documents"],
+        )
+        await conn.execute(migration)
+        primitives = await conn.fetchval(
+            "SELECT primitives FROM agent_profiles WHERE id = $1", profile
+        )
+    assert primitives == ["list_document_types", "write_documents"]

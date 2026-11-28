@@ -45,6 +45,8 @@ def make_settings(tmp_path: Path, database_url: str, master_key: str = TEST_MAST
         secrets_master_key=master_key,
         # Les tests modifient la forge entre deux lectures : réalignement à chaque fois.
         git_read_follows_forge=True,
+        # Les passes de validation sont lancées par les tests de la file, jamais en fond.
+        validation_worker=False,
         _env_file=None,  # type: ignore[call-arg]
     )
 

@@ -4,8 +4,13 @@ Reprises telles quelles de l'onglet « Imports » des référentiels (tickets
 cda9c43a et a909dc66) : déclarer un import, déposer un fichier d'exemple, régler
 sa lecture, écrire et essayer le template JSLT, puis importer. Ce qui dépend de
 la cible passe par un **adaptateur** (`ImportAdapter`) : où vivent ses imports,
-ses éléments actuels, sa validation (`ImportTarget`), l'écriture, les modes
-qu'elle accepte, le type d'objet de son journal et les droits.
+ses éléments actuels, sa validation (`ImportTarget`), l'écriture, le type d'objet
+de son journal et les droits.
+
+**Fusion seulement** (ticket 6d36073b) : un import corrige et ajoute ; la
+suppression des éléments absents du fichier suit la **stratégie de suppression**
+enregistrée avec l'import (`PUT …/suppression`). Les éléments gardés car encore
+utilisés d'une exécution s'expliquent sur sa page (`GET …/executions/{id}`).
 
 Routes de l'écran, pour une personne connectée (session) : une clé d'API
 n'importe rien. Les fichiers sont écrits dans le brouillon de la personne
@@ -28,6 +33,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
 from ossie_studio.deps import ConnDep
+from ossie_studio.doc_index.queue import IMPORT, request_pass
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.errors import ApiError
 from ossie_studio.imports import files
 from ossie_studio.imports.columns import (
@@ -38,12 +45,20 @@ from ossie_studio.imports.columns import (
     property_name,
     resolve_template,
 )
-from ossie_studio.imports.declaration import TABULAR, Import, ImportDeclaration, example_name
+from ossie_studio.imports.declaration import (
+    TABULAR,
+    Import,
+    ImportDeclaration,
+    example_name,
+)
 from ossie_studio.imports.engine import (
-    MERGE,
+    DELETION_LABELS,
+    Absent,
     Example,
     ExampleError,
     check_template,
+    created_after,
+    deletion_plan,
     detect_reading,
     imported_items,
     preview,
@@ -59,8 +74,10 @@ from ossie_studio.imports.journal import (
     UNCHANGED,
     LastImport,
     last_imports,
+    read_run,
     record_import,
 )
+from ossie_studio.imports.provenance import read_created, write_created
 from ossie_studio.imports.target import ImportTarget
 
 MAX_EXAMPLE_BYTES = 5 * 1024 * 1024
@@ -102,7 +119,7 @@ class MappingBody(BaseModel):
     mapping: dict[str, str] = Field(max_length=500)
 
 
-Mode = Literal["merge", "replace"]
+Deletion = Literal["keep", "created", "all"]
 
 
 class TemplateBody(BaseModel):
@@ -111,8 +128,13 @@ class TemplateBody(BaseModel):
 
 
 class TrialBody(TemplateBody):
-    # Le mode de l'import à venir : en remplacement, l'essai compte les suppressions.
-    mode: Mode = MERGE
+    # La stratégie de suppression à essayer ; absente : celle enregistrée avec l'import.
+    deletion: Deletion | None = None
+
+
+class DeletionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    deletion: Deletion
 
 
 Field_ = tuple[str, str | None]
@@ -134,7 +156,6 @@ class ImportAdapter:
     imports dans la cible (le nom d'un référentiel, le slug d'un type)."""
 
     journal_type: str
-    modes: tuple[str, ...]
     read_dependency: Callable[..., Awaitable[Any]]
     write_dependency: Callable[..., Awaitable[Any]]
     open: Callable[..., Awaitable[Handle]]
@@ -158,6 +179,12 @@ class ImportAdapter:
     skeleton: Callable[[Path, str], Skeleton]
 
 
+def _kept_payload(absent: Absent) -> dict[str, Any]:
+    """Un élément gardé car utilisé, tel que sa page l'explique : sa clé, sa fiche
+    (si la cible en a une) et ses utilisations au moment de l'import."""
+    return {"key": absent.label, "ref": absent.ref, "usages": list(absent.usages)}
+
+
 def _summary(imp: Import, last: LastImport | None) -> dict[str, Any]:
     d = imp.declaration
     return {
@@ -168,6 +195,8 @@ def _summary(imp: Import, last: LastImport | None) -> dict[str, Any]:
         "encoding": d.encoding,
         "header": d.header,
         "sheet": d.sheet,
+        # La stratégie de suppression des éléments absents du fichier (ticket 6d36073b).
+        "deletion": d.deletion,
         # Le dernier import abouti, lu dans le journal (None : jamais importé).
         "last_import": last.at if last else None,
         "last_import_by": last.by if last else None,
@@ -623,9 +652,29 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
         )
         return detail(owner, imp)
 
-    def check_mode(mode: str) -> None:
-        if mode not in adapter.modes:
-            raise ApiError("invalid_request", status_code=400, fields=["mode"])
+    @router.put("/{slug}/suppression")
+    async def set_deletion(
+        request: Request,
+        conn: ConnDep,
+        crypto: CryptoDep,
+        user: Writer,
+        workdir: DraftWorkdirDep,
+        space_id: uuid.UUID,
+        branch_id: uuid.UUID,
+        slug: str,
+        body: DeletionBody,
+    ) -> dict[str, object]:
+        """La stratégie de suppression de l'import (ticket 6d36073b) : garder les
+        éléments absents du fichier, supprimer ceux que cet import a créés, ou les
+        supprimer tous. Enregistrée dans la déclaration de l'import."""
+
+        def change(imp: Import) -> tuple[ImportDeclaration, str, bytes]:
+            return replace(imp.declaration, deletion=body.deletion), imp.template, imp.example
+
+        return await update(
+            request, conn, crypto, workdir, space_id, branch_id, user, slug,
+            "stratégie de suppression de l'import", change,
+        )  # fmt: skip
 
     @router.post("/{slug}/essai")
     async def try_template(
@@ -640,18 +689,21 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
         body: TrialBody,
     ) -> dict[str, object]:
         """Essaie le template (le texte donné, enregistré ou non) sur le fichier
-        d'exemple : éléments nouveaux, modifiés, inchangés, supprimés (mode
-        remplacement), en erreur, et différences. Rien n'est écrit."""
-        check_mode(body.mode)
+        d'exemple : éléments nouveaux, modifiés, inchangés, en erreur, et — selon la
+        stratégie de suppression — supprimés et absents gardés (avec la raison).
+        Rien n'est écrit."""
         owner = owner_of(request)
         handle = await adapter.open(conn, crypto, workdir, space_id, branch_id, user)
 
-        def read(root: Path) -> tuple[ImportTarget, list[Any], Import]:
+        def read(root: Path) -> tuple[ImportTarget, list[Any], Import, set[Any]]:
             target, current = adapter.current(root, owner)
-            return target, current, read_one(owner, slug)(root)
+            created = read_created(root, folder(owner), slug)
+            return target, current, read_one(owner, slug)(root), created
 
-        target, current, imp = await handle.read(read)
-        return run_template(target, current, body.template, _example_of(imp, None), body.mode)
+        target, current, imp, created = await handle.read(read)
+        deletion = body.deletion or imp.declaration.deletion
+        example = _example_of(imp, None)
+        return run_template(target, current, body.template, example, deletion, created)
 
     @router.post("/{slug}/import")
     async def run_import(
@@ -663,21 +715,29 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
         space_id: uuid.UUID,
         branch_id: uuid.UUID,
         slug: str,
-        mode: Annotated[Mode, Form()] = MERGE,
         file: UploadFile | None = None,
+        reviewed: Annotated[bool, Form()] = False,
+        refuse: Annotated[list[str] | None, Form()] = None,
     ) -> dict[str, object]:
-        """Importer : applique l'import (template enregistré, réglages de lecture) à
-        un fichier déposé — ou, sans fichier, au fichier d'exemple — et écrit les
-        éléments dans le brouillon de la personne.
+        """Importer : applique l'import (template enregistré, réglages de lecture,
+        stratégie de suppression) à un fichier déposé — ou, sans fichier, au fichier
+        d'exemple — et écrit les éléments dans le brouillon de la personne.
 
-        - `mode` : `merge` (fusion par clé, par défaut) ou, si la cible le permet,
-          `replace` ;
+        - **lignes taguées** (ticket 43478978) : si la cible en tague (valeur absente
+          du référentiel lié) et que la personne ne les a pas encore vues
+          (`reviewed` faux), rien n'est écrit ni journalisé : 409
+          `import_review_required`, compte rendu joint. Elle renvoie ensuite le même
+          fichier avec `reviewed` et les lignes qu'elle refuse (`refuse`, « ligne 3 ») :
+          elles ne sont pas écrites, et la stratégie de suppression ne les touche pas ;
+
+        - **fusion** : corrige les éléments qui diffèrent, ajoute ceux qui manquent ;
+          les absents suivent la stratégie de suppression ; un élément à supprimer
+          encore utilisé est gardé, et le reste de l'import s'applique ;
         - **tout ou rien** : la moindre erreur refuse l'import (422
           `import_refused`, compte rendu joint) et rien n'est écrit ;
         - un fichier sans changement n'écrit rien (`revision` nulle) ;
-        - chaque import, refusé compris, est journalisé (auteur, fichier, mode,
-          compte rendu)."""
-        check_mode(mode)
+        - chaque import, refusé compris, est journalisé (auteur, fichier, stratégie,
+          compte rendu, éléments gardés car utilisés : `run_id`)."""
         owner = owner_of(request)
         raw: bytes | None = None
         file_name = ""
@@ -693,6 +753,7 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             return target, current, read_one(owner, slug)(root)
 
         target, current, imp = await handle.read(read)
+        deletion = imp.declaration.deletion
         if raw is None:
             raw, file_name = imp.example, example_name(slug, imp.declaration.format)
         example = _example_of(imp, None, raw)
@@ -700,9 +761,9 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             raise ApiError("import_file_empty", status_code=400)
         # Le calcul (une évaluation du template par ligne) ne bloque pas le serveur.
         done = await asyncio.to_thread(transform, target, imp.template, example)
-        journal: dict[str, Any] = {"file": file_name, "mode": mode}
+        journal: dict[str, Any] = {"file": file_name, "deletion": deletion}
         if not done.ok:
-            refused = report(target, current, done, mode)
+            refused = report(target, current, done)
             await record_import(
                 conn, adapter.journal_type, user, branch_id, owner, slug,
                 outcome=REFUSED, result=refused, **journal,
@@ -710,31 +771,91 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             raise ApiError(
                 "import_refused", status_code=422, errors=refused.get("errors", 0), report=refused
             )
+        if done.tags and not reviewed:
+            raise ApiError(
+                "import_review_required",
+                status_code=409,
+                tagged=len(done.tags),
+                report=report(target, current, done),
+            )
+        rejected = done.refused_indices(set(refuse or []))
 
-        def write(root: Path) -> dict[str, Any]:
-            # Relu dans l'écriture : la fusion se fait sur les éléments du moment.
+        def write(root: Path) -> tuple[dict[str, Any], list[Absent]]:
+            # Relu dans l'écriture : la fusion et le plan de suppression se font sur
+            # les éléments du moment, et sur ce que l'import a créé jusqu'ici.
             now_target, now = adapter.current(root, owner)
-            items = imported_items(now_target, now, done, mode)
+            created = read_created(root, folder(owner), slug)
+            plan = deletion_plan(now_target, now, done, deletion, created)
+            items = imported_items(now_target, now, done, plan, rejected)
             assert items is not None  # done.ok
             adapter.write_items(root, owner, now_target, now, items)
-            return report(now_target, now, done, mode)
+            after = created_after(now_target, now, items, created)
+            if after != created:
+                write_created(root, folder(owner), slug, after)
+            return report(now_target, now, done, plan, rejected), plan.in_use
 
         result: dict[str, Any]
-        result, revision = await handle.write(
-            f"import {slug} {adapter.into(owner)} ({mode})", write
-        )
-        await record_import(
+        kept: list[Absent]
+        (result, kept), revision = await handle.write(f"import {slug} {adapter.into(owner)}", write)
+        run_id = await record_import(
             conn, adapter.journal_type, user, branch_id, owner, slug,
             outcome=IMPORTED if revision else UNCHANGED, result=result, revision=revision,
-            **journal,
+            kept_in_use=[_kept_payload(a) for a in kept], **journal,
         )  # fmt: skip
+        # Fin d'une modification en masse : une passe de validation est demandée pour le
+        # brouillon de la personne (enabler 6b171b74).
+        await request_pass(conn, ViewKey(space_id, branch_id, workdir.user_id), IMPORT)
         last = (await last_of(conn, branch_id, owner)).get(slug)
         return {
             **result,
-            "mode": mode,
+            "deletion": deletion,
             "file": file_name,
             "revision": revision,
+            "run_id": run_id,
             "last_import": last.at if last else None,
+        }
+
+    @router.get("/{slug}/executions/{run_id}")
+    async def get_run(
+        request: Request,
+        conn: ConnDep,
+        crypto: CryptoDep,
+        user: Reader,
+        workdir: DraftWorkdirDep,
+        space_id: uuid.UUID,
+        branch_id: uuid.UUID,
+        slug: str,
+        run_id: int,
+    ) -> dict[str, object]:
+        """Une exécution de l'import (ticket 6d36073b) : quand, par qui, le fichier
+        intégré, la stratégie appliquée, et les éléments gardés car encore utilisés,
+        chacun avec ses utilisations au moment de l'import."""
+        owner = owner_of(request)
+        run = await read_run(conn, adapter.journal_type, branch_id, owner, slug, run_id)
+        if run is None:
+            raise ApiError("import_run_not_found", status_code=404, run=run_id)
+        handle = await adapter.open(conn, crypto, workdir, space_id, branch_id, user)
+        try:
+            imp: Import | None = await handle.read(read_one(owner, slug))
+        except ApiError:
+            imp = None  # l'import a été supprimé depuis : sa page reste lisible
+        deletion = str(run.detail.get("deletion") or "")
+        return {
+            "id": run.id,
+            "owner": owner,
+            "slug": slug,
+            "label": imp.declaration.label if imp is not None else slug,
+            "at": run.at,
+            "by": run.by,
+            "file": run.detail.get("file", ""),
+            "deletion": deletion,
+            "deletion_label": DELETION_LABELS.get(deletion, deletion),
+            "outcome": run.detail.get("outcome", ""),
+            "counts": {
+                k: run.detail.get(k, 0)
+                for k in ("new", "modified", "deleted", "kept", "tagged", "refused")
+            },
+            "kept_in_use": run.kept,
         }
 
     return router

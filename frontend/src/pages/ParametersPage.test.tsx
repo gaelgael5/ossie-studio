@@ -81,3 +81,35 @@ describe('ParametersPage (ticket ae8fc4b6)', () => {
     expect(screen.queryByRole('button', { name: 'Enregistrer' })).not.toBeInTheDocument()
   })
 })
+
+describe('ParametersPage — intervalle de la file de validation (ticket 6b171b74)', () => {
+  const INTERVAL = {
+    key: 'validation_interval_minutes',
+    value: 10,
+    default: 10,
+    minimum: 1,
+    maximum: 1440,
+    source: 'config',
+    updated_at: null,
+    updated_by: null,
+    unit: 'minutes',
+  }
+
+  it('affiche et enregistre des minutes, telles quelles', async () => {
+    const page = { ...INTERVAL, value: 5, source: 'page', updated_by: 'admin@example.org' }
+    const calls = setup([{ settings: [INTERVAL] }, page, { settings: [page] }])
+    const input = await screen.findByLabelText('Intervalle de la passe de validation')
+    expect(input).toHaveValue('10')
+    expect(screen.getByText('minutes')).toBeInTheDocument()
+    await userEvent.clear(input)
+    await userEvent.type(input, '2000')
+    expect(screen.getByText('Un nombre entier entre 1 et 1440 minutes.')).toBeInTheDocument()
+    await userEvent.clear(input)
+    await userEvent.type(input, '5')
+    await userEvent.click(screen.getByRole('button', { name: 'Enregistrer' }))
+    await waitFor(() => expect(calls.some((c) => c.init?.method === 'PUT')).toBe(true))
+    const put = calls.find((c) => c.init?.method === 'PUT')
+    expect(put?.path).toBe('/api/settings/validation_interval_minutes')
+    expect(JSON.parse(String(put?.init?.body))).toEqual({ value: 5 })
+  })
+})

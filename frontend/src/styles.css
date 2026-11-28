@@ -2944,6 +2944,15 @@ td .raw-ref-menu {
   align-items: center;
   gap: 4px;
 }
+/* Tags d'un référentiel (ticket 43478978). */
+.ref-tags {
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.ref-tag-input {
+  width: 12rem;
+}
 .model-editor {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -3149,6 +3158,31 @@ td.cell-error {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+/* Stratégie de suppression d'un import (ticket 6d36073b) : la liste, et son aide à droite. */
+.ref-import-deletion {
+  align-items: flex-start;
+  gap: 16px;
+}
+.ref-import-deletion .field {
+  min-width: 20rem;
+}
+.ref-import-deletion-help {
+  flex: 1;
+  margin: 1.6rem 0 0;
+}
+/* Page des éléments gardés car utilisés : l'en-tête de l'exécution. */
+.ref-import-run-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+.ref-import-run-facts dt {
+  color: var(--muted);
+}
+.ref-import-run-facts dd {
+  margin: 0;
 }
 .ref-import-run-controls {
   flex-wrap: wrap;

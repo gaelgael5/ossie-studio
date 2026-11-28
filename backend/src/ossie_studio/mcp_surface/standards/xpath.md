@@ -19,7 +19,7 @@ The modified file is checked whole (BPMN 2.0 schema, diagram, attachments) befor
 the file keeps its prefixes, comments and other tools' extensions.
 
 ```yaml example-patch
-kind: processus
+document_type: processus
 document: |
   <?xml version="1.0" encoding="UTF-8"?>
   <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:urban="https://github.com/gaelgael5/urban-bpmn/schema/1.0" id="PRC-PRISE-COMMANDE-DETAIL" targetNamespace="http://bpmn.io/schema/bpmn">

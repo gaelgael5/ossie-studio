@@ -23,9 +23,9 @@ from ossie_studio.cartographie.model import CartoObject, CartoType
 from ossie_studio.cartographie.process import new_process_xml, save_process
 from ossie_studio.cartographie.space import save_object, save_type
 from ossie_studio.governance.actions import create_certification, create_scheme, create_tag
-from ossie_studio.mcp_surface import kind_stores, kinds
-from ossie_studio.mcp_surface.kind_base import IdentityField, KindError
-from ossie_studio.mcp_surface.kinds import KINDS, WriteKind, write_kind
+from ossie_studio.mcp_surface import document_type_stores, document_types
+from ossie_studio.mcp_surface.document_type_base import DocumentError, IdentityField
+from ossie_studio.mcp_surface.document_types import DOCUMENT_TYPES, DocumentType, get_document_type
 from ossie_studio.referentiels.repo import write_referentiel
 
 MODEL = {
@@ -45,7 +45,7 @@ PAYS = {
 
 
 def test_le_registre_declare_les_genres_du_tableau() -> None:
-    assert [k.name for k in KINDS] == [
+    assert [k.name for k in DOCUMENT_TYPES] == [
         "carto_type",
         "carto_objet",
         "carto_modele",
@@ -72,7 +72,7 @@ def test_le_registre_declare_les_genres_du_tableau() -> None:
         "point_entree",
         "schema_asset",
     ]
-    for kind in KINDS:
+    for kind in DOCUMENT_TYPES:
         assert kind.path_rule == "forbidden"  # aucun genre n'autorise le chemin aujourd'hui
         assert kind.standard
         # Un genre en lecture seule (ticket 56f3784a) nomme l'action qui le produit.
@@ -96,9 +96,9 @@ def test_carto_type_et_objet(tmp_path: Path) -> None:
     )
     save_object(tmp_path, CartoObject("APP-CAISSE", "application", "Caisse"), create=True)
     assert _written(
-        tmp_path, write_kind("carto_type").locate(tmp_path, {"slug": "application"}).path
+        tmp_path, get_document_type("carto_type").locate(tmp_path, {"slug": "application"}).path
     )
-    located = write_kind("carto_objet").locate(
+    located = get_document_type("carto_objet").locate(
         tmp_path, {"type": "application", "key": "APP-CAISSE"}
     )
     assert located.path == "cartographie/objets/application/app-caisse.yaml"
@@ -120,12 +120,14 @@ def test_modele_graphique_regles(tmp_path: Path) -> None:
         ("carto_graphique", "vente"),
         ("carto_regles", "standard"),
     ):
-        assert _written(tmp_path, write_kind(name).locate(tmp_path, {"slug": slug}).path), name
+        assert _written(tmp_path, get_document_type(name).locate(tmp_path, {"slug": slug}).path), (
+            name
+        )
 
 
 def test_processus(tmp_path: Path) -> None:
     save_process(tmp_path, "PRC-VENTE", new_process_xml("PRC-VENTE", "Vente"), create=True)
-    located = write_kind("processus").locate(tmp_path, {"key": "PRC-VENTE"})
+    located = get_document_type("processus").locate(tmp_path, {"key": "PRC-VENTE"})
     assert located.path == "cartographie/processus/prc-vente.bpmn" and _written(
         tmp_path, located.path
     )
@@ -134,16 +136,16 @@ def test_processus(tmp_path: Path) -> None:
 def test_referentiel_modele_et_valeur(tmp_path: Path) -> None:
     write_referentiel(tmp_path, "delais", MODEL, [{"pays": "FR", "mode": "site"}], create=True)
     write_referentiel(tmp_path, "pays", PAYS, [{"code": "FR"}], create=True)
-    model = write_kind("referentiel_modele").locate(tmp_path, {"referentiel": "delais"})
+    model = get_document_type("referentiel_modele").locate(tmp_path, {"referentiel": "delais"})
     assert _written(tmp_path, model.path)
-    value = write_kind("referentiel_valeur").locate(
+    value = get_document_type("referentiel_valeur").locate(
         tmp_path, {"referentiel": "delais", "key": {"mode": "site", "pays": "FR"}}
     )
     # Le fichier des valeurs, et la valeur visée dans l'ordre de la clé du modèle.
     assert _written(tmp_path, value.path) and value.path.endswith("delais/valeurs.json")
     assert value.entry == ("FR", "site")
     # Une clé d'un seul champ se donne seule.
-    assert write_kind("referentiel_valeur").locate(
+    assert get_document_type("referentiel_valeur").locate(
         tmp_path, {"referentiel": "pays", "key": "FR"}
     ).entry == ("FR",)
 
@@ -155,15 +157,15 @@ def test_tag_et_classification(tmp_path: Path) -> None:
         {"id": "sensibilite", "name": "Sensibilité"},
         [{"name": "Public", "short_name": "PUB"}],
     )
-    assert _written(tmp_path, write_kind("tag").locate(tmp_path, {"id": "pii/email"}).path)
-    located = write_kind("classification").locate(tmp_path, {"id": "sensibilite"})
+    assert _written(tmp_path, get_document_type("tag").locate(tmp_path, {"id": "pii/email"}).path)
+    located = get_document_type("classification").locate(tmp_path, {"id": "sensibilite"})
     assert _written(tmp_path, located.path)
 
 
 def test_certification_par_son_slug(tmp_path: Path) -> None:
     """Décision de Gael : le slug identifie ; le fichier, nommé par le service à la
     création, est retrouvé dans l'espace."""
-    kind = write_kind("certification")
+    kind = get_document_type("certification")
     assert kind.locate(tmp_path, {"slug": "or"}).path is None  # nouvelle : le service la nommera
     cert = create_certification(tmp_path, {"name": "Or", "rank": 1, "tag": "certif/or"}, slug="or")
     located = kind.locate(tmp_path, {"slug": "or"})
@@ -201,16 +203,16 @@ def test_identite_invalide(
         tmp_path, CartoType("application", "Application", "ApplicationComponent", {}), create=True
     )
     write_referentiel(tmp_path, "delais", MODEL, [], create=True)
-    with pytest.raises(KindError) as refused:
-        write_kind(name).locate(tmp_path, identity)
+    with pytest.raises(DocumentError) as refused:
+        get_document_type(name).locate(tmp_path, identity)
     assert (refused.value.code, refused.value.field) == ("write_identity_invalid", field)
     assert field in refused.value.message
 
 
 def test_genre_inconnu() -> None:
-    with pytest.raises(KindError) as refused:
-        write_kind("inconnu")
-    assert refused.value.code == "write_kind_unknown"
+    with pytest.raises(DocumentError) as refused:
+        get_document_type("inconnu")
+    assert refused.value.code == "document_type_unknown"
     assert "carto_objet" in refused.value.extra["expected"]
 
 
@@ -218,14 +220,14 @@ def test_genre_inconnu() -> None:
 
 
 def test_chemin_interdit(tmp_path: Path) -> None:
-    with pytest.raises(KindError) as refused:
-        write_kind("tag").locate(tmp_path, {"id": "pii"}, path="governance/tags/pii.yaml")
+    with pytest.raises(DocumentError) as refused:
+        get_document_type("tag").locate(tmp_path, {"id": "pii"}, path="governance/tags/pii.yaml")
     assert (refused.value.code, refused.value.field) == ("write_path_forbidden", "path")
     assert "tag" in refused.value.message
 
 
 def test_chemin_autorise_reste_sous_sa_racine(tmp_path: Path) -> None:
-    allowed = WriteKind(
+    allowed = DocumentType(
         name="essai",
         description="Test kind.",
         label="essai",
@@ -234,9 +236,9 @@ def test_chemin_autorise_reste_sous_sa_racine(tmp_path: Path) -> None:
         syntax="jsonpath",
         capability="essai:write",
         read_capability="essai:read",
-        store=kind_stores.TagStore(),
+        store=document_type_stores.TagStore(),
         lister=lambda root, query: [],
-        locator=lambda root, identity: kinds.Location(
+        locator=lambda root, identity: document_types.Location(
             "essai", {"id": identity["id"]}, f"essais/{identity['id']}.yaml"
         ),
         path_rule="allowed",
@@ -248,7 +250,7 @@ def test_chemin_autorise_reste_sous_sa_racine(tmp_path: Path) -> None:
         == "essais/sous/a.yaml"
     )
     for bad in ("autre/a.yaml", "essais/../secrets/a.yaml", "/essais/a.yaml"):
-        with pytest.raises(KindError) as refused:
+        with pytest.raises(DocumentError) as refused:
             allowed.locate(tmp_path, {"id": "a"}, path=bad)
         assert refused.value.code == "write_path_outside_root", bad
 
@@ -256,7 +258,7 @@ def test_chemin_autorise_reste_sous_sa_racine(tmp_path: Path) -> None:
 # --- Critère 5 : aucune constante d'emplacement recopiée ---------------------------------
 
 
-@pytest.mark.parametrize("module", [kinds, kind_stores])
+@pytest.mark.parametrize("module", [document_types, document_type_stores])
 def test_aucun_emplacement_recopie(module: object) -> None:
     source = inspect.getsource(module)  # type: ignore[arg-type]
     code = re.sub(r'"""[\s\S]*?"""', "", source)  # sans les docstrings
@@ -268,7 +270,7 @@ def test_aucun_emplacement_recopie(module: object) -> None:
 
 
 def _roundtrip(root: Path, name: str, identity: dict[str, object], content: object) -> object:
-    kind = write_kind(name)
+    kind = get_document_type(name)
     location = kind.locate(root, identity)
     assert kind.store.read(root, location) is None
     kind.store.write(root, location, content, create=True)
@@ -292,14 +294,14 @@ def test_validateurs_cartographie(tmp_path: Path) -> None:
         {"cle": "APP-CAISSE", "type": "application", "nom": "Caisse"},
     )
     assert isinstance(content, dict) and content["nom"] == "Caisse"
-    kind = write_kind("carto_objet")
+    kind = get_document_type("carto_objet")
     location = kind.locate(tmp_path, {"type": "application", "key": "APP-CAISSE"})
-    with pytest.raises(KindError) as mismatch:
+    with pytest.raises(DocumentError) as mismatch:
         kind.store.write(
             tmp_path, location, {"cle": "APP-AUTRE", "type": "application"}, create=False
         )
     assert (mismatch.value.code, mismatch.value.field) == ("write_identity_mismatch", "$.cle")
-    with pytest.raises(KindError) as unknown:
+    with pytest.raises(DocumentError) as unknown:
         kind.store.write(
             tmp_path, location, {"cle": "APP-CAISSE", "couleur": "rouge"}, create=False
         )
@@ -322,10 +324,10 @@ def test_validateurs_modele_graphique_regles(tmp_path: Path) -> None:
             "vues": [{"id": "VUE-1", "nom": "Vue"}],
         },
     )
-    graphic = write_kind("carto_graphique")
+    graphic = get_document_type("carto_graphique")
     location = graphic.locate(tmp_path, {"slug": "vente"})
     graphic.store.write(tmp_path, location, {"vues": {"VUE-1": {}}}, create=False)
-    with pytest.raises(KindError) as refused:
+    with pytest.raises(DocumentError) as refused:
         graphic.store.delete(tmp_path, location)
     assert refused.value.code == "write_delete_unsupported"
 
@@ -337,10 +339,10 @@ def test_validateur_processus(tmp_path: Path) -> None:
         tmp_path, CartoType("processus-metier", "Processus", "BusinessProcess", {}), create=True
     )
     save_object(tmp_path, CartoObject("PRC-VENTE", "processus-metier", "Vente"), create=True)
-    kind = write_kind("processus")
+    kind = get_document_type("processus")
     location = kind.locate(tmp_path, {"key": "PRC-VENTE-DETAIL"})
     bare = new_process_xml("PRC-VENTE-DETAIL", "Détail")
-    with pytest.raises(KindError) as unattached:  # décision de Gael : rattaché pour un agent
+    with pytest.raises(DocumentError) as unattached:  # décision de Gael : rattaché pour un agent
         kind.store.write(tmp_path, location, bare, create=True)
     assert unattached.value.code == "write_process_unattached"
     attached = with_detail(bare, "PRC-VENTE", "processus-metier")
@@ -351,7 +353,7 @@ def test_validateur_processus(tmp_path: Path) -> None:
 
 def test_validateurs_referentiel(tmp_path: Path) -> None:
     _roundtrip(tmp_path, "referentiel_modele", {"referentiel": "delais"}, MODEL)
-    kind = write_kind("referentiel_valeur")
+    kind = get_document_type("referentiel_valeur")
     fr = kind.locate(tmp_path, {"referentiel": "delais", "key": {"pays": "FR", "mode": "site"}})
     be = kind.locate(tmp_path, {"referentiel": "delais", "key": {"pays": "BE", "mode": "site"}})
     kind.store.write(tmp_path, fr, {"pays": "FR", "mode": "site"}, create=True)
@@ -361,14 +363,15 @@ def test_validateurs_referentiel(tmp_path: Path) -> None:
     after = kind.store.read(tmp_path, fr)
     assert before is not None and after is not None and before.version == after.version
     assert kind.store.read(tmp_path, be) is not None
-    with pytest.raises(KindError) as mismatch:
+    with pytest.raises(DocumentError) as mismatch:
         kind.store.write(tmp_path, fr, {"pays": "DE", "mode": "site"}, create=False)
     assert mismatch.value.code == "write_identity_mismatch"
     kind.store.delete(tmp_path, be)
     assert kind.store.read(tmp_path, be) is None and kind.store.read(tmp_path, fr) is not None
-    with pytest.raises(KindError) as refused:
-        write_kind("referentiel_modele").store.delete(
-            tmp_path, write_kind("referentiel_modele").locate(tmp_path, {"referentiel": "delais"})
+    with pytest.raises(DocumentError) as refused:
+        get_document_type("referentiel_modele").store.delete(
+            tmp_path,
+            get_document_type("referentiel_modele").locate(tmp_path, {"referentiel": "delais"}),
         )
     assert refused.value.code == "write_delete_unsupported"
 
@@ -387,7 +390,7 @@ def test_validateurs_gouvernance(tmp_path: Path) -> None:
     assert isinstance(scheme, dict)
     public = scheme["levels"][0]
     # Remplacer : un niveau modifié (par son id), un ajouté (sans id), dans cet ordre.
-    kind = write_kind("classification")
+    kind = get_document_type("classification")
     location = kind.locate(tmp_path, {"id": "sensibilite"})
     kind.store.write(
         tmp_path,
@@ -412,6 +415,6 @@ def test_validateurs_gouvernance(tmp_path: Path) -> None:
         tmp_path, "certification", {"slug": "or"}, {"name": "Or", "rank": 1, "tag": "certif/or"}
     )
     assert isinstance(cert, dict) and cert["slug"] == "or"
-    certification = write_kind("certification")
+    certification = get_document_type("certification")
     certification.store.delete(tmp_path, certification.locate(tmp_path, {"slug": "or"}))
     assert certification.locate(tmp_path, {"slug": "or"}).path is None

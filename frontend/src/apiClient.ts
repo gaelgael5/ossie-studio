@@ -420,6 +420,8 @@ export interface AppSetting {
   source: 'page' | 'config'
   updated_at: string | null
   updated_by: string | null
+  /** L'unité de la valeur rangée : octets (saisie en Ko) ou minutes. */
+  unit?: 'bytes' | 'minutes'
 }
 
 export interface ParsingPlugin {
@@ -1628,9 +1630,19 @@ export interface CartoDates {
   updated_by: string
 }
 
+/** L'identifiant d'un objet de cartographie : `<type>/<CLÉ>` (ticket 421832ee, une clé
+ *  n'est unique que dans son type). */
+export type CartoRef = string
+
+/** L'adresse d'un objet dans l'API et l'écran : `<type>/<CLÉ>`, chaque partie encodée. */
+export function cartoRefPath(ref: CartoRef): string {
+  return ref.split('/').map(encodeURIComponent).join('/')
+}
+
 export interface CartoObjectSummary {
   key: string
   type: string
+  ref: CartoRef
   type_title: string
   archimate: string
   name: string
@@ -1639,8 +1651,9 @@ export interface CartoObjectSummary {
   properties: { name: string; value: string }[]
   relations: number
   is_relation: boolean
-  source: string | null
-  target: string | null
+  /** Relation : ses extrémités, `type/CLÉ`. */
+  source: CartoRef | null
+  target: CartoRef | null
   path: string
   /** Dates et auteurs d'après les commits publiés ; null : seulement dans le brouillon. */
   dates: CartoDates | null
@@ -1649,16 +1662,18 @@ export interface CartoObjectSummary {
 
 export interface CartoRelationSide {
   key: string
+  ref: CartoRef
   name: string
   type: string
   type_title: string
   archimate: string
   properties: Record<string, unknown>
-  other: { key: string | null; name: string | null; type_title: string | null; exists: boolean }
+  other: { key: string | null; ref: CartoRef | null; name: string | null; type_title: string | null; exists: boolean }
 }
 
 export interface CartoEnd {
   key: string | null
+  ref: CartoRef | null
   name: string | null
   type_title: string | null
   archimate: string | null
@@ -1681,13 +1696,14 @@ export interface CartoObjectDetail {
   rule?: string[]
   key: string
   type: string
+  ref: CartoRef
   type_title: string
   archimate: string
   name: string
   documentation: string
   properties: Record<string, unknown>
-  source: string | null
-  target: string | null
+  source: CartoRef | null
+  target: CartoRef | null
   path: string
   /** Le fichier de l'objet tel qu'il est stocké (ticket 7dc220a4). */
   yaml?: string | null
@@ -1700,6 +1716,70 @@ export interface CartoObjectDetail {
   models: { slug: string; name: string }[]
   /** Les processus BPMN qui le détaillent (epic « Cartographie — processus BPMN »). */
   processes?: string[]
+  /** Ses valeurs dans les référentiels liés à son type (ticket 43478978). */
+  referentiel_links?: CartoObjectReferentielLink[]
+}
+
+/** Une valeur de l'objet dans un référentiel lié : `empty` (rien à vérifier),
+ * `found`, `absent` (manque au référentiel, signalé), `broken` (lien cassé). */
+export interface CartoObjectReferentielLink {
+  referentiel: string
+  title: string
+  properties: string[]
+  value: string | null
+  parts: unknown[]
+  status: 'empty' | 'found' | 'absent' | 'broken'
+}
+
+// --- Liens d'un type vers des référentiels (ticket 43478978) ------------------------------
+
+export interface CartoReferentielInfo {
+  name: string
+  title: string
+  tags: string[]
+  key: { name: string; type: string; title: string }[]
+  error: string | null
+}
+
+export interface CartoReferentielLink {
+  referentiel: string
+  /** Propriété du type → propriété de la clé du référentiel. */
+  proprietes: Record<string, string>
+  target: CartoReferentielInfo
+  problems: CartoProblem[]
+  /** Objets du type dont la valeur manque au référentiel. */
+  absent: number
+}
+
+export interface CartoTypeLinks {
+  slug: string
+  path: string
+  state: 'created' | 'modified' | null
+  links: CartoReferentielLink[]
+  problems: CartoProblem[]
+  referentiels: CartoReferentielInfo[]
+  properties: { name: string; title: string; type: string }[]
+  revision?: string | null
+}
+
+export interface CartoLinkChoice {
+  /** La clé, rangée sous les propriétés du type. */
+  value: Record<string, unknown>
+  label: string
+  hint: string
+}
+
+export interface CartoLinkChoices {
+  slug: string
+  links: {
+    referentiel: string
+    proprietes: Record<string, string>
+    /** Les propriétés du type, dans l'ordre de la clé du référentiel. */
+    properties: string[]
+    readable: boolean
+    choices: CartoLinkChoice[]
+    truncated: boolean
+  }[]
 }
 
 export interface CartoObjectBody {
@@ -1822,7 +1902,7 @@ export interface CartoProcessSummary {
   errors: number
   readable: boolean
   /** Le processus métier dont il est le détail ; null : non rattaché. */
-  detail_of: { key: string; name: string | null; exists: boolean } | null
+  detail_of: { key: string; ref: CartoRef; name: string | null; exists: boolean } | null
   participants: number
   lanes: number
   /** Éléments rattachés à un objet (participants, couloirs, données). */
@@ -1861,6 +1941,8 @@ export interface ReferentielSummary {
   title?: string
   description?: string
   key?: string[]
+  /** Tags libres du référentiel (`x-tags`, ticket 43478978). */
+  tags?: string[]
   count?: number
   unpublished: boolean
   error?: string
@@ -1907,6 +1989,8 @@ export interface ReferentielImportSummary {
   header: boolean
   /** Feuille d'un classeur xlsx (ticket 6f6066e9) ; vide : la seule, ou à choisir. */
   sheet: string
+  /** Stratégie de suppression des éléments absents du fichier (ticket 6d36073b). */
+  deletion: ImportDeletion
   last_import: string | null
   last_import_by?: string | null
 }
@@ -1957,12 +2041,31 @@ export interface ImportTrialError {
   key?: string
 }
 
+/** Une utilisation qui retient un élément à supprimer (pour la cartographie : une
+ * relation qui vise l'objet, et l'objet à son autre bout). */
+export interface ImportUsage {
+  ref: string
+  key: string
+  name: string
+  type: string
+  type_title: string
+  role: 'source' | 'target'
+  other: { ref: string | null; key: string | null; name: string | null; type_title: string | null }
+}
+
+/** Pourquoi un élément absent du fichier est gardé (ticket 6d36073b). */
+export type ImportKeptReason = 'strategy_keep' | 'not_created' | 'in_use'
+
 export interface ImportTrialDifference {
   key: string
-  kind: 'new' | 'modified' | 'deleted'
+  kind: 'new' | 'modified' | 'deleted' | 'kept'
   where: string
   value?: Record<string, unknown>
   changes?: { property: string; before: unknown; after: unknown }[]
+  /** La fiche de l'élément (`type/CLÉ` d'un objet de cartographie). */
+  ref?: string
+  reason?: ImportKeptReason
+  usages?: ImportUsage[]
 }
 
 export interface ImportTrial {
@@ -1973,20 +2076,71 @@ export interface ImportTrial {
   modified?: number
   unchanged?: number
   deleted?: number
+  /** Absents du fichier gardés (toutes raisons), dont gardés car encore utilisés. */
+  kept?: number
+  kept_in_use?: number
   errors?: number
   error_details?: ImportTrialError[]
+  /** Lignes taguées par la cible (ticket 43478978), dont refusées par la personne. */
+  tagged?: number
+  refused?: number
+  tagged_lines?: ImportTaggedLine[]
   differences?: ImportTrialDifference[]
 }
 
-export type ImportMode = 'merge' | 'replace'
+/** Un tag d'une ligne : une valeur absente du référentiel lié. */
+export interface ImportTag {
+  code: string
+  property: string
+  properties: string[]
+  referentiel: string
+  title: string
+  value: string
+}
+
+export interface ImportTaggedLine {
+  where: string
+  key: string
+  kind: 'new' | 'modified' | 'unchanged'
+  tags: ImportTag[]
+  refused: boolean
+}
+
+/** La décision de la personne sur les lignes taguées : vues, et celles refusées. */
+export interface ImportReview {
+  refuse: string[]
+}
+
+/** Stratégie de suppression d'un import (ticket 6d36073b) : garder les absents,
+ * supprimer ceux que cet import a créés, ou les supprimer tous. */
+export type ImportDeletion = 'keep' | 'created' | 'all'
+export const IMPORT_DELETIONS: ImportDeletion[] = ['keep', 'created', 'all']
 
 /** Compte rendu d'un import abouti (refusé : erreur `import_refused`, compte rendu
- * dans `error_args.report`). `revision` nulle : aucun changement. */
+ * dans `error_args.report`). `revision` nulle : aucun changement. `run_id` : son
+ * exécution dans le journal (page des éléments gardés car utilisés). */
 export interface ImportRunResult extends ImportTrial {
-  mode: ImportMode
+  deletion: ImportDeletion
   file: string
   revision: string | null
+  run_id: number
   last_import: string | null
+}
+
+/** Une exécution d'import et ses éléments gardés car encore utilisés. */
+export interface ImportRun {
+  id: number
+  owner: string
+  slug: string
+  label: string
+  at: string
+  by: string
+  file: string
+  deletion: ImportDeletion
+  deletion_label: string
+  outcome: string
+  counts: { new: number; modified: number; deleted: number; kept: number; tagged?: number; refused?: number }
+  kept_in_use: { key: string; ref: string | null; usages: ImportUsage[] }[]
 }
 
 export interface ReferentielCommit {
@@ -2513,19 +2667,39 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`,
       { method: 'DELETE' },
     ),
+  // Liens du type vers des référentiels (ticket 43478978), dans son fichier d'extension.
+  getCartoTypeLinks: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CartoTypeLinks>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}/referentiels`,
+    ),
+  saveCartoTypeLinks: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    links: { referentiel: string; proprietes: Record<string, string> }[],
+  ) =>
+    apiFetch<CartoTypeLinks>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}/referentiels`,
+      { method: 'PUT', body: JSON.stringify({ links }) },
+    ),
+  // Les valeurs proposées sur la fiche d'un objet, par lien.
+  getCartoLinkChoices: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CartoLinkChoices>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}/referentiels/valeurs`,
+    ),
   listCartoObjects: (spaceId: string, branchId: string) =>
     apiFetch<{ readonly: boolean; objects: CartoObjectSummary[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
     ),
-  getCartoObject: (spaceId: string, branchId: string, key: string) =>
-    apiFetch<CartoObjectDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`),
-  // « + Relier… » : types ArchiMate permis de `source` vers `target`, et types de
+  getCartoObject: (spaceId: string, branchId: string, ref: CartoRef) =>
+    apiFetch<CartoObjectDetail>(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${cartoRefPath(ref)}`),
+  // « + Relier… » : types ArchiMate permis de `source` vers `target` (`type/CLÉ`), et types de
   // relation de l'espace qui reposent sur eux (ticket b58a0a13).
-  listRelationTypes: (spaceId: string, branchId: string, source: string, target: string) =>
+  listRelationTypes: (spaceId: string, branchId: string, source: CartoRef, target: CartoRef) =>
     apiFetch<{ archimate: string[]; types: CartoRelationTypeChoice[] }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(source)}/relations-permises?cible=${encodeURIComponent(target)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${cartoRefPath(source)}/relations-permises?cible=${encodeURIComponent(target)}`,
     ),
-  // Clé (unique dans l'espace) et type de l'espace : saisis à la création, figés ensuite.
+  // Clé (unique dans son type) et type de l'espace : saisis à la création, figés ensuite.
   createCartoObject: (
     spaceId: string,
     branchId: string,
@@ -2535,14 +2709,14 @@ export const api = {
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets`,
       { method: 'POST', body: JSON.stringify(body) },
     ),
-  saveCartoObject: (spaceId: string, branchId: string, key: string, body: CartoObjectBody) =>
+  saveCartoObject: (spaceId: string, branchId: string, ref: CartoRef, body: CartoObjectBody) =>
     apiFetch<CartoObjectDetail & { revision: string | null }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${cartoRefPath(ref)}`,
       { method: 'PUT', body: JSON.stringify(body) },
     ),
-  deleteCartoObject: (spaceId: string, branchId: string, key: string) =>
+  deleteCartoObject: (spaceId: string, branchId: string, ref: CartoRef) =>
     apiFetch<{ deleted: string; revision: string | null }>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${encodeURIComponent(key)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/objets/${cartoRefPath(ref)}`,
       { method: 'DELETE' },
     ),
   listCartoModels: (spaceId: string, branchId: string) =>
@@ -2564,7 +2738,7 @@ export const api = {
     ),
   dropCartoModelObject: (spaceId: string, branchId: string, slug: string, key: string) =>
     apiFetch<CartoDropResult>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/pose/${encodeURIComponent(key)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/modeles/${encodeURIComponent(slug)}/pose/${cartoRefPath(key)}`,
     ),
   createCartoModel: (spaceId: string, branchId: string, body: CartoModelBody) =>
     apiFetch<CartoModelSummary & { revision: string | null }>(
@@ -2624,7 +2798,7 @@ export const api = {
     ),
   dropCartoProcessObject: (spaceId: string, branchId: string, key: string, objectKey: string, collaboration: string) =>
     apiFetch<CartoBpmnDrop>(
-      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/pose/${encodeURIComponent(objectKey)}?collaboration=${encodeURIComponent(collaboration)}`,
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/processus/${encodeURIComponent(key)}/pose/${cartoRefPath(objectKey)}?collaboration=${encodeURIComponent(collaboration)}`,
     ),
   listCartoProcessAttachable: (spaceId: string, branchId: string, key: string, element: string) =>
     apiFetch<{ element: string; objets: CartoBpmnObject[] }>(
@@ -3177,8 +3351,10 @@ export const api = {
 export interface ImportsApi {
   /** Adresse des imports de la cible (sert aussi de clé de cache). */
   base: string
-  /** Modes que la cible accepte (la cartographie : fusion seulement). */
-  modes: ImportMode[]
+  /** La page d'une exécution (éléments gardés car utilisés), dans l'écran de la cible. */
+  runPath: (slug: string, runId: number) => string
+  /** La fiche d'un élément ou d'une utilisation (`ref`), si la cible en a (la cartographie). */
+  itemPath?: (ref: string) => string
   /** Clés de cache que rend périmées un import abouti (ce que la cible affiche). */
   invalidates: string[]
   list: () => Promise<{ imports: ReferentielImportSummary[] }>
@@ -3197,19 +3373,24 @@ export interface ImportsApi {
   clearExample: (slug: string) => Promise<ReferentielImportDetail>
   setReading: (slug: string, reading: ImportReading) => Promise<ReferentielImportDetail>
   preview: (slug: string, reading?: ImportReading) => Promise<ImportPreview>
-  trial: (slug: string, template: string, mode?: ImportMode) => Promise<ImportTrial>
-  run: (slug: string, mode: ImportMode, file?: File) => Promise<ImportRunResult>
+  /** L'essai, avec la stratégie de suppression donnée (sinon celle enregistrée). */
+  trial: (slug: string, template: string, deletion?: ImportDeletion) => Promise<ImportTrial>
+  /** `review` : les lignes taguées ont été vues, celles de `refuse` ne sont pas écrites. */
+  run: (slug: string, file?: File, review?: ImportReview) => Promise<ImportRunResult>
+  setDeletion: (slug: string, deletion: ImportDeletion) => Promise<ReferentielImportDetail>
+  getRun: (slug: string, runId: number) => Promise<ImportRun>
   saveTemplate: (slug: string, template: string) => Promise<ReferentielImportDetail>
 }
 
 export function importsApi(
   base: string,
-  options: { modes?: ImportMode[]; invalidates?: string[] } = {},
+  options: { invalidates?: string[]; screen?: string; itemPath?: (ref: string) => string } = {},
 ): ImportsApi {
   const one = (slug: string, rest = '') => `${base}/${encodeURIComponent(slug)}${rest}`
   return {
     base,
-    modes: options.modes ?? ['merge', 'replace'],
+    itemPath: options.itemPath,
+    runPath: (slug, runId) => `${options.screen ?? ''}/imports/${encodeURIComponent(slug)}/executions/${runId}`,
     invalidates: options.invalidates ?? [],
     list: () => apiFetch(base),
     get: (slug) => apiFetch(one(slug)),
@@ -3225,15 +3406,21 @@ export function importsApi(
     setReading: (slug, reading) => apiFetch(one(slug, '/lecture'), { method: 'PUT', body: JSON.stringify(reading) }),
     preview: (slug, reading) =>
       apiFetch(one(slug, '/apercu'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
-    trial: (slug, template, mode = 'merge') =>
-      apiFetch(one(slug, '/essai'), { method: 'POST', body: JSON.stringify({ template, mode }) }),
+    trial: (slug, template, deletion) =>
+      apiFetch(one(slug, '/essai'), { method: 'POST', body: JSON.stringify({ template, deletion }) }),
     /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */
-    run: (slug, mode, file) => {
+    run: (slug, file, review) => {
       const form = new FormData()
-      form.append('mode', mode)
       if (file) form.append('file', file)
+      if (review) {
+        form.append('reviewed', 'true')
+        for (const where of review.refuse) form.append('refuse', where)
+      }
       return apiUpload(one(slug, '/import'), form, 'POST')
     },
+    setDeletion: (slug, deletion) =>
+      apiFetch(one(slug, '/suppression'), { method: 'PUT', body: JSON.stringify({ deletion }) }),
+    getRun: (slug, runId) => apiFetch(one(slug, `/executions/${runId}`)),
     saveTemplate: (slug, template) => apiFetch(one(slug, '/template'), { method: 'PUT', body: JSON.stringify({ template }) }),
     resolve: (slug, reading) =>
       apiFetch(one(slug, '/resoudre'), { method: 'POST', body: reading ? JSON.stringify(reading) : undefined }),
@@ -3247,13 +3434,15 @@ export function importsApi(
 export function referentielImports(spaceId: string, branchId: string, name: string): ImportsApi {
   return importsApi(`/api/spaces/${spaceId}/branches/${branchId}/referentiels/${encodeURIComponent(name)}/imports`, {
     invalidates: ['referentielValues', 'referentiel', 'referentiels'],
+    screen: `/referentiels/${encodeURIComponent(name)}`,
   })
 }
 
-/** Les imports d'un type de cartographie (ticket 49952be0) : fusion seulement. */
+/** Les imports d'un type de cartographie (ticket 49952be0). */
 export function cartoImports(spaceId: string, branchId: string, typeSlug: string): ImportsApi {
   return importsApi(`/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(typeSlug)}/imports`, {
-    modes: ['merge'],
     invalidates: ['carto-objects', 'carto-types', 'carto-type', 'carto-object'],
+    screen: `/cartographie/types/${encodeURIComponent(typeSlug)}`,
+    itemPath: (ref) => `/cartographie/objets/${cartoRefPath(ref)}`,
   })
 }

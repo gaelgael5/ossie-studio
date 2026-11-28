@@ -24,6 +24,8 @@ from ossie_studio.connections.service import db_get_connection
 from ossie_studio.credentials.service import STATUS_VALID, resolve_personal_token
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
+from ossie_studio.doc_index.queue import PUBLISH, request_pass
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.drafts.preparation import (
     auto_merge,
     draft_impacts,
@@ -305,4 +307,7 @@ async def _publish_locked(
     if emptied:
         await workdir.discard_view(space_id, branch.git_ref)
     log.info("draft_publication_done", space_id=str(space_id), objects=len(objects))
+    # La branche publiée a changé : une passe de validation est demandée pour elle
+    # (enabler 6b171b74).
+    await request_pass(conn, ViewKey(space_id, branch_id), PUBLISH)
     return {"commit": sha, "published": len(objects)}

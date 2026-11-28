@@ -1,5 +1,5 @@
 """Le modèle sémantique Ossie dans l'écriture commune (epic « Primitives MCP — écriture
-commune par genre », ticket b4aeae83) : genres `domaine`, `dataset`,
+commune par type de document », ticket b4aeae83) : types de document `domaine`, `dataset`,
 `relation_dataset`, `reference_dataset`.
 
 Un domaine `<nom>`, ce sont trois fichiers dans `domaines/` (`<nom>.ossie.yaml`,
@@ -50,7 +50,13 @@ from ossie_studio.domains.documents import (
     read_domain,
     write_domain,
 )
-from ossie_studio.mcp_surface.kind_base import Document, Item, KindError, ListQuery, Location
+from ossie_studio.mcp_surface.document_type_base import (
+    Document,
+    DocumentError,
+    Item,
+    ListQuery,
+    Location,
+)
 
 _OSSIE_SCHEMA_FILE = Path(__file__).parents[1] / "domains" / "schemas" / "osi-schema-0.1.1.json"
 
@@ -158,7 +164,7 @@ def _check_schema(name: str, data: Any, prefix: str) -> None:
     where = prefix + "".join(
         f"[{p}]" if isinstance(p, int) else f".{p}" for p in error.absolute_path
     )
-    raise KindError(
+    raise DocumentError(
         "write_content_invalid",
         where,
         f"{where} : {error.message}.",
@@ -166,8 +172,8 @@ def _check_schema(name: str, data: Any, prefix: str) -> None:
     )
 
 
-def _not_kept(where: str, names: list[str]) -> KindError:
-    return KindError(
+def _not_kept(where: str, names: list[str]) -> DocumentError:
+    return DocumentError(
         "write_content_invalid",
         where,
         f"{', '.join(names)} : Ossie-studio ne conserve pas ces propriétés d'Ossie 0.1.1 ; "
@@ -178,7 +184,7 @@ def _not_kept(where: str, names: list[str]) -> KindError:
 
 def _mapping(content: Any, label: str) -> dict[str, Any]:
     if not isinstance(content, Mapping):
-        raise KindError(
+        raise DocumentError(
             "write_content_invalid",
             "$",
             f"Le contenu d'un document « {label} » est un objet ; reçu {type(content).__name__}.",
@@ -189,7 +195,7 @@ def _mapping(content: Any, label: str) -> dict[str, Any]:
 
 def _same(field: str, given: Any, expected: Any, label: str) -> None:
     if given is not None and given != expected:
-        raise KindError(
+        raise DocumentError(
             "write_identity_mismatch",
             field,
             f"Le contenu dit « {given} » mais l'identité désigne « {expected} » : un document "
@@ -248,7 +254,7 @@ def _dataset(name: str, content: Any) -> Dataset:
     data = _mapping(content, "dataset")
     unknown = sorted(set(data) - {"ossie", "extension"})
     if unknown:
-        raise KindError(
+        raise DocumentError(
             "write_content_invalid",
             f"$.{unknown[0]}",
             "Un dataset a deux parties : « ossie » (Ossie 0.1.1) et « extension » "
@@ -273,7 +279,7 @@ def _dataset(name: str, content: Any) -> Dataset:
             raise _not_kept(where, dropped)
         dialects = raw["expression"]["dialects"]
         if len(dialects) != 1 or dialects[0]["dialect"] != DIALECT:
-            raise KindError(
+            raise DocumentError(
                 "write_content_invalid",
                 f"{where}.expression.dialects",
                 f"Une seule expression, en dialecte {DIALECT} (le nom de la colonne, ou de la "
@@ -370,7 +376,7 @@ def domain_document(domain: Domain) -> dict[str, Any]:
 
 
 def _version(content: Any) -> str:
-    from ossie_studio.mcp_surface.kind_stores import value_version
+    from ossie_studio.mcp_surface.document_type_stores import value_version
 
     return value_version(content)
 
@@ -378,7 +384,7 @@ def _version(content: Any) -> str:
 # --- Refus du service, au bon chemin ----------------------------------------------------------
 
 
-def _refused(exc: DomainError, content: Any = None) -> KindError:
+def _refused(exc: DomainError, content: Any = None) -> DocumentError:
     """Un refus du service des domaines, rattaché au champ du document quand on le
     sait (une colonne inconnue d'une relation : le rang de la colonne)."""
     where = "$"
@@ -391,7 +397,7 @@ def _refused(exc: DomainError, content: Any = None) -> KindError:
                 break
     elif exc.code.startswith(("relationship_dataset", "reference_dataset")):
         where = "$.from"
-    return KindError(
+    return DocumentError(
         "write_content_invalid",
         where,
         f"Refusé par le service des domaines : {exc.code}"
@@ -404,10 +410,11 @@ def _refused(exc: DomainError, content: Any = None) -> KindError:
 def _domain_or_refuse(root: Path, name: str) -> Domain:
     domain = read_domain(root, name)
     if domain is None:
-        raise KindError(
+        raise DocumentError(
             "write_identity_invalid",
             "domain",
-            f"Le domaine « {name} » n'existe pas (list_documents, genre domaine) : le créer, "
+            f"Le domaine « {name} » n'existe pas (list_documents, type de document domaine) : le "
+            f"créer, "
             "dans le même lot au besoin.",
             received=name,
         )
@@ -450,7 +457,7 @@ class DomainStore:
     def delete(self, root: Path, location: Location) -> None:
         domain = _domain_or_refuse(root, location.identity["name"])
         if domain.datasets:
-            raise KindError(
+            raise DocumentError(
                 "write_content_invalid",
                 "delete",
                 f"Le domaine « {domain.name} » a encore des datasets "
@@ -548,13 +555,14 @@ class ReferenceStore:
 # --- Emplacements -----------------------------------------------------------------------------
 
 
-def _domain_name(kind: str, identity: Mapping[str, Any], field: str) -> str:
+def _domain_name(doc_type: str, identity: Mapping[str, Any], field: str) -> str:
     name = identity[field]
     if not isinstance(name, str) or not is_valid_domain_name(name):
-        raise KindError(
+        raise DocumentError(
             "write_identity_invalid",
             field,
-            f"« {field} » invalide pour le genre {kind} : minuscules, chiffres et tirets "
+            f"« {field} » invalide pour le type de document {doc_type} : minuscules, chiffres et "
+            f"tirets "
             f"(ex. « ventes ») ; reçu « {name} ».",
             received=name,
         )
@@ -566,13 +574,13 @@ def locate_domain(root: Path | None, identity: Mapping[str, Any]) -> Location:
     return Location("domaine", {"name": name}, extend_path(name))
 
 
-def _member_name(kind: str, identity: Mapping[str, Any]) -> str:
+def _member_name(doc_type: str, identity: Mapping[str, Any]) -> str:
     name = identity["name"]
     if not isinstance(name, str) or not name.strip():
-        raise KindError(
+        raise DocumentError(
             "write_identity_invalid",
             "name",
-            f"« name » est obligatoire pour le genre {kind}.",
+            f"« name » est obligatoire pour le type de document {doc_type}.",
             received=name,
         )
     return name

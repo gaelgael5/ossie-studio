@@ -49,7 +49,7 @@ export function TypeObjects({
   // Même suppression que la fiche : l'API refuse un objet encore relié, le refus
   // s'affiche au-dessus de la liste.
   const remove = useMutation({
-    mutationFn: (key: string) => api.deleteCartoObject(spaceId, branchId, key),
+    mutationFn: (ref: string) => api.deleteCartoObject(spaceId, branchId, ref),
     onSuccess: async (_r, key) => {
       setConfirming(null)
       if (selected === key) setSelected(null)
@@ -93,27 +93,27 @@ export function TypeObjects({
               <tbody>
                 {mine.map((o) => (
                   <tr
-                    key={o.key}
-                    className={`row-clickable${selected === o.key ? ' selected' : ''}`}
+                    key={o.ref}
+                    className={`row-clickable${selected === o.ref ? ' selected' : ''}`}
                     tabIndex={0}
-                    aria-selected={selected === o.key}
-                    onClick={() => setSelected(o.key)}
+                    aria-selected={selected === o.ref}
+                    onClick={() => setSelected(o.ref)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && e.target === e.currentTarget) setSelected(o.key)
+                      if (e.key === 'Enter' && e.target === e.currentTarget) setSelected(o.ref)
                     }}
                   >
                     <td className="mono">{o.key}</td>
                     <td>{o.name}</td>
                     {/* Les boutons arrêtent le clic : ouvrir ou supprimer ne sélectionne pas la ligne. */}
                     <td className="carto-type-object-actions" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
-                      {confirming === o.key ? (
+                      {confirming === o.ref ? (
                         <>
                           <BusyButton
                             type="button"
                             className="btn btn-sm btn-danger"
                             busy={remove.isPending}
                             busyText={t('cartoDeleteBusy')}
-                            onClick={() => remove.mutate(o.key)}
+                            onClick={() => remove.mutate(o.ref)}
                           >
                             {t('cartoDeleteObjectYes')}
                           </BusyButton>
@@ -123,14 +123,14 @@ export function TypeObjects({
                         </>
                       ) : (
                         <>
-                          <IconLink icon="edit" label={t('cartoTypeObjectEdit', { key: o.key })} to={cartoObjectPath(o.key)} />
+                          <IconLink icon="edit" label={t('cartoTypeObjectEdit', { key: o.key })} to={cartoObjectPath(o.ref)} />
                           {writable ? (
                             <IconButton
                               icon="delete"
                               label={t('cartoTypeObjectDelete', { key: o.key })}
                               onClick={() => {
                                 remove.reset()
-                                setConfirming(o.key)
+                                setConfirming(o.ref)
                               }}
                             />
                           ) : null}
@@ -150,7 +150,7 @@ export function TypeObjects({
             ) : detail.error ? (
               <ErrorList messages={errorMessages(t, detail.error)} />
             ) : (
-              <pre className="code-block carto-type-object-yaml" aria-label={t('cartoTypeObjectYaml', { key: selected })}>
+              <pre className="code-block carto-type-object-yaml" aria-label={t('cartoTypeObjectYaml', { key: selected.split('/').pop() })}>
                 {detail.data?.yaml ?? ''}
               </pre>
             )}

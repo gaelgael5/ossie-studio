@@ -5,6 +5,7 @@ relation qui manque), objets rattachables, enregistrement contrôlé, droits."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +13,12 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from ossie_studio.cartographie.process import new_process_xml, with_detail
+from ossie_studio.cartographie.process import (
+    new_process_xml,
+    parse_process,
+    preview,
+    with_detail,
+)
 from ossie_studio.cartographie.process_tools import (
     attach_choices,
     members,
@@ -138,9 +144,9 @@ def test_poser_un_acteur_non_affecte_avertit(carto: Cartographie) -> None:
     assert dropped["avertissement"] == {
         "code": "process_drop_not_linked",
         "relation": "Assignment",
-        "source": "ACT-CLIENT",
+        "source": "acteur/ACT-CLIENT",
         "source_name": "Client",
-        "target": "PRC-PRISE-COMMANDE",
+        "target": "processus-metier/PRC-PRISE-COMMANDE",
         "target_name": "Prise de commande",
     }
     # Membre de la collaboration rattachée au dessin : relié, pas d'avertissement.
@@ -150,7 +156,7 @@ def test_poser_un_acteur_non_affecte_avertit(carto: Cartographie) -> None:
     outside = process_drop(carto, "ACT-CLIENT", None, "COL-SAV")
     assert outside["avertissement"]["relation"] == "Aggregation"
     assert (outside["avertissement"]["source"], outside["avertissement"]["target"]) == (
-        "COL-SAV", "ACT-CLIENT",
+        "collaboration/COL-SAV", "acteur/ACT-CLIENT",
     )  # fmt: skip
     # Ni processus métier ni collaboration : rien à comparer.
     assert "avertissement" not in process_drop(carto, "ACT-CLIENT", None)
@@ -177,7 +183,7 @@ def test_poser_objet_metier_et_application(carto: Cartographie) -> None:
     warning = facture["avertissement"]
     # Le processus accède à l'objet : c'est lui la source.
     assert (warning["relation"], warning["source"], warning["target"]) == (
-        "Access", "PRC-PRISE-COMMANDE", "OBJ-FACTURE",
+        "Access", "processus-metier/PRC-PRISE-COMMANDE", "objet-metier/OBJ-FACTURE",
     )  # fmt: skip
     app = process_drop(carto, "APP-BOUTIQUE", "PRC-PRISE-COMMANDE")
     assert app == {"nom": "Boutique en ligne", "type": "application", "genre": "stockage-donnees"}
@@ -323,3 +329,18 @@ async def test_api_enregistrer_le_xml_reel_du_composant(space: ApiSpace) -> None
     assert answer.json()["attached"] == 5 and answer.json()["errors"] == 0
     content = (await space.client.get(_url(space, "/PRC-PRISE-COMMANDE-DETAIL/contenu"))).json()
     assert content["content"] == saved
+
+
+def test_apercu_avec_le_nom_a_jour(carto: Cartographie) -> None:
+    """L'aperçu porte le nom à jour d'un élément rattaché, retrouvé par son type et sa
+    clé, ou par sa clé seule quand la référence porte un type que l'objet n'a pas (ici
+    « document-metier » pour un objet métier) — ticket 421832ee."""
+    process = parse_process((FIXTURES / "urban-bpmn-enregistre.bpmn").read_text(encoding="utf-8"))
+    for ref, name in (
+        ("role/ROL-VENDEUR", "Vendeuse conseil"),
+        ("objet-metier/OBJ-FACTURE", "Facture client"),
+    ):
+        path, obj = carto.objects[ref]
+        carto.put(path, replace(obj, name=name))
+    labels = [box["label"] for box in preview(process, carto)["boxes"]]
+    assert {"Vendeuse conseil", "Facture client"} <= set(labels)

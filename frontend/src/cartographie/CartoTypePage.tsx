@@ -17,6 +17,7 @@ import { UnsavedProvider, useSaveShortcut, useSwitchGuard, useUnsaved } from '..
 import { ImportsTab } from '../imports/ImportsTab'
 import { ArchimateIcon } from './ArchimateIcon'
 import { TypeObjects } from './TypeObjects'
+import { TypeReferentielLinks } from './TypeReferentielLinks'
 import { RELATIONS, TypeRelations, readDeviations, writeDeviations } from './TypeRelations'
 import type { Deviations } from './TypeRelations'
 import { IconButton } from '../components/IconButton'
@@ -411,6 +412,11 @@ function TypeEditor({
           </button>
         }
       />
+      ) : null}
+      {tab === 'properties' ? (
+        // Les liens vers les référentiels (ticket 43478978) : fichier d'extension du
+        // type, enregistré à chaque ajout ou retrait, sur le type enregistré.
+        <TypeReferentielLinks spaceId={spaceId} branchId={branchId} slug={detail.slug} readOnly={readOnly} />
       ) : null}
     </>
   )

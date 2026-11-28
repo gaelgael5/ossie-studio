@@ -122,7 +122,7 @@ async def test_objet_de_cartographie_meme_refus(app: FastAPI, space: ApiSpace) -
         app,
         space,
         {
-            "kind": "carto_objet",
+            "document_type": "carto_objet",
             "identity": {"type": "application", "key": "APP-NEW"},
             "content": {
                 "cle": "APP-NEW",
@@ -144,7 +144,7 @@ async def test_valeur_de_referentiel_meme_refus(app: FastAPI, space: ApiSpace) -
         app,
         space,
         {
-            "kind": "referentiel_valeur",
+            "document_type": "referentiel_valeur",
             "identity": {"referentiel": "delais", "key": {"pays": "LU", "mode": "site"}},
             "content": {"pays": "LU", "mode": "site", "delai": "deux"},
         },

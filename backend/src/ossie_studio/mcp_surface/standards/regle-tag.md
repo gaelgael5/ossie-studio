@@ -5,7 +5,7 @@ annotation, name, path, field, kind). It holds for the whole space.
 
 Identity: `id` (lowercase letters, digits, `_`, `-`; up to 80 characters): the file name, frozen.
 Ids starting with `ossie-` are **native rules**, provided by Ossie: they are listed by
-`list_documents(kind: regle_tag)` with `native: true`, and only their `enabled` flag changes
+`list_documents(document_type: regle_tag)` with `native: true`, and only their `enabled` flag changes
 (write the rule back with `enabled: false` to disable it, as on screen). A native rule is never
 deleted.
 
@@ -25,7 +25,7 @@ Content — the rule file:
 A malformed condition is refused (`write_content_invalid`, at `$.when`, with the service's code).
 
 ```yaml example
-kind: regle_tag
+document_type: regle_tag
 identity: {id: aspnet-controllers}
 content:
   name: Contrôleurs ASP.NET

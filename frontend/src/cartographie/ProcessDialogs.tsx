@@ -25,6 +25,8 @@ const PROCESSES_DIR = 'cartographie/processus'
 /** Un processus métier proposable : objet dont le type repose sur `BusinessProcess`. */
 export interface BusinessProcessChoice {
   key: string
+  /** `type/CLÉ` (ticket 421832ee) : ce qui est envoyé comme processus métier détaillé. */
+  ref: string
   name: string
 }
 
@@ -78,7 +80,7 @@ function DetailField({
       <select id="carto-process-detail" className="select" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">{t('cartoProcessChooseDetail')}</option>
         {choices.map((c) => (
-          <option key={c.key} value={c.key}>
+          <option key={c.ref} value={c.ref}>
             {`${c.name} (${c.key})`}
           </option>
         ))}
@@ -121,8 +123,9 @@ export function NewProcessDialog({
   const { t } = useTranslation()
   const navigate = useNavigate()
   const invalidate = useInvalidate()
-  const initialName = choices.find((c) => c.key === initialDetail)?.name
-  const [key, setKey] = useState(initialDetail ? `${initialDetail}-DETAIL` : '')
+  const initial = choices.find((c) => c.ref === initialDetail)
+  const initialName = initial?.name
+  const [key, setKey] = useState(initial ? `${initial.key}-DETAIL` : '')
   const [name, setName] = useState(initialName ? t('cartoProcessDetailName', { name: initialName }) : '')
   const [detail, setDetail] = useState(initialDetail)
   const ready = KEY_FORMAT.test(key) && !taken.has(key) && name.trim() !== ''
@@ -354,7 +357,7 @@ export function AttachProcessDialog({
 }) {
   const { t } = useTranslation()
   const invalidate = useInvalidate()
-  const [detail, setDetail] = useState(process.detail_of?.key ?? '')
+  const [detail, setDetail] = useState(process.detail_of?.ref ?? '')
   const attach = useMutation({
     mutationFn: () => api.attachCartoProcess(spaceId, branchId, process.key, detail || null),
     onSuccess: async () => {

@@ -16,6 +16,8 @@ from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import SpacesRead
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
+from ossie_studio.doc_index.queue import PUBLICATION_PAGE, queue_state, request_pass
+from ossie_studio.doc_index.store import ViewKey, db_view_summary
 from ossie_studio.drafts import preparation
 from ossie_studio.drafts.preparation import changed_upstream
 from ossie_studio.drafts.store import db_get_draft, db_list_objects
@@ -199,6 +201,9 @@ async def get_validation(
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
+    # Ouverture ou réaffichage de la page de publication : une passe de validation est
+    # demandée pour le brouillon de la personne (enabler 6b171b74).
+    await request_pass(conn, ViewKey(space_id, branch_id, workdir.user_id), PUBLICATION_PAGE)
     _draft, log_entries = await preparation.draft_validation(
         conn, crypto, workdir, space_id, branch_id
     )
@@ -206,6 +211,30 @@ async def get_validation(
         "entries": [e.payload() for e in log_entries],
         "blocking": len(blocking(log_entries)),
     }
+
+
+@router.get("/validation/file")
+async def get_validation_queue(
+    conn: ConnDep,
+    _: SpacesRead,
+    workdir: DraftWorkdirDep,
+    space_id: uuid.UUID,
+    branch_id: uuid.UUID,
+) -> dict[str, object]:
+    """L'état de la file de validation (enabler 6b171b74) : la passe en cours (quelle
+    vue, combien de fichiers faits sur combien), le nombre de demandes en attente, la
+    position du brouillon de la personne et de la branche publiée, et l'état de
+    validation de ces deux vues dans l'index."""
+    draft = ViewKey(space_id, branch_id, workdir.user_id)
+    published = draft.published
+    state = await queue_state(conn)
+    out = state.payload({"draft": draft, "published": published})
+    for name, key in (("draft", draft), ("published", published)):
+        summary = await db_view_summary(conn, key)
+        view = out[name]
+        assert isinstance(view, dict)
+        view["index"] = summary.payload() if summary else None
+    return out
 
 
 @router.post("/validation/accept")

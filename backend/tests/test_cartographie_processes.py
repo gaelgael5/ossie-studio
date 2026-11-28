@@ -139,15 +139,20 @@ async def test_creer_un_processus_detail_d_un_processus_metier(space: ApiSpace) 
     assert answer.status_code == 201, answer.text
     assert answer.json()["detail_of"] == {
         "key": "PRC-PRISE-COMMANDE",
+        "ref": "processus-metier/PRC-PRISE-COMMANDE",
         "name": "Prise de commande",
         "exists": True,
     }
     [listed] = await _list(space)
     assert listed["name"] == "Prise de commande — détail" and listed["errors"] == 0
     # La fiche du processus métier propose « Ouvrir le détail BPMN ».
-    detail = await space.client.get(f"{space.base}/cartographie/objets/PRC-PRISE-COMMANDE")
+    detail = await space.client.get(
+        f"{space.base}/cartographie/objets/processus-metier/PRC-PRISE-COMMANDE"
+    )
     assert detail.json()["processes"] == ["PRC-PRISE-COMMANDE-DETAIL"]
-    other = await space.client.get(f"{space.base}/cartographie/objets/PRC-RETOURS-METIER")
+    other = await space.client.get(
+        f"{space.base}/cartographie/objets/processus-metier/PRC-RETOURS-METIER"
+    )
     assert other.json()["processes"] == []
 
 

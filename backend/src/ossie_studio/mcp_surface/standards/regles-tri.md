@@ -4,7 +4,7 @@ The sorting rules of a source set noise aside in the curation (generated objects
 tables...). They live in the `triage` section of the source's manifest; Ossie rewrites that
 section only, never the rest of the manifest.
 
-Identity: `source` (slug of the source, `list_documents(kind: source)`), frozen.
+Identity: `source` (slug of the source, `list_documents(document_type: source)`), frozen.
 
 Content — the **whole list** of rules (an empty list: none). Each rule:
 
@@ -19,7 +19,7 @@ Content — the **whole list** of rules (an empty list: none). Each rule:
 write an empty list.
 
 ```yaml example
-kind: regles_tri
+document_type: regles_tri
 identity: {source: ventes}
 version: "<version from read_document>"
 content:
@@ -28,7 +28,7 @@ content:
 ```
 
 ```yaml example-patch
-kind: regles_tri
+document_type: regles_tri
 document:
   - {target: object-name, pattern: "*Migration*", kind: glob}
 operations:

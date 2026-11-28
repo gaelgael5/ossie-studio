@@ -130,7 +130,13 @@ async def _patch(
     app: FastAPI, space: ApiSpace, kind: str, identity: dict[str, Any], version: str, ops: list
 ) -> tuple[bool, dict[str, Any]]:
     return await _call(
-        app, "patch_document", space, kind=kind, identity=identity, version=version, operations=ops
+        app,
+        "patch_document",
+        space,
+        document_type=kind,
+        identity=identity,
+        version=version,
+        operations=ops,
     )
 
 
@@ -138,14 +144,19 @@ async def _read(app: FastAPI, space: ApiSpace, path: str) -> dict[str, Any] | No
     """Un objet de cartographie tel que le brouillon le contient, par son fichier : sa
     ligne de list_documents et son contenu (read_document) ; None s'il n'y est pas."""
     error, listed = await _call(
-        app, "list_documents", space, kind="carto_objet", branch="draft", limit=200
+        app, "list_documents", space, document_type="carto_objet", branch="draft", limit=200
     )
     assert not error, listed
     found = next((d for d in listed["documents"] if d["path"] == path), None)
     if found is None:
         return None
     error, doc = await _call(
-        app, "read_document", space, kind="carto_objet", identity=found["identity"], branch="draft"
+        app,
+        "read_document",
+        space,
+        document_type="carto_objet",
+        identity=found["identity"],
+        branch="draft",
     )
     assert not error, doc
     return {**found, "properties": doc["content"].get("proprietes", {})}
@@ -169,7 +180,7 @@ async def _draft(app: FastAPI, space: ApiSpace, path: str) -> bytes | None:
 
 def _obj(type_slug: str, key: str, content: dict[str, Any], **extra: Any) -> dict[str, Any]:
     return {
-        "kind": "carto_objet",
+        "document_type": "carto_objet",
         "identity": {"type": type_slug, "key": key},
         "content": content,
         **extra,
@@ -211,7 +222,7 @@ async def test_role_et_affectation_dans_la_meme_liste(app: FastAPI, space: ApiSp
     assert role is not None and role["unpublished"] is True
     role_id = {"type": "role", "key": "ROL-PREPARATEUR"}
     error, published = await _call(
-        app, "read_document", space, kind="carto_objet", identity=role_id
+        app, "read_document", space, document_type="carto_objet", identity=role_id
     )
     assert error and published["error"] == "document_not_found"
 
@@ -266,7 +277,7 @@ async def test_creer_l_existant_ou_version_perimee(app: FastAPI, space: ApiSpace
     current = await _read(app, space, PRC)
     assert current is not None
     content = {"cle": "PRC-PRISE-COMMANDE", "type": "processus-de-vente", "nom": "Prise"}
-    entry = {"kind": "carto_objet", "identity": PRC_ID, "content": content}
+    entry = {"document_type": "carto_objet", "identity": PRC_ID, "content": content}
     error, body = await _write(app, space, [{**entry, "version": "0" * 40}])
     assert error
     [problem] = body["errors"]
@@ -284,14 +295,24 @@ async def test_supprimer_un_objet_utilise(app: FastAPI, space: ApiSpace) -> None
     """Critère 5."""
     obj_version = (await _read(app, space, OBJ) or {})["version"]
     rel_version = (await _read(app, space, REL) or {})["version"]
-    delete_obj = {"kind": "carto_objet", "identity": OBJ_ID, "version": obj_version, "delete": True}
+    delete_obj = {
+        "document_type": "carto_objet",
+        "identity": OBJ_ID,
+        "version": obj_version,
+        "delete": True,
+    }
     error, body = await _write(app, space, [delete_obj])
     assert error
     [problem] = body["errors"]
     assert problem["path"] == "$.documents[0].delete"
     assert problem["code"] == "carto_object_in_use"
-    assert problem["relations"] == ["REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
-    delete_rel = {"kind": "carto_objet", "identity": REL_ID, "version": rel_version, "delete": True}
+    assert problem["relations"] == ["acces/REL-PRISE-COMMANDE-ECRIT-COMMANDE"]
+    delete_rel = {
+        "document_type": "carto_objet",
+        "identity": REL_ID,
+        "version": rel_version,
+        "delete": True,
+    }
     error, body = await _write(app, space, [delete_obj, delete_rel])
     assert not error, body
     assert {d["path"] for d in body["documents"] if d["action"] == "deleted"} == {OBJ, REL}
@@ -384,10 +405,10 @@ async def test_identite_incoherente_genre_inconnu_champ_inconnu(
     error, body = await _write(app, space, [wrong])
     assert error and body["errors"][0]["code"] == "write_identity_mismatch"
     assert body["errors"][0]["path"] == "$.documents[0].content.cle"
-    unknown = {**ROLE, "kind": "inconnu"}
+    unknown = {**ROLE, "document_type": "inconnu"}
     error, body = await _write(app, space, [unknown])
-    assert body["errors"][0]["code"] == "write_kind_unknown"
-    assert body["errors"][0]["aide"] == {"primitive": "list_write_kinds"}
+    assert body["errors"][0]["code"] == "document_type_unknown"
+    assert body["errors"][0]["aide"] == {"primitive": "list_document_types"}
     extra = {**ROLE, "content": {**ROLE["content"], "couleur": "bleu"}}
     error, body = await _write(app, space, [extra])
     assert body["errors"][0]["path"] == "$.documents[0].content.couleur"
@@ -411,11 +432,14 @@ async def test_rejeu_identique_sans_changement(app: FastAPI, space: ApiSpace) ->
 async def test_droits_par_genre(app: FastAPI, space: ApiSpace) -> None:
     """La capacité du genre est exigée : une personne sans « Gouvernance : modifier »
     écrit la cartographie mais pas un tag."""
-    tag = {"kind": "tag", "identity": {"id": "pii"}, "content": {"info": {"owner": "dpo"}}}
+    tag = {"document_type": "tag", "identity": {"id": "pii"}, "content": {"info": {"owner": "dpo"}}}
     error, body = await _write(app, space, [ROLE, tag], token=LIMITED)
     assert error
     [problem] = body["errors"]
-    assert (problem["path"], problem["code"]) == ("$.documents[1].kind", "write_kind_forbidden")
+    assert (problem["path"], problem["code"]) == (
+        "$.documents[1].document_type",
+        "document_type_forbidden",
+    )
     error, body = await _write(app, space, [ROLE], token=LIMITED)
     assert not error, body
 
@@ -437,10 +461,14 @@ PAYS = {
 
 async def test_patch_valeur_de_referentiel(app: FastAPI, space: ApiSpace) -> None:
     """Critère 7 : seule la valeur visée change ; valeurs.json reste trié."""
-    model = {"kind": "referentiel_modele", "identity": {"referentiel": "pays"}, "content": PAYS}
+    model = {
+        "document_type": "referentiel_modele",
+        "identity": {"referentiel": "pays"},
+        "content": PAYS,
+    }
     values = [
         {
-            "kind": "referentiel_valeur",
+            "document_type": "referentiel_valeur",
             "identity": {"referentiel": "pays", "key": code},
             "content": v,
         }
@@ -491,7 +519,13 @@ async def test_bpmn_ecrit_puis_modifie_par_xpath(app: FastAPI, space: ApiSpace) 
     error, body = await _write(
         app,
         space,
-        [{"kind": "processus", "identity": identity, "content": _process("PRC-VENTE-DETAIL")}],
+        [
+            {
+                "document_type": "processus",
+                "identity": identity,
+                "content": _process("PRC-VENTE-DETAIL"),
+            }
+        ],
     )
     assert not error, body
     version = body["documents"][0]["version"]
@@ -542,13 +576,17 @@ async def test_bpmn_ecrit_puis_modifie_par_xpath(app: FastAPI, space: ApiSpace) 
 async def test_bpmn_xpath_plusieurs_noeuds_et_non_rattache(app: FastAPI, space: ApiSpace) -> None:
     """Critère 9 (XPath) ; décision de Gael : un processus écrit par un agent est rattaché."""
     bare = {
-        "kind": "processus",
+        "document_type": "processus",
         "identity": {"key": "PRC-NU"},
         "content": new_process_xml("PRC-NU", "Nu"),
     }
     error, body = await _write(app, space, [bare])
     assert error and body["errors"][0]["code"] == "write_process_unattached"
-    entry = {"kind": "processus", "identity": {"key": "PRC-A"}, "content": _process("PRC-A")}
+    entry = {
+        "document_type": "processus",
+        "identity": {"key": "PRC-A"},
+        "content": _process("PRC-A"),
+    }
     error, body = await _write(app, space, [entry])
     version = body["documents"][0]["version"]
     error, refused = await _patch(
@@ -572,9 +610,13 @@ async def test_gouvernance_par_l_ecriture_commune(app: FastAPI, space: ApiSpace)
         app,
         space,
         [
-            {"kind": "tag", "identity": {"id": "pii/email"}, "content": {"info": {"owner": "dpo"}}},
             {
-                "kind": "classification",
+                "document_type": "tag",
+                "identity": {"id": "pii/email"},
+                "content": {"info": {"owner": "dpo"}},
+            },
+            {
+                "document_type": "classification",
                 "identity": {"id": "sensibilite"},
                 "content": {
                     "name": "Sensibilité",
@@ -582,14 +624,14 @@ async def test_gouvernance_par_l_ecriture_commune(app: FastAPI, space: ApiSpace)
                 },
             },
             {
-                "kind": "certification",
+                "document_type": "certification",
                 "identity": {"slug": "or"},
                 "content": {"name": "Or", "rank": 1, "tag": "certif/or"},
             },
         ],
     )
     assert not error, body
-    versions = {d["kind"]: d["version"] for d in body["documents"]}
+    versions = {d["document_type"]: d["version"] for d in body["documents"]}
     # Un niveau ajouté par patch_document, puis remis en tête.
     error, patched = await _patch(
         app,
@@ -600,7 +642,9 @@ async def test_gouvernance_par_l_ecriture_commune(app: FastAPI, space: ApiSpace)
         [{"op": "add", "path": "$.levels[0]", "value": {"name": "Interne", "short_name": "INT"}}],
     )
     assert not error, patched
-    error, listed = await _call(app, "list_documents", space, kind="classification", branch="draft")
+    error, listed = await _call(
+        app, "list_documents", space, document_type="classification", branch="draft"
+    )
     assert not error
     scheme = next(s for s in listed["documents"] if s["identity"] == {"id": "sensibilite"})
     assert [lv["name"] for lv in scheme["levels"]] == ["Interne", "Public"]
@@ -618,7 +662,7 @@ async def test_gouvernance_par_l_ecriture_commune(app: FastAPI, space: ApiSpace)
         space,
         [
             {
-                "kind": "tag",
+                "document_type": "tag",
                 "identity": {"id": "pii/email"},
                 "version": versions["tag"],
                 "delete": True,
@@ -663,9 +707,19 @@ async def test_changer_d_identite_recreer_puis_supprimer(app: FastAPI, space: Ap
         app,
         space,
         [
-            {"kind": "carto_objet", "identity": OBJ_ID, "version": obj["version"], "delete": True},
+            {
+                "document_type": "carto_objet",
+                "identity": OBJ_ID,
+                "version": obj["version"],
+                "delete": True,
+            },
             new_rel,
-            {"kind": "carto_objet", "identity": REL_ID, "version": rel["version"], "delete": True},
+            {
+                "document_type": "carto_objet",
+                "identity": REL_ID,
+                "version": rel["version"],
+                "delete": True,
+            },
             v2,
         ],
     )
@@ -680,7 +734,7 @@ async def test_type_et_objets_dans_le_meme_lot(app: FastAPI, space: ApiSpace) ->
         "application", "APP-CAISSE", {"cle": "APP-CAISSE", "type": "application", "nom": "Caisse"}
     )
     app_type = {
-        "kind": "carto_type",
+        "document_type": "carto_type",
         "identity": {"slug": "application"},
         "content": {
             "title": "Application",

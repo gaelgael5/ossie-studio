@@ -40,7 +40,7 @@ function process(key: string, name: string, extra: Record<string, unknown> = {})
 
 const PROCESSES = [
   process('PRC-PRISE-COMMANDE-DETAIL', 'Prise de commande — détail', {
-    detail_of: { key: 'PRC-PRISE-COMMANDE', name: 'Prise de commande', exists: true },
+    detail_of: { key: 'PRC-PRISE-COMMANDE', ref: 'processus-metier/PRC-PRISE-COMMANDE', name: 'Prise de commande', exists: true },
     participants: 2,
     attached: 4,
     pools: ['Client', 'Boutique'],
@@ -51,7 +51,7 @@ const OBJECTS = [
   { key: 'PRC-PRISE-COMMANDE', name: 'Prise de commande', archimate: 'BusinessProcess' },
   { key: 'PRC-RETOURS-METIER', name: 'Retours', archimate: 'BusinessProcess' },
   { key: 'ROL-VENDEUR', name: 'Vendeur', archimate: 'BusinessRole' },
-].map((o) => ({ ...o, type: 't', type_title: 'T', excerpt: '', properties: [], relations: 0, is_relation: false, source: null, target: null, path: 'p', dates: null, state: null }))
+].map((o) => ({ ...o, type: 'processus-metier', ref: `processus-metier/${o.key}`, type_title: 'T', excerpt: '', properties: [], relations: 0, is_relation: false, source: null, target: null, path: 'p', dates: null, state: null }))
 
 const CHECK = {
   valid: true,
@@ -120,7 +120,7 @@ describe('Cartographie — écran Processus (ticket 7e061c3e)', () => {
     expect(within(detail).getByText('PRC-PRISE-COMMANDE-DETAIL')).toBeInTheDocument()
     expect(within(detail).getByRole('link', { name: 'Prise de commande' })).toHaveAttribute(
       'href',
-      '/cartographie/objets/PRC-PRISE-COMMANDE',
+      '/cartographie/objets/processus-metier/PRC-PRISE-COMMANDE',
     )
     expect(within(detail).getByText('2 participants')).toBeInTheDocument()
     expect(within(detail).getByText('4 objets rattachés')).toBeInTheDocument()
@@ -192,14 +192,14 @@ describe('Cartographie — écran Processus (ticket 7e061c3e)', () => {
     const dialog = screen.getByRole('dialog', { name: 'Nouveau processus' })
     await user.type(within(dialog).getByLabelText('Clé'), 'prc-vente-detail')
     await user.type(within(dialog).getByLabelText('Nom'), 'Vente — détail')
-    await user.selectOptions(within(dialog).getByLabelText('Détail du processus métier'), 'PRC-PRISE-COMMANDE')
+    await user.selectOptions(within(dialog).getByLabelText('Détail du processus métier'), 'processus-metier/PRC-PRISE-COMMANDE')
     await user.click(within(dialog).getByRole('button', { name: 'Créer et ouvrir' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === `${BASE}/processus`)).toBe(true))
     const post = calls.find((c) => c.method === 'POST' && c.path === `${BASE}/processus`)
     expect(JSON.parse(String(post?.body))).toEqual({
       key: 'PRC-VENTE-DETAIL',
       name: 'Vente — détail',
-      detail_of: 'PRC-PRISE-COMMANDE',
+      detail_of: 'processus-metier/PRC-PRISE-COMMANDE',
     })
   })
 
@@ -209,11 +209,11 @@ describe('Cartographie — écran Processus (ticket 7e061c3e)', () => {
     const user = userEvent.setup()
     await user.click(within(card('Traitement des retours')).getByRole('button', { name: 'Rattacher…' }))
     const dialog = screen.getByRole('dialog', { name: 'Rattacher « Traitement des retours »' })
-    await user.selectOptions(within(dialog).getByLabelText('Détail du processus métier'), 'PRC-RETOURS-METIER')
+    await user.selectOptions(within(dialog).getByLabelText('Détail du processus métier'), 'processus-metier/PRC-RETOURS-METIER')
     await user.click(within(dialog).getByRole('button', { name: 'Rattacher' }))
     await waitFor(() => expect(calls.some((c) => c.path === `${BASE}/processus/PRC-RETOURS/rattacher`)).toBe(true))
     const attach = calls.find((c) => c.path === `${BASE}/processus/PRC-RETOURS/rattacher`)
-    expect(JSON.parse(String(attach?.body))).toEqual({ detail_of: 'PRC-RETOURS-METIER' })
+    expect(JSON.parse(String(attach?.body))).toEqual({ detail_of: 'processus-metier/PRC-RETOURS-METIER' })
   })
 
   it('sans le droit de modifier : vignettes visibles, ni création ni import (critère 5)', async () => {

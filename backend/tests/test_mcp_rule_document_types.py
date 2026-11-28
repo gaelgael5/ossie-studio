@@ -65,7 +65,9 @@ async def test_regle_de_tag_ecrite_validee_et_tags_crees(app: FastAPI, space: Ap
     et le tag cité est créé (comme à l'écran) ; une condition mal formée est refusée
     avec le chemin fautif et `aide`."""
     error, body = await _write(
-        app, space, {"kind": "regle_tag", "identity": {"id": "controleurs"}, "content": RULE}
+        app,
+        space,
+        {"document_type": "regle_tag", "identity": {"id": "controleurs"}, "content": RULE},
     )
     assert not error, body
     [doc] = body["documents"]
@@ -75,16 +77,16 @@ async def test_regle_de_tag_ecrite_validee_et_tags_crees(app: FastAPI, space: Ap
         app,
         space,
         "read_document",
-        kind="regle_tag",
+        document_type="regle_tag",
         identity={"id": "controleurs"},
         branch="draft",
     )
     assert not error and read["content"]["when"] == {"inherits": ["ControllerBase"]}
-    error, tags = await _call(app, space, "list_documents", kind="tag", branch="draft")
+    error, tags = await _call(app, space, "list_documents", document_type="tag", branch="draft")
     assert "technique/service" in {t["identity"]["id"] for t in tags["documents"]}
     bad = {**RULE, "when": {"inconnue": ["x"]}}
     error, body = await _write(
-        app, space, {"kind": "regle_tag", "identity": {"id": "mauvaise"}, "content": bad}
+        app, space, {"document_type": "regle_tag", "identity": {"id": "mauvaise"}, "content": bad}
     )
     assert error
     [refusal] = body["errors"]
@@ -99,12 +101,12 @@ async def test_regle_de_tag_ecrite_validee_et_tags_crees(app: FastAPI, space: Ap
 async def test_regle_de_classification_niveau_inexistant(app: FastAPI, space: ApiSpace) -> None:
     """Critère 2 : une règle qui vise un niveau inexistant est refusée."""
     scheme = {
-        "kind": "classification",
+        "document_type": "classification",
         "identity": {"id": "rgpd"},
         "content": {"name": "RGPD", "levels": [{"name": "Publique", "short_name": "PUB"}]},
     }
     rule = {
-        "kind": "regle_classification",
+        "document_type": "regle_classification",
         "identity": {"id": "emails"},
         "content": {
             "name": "Emails",
@@ -131,15 +133,24 @@ async def test_regles_natives_listees_et_desactivees(app: FastAPI, space: ApiSpa
     suppriment autrement."""
     native = builtin_rules()[0]
     await _write(
-        app, space, {"kind": "regle_tag", "identity": {"id": "controleurs"}, "content": RULE}
+        app,
+        space,
+        {"document_type": "regle_tag", "identity": {"id": "controleurs"}, "content": RULE},
     )
-    error, listed = await _call(app, space, "list_documents", kind="regle_tag", branch="draft")
+    error, listed = await _call(
+        app, space, "list_documents", document_type="regle_tag", branch="draft"
+    )
     by_id = {d["identity"]["id"]: d for d in listed["documents"]}
     assert by_id[native.id]["native"] is True and by_id[native.id]["enabled"] is True
     assert by_id[native.id]["path"] == "governance/tag-rules-builtin.yaml"
     assert by_id["controleurs"]["native"] is False
     error, read = await _call(
-        app, space, "read_document", kind="regle_tag", identity={"id": native.id}, branch="draft"
+        app,
+        space,
+        "read_document",
+        document_type="regle_tag",
+        identity={"id": native.id},
+        branch="draft",
     )
     assert read["version"] == by_id[native.id]["version"]
     disabled = {**read["content"], "enabled": False}
@@ -147,7 +158,7 @@ async def test_regles_natives_listees_et_desactivees(app: FastAPI, space: ApiSpa
         app,
         space,
         {
-            "kind": "regle_tag",
+            "document_type": "regle_tag",
             "identity": {"id": native.id},
             "version": read["version"],
             "content": disabled,
@@ -155,18 +166,25 @@ async def test_regles_natives_listees_et_desactivees(app: FastAPI, space: ApiSpa
     )
     assert not error, body
     assert body["documents"][0]["path"] == "governance/tag-rules-builtin.yaml"
-    error, listed = await _call(app, space, "list_documents", kind="regle_tag", branch="draft")
+    error, listed = await _call(
+        app, space, "list_documents", document_type="regle_tag", branch="draft"
+    )
     state = next(d for d in listed["documents"] if d["identity"]["id"] == native.id)
     assert state["enabled"] is False
     error, read = await _call(
-        app, space, "read_document", kind="regle_tag", identity={"id": native.id}, branch="draft"
+        app,
+        space,
+        "read_document",
+        document_type="regle_tag",
+        identity={"id": native.id},
+        branch="draft",
     )
     changed = {**read["content"], "name": "Autre nom"}
     error, body = await _write(
         app,
         space,
         {
-            "kind": "regle_tag",
+            "document_type": "regle_tag",
             "identity": {"id": native.id},
             "version": read["version"],
             "content": changed,
@@ -177,7 +195,7 @@ async def test_regles_natives_listees_et_desactivees(app: FastAPI, space: ApiSpa
         app,
         space,
         {
-            "kind": "regle_tag",
+            "document_type": "regle_tag",
             "identity": {"id": native.id},
             "version": read["version"],
             "delete": True,

@@ -3,10 +3,13 @@ import {
   fromVisual,
   keyViolation,
   modelKey,
+  modelTags,
   modelText,
   parseModel,
   simpleProperties,
+  tagProblem,
   withKey,
+  withTags,
   type RefModel,
 } from './modelRules'
 
@@ -95,5 +98,17 @@ describe('règles du modèle d’un référentiel (ticket 829a86a7)', () => {
     const next = fromVisual(MODEL, visual)
     expect(next['x-key']).toEqual(['pays', 'mode'])
     expect(next.title).toBe('Délais')
+  })
+})
+
+describe('tags du modèle (ticket 43478978)', () => {
+  it('l’éditeur visuel garde les tags ; ajout vérifié', () => {
+    const current = { type: 'object', 'x-key': ['code'], 'x-tags': ['entreprise'], properties: { code: { type: 'string' } } }
+    expect(fromVisual(current, { type: 'object', properties: { code: { type: 'string' } } })['x-tags']).toEqual(['entreprise'])
+    expect(withTags(current, [])['x-tags']).toBeUndefined()
+    expect(modelTags(withTags(current, ['a', 'b']))).toEqual(['a', 'b'])
+    expect(tagProblem(['Entreprise'], 'entreprise')).toBe('duplicate')
+    expect(tagProblem([], 'x'.repeat(41))).toBe('too_long')
+    expect(tagProblem([], 'contrainte')).toBeNull()
   })
 })

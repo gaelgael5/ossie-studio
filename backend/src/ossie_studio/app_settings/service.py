@@ -1,5 +1,5 @@
 """Paramètres généraux de l'application, réglables sur la page « Paramètres »
-(epic « Primitives MCP — écriture commune par genre », ticket ae8fc4b6).
+(epic « Primitives MCP — écriture commune par type de document », ticket ae8fc4b6).
 
 Gael : « il faut prévoir un paramètre dans la config, et accessible dans une page ».
 Chaque paramètre a une **valeur par défaut** dans la configuration du serveur
@@ -10,7 +10,7 @@ valeur par défaut supprime la ligne.
 
 Premier paramètre : la taille maximale d'un document écrit par un agent
 (`document_max_bytes`, 200 Ko par défaut — décision de Gael), lue par
-`write_documents`, `patch_document`, `list_write_kinds` et `describe_standard`.
+`write_documents`, `patch_document`, `list_document_types` et `describe_standard`.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import asyncpg
 from ossie_studio.config import Settings
 
 DOCUMENT_MAX_BYTES = "document_max_bytes"
+VALIDATION_INTERVAL_MINUTES = "validation_interval_minutes"
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,8 @@ class SettingDef:
     minimum: int
     maximum: int
     default: Callable[[Settings], int]
+    # L'unité de la valeur rangée : « bytes » (saisie en Ko à l'écran) ou « minutes ».
+    unit: str = "bytes"
 
 
 DEFINITIONS: dict[str, SettingDef] = {
@@ -47,6 +50,15 @@ DEFINITIONS: dict[str, SettingDef] = {
         minimum=1024,
         maximum=10 * 1024 * 1024,
         default=lambda settings: settings.document_max_bytes,
+    ),
+    # L'intervalle de la passe périodique de la file de validation (enabler 6b171b74),
+    # en minutes : 10 par défaut (Gael), de 1 minute à 1 jour.
+    VALIDATION_INTERVAL_MINUTES: SettingDef(
+        VALIDATION_INTERVAL_MINUTES,
+        minimum=1,
+        maximum=24 * 60,
+        default=lambda settings: settings.validation_interval_minutes,
+        unit="minutes",
     ),
 }
 
@@ -69,6 +81,7 @@ class SettingValue:
     source: str
     updated_at: datetime | None = None
     updated_by: str | None = None
+    unit: str = "bytes"
 
 
 def definition(key: str) -> SettingDef:
@@ -114,9 +127,11 @@ async def current(conn: asyncpg.Connection, settings: Settings, key: str) -> Set
         if value is not None:
             return SettingValue(
                 key, value, default, found.minimum, found.maximum, "page",
-                row["updated_at"], row["updated_by"],
+                row["updated_at"], row["updated_by"], found.unit,
             )  # fmt: skip
-    return SettingValue(key, default, default, found.minimum, found.maximum, "config")
+    return SettingValue(
+        key, default, default, found.minimum, found.maximum, "config", unit=found.unit
+    )
 
 
 async def value_of(conn: asyncpg.Connection, settings: Settings, key: str) -> int:

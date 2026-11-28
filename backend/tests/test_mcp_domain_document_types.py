@@ -81,7 +81,7 @@ def _field(name: str) -> dict[str, Any]:
 
 def _dataset(name: str, consultable: bool, *fields: str, **extension: Any) -> dict[str, Any]:
     return {
-        "kind": "dataset",
+        "document_type": "dataset",
         "identity": {"domain": "ventes", "name": name},
         "content": {
             "ossie": {
@@ -94,12 +94,16 @@ def _dataset(name: str, consultable: bool, *fields: str, **extension: Any) -> di
     }
 
 
-DOMAIN = {"kind": "domaine", "identity": {"name": "ventes"}, "content": {"label": "Ventes"}}
+DOMAIN = {
+    "document_type": "domaine",
+    "identity": {"name": "ventes"},
+    "content": {"label": "Ventes"},
+}
 CLIENT = _dataset("client", True, "id", "nom", fields={"nom": {"datatype": "String"}})
 COMMANDE = _dataset("commande", True, "id", "client_id")
 PANIER = _dataset("panier", False, "lignes")
 RELATION = {
-    "kind": "relation_dataset",
+    "document_type": "relation_dataset",
     "identity": {"domain": "ventes", "name": "commande-client"},
     "content": {
         "from": "commande",
@@ -152,14 +156,19 @@ async def test_passer_un_dataset_en_non_consultable_le_deplace(
     """Critère 2."""
     await _write(app, space, DOMAIN, CLIENT, PANIER)
     error, read = await _call(
-        app, space, "read_document", kind="dataset", identity=CLIENT["identity"], branch="draft"
+        app,
+        space,
+        "read_document",
+        document_type="dataset",
+        identity=CLIENT["identity"],
+        branch="draft",
     )
     assert read["path"] == "domaines/ventes.ossie.yaml"
     error, body = await _call(
         app,
         space,
         "patch_document",
-        kind="dataset",
+        document_type="dataset",
         identity=CLIENT["identity"],
         version=read["version"],
         operations=[{"op": "set", "path": "$.extension.consultable", "value": False}],
@@ -181,11 +190,16 @@ async def test_supprimer_un_dataset_cite(app: FastAPI, space: ApiSpace) -> None:
     versions = {}
     for doc in (CLIENT, RELATION):
         error, read = await _call(
-            app, space, "read_document", kind=doc["kind"], identity=doc["identity"], branch="draft"
+            app,
+            space,
+            "read_document",
+            document_type=doc["document_type"],
+            identity=doc["identity"],
+            branch="draft",
         )
-        versions[doc["kind"]] = read["version"]
+        versions[doc["document_type"]] = read["version"]
     delete_client = {
-        "kind": "dataset",
+        "document_type": "dataset",
         "identity": CLIENT["identity"],
         "version": versions["dataset"],
         "delete": True,
@@ -193,7 +207,7 @@ async def test_supprimer_un_dataset_cite(app: FastAPI, space: ApiSpace) -> None:
     error, body = await _write(app, space, delete_client)
     assert error and body["errors"][0]["problem"] == "relationship_dataset_missing"
     delete_relation = {
-        "kind": "relation_dataset",
+        "document_type": "relation_dataset",
         "identity": RELATION["identity"],
         "version": versions["relation_dataset"],
         "delete": True,
@@ -201,7 +215,12 @@ async def test_supprimer_un_dataset_cite(app: FastAPI, space: ApiSpace) -> None:
     error, body = await _write(app, space, delete_client, delete_relation)
     assert not error, body
     error, listed = await _call(
-        app, space, "list_documents", kind="dataset", identity={"domain": "ventes"}, branch="draft"
+        app,
+        space,
+        "list_documents",
+        document_type="dataset",
+        identity={"domain": "ventes"},
+        branch="draft",
     )
     assert [d["identity"]["name"] for d in listed["documents"]] == ["commande"]
 
@@ -222,21 +241,33 @@ async def test_lister_lire_et_schema(app: FastAPI, space: ApiSpace) -> None:
     contenu ; un chemin fourni est refusé."""
     await _write(app, space, DOMAIN, CLIENT, PANIER)
     error, listed = await _call(
-        app, space, "list_documents", kind="dataset", identity={"domain": "ventes"}, branch="draft"
+        app,
+        space,
+        "list_documents",
+        document_type="dataset",
+        identity={"domain": "ventes"},
+        branch="draft",
     )
     by_name = {d["identity"]["name"]: d for d in listed["documents"]}
     assert by_name["client"]["path"] == "domaines/ventes.ossie.yaml"
     assert by_name["panier"]["path"] == "domaines/ventes.virtuel.ossie.yaml"
     assert by_name["client"]["consultable"] is True and by_name["client"]["fields"] == 2
     error, read = await _call(
-        app, space, "read_document", kind="dataset", identity=CLIENT["identity"], branch="draft"
+        app,
+        space,
+        "read_document",
+        document_type="dataset",
+        identity=CLIENT["identity"],
+        branch="draft",
     )
     assert read["content"] == CLIENT["content"]
     assert read["version"] == by_name["client"]["version"]
-    error, domains = await _call(app, space, "list_documents", kind="domaine", branch="draft")
+    error, domains = await _call(
+        app, space, "list_documents", document_type="domaine", branch="draft"
+    )
     [domain] = domains["documents"]
     assert (domain["name"], domain["datasets"]) == ("Ventes", 2)
-    error, schema = await _call(app, space, "read_schema", kind="dataset")
+    error, schema = await _call(app, space, "read_schema", document_type="dataset")
     assert not error, schema
     assert schema["schema"]["properties"]["ossie"] == {"$ref": "#/$defs/Dataset"}
     assert "Dataset" in schema["schema"]["$defs"]

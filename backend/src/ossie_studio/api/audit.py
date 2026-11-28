@@ -61,6 +61,8 @@ DB_TYPES = (
     # Les imports de valeurs d'un référentiel (ticket a909dc66) : les valeurs vivent
     # dans Git, mais chaque import (refusé compris) est une ligne du journal.
     "referentiel_import",
+    # Les imports d'objets d'un type de cartographie (ticket 49952be0), pareil.
+    "carto_import",
     # Les paramètres généraux de la page « Paramètres » (ticket ae8fc4b6).
     "app_setting",
 )

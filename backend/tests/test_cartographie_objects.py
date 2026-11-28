@@ -1,6 +1,8 @@
 """Objets de la cartographie côté serveur (ticket 6f71bcba) : créer, lire,
 modifier, supprimer à la main ; relations lues sur la fiche ; dates tirées de Git ;
-refus nommés ; racine écrite dans le brouillon ; droits."""
+refus nommés ; racine écrite dans le brouillon ; droits. Un objet est désigné par
+son type et sa clé (ticket 421832ee) : la relation du jeu d'essai est écrite en clés
+seules (forme d'avant), elle se lit comme avant."""
 
 from __future__ import annotations
 
@@ -108,8 +110,7 @@ async def test_liste_relations_et_dates(space: ApiSpace) -> None:
 
 
 async def test_cle_prise_ou_mal_formee_et_propriete_requise(space: ApiSpace) -> None:
-    taken = await _create(space, key="OBJ-COMMANDE", type="application", name="X",
-                          properties={"criticite": "haute"})  # fmt: skip
+    taken = await _create(space, key="OBJ-COMMANDE", type="document-metier", name="X")
     assert taken.status_code == 409 and taken.json()["error"] == "carto_object_key_taken"
     malformed = await _create(space, key="app boutique", type="application", name="X",
                               properties={"criticite": "haute"})  # fmt: skip
@@ -126,7 +127,7 @@ async def test_cle_prise_ou_mal_formee_et_propriete_requise(space: ApiSpace) -> 
 
 
 async def test_fiche_avec_relations(space: ApiSpace) -> None:
-    answer = await space.client.get(_url(space, "/PRC-PRISE-COMMANDE"))
+    answer = await space.client.get(_url(space, "/processus-de-vente/PRC-PRISE-COMMANDE"))
     assert answer.status_code == 200, answer.text
     data = answer.json()
     assert data["documentation"].startswith("Du panier **validé**")
@@ -139,22 +140,27 @@ async def test_fiche_avec_relations(space: ApiSpace) -> None:
     )
     assert out["other"] == {
         "key": "OBJ-COMMANDE",
+        "ref": "document-metier/OBJ-COMMANDE",
         "name": "Commande",
         "type_title": "Document métier",
         "exists": True,
     }
-    target = (await space.client.get(_url(space, "/OBJ-COMMANDE"))).json()
+    target = (await space.client.get(_url(space, "/document-metier/OBJ-COMMANDE"))).json()
     assert [r["key"] for r in target["relations"]["incoming"]] == ["REL-ECRIT-COMMANDE"]
-    relation = (await space.client.get(_url(space, "/REL-ECRIT-COMMANDE"))).json()
+    relation = (await space.client.get(_url(space, "/acces/REL-ECRIT-COMMANDE"))).json()
     acces = relation["schema"]["properties"]["acces"]
     assert acces["x-labels"]["Write"] == "écriture" and acces["x-unset"] == "non précisé"
-    assert (relation["source"], relation["target"]) == ("PRC-PRISE-COMMANDE", "OBJ-COMMANDE")
+    # Écrite en clés seules, la relation désigne ses extrémités par `type/CLÉ`.
+    assert (relation["source"], relation["target"]) == (
+        "processus-de-vente/PRC-PRISE-COMMANDE",
+        "document-metier/OBJ-COMMANDE",
+    )
 
 
 async def test_modifier_garde_cle_type_et_extremites(space: ApiSpace) -> None:
     doc = "Mise à jour :\n\n- un ;\n- deux.\n"
     answer = await space.client.put(
-        _url(space, "/REL-ECRIT-COMMANDE"),
+        _url(space, "/acces/REL-ECRIT-COMMANDE"),
         json={"name": "Lit la commande", "documentation": doc, "properties": {"acces": "Read"}},
     )
     assert answer.status_code == 200, answer.text
@@ -165,18 +171,21 @@ async def test_modifier_garde_cle_type_et_extremites(space: ApiSpace) -> None:
         "modified",
     )
     assert (data["source"], data["target"], data["type"]) == (
-        "PRC-PRISE-COMMANDE",
-        "OBJ-COMMANDE",
+        "processus-de-vente/PRC-PRISE-COMMANDE",
+        "document-metier/OBJ-COMMANDE",
         "acces",
     )
-    reread = (await space.client.get(_url(space, "/REL-ECRIT-COMMANDE"))).json()
+    reread = (await space.client.get(_url(space, "/acces/REL-ECRIT-COMMANDE"))).json()
     assert reread["documentation"] == doc
+    # Réécrite à sa prochaine écriture : ses extrémités passent en `type/CLÉ`.
+    assert "source: processus-de-vente/PRC-PRISE-COMMANDE\n" in reread["yaml"]
+    assert "cible: document-metier/OBJ-COMMANDE\n" in reread["yaml"]
     invalid = await space.client.put(
-        _url(space, "/REL-ECRIT-COMMANDE"),
+        _url(space, "/acces/REL-ECRIT-COMMANDE"),
         json={"name": "X", "properties": {"acces": "écriture"}},
     )
     assert invalid.status_code == 400 and invalid.json()["error"] == "carto_object_invalid"
-    missing = await space.client.put(_url(space, "/ABSENT"), json={"name": "X"})
+    missing = await space.client.put(_url(space, "/application/ABSENT"), json={"name": "X"})
     assert missing.status_code == 404 and missing.json()["error"] == "carto_object_not_found"
 
 
@@ -184,11 +193,12 @@ async def test_modifier_garde_cle_type_et_extremites(space: ApiSpace) -> None:
 
 
 async def test_supprimer(space: ApiSpace) -> None:
-    refused = await space.client.delete(_url(space, "/PRC-PRISE-COMMANDE"))
+    refused = await space.client.delete(_url(space, "/processus-de-vente/PRC-PRISE-COMMANDE"))
     assert refused.status_code == 409 and refused.json()["error"] == "carto_object_in_use"
-    assert refused.json()["error_args"]["relations"] == ["REL-ECRIT-COMMANDE"]
-    assert (await space.client.delete(_url(space, "/REL-ECRIT-COMMANDE"))).status_code == 200
-    assert (await space.client.delete(_url(space, "/PRC-PRISE-COMMANDE"))).status_code == 200
+    assert refused.json()["error_args"]["relations"] == ["acces/REL-ECRIT-COMMANDE"]
+    assert (await space.client.delete(_url(space, "/acces/REL-ECRIT-COMMANDE"))).status_code == 200
+    deleted = await space.client.delete(_url(space, "/processus-de-vente/PRC-PRISE-COMMANDE"))
+    assert deleted.status_code == 200
     assert {o["key"] for o in await _objects(space)} == {"OBJ-COMMANDE"}
 
 
@@ -222,10 +232,11 @@ async def test_droits(app: FastAPI, space: ApiSpace) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ana:
         await login(ana, "ana@example.org", PASSWORD)
         assert (await ana.get(_url(space))).status_code == 200
-        assert (await ana.get(_url(space, "/OBJ-COMMANDE"))).status_code == 200
+        assert (await ana.get(_url(space, "/document-metier/OBJ-COMMANDE"))).status_code == 200
         denied = await ana.post(_url(space), json={"key": "X", "type": "acces", "name": "X"})
         assert denied.status_code == 403
-        assert (await ana.delete(_url(space, "/OBJ-COMMANDE"))).status_code == 403
+        refused = await ana.delete(_url(space, "/document-metier/OBJ-COMMANDE"))
+        assert refused.status_code == 403
 
 
 async def test_fiche_porte_le_yaml_stocke(space: ApiSpace) -> None:
@@ -234,7 +245,49 @@ async def test_fiche_porte_le_yaml_stocke(space: ApiSpace) -> None:
         space, key="APP-YAML", type="application", name="Yaml", properties={"criticite": "haute"}
     )
     assert created.status_code == 201, created.text
-    detail = await space.client.get(f"{_url(space)}/APP-YAML")
+    detail = await space.client.get(f"{_url(space)}/application/APP-YAML")
     assert detail.status_code == 200, detail.text
     text = detail.json()["yaml"]
     assert "APP-YAML" in text and "nom: Yaml" in text
+
+
+# --- Ticket 421832ee : une clé unique par type ------------------------------------------------
+
+
+async def test_meme_cle_dans_deux_types(space: ApiSpace) -> None:
+    """Deux types portent la même clé ; une relation désigne son extrémité par
+    `type/CLÉ` ; une clé seule ambiguë est refusée ; la suppression vise le bon objet."""
+    first = await _create(
+        space, key="SMO", type="application", name="SMO", properties={"criticite": "haute"}
+    )
+    second = await _create(space, key="SMO", type="document-metier", name="Fiche SMO")
+    assert (first.status_code, second.status_code) == (201, 201), second.text
+    assert first.json()["ref"] == "application/SMO"
+    both = sorted((o["type"], o["ref"]) for o in await _objects(space) if o["key"] == "SMO")
+    assert both == [("application", "application/SMO"), ("document-metier", "document-metier/SMO")]
+    relation = await _create(
+        space,
+        key="REL-LIT-SMO",
+        type="acces",
+        name="Lit la fiche",
+        source="processus-de-vente/PRC-PRISE-COMMANDE",
+        target="document-metier/SMO",
+    )
+    assert relation.status_code == 201, relation.text
+    assert relation.json()["target"] == "document-metier/SMO"
+    assert relation.json()["ends"]["target"]["name"] == "Fiche SMO"
+    for target, code in (
+        ("SMO", "relation_endpoint_ambiguous"),
+        ("document-metier/INCONNU", "relation_endpoint_unknown"),
+    ):
+        refused = await _create(
+            space, key="REL-X", type="acces", name="X",
+            source="processus-de-vente/PRC-PRISE-COMMANDE", target=target,
+        )  # fmt: skip
+        assert refused.status_code == 400, refused.text
+        [problem] = refused.json()["error_args"]["problems"]
+        assert (problem["code"], problem["field"], problem["detail"]) == (code, "cible", target)
+    in_use = await space.client.delete(_url(space, "/document-metier/SMO"))
+    assert in_use.status_code == 409 and in_use.json()["error"] == "carto_object_in_use"
+    assert (await space.client.delete(_url(space, "/application/SMO"))).status_code == 200
+    assert [o["ref"] for o in await _objects(space) if o["key"] == "SMO"] == ["document-metier/SMO"]

@@ -175,7 +175,8 @@ def test_cartographie_objet_modifie_garde_ses_commentaires(tmp_path: Path) -> No
         "# relu par l'équipe métier\ncle: PRC-X\ntype: processus\nnom: Vente  # libellé court\n"
     )
     target.write_text(before)
-    _path, obj = read_cartographie(tmp_path).objects["PRC-X"]
+    # Un objet est désigné par `type/CLÉ` (ticket 421832ee).
+    _path, obj = read_cartographie(tmp_path).objects["processus/PRC-X"]
     save_object(tmp_path, replace(obj, name="Vente en ligne"), create=False)
     after = target.read_text()
     assert _changed(before, after) == [

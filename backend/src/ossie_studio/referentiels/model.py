@@ -9,6 +9,11 @@ ferait si l'objet avait un tableau d'objets ? ».
 La clé (`x-key`) est une liste ordonnée d'une ou plusieurs propriétés de premier
 niveau (clé composée possible), **simples** et **obligatoires**.
 
+Les **tags** (`x-tags`, ticket 43478978) : des étiquettes libres qui classent le
+référentiel (« entreprise », « contrainte »…). Gael : « on dit simplement que l'on
+peut taguer les référentiels et que tout se résout comme pour les référentiels ».
+Facultatifs ; chacun non vide, au plus 40 caractères, sans doublon (casse comprise).
+
 Sortie déterministe : les propriétés gardent leur ordre de déclaration ; même
 modèle, mêmes octets.
 """
@@ -23,6 +28,8 @@ from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 from ossie_studio.referentiels.errors import Problem, ReferentielError
 
 KEY_KEYWORD = "x-key"
+TAGS_KEYWORD = "x-tags"
+MAX_TAG_LENGTH = 40
 SIMPLE_TYPES = frozenset({"string", "integer", "number", "boolean"})
 STRING_FORMATS = frozenset({"date", "date-time"})
 # Séparateur des chemins affichés : « FR+site \u203a paliers[2] \u203a delai_jours ».
@@ -107,6 +114,18 @@ def _check_object(schema: dict[str, Any], path: str) -> list[Problem]:
     return problems
 
 
+def _check_tags(tags: Any) -> list[Problem]:
+    if tags is None:
+        return []
+    if not isinstance(tags, list) or not all(
+        isinstance(t, str) and t.strip() == t and 0 < len(t) <= MAX_TAG_LENGTH for t in tags
+    ):
+        return [Problem(TAGS_KEYWORD, "tags_invalid")]
+    if len({t.casefold() for t in tags}) != len(tags):
+        return [Problem(TAGS_KEYWORD, "tags_duplicate")]
+    return []
+
+
 def check_model(model: Any) -> list[Problem]:
     """Les problèmes du modèle (liste vide : modèle valide)."""
     if not isinstance(model, dict) or model.get("type") != "object":
@@ -116,6 +135,7 @@ def check_model(model: Any) -> list[Problem]:
     properties: dict[str, Any] = raw_properties if isinstance(raw_properties, dict) else {}
     raw_required = model.get("required")
     required: list[Any] = raw_required if isinstance(raw_required, list) else []
+    problems.extend(_check_tags(model.get(TAGS_KEYWORD)))
     key = model.get(KEY_KEYWORD)
     if (
         not isinstance(key, list)
@@ -149,6 +169,12 @@ def validate_model(model: Any) -> dict[str, Any]:
 def model_key(model: dict[str, Any]) -> list[str]:
     key = model.get(KEY_KEYWORD)
     return [str(k) for k in key] if isinstance(key, list) else []
+
+
+def model_tags(model: dict[str, Any]) -> list[str]:
+    """Les tags du référentiel (liste vide sans tags, ou s'ils sont mal formés)."""
+    tags = model.get(TAGS_KEYWORD)
+    return [t for t in tags if isinstance(t, str)] if isinstance(tags, list) else []
 
 
 def load_model(text: str | bytes) -> Any:
