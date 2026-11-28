@@ -459,7 +459,8 @@ async def test_un_point_d_entree_ne_s_ecrit_pas_et_primitives_retirees(
     app: FastAPI, space: ApiSpace
 ) -> None:
     assert not {"list_entry_points", "get_module"} & {p.id for p in CATALOG}
-    assert len(CATALOG) == 32
+    # accept_validation_warning retirée (règle d'or, ticket d7139b17).
+    assert len(CATALOG) == 31
     kinds = (await call_tool(app, KEY, "list_document_types", {})).structured_content[
         "document_types"
     ]
