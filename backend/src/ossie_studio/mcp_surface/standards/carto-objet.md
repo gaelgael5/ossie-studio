@@ -20,6 +20,11 @@ Content — the object's file, keys in this order:
 - `documentation`: markdown, optional.
 - `proprietes`: the ArchiMate attributes of the type, **as ArchiMate values** (`acces: Write`,
   absent = not specified), and the added properties of the type. Nothing else is accepted.
+  A property **linked to a reference list** (`x-referentiel` in `read_schema`, the type's
+  `<slug>.extend.yaml`) must hold a key of that list (composite key: one property per part):
+  a value absent from the list is refused (`property_referentiel_unknown`); list the values with
+  `list_documents(document_type: referentiel_valeur, referentiel: ...)`. An unchanged value that
+  has since left the list is not refused, only reported on the object.
 
 An object used by a relationship or kept by a model cannot be deleted: delete the relationships in
 the same batch, or remove it from the models first.

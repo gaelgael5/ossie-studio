@@ -17,6 +17,12 @@ corrige les éléments existants qui diffèrent et ajoute ceux qui manquent ; le
 l'import (`declaration.KEEP`, `CREATED`, `ALL`, voir `deletion_plan`). Un élément à
 supprimer mais **encore utilisé** dans l'état final (la cible le dit, `in_use`)
 est gardé, et le reste de l'import s'applique.
+
+**Lignes taguées** (ticket 43478978) : la cible peut taguer un élément valide sans le
+refuser (`tags`, par exemple une valeur absente du référentiel lié). Gael : « taguer
+la ligne et laisser l'utilisateur la refuser ». Une ligne refusée par la personne
+(`refused`, désignée par sa place dans le fichier) n'est pas écrite ; elle n'est pas
+non plus absente du fichier : la stratégie de suppression ne la touche pas.
 """
 
 from __future__ import annotations
@@ -337,6 +343,8 @@ class Transformed:
     origins: list[str] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
     invalid: frozenset[int] = frozenset()
+    # Éléments valides tagués par la cible (rang → tags), que la personne peut refuser.
+    tags: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -344,6 +352,11 @@ class Transformed:
 
     def valid(self) -> list[tuple[int, Any]]:
         return [(i, v) for i, v in enumerate(self.produced) if i not in self.invalid]
+
+    def refused_indices(self, refused: Set[str]) -> frozenset[int]:
+        """Les rangs des lignes taguées que la personne refuse (désignées par leur
+        place dans le fichier, « ligne 3 ») ; une ligne non taguée ne se refuse pas."""
+        return frozenset(i for i in self.tags if self.origins[i] in refused)
 
 
 def transform(target: ImportTarget, source: str, example: Example) -> Transformed:
@@ -392,13 +405,17 @@ def transform(target: ImportTarget, source: str, example: Example) -> Transforme
                 "key": p.key,
             }
         )
+    invalid = frozenset(p.index for p in value_problems)
+    tagger = getattr(target, "tags", None)
+    found: dict[int, list[dict[str, Any]]] = tagger(produced) if tagger is not None else {}
     return Transformed(
         [],
         len(example.records),
         produced,
         origins,
         errors,
-        frozenset(p.index for p in value_problems),
+        invalid,
+        {i: t for i, t in sorted(found.items()) if t and i not in invalid},
     )
 
 
@@ -491,21 +508,46 @@ def _absent_payload(a: Absent) -> dict[str, Any]:
     return out
 
 
+def _tagged_payload(
+    target: ImportTarget, done: Transformed, by_key: dict[Any, Any], refused: frozenset[int]
+) -> list[dict[str, Any]]:
+    out = []
+    for index, tags in list(done.tags.items())[:DIFF_MAX]:
+        value = done.produced[index]
+        before = by_key.get(target.key(value))
+        kind = "new" if before is None else "unchanged" if before == value else "modified"
+        out.append(
+            {
+                "where": done.origins[index],
+                "key": target.label(value, index),
+                "kind": kind,
+                "tags": tags,
+                "refused": index in refused,
+            }
+        )
+    return out
+
+
 def report(
     target: ImportTarget,
     current: list[Any],
     done: Transformed,
     plan: DeletionPlan | None = None,
+    refused: frozenset[int] = frozenset(),
 ) -> dict[str, Any]:
     """Compte rendu par rapport aux valeurs actuelles (comparées par la clé) :
     nouvelles, modifiées, inchangées, en erreur, et — selon le plan de suppression —
-    supprimées et absentes gardées (avec la raison) ; et les différences."""
+    supprimées et absentes gardées (avec la raison) ; les lignes taguées et celles
+    que la personne a refusées (`refused`, des rangs : comptées à part, ni écrites
+    ni absentes) ; et les différences."""
     if done.template_problems:
         return {"ok": False, "template_problems": [p.payload() for p in done.template_problems]}
     by_key = {target.key(v): v for v in current if target.key(v) is not None}
     new = modified = unchanged = 0
     differences: list[dict[str, Any]] = []
     for index, value in done.valid():
+        if index in refused:
+            continue
         label = target.label(value, index)
         before = by_key.get(target.key(value))
         if before is None:
@@ -546,6 +588,9 @@ def report(
         "kept_in_use": len(plan.in_use),
         "errors": len({e["where"] for e in done.errors}),
         "error_details": done.errors[:DIFF_MAX],
+        "tagged": len(done.tags),
+        "refused": len(refused),
+        "tagged_lines": _tagged_payload(target, done, by_key, refused),
         "differences": differences,
     }
 
@@ -566,14 +611,20 @@ def run_template(
 
 
 def imported_items(
-    target: ImportTarget, current: list[Any], done: Transformed, plan: DeletionPlan
+    target: ImportTarget,
+    current: list[Any],
+    done: Transformed,
+    plan: DeletionPlan,
+    refused: frozenset[int] = frozenset(),
 ) -> list[Any] | None:
     """Les éléments après l'import, ou None s'il est refusé (**tout ou rien** : la
     moindre erreur bloque) : les éléments du fichier remplacent ceux de même clé,
-    les nouveaux s'ajoutent, les absents restent sauf ceux que le plan supprime."""
+    les nouveaux s'ajoutent, les absents restent sauf ceux que le plan supprime. Une
+    ligne refusée par la personne (`refused`) n'est pas écrite : l'élément actuel de
+    même clé, s'il y en a un, reste tel quel."""
     if not done.ok:
         return None
-    produced = [v for _i, v in done.valid()]
+    produced = [v for i, v in done.valid() if i not in refused]
     deleted = plan.deleted_keys
     merged = [v for v in current if target.key(v) not in deleted]
     position = {target.key(v): i for i, v in enumerate(merged) if target.key(v) is not None}

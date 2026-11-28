@@ -391,6 +391,16 @@ def _problem(p: Problem, prefix: str, content: dict[str, Any], space: Cartograph
         where = jsonpath(prefix, "proprietes", *segs)
         received = _get(content.get("proprietes"), segs)
         name = ".".join(segs) or "proprietes"
+        if p.code == "property_referentiel_unknown":
+            referentiel = p.detail.split(" : ", 1)[0]
+            return Refusal(
+                where,
+                "property_referentiel_unknown",
+                f"La valeur {show(received)} de {name} n'existe pas dans le référentiel "
+                f"{referentiel}, auquel le type lie cette propriété (lister ses valeurs avec "
+                f"list_documents, document_type referentiel_valeur, referentiel {referentiel}).",
+                received=received,
+            )
         if p.code == "property_unknown":
             return Refusal(
                 where,

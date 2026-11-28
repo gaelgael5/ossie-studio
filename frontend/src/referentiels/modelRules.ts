@@ -5,6 +5,32 @@ export type RefModel = Record<string, unknown> & {
   properties?: Record<string, Record<string, unknown>>
   required?: string[]
   'x-key'?: string[]
+  /** Tags libres du référentiel (ticket 43478978). */
+  'x-tags'?: string[]
+}
+
+/** Longueur maximale d'un tag (la même règle que le serveur). */
+export const MAX_TAG_LENGTH = 40
+
+/** Les tags du modèle (liste vide sans tags). */
+export function modelTags(model: RefModel): string[] {
+  return Array.isArray(model['x-tags']) ? model['x-tags'].filter((t) => typeof t === 'string') : []
+}
+
+/** Le modèle avec ces tags ; sans tag, `x-tags` disparaît du fichier. */
+export function withTags(model: RefModel, tags: string[]): RefModel {
+  const next: RefModel = { ...model }
+  if (tags.length > 0) next['x-tags'] = tags
+  else delete next['x-tags']
+  return next
+}
+
+/** Pourquoi ce tag ne peut pas s'ajouter (null : il peut). */
+export function tagProblem(tags: string[], tag: string): 'empty' | 'too_long' | 'duplicate' | null {
+  if (!tag) return 'empty'
+  if (tag.length > MAX_TAG_LENGTH) return 'too_long'
+  if (tags.some((t) => t.toLocaleLowerCase() === tag.toLocaleLowerCase())) return 'duplicate'
+  return null
 }
 
 /** Le modèle lu dans le YAML, ou pourquoi il ne se lit pas (ligne et colonne). */
@@ -74,6 +100,8 @@ export function keyViolation(next: RefModel, key: string[]): KeyViolation | null
 export function fromVisual(current: RefModel, visual: Record<string, unknown>): RefModel {
   const next: RefModel = { ...visual }
   if (current['x-key'] !== undefined) next['x-key'] = current['x-key']
+  // Les tags se règlent dans leur bandeau, comme la clé (ticket 43478978).
+  if (current['x-tags'] !== undefined) next['x-tags'] = current['x-tags']
   // Renommage (bug 38bc8dc0) : une seule propriété disparaît et une seule
   // apparaît. Sans cela, renommer `code` (dans la clé) se lisait comme sa
   // suppression, la garde refusait et l'éditeur revenait à l'ancien nom. La clé

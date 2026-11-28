@@ -1714,6 +1714,70 @@ export interface CartoObjectDetail {
   models: { slug: string; name: string }[]
   /** Les processus BPMN qui le détaillent (epic « Cartographie — processus BPMN »). */
   processes?: string[]
+  /** Ses valeurs dans les référentiels liés à son type (ticket 43478978). */
+  referentiel_links?: CartoObjectReferentielLink[]
+}
+
+/** Une valeur de l'objet dans un référentiel lié : `empty` (rien à vérifier),
+ * `found`, `absent` (manque au référentiel, signalé), `broken` (lien cassé). */
+export interface CartoObjectReferentielLink {
+  referentiel: string
+  title: string
+  properties: string[]
+  value: string | null
+  parts: unknown[]
+  status: 'empty' | 'found' | 'absent' | 'broken'
+}
+
+// --- Liens d'un type vers des référentiels (ticket 43478978) ------------------------------
+
+export interface CartoReferentielInfo {
+  name: string
+  title: string
+  tags: string[]
+  key: { name: string; type: string; title: string }[]
+  error: string | null
+}
+
+export interface CartoReferentielLink {
+  referentiel: string
+  /** Propriété du type → propriété de la clé du référentiel. */
+  proprietes: Record<string, string>
+  target: CartoReferentielInfo
+  problems: CartoProblem[]
+  /** Objets du type dont la valeur manque au référentiel. */
+  absent: number
+}
+
+export interface CartoTypeLinks {
+  slug: string
+  path: string
+  state: 'created' | 'modified' | null
+  links: CartoReferentielLink[]
+  problems: CartoProblem[]
+  referentiels: CartoReferentielInfo[]
+  properties: { name: string; title: string; type: string }[]
+  revision?: string | null
+}
+
+export interface CartoLinkChoice {
+  /** La clé, rangée sous les propriétés du type. */
+  value: Record<string, unknown>
+  label: string
+  hint: string
+}
+
+export interface CartoLinkChoices {
+  slug: string
+  links: {
+    referentiel: string
+    proprietes: Record<string, string>
+    /** Les propriétés du type, dans l'ordre de la clé du référentiel. */
+    properties: string[]
+    readable: boolean
+    choices: CartoLinkChoice[]
+    truncated: boolean
+  }[]
 }
 
 export interface CartoObjectBody {
@@ -1875,6 +1939,8 @@ export interface ReferentielSummary {
   title?: string
   description?: string
   key?: string[]
+  /** Tags libres du référentiel (`x-tags`, ticket 43478978). */
+  tags?: string[]
   count?: number
   unpublished: boolean
   error?: string
@@ -2013,7 +2079,34 @@ export interface ImportTrial {
   kept_in_use?: number
   errors?: number
   error_details?: ImportTrialError[]
+  /** Lignes taguées par la cible (ticket 43478978), dont refusées par la personne. */
+  tagged?: number
+  refused?: number
+  tagged_lines?: ImportTaggedLine[]
   differences?: ImportTrialDifference[]
+}
+
+/** Un tag d'une ligne : une valeur absente du référentiel lié. */
+export interface ImportTag {
+  code: string
+  property: string
+  properties: string[]
+  referentiel: string
+  title: string
+  value: string
+}
+
+export interface ImportTaggedLine {
+  where: string
+  key: string
+  kind: 'new' | 'modified' | 'unchanged'
+  tags: ImportTag[]
+  refused: boolean
+}
+
+/** La décision de la personne sur les lignes taguées : vues, et celles refusées. */
+export interface ImportReview {
+  refuse: string[]
 }
 
 /** Stratégie de suppression d'un import (ticket 6d36073b) : garder les absents,
@@ -2044,7 +2137,7 @@ export interface ImportRun {
   deletion: ImportDeletion
   deletion_label: string
   outcome: string
-  counts: { new: number; modified: number; deleted: number; kept: number }
+  counts: { new: number; modified: number; deleted: number; kept: number; tagged?: number; refused?: number }
   kept_in_use: { key: string; ref: string | null; usages: ImportUsage[] }[]
 }
 
@@ -2571,6 +2664,26 @@ export const api = {
     apiFetch<{ deleted: string; revision: string | null }>(
       `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}`,
       { method: 'DELETE' },
+    ),
+  // Liens du type vers des référentiels (ticket 43478978), dans son fichier d'extension.
+  getCartoTypeLinks: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CartoTypeLinks>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}/referentiels`,
+    ),
+  saveCartoTypeLinks: (
+    spaceId: string,
+    branchId: string,
+    slug: string,
+    links: { referentiel: string; proprietes: Record<string, string> }[],
+  ) =>
+    apiFetch<CartoTypeLinks>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}/referentiels`,
+      { method: 'PUT', body: JSON.stringify({ links }) },
+    ),
+  // Les valeurs proposées sur la fiche d'un objet, par lien.
+  getCartoLinkChoices: (spaceId: string, branchId: string, slug: string) =>
+    apiFetch<CartoLinkChoices>(
+      `/api/spaces/${spaceId}/branches/${branchId}/cartographie/types/${encodeURIComponent(slug)}/referentiels/valeurs`,
     ),
   listCartoObjects: (spaceId: string, branchId: string) =>
     apiFetch<{ readonly: boolean; objects: CartoObjectSummary[] }>(
@@ -3260,7 +3373,8 @@ export interface ImportsApi {
   preview: (slug: string, reading?: ImportReading) => Promise<ImportPreview>
   /** L'essai, avec la stratégie de suppression donnée (sinon celle enregistrée). */
   trial: (slug: string, template: string, deletion?: ImportDeletion) => Promise<ImportTrial>
-  run: (slug: string, file?: File) => Promise<ImportRunResult>
+  /** `review` : les lignes taguées ont été vues, celles de `refuse` ne sont pas écrites. */
+  run: (slug: string, file?: File, review?: ImportReview) => Promise<ImportRunResult>
   setDeletion: (slug: string, deletion: ImportDeletion) => Promise<ReferentielImportDetail>
   getRun: (slug: string, runId: number) => Promise<ImportRun>
   saveTemplate: (slug: string, template: string) => Promise<ReferentielImportDetail>
@@ -3293,9 +3407,13 @@ export function importsApi(
     trial: (slug, template, deletion) =>
       apiFetch(one(slug, '/essai'), { method: 'POST', body: JSON.stringify({ template, deletion }) }),
     /** Importer : le fichier donné, ou sans fichier le fichier d'exemple (ticket a909dc66). */
-    run: (slug, file) => {
+    run: (slug, file, review) => {
       const form = new FormData()
       if (file) form.append('file', file)
+      if (review) {
+        form.append('reviewed', 'true')
+        for (const where of review.refuse) form.append('refuse', where)
+      }
       return apiUpload(one(slug, '/import'), form, 'POST')
     },
     setDeletion: (slug, deletion) =>

@@ -368,6 +368,8 @@ async def test_journal_et_date_du_dernier_import(app: FastAPI, space: ApiSpace) 
         "kept": 0,
         "kept_in_use": 0,
         "errors": 0,
+        "tagged": 0,
+        "refused": 0,
         "revision": first["detail"]["revision"],
     }
     assert second["detail"]["outcome"] == "unchanged"

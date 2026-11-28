@@ -2944,6 +2944,15 @@ td .raw-ref-menu {
   align-items: center;
   gap: 4px;
 }
+/* Tags d'un référentiel (ticket 43478978). */
+.ref-tags {
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+.ref-tag-input {
+  width: 12rem;
+}
 .model-editor {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

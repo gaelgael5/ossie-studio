@@ -76,6 +76,11 @@ from ossie_studio.cartographie.model import (
     object_document_schema,
     parse_type,
 )
+from ossie_studio.cartographie.referentiel_links import (
+    EXTEND_SUFFIX,
+    ReferentielLink,
+    parse_extend,
+)
 from ossie_studio.drafts.store import git_blob_sha
 from ossie_studio.mcp_surface.branch import (
     BranchArgs,
@@ -337,15 +342,42 @@ def _effective(target: Target, file: Path, text: str, raw: Any) -> tuple[Any, di
         ctype = parse_type(target.name, text)
         base = catalog().get(ctype.archimate)
         relation = base is not None and base.is_relation
-        extras = {
+        extras: dict[str, Any] = {
             "slug": ctype.slug,
             "name": ctype.title,
             "archimate": ctype.archimate,
             "layer": base.layer if base and not relation else None,
             "nature": "relation" if relation else "object",
         }
-        return object_document_schema(ctype, base), extras
+        schema = object_document_schema(ctype, base)
+        links = _referentiel_links(file.with_name(f"{ctype.slug}{EXTEND_SUFFIX}"))
+        if links:
+            # Liens vers les référentiels (ticket 43478978) : une valeur absente du
+            # référentiel est refusée à l'écriture.
+            extras["referentiels"] = [link.payload() for link in links]
+            props = schema["properties"]["proprietes"]["properties"]
+            for link in links:
+                for prop, target_prop in link.properties.items():
+                    if isinstance(props.get(prop), dict):
+                        props[prop] = {
+                            **props[prop],
+                            "x-referentiel": {
+                                "referentiel": link.referentiel,
+                                "propriete": target_prop,
+                            },
+                        }
+        return schema, extras
     return raw, {}
+
+
+def _referentiel_links(file: Path) -> list[ReferentielLink]:
+    """Les liens du fichier d'extension d'un type ; illisible ou absent : aucun."""
+    if not file.is_file():
+        return []
+    try:
+        return parse_extend(file.read_text(encoding="utf-8"))
+    except (CartographieError, UnicodeDecodeError):
+        return []
 
 
 def _unpublished(bv: BranchView, target: Target) -> bool:

@@ -28,7 +28,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any, Literal, Protocol
 
-from fastapi import APIRouter, Depends, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from ossie_studio.api.governance_common import CryptoDep, DraftWorkdirDep
@@ -714,10 +714,19 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
         branch_id: uuid.UUID,
         slug: str,
         file: UploadFile | None = None,
+        reviewed: Annotated[bool, Form()] = False,
+        refuse: Annotated[list[str] | None, Form()] = None,
     ) -> dict[str, object]:
         """Importer : applique l'import (template enregistré, réglages de lecture,
         stratégie de suppression) à un fichier déposé — ou, sans fichier, au fichier
         d'exemple — et écrit les éléments dans le brouillon de la personne.
+
+        - **lignes taguées** (ticket 43478978) : si la cible en tague (valeur absente
+          du référentiel lié) et que la personne ne les a pas encore vues
+          (`reviewed` faux), rien n'est écrit ni journalisé : 409
+          `import_review_required`, compte rendu joint. Elle renvoie ensuite le même
+          fichier avec `reviewed` et les lignes qu'elle refuse (`refuse`, « ligne 3 ») :
+          elles ne sont pas écrites, et la stratégie de suppression ne les touche pas ;
 
         - **fusion** : corrige les éléments qui diffèrent, ajoute ceux qui manquent ;
           les absents suivent la stratégie de suppression ; un élément à supprimer
@@ -760,6 +769,14 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             raise ApiError(
                 "import_refused", status_code=422, errors=refused.get("errors", 0), report=refused
             )
+        if done.tags and not reviewed:
+            raise ApiError(
+                "import_review_required",
+                status_code=409,
+                tagged=len(done.tags),
+                report=report(target, current, done),
+            )
+        rejected = done.refused_indices(set(refuse or []))
 
         def write(root: Path) -> tuple[dict[str, Any], list[Absent]]:
             # Relu dans l'écriture : la fusion et le plan de suppression se font sur
@@ -767,13 +784,13 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             now_target, now = adapter.current(root, owner)
             created = read_created(root, folder(owner), slug)
             plan = deletion_plan(now_target, now, done, deletion, created)
-            items = imported_items(now_target, now, done, plan)
+            items = imported_items(now_target, now, done, plan, rejected)
             assert items is not None  # done.ok
             adapter.write_items(root, owner, now_target, now, items)
             after = created_after(now_target, now, items, created)
             if after != created:
                 write_created(root, folder(owner), slug, after)
-            return report(now_target, now, done, plan), plan.in_use
+            return report(now_target, now, done, plan, rejected), plan.in_use
 
         result: dict[str, Any]
         kept: list[Absent]
@@ -829,7 +846,10 @@ def import_router(prefix: str, adapter: ImportAdapter) -> APIRouter:
             "deletion": deletion,
             "deletion_label": DELETION_LABELS.get(deletion, deletion),
             "outcome": run.detail.get("outcome", ""),
-            "counts": {k: run.detail.get(k, 0) for k in ("new", "modified", "deleted", "kept")},
+            "counts": {
+                k: run.detail.get(k, 0)
+                for k in ("new", "modified", "deleted", "kept", "tagged", "refused")
+            },
             "kept_in_use": run.kept,
         }
 

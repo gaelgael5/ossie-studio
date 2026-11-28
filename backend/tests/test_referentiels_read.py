@@ -121,6 +121,7 @@ async def test_sert_la_version_publiee_jamais_le_brouillon(app: FastAPI, space: 
                 "title": "Délais de livraison",
                 "description": "Délai par pays et mode.",
                 "key": ["pays", "mode"],
+                "tags": [],
                 "count": 2,
             }
         ],
@@ -281,7 +282,7 @@ async def test_mcp_meme_lecture_que_l_api(
     [item] = listing["documents"]
     assert item["identity"] == {"referentiel": "delais"}
     assert item["path"] == "referentiels/delais/modele.schema.yaml" and item["version"]
-    fields = ("title", "description", "key", "count")
+    fields = ("title", "description", "key", "tags", "count")
     assert api_listing["referentiels"] == [{"name": "delais", **{f: item[f] for f in fields}}]
 
     # Le modèle se lit par read_schema, avec sa clé.

@@ -49,6 +49,24 @@ rien, la présence dans un modèle non plus. Pour un référentiel : aucune règ
 d'utilisation aujourd'hui. Les suppressions passent par le service
 (`cartographie.space.delete_objects`, `referentiels.repo.write_referentiel`).
 
+## Lignes taguées (ticket 43478978)
+
+Gael : « taguer la ligne et laisser l'utilisateur la refuser ». Une cible peut taguer
+un élément valide sans le refuser (`tags`) ; aujourd'hui, la cartographie tague une
+ligne dont une propriété liée à un référentiel a une valeur absente de ce référentiel
+(index des clés lu une fois par import).
+
+- **Essai** : le compte rendu donne les lignes taguées (`tagged`, `tagged_lines` :
+  place dans le fichier, clé, nouveau / modifié / inchangé, et chaque tag).
+- **Import** : s'il y a des lignes taguées, le premier envoi n'écrit rien et ne
+  journalise rien (409 `import_review_required`, compte rendu joint). L'écran les
+  montre avec une case « Refuser » ; la personne renvoie le même fichier avec
+  `reviewed` et les lignes refusées (`refuse`, « ligne 3 »).
+- Une ligne **refusée** n'est pas écrite (l'élément existant de même clé reste tel
+  quel) et n'est **pas absente** du fichier : la stratégie de suppression ne la touche
+  pas. Une ligne taguée non refusée est écrite ; l'objet est signalé sur sa fiche.
+- Compte rendu et journal : `tagged` et `refused` en plus des autres nombres.
+
 ## Compte rendu, journal et page des éléments gardés
 
 - Compte rendu (essai et import) : nouveaux, modifiés, inchangés, en erreur, supprimés

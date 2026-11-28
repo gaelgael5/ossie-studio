@@ -26,6 +26,10 @@ validée par la méthode du validateur de ce type de document — celle de `writ
 applique les règles du service (`space.check_batch`) — et écrite par lui ; ses refus
 portent le même code et le même message que par MCP. Aucune validation n'est propre
 à l'import.
+
+**Valeur absente du référentiel lié** (ticket 43478978) : la ligne n'est pas refusée,
+elle est **taguée** (`tags`) ; la personne choisit de la refuser avant d'importer.
+L'index des clés des référentiels liés est lu une fois par import (`target_of`).
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ from typing import Any
 
 from ossie_studio.cartographie.catalog import Catalog, catalog
 from ossie_studio.cartographie.model import CartoObject, is_empty, object_path, object_ref
+from ossie_studio.cartographie.referentiel_links import KeyIndex, absent_values, shown
 from ossie_studio.cartographie.space import Cartographie, delete_objects
 from ossie_studio.imports.target import ItemProblem
 from ossie_studio.mcp_surface.document_type_imports import check_import, checking_store
@@ -71,6 +76,8 @@ class CartoImportTarget:
     space: Cartographie
     slug: str
     cat: Catalog
+    # Les clés des référentiels liés au type, lues une fois (None : aucun lien).
+    index: KeyIndex | None = None
 
     def current(self) -> list[dict[str, Any]]:
         return [_document(o, self.space) for _p, o in self.space.objects_of(self.slug)]
@@ -110,6 +117,35 @@ class CartoImportTarget:
             ItemProblem(r.index, r.code, r.message, r.path, self.label(produced[r.index], r.index))
             for r in check_import(DOCUMENT_TYPE, self.space, entries, space=self.space)
         ]
+
+    def tags(self, produced: list[Any]) -> dict[int, list[dict[str, Any]]]:
+        """Les lignes dont une valeur manque au référentiel lié (rang → tags) : la
+        propriété, le référentiel et la valeur, pour que la personne décide."""
+        links = self.space.links.get(self.slug, [])
+        if not links or self.index is None:
+            return {}
+        found: dict[int, list[dict[str, Any]]] = {}
+        for index, item in enumerate(produced):
+            obj = self._object(item) if isinstance(item, dict) else None
+            if obj is None:
+                continue
+            absent = absent_values(obj.properties, links, self.index)
+            if absent:
+                found[index] = [
+                    self._tag(a.link.referentiel, a.properties, a.value) for a in absent
+                ]
+        return found
+
+    def _tag(self, name: str, properties: list[str], value: tuple[Any, ...]) -> dict[str, Any]:
+        info = self.space.referentiels.get(name)
+        return {
+            "code": "property_referentiel_unknown",
+            "property": properties[0],
+            "properties": list(properties),
+            "referentiel": name,
+            "title": info.title if info is not None and info.title else name,
+            "value": shown(value),
+        }
 
     def ref(self, item: Any) -> str | None:
         """La fiche d'un objet du type : `type/CLÉ`."""
@@ -205,5 +241,13 @@ class CartoImportTarget:
             delete_objects(root, going)
 
 
-def target_of(space: Cartographie, slug: str) -> CartoImportTarget:
-    return CartoImportTarget(space, slug, catalog())
+def target_of(space: Cartographie, slug: str, root: Path | None = None) -> CartoImportTarget:
+    """La cible d'un import du type. `root` : la vue où lire, **tout de suite**, les
+    clés des référentiels liés (l'essai et l'import tournent ensuite hors de la vue)."""
+    links = space.links.get(slug, [])
+    index = None
+    if links and root is not None:
+        index = KeyIndex(root)
+        for link in links:
+            index.keys(link.referentiel)
+    return CartoImportTarget(space, slug, catalog(), index)

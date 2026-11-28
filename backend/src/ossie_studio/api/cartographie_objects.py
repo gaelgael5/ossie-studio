@@ -42,6 +42,7 @@ from ossie_studio.cartographie.model import (
     split_ref,
 )
 from ossie_studio.cartographie.process import processes_detailing
+from ossie_studio.cartographie.referentiel_links import object_links
 from ossie_studio.cartographie.service import CartographieTarget
 from ossie_studio.cartographie.space import Cartographie, read_cartographie, save_object
 from ossie_studio.deps import ConnDep
@@ -265,6 +266,10 @@ def _detail(
         "models": [{"slug": slug, "name": name} for slug, name in models],
         # Les processus BPMN qui le détaillent (epic « Cartographie — processus BPMN »).
         "processes": processes or [],
+        # Ses valeurs dans les référentiels liés à son type (ticket 43478978).
+        "referentiel_links": object_links(
+            obj, path, space.links.get(obj.type, []), space.referentiels, space.problems
+        ),
     }
 
 

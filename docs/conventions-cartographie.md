@@ -99,6 +99,44 @@ properties:
   pas réécrite ; une propriété ajoutée ne peut pas porter le nom d'un attribut
   ArchiMate du type.
 
+### Liens vers les référentiels (ticket 43478978)
+
+`cartographie/types/<slug>.extend.yaml` — à côté du type, pas dans son JSON Schema
+(Gael : « on fait propre puisqu'on n'est plus tenu de respecter des schémas JSON ») :
+
+```yaml
+referentiels:
+- referentiel: pays
+  proprietes:
+    pays_livraison: code        # propriété du type: propriété de la clé du référentiel
+- referentiel: sites            # clé composée : une propriété du type par partie
+  proprietes:
+    site_pays: pays
+    site: site
+```
+
+- un lien couvre **toute la clé** du référentiel, avec des propriétés de même type
+  simple (une énumération ou une date sont des chaînes) ; une propriété du type
+  n'est liée qu'à un seul référentiel ; attributs ArchiMate compris ;
+- n'importe quel référentiel peut être visé, quels que soient ses **tags**
+  (`x-tags` du modèle du référentiel : étiquettes libres, « entreprise »,
+  « contrainte »…) ;
+- réglé dans l'onglet « Propriétés » de l'écran du type, bloc « Liens vers les
+  référentiels », enregistré à chaque ajout ou retrait (`cartographie.space.save_links`,
+  refus `type_links_invalid` avec les problèmes) ; sans lien, le fichier disparaît ;
+- une propriété liée renommée : le lien suit ; retirée : refusé (`property_linked`) ;
+  son type changé pour un autre que la clé : refusé (`type_invalid`) ; le type
+  supprimé : son fichier d'extension aussi ;
+- **valeur absente** du référentiel : refusée à l'écran et par l'agent quand elle est
+  nouvelle (`object_invalid`, problème `property_referentiel_unknown`, détail
+  « <référentiel> : <valeur> ») ; une valeur inchangée qui a quitté le référentiel
+  n'est pas refusée, elle est signalée ; à l'import, la ligne est taguée et la
+  personne peut la refuser (`docs/conventions-imports.md`) ;
+- la fiche d'un objet choisit la valeur dans une liste des valeurs du référentiel (une
+  clé composée d'un coup) et mène à la valeur (`/referentiels/<nom>?valeur=…`) ;
+- l'agent lit le lien dans `read_schema` (`x-referentiel` sur la propriété,
+  `extras.referentiels`).
+
 ## Un objet, une relation
 
 Un fichier par objet : `cartographie/objets/<slug du type>/<clé en minuscules>.yaml`.
@@ -166,7 +204,13 @@ présente dans plusieurs types (`relation_endpoint_ambiguous`) ; relation
 que les règles d'ArchiMate ne permettent pas entre les types de ses extrémités
 (`relation_not_allowed`, avec « source -> cible : relation ») ; propriété
 hors du schéma (`property_invalid`, `property_unknown`, `property_required`, avec
-la propriété en cause) ; type inconnu ou mal formé.
+la propriété en cause) ; type inconnu ou mal formé. Liens vers les référentiels
+(ticket 43478978) : fichier d'extension illisible (`type_extend_unreadable`) ou sans
+type (`type_extend_orphan`), lien cassé (`referentiel_link_unknown`,
+`referentiel_link_incomplete`, `referentiel_link_type_mismatch`,
+`referentiel_link_field`, `referentiel_link_taken`, sur le fichier d'extension), et
+valeur d'un objet absente du référentiel lié (`property_referentiel_unknown`, sur
+l'objet : signalée sur sa fiche).
 
 ## Écriture
 
@@ -177,7 +221,7 @@ n'atteint la branche avant la publication. L'écran « Cartographie » et ses ro
 `type_exists`, `type_not_found`, `type_archimate_frozen`, `type_invalid`,
 `object_key_taken`, `object_not_found`, `object_type_frozen`, `object_invalid`,
 `object_keys_duplicate`, `object_in_use`, `property_in_use`, `type_objects_invalid`,
-`type_in_use`. Une relation non permise est refusée (`object_invalid`, problème
+`type_in_use`, `type_links_invalid`, `property_linked`. Une relation non permise est refusée (`object_invalid`, problème
 `relation_not_allowed`).
 
 Modifier un type ne doit jamais rendre ses objets invalides : retirer une propriété

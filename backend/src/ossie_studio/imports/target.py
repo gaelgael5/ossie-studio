@@ -35,3 +35,8 @@ class ImportTarget(Protocol):
     def label(self, item: Any, index: int) -> str:
         """La clé lisible d'un élément, pour le compte rendu."""
         ...
+
+    # Facultatif (ticket 43478978) : `tags(produced) -> {rang: [tag, …]}` tague des
+    # éléments valides sans les refuser (une valeur absente du référentiel lié) ; la
+    # personne peut refuser ces lignes avant d'importer. Un tag : `code`, et ce que
+    # la cible veut montrer (propriété, valeur…).

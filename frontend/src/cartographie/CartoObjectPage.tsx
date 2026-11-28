@@ -7,6 +7,7 @@ import type {
   ArchimateTypeInfo,
   CartoCatalog,
   CartoObjectDetail,
+  CartoObjectReferentielLink,
   CartoObjectSummary,
   CartoRelationSide,
   CartoTypeSummary,
@@ -25,6 +26,7 @@ import { UnsavedProvider, useSaveShortcut, useUnsaved } from '../referentiels/un
 import { ArchimateIcon } from './ArchimateIcon'
 import { FoldedProperties, isEmpty, missingRequired, propertyNames } from './FoldedProperties'
 import type { Props } from './FoldedProperties'
+import { ReferentielFields, linkedProperties, useLinkChoices } from './ReferentielFields'
 import { longDate } from './dates'
 import { cartoModelPath } from './ModelsTab'
 import { NewProcessDialog } from './ProcessDialogs'
@@ -440,6 +442,9 @@ function ObjectEditor({
             </div>
           </section>
           <PropertiesSection
+            spaceId={spaceId}
+            branchId={branchId}
+            detailLinks={detail?.referentiel_links ?? []}
             schema={schema}
             typeSlug={type}
             typeTitle={typeTitle}
@@ -590,6 +595,9 @@ function RuleSection({ catalog, detail }: { catalog: CartoCatalog; detail: Carto
 }
 
 function PropertiesSection({
+  spaceId,
+  branchId,
+  detailLinks,
   schema,
   typeSlug,
   typeTitle,
@@ -602,6 +610,9 @@ function PropertiesSection({
   onChange,
   onOpen,
 }: {
+  spaceId: string
+  branchId: string
+  detailLinks: CartoObjectReferentielLink[]
   schema: Props | null
   typeSlug: string
   typeTitle: string
@@ -616,6 +627,11 @@ function PropertiesSection({
 }) {
   const { t } = useTranslation()
   const all = propertyNames(schema)
+  // Les propriétés liées à un référentiel (ticket 43478978) se choisissent dans ses
+  // valeurs, au-dessus des autres : elles sortent de la liste.
+  const choices = useLinkChoices(spaceId, branchId, typeSlug).data
+  const linked = linkedProperties(choices)
+  const shown = schema && linked.size > 0 ? withoutProperties(schema, linked) : schema
   return (
     <section className="panel carto-section" aria-label={t('cartoPropertiesOf', { type: typeTitle })}>
       <div className="row carto-section-head">
@@ -629,8 +645,18 @@ function PropertiesSection({
       {!schema ? <p className="muted">{t('cartoChooseTypeFirst')}</p> : null}
       {schema && all.length === 0 ? <p className="muted">{t('cartoNoProperties')}</p> : null}
       {schema ? (
+        <ReferentielFields
+          choices={choices}
+          values={properties}
+          saved={saved}
+          detailLinks={detailLinks}
+          readOnly={readOnly}
+          onChange={onChange}
+        />
+      ) : null}
+      {shown ? (
         <FoldedProperties
-          schema={schema}
+          schema={shown}
           values={properties}
           saved={saved}
           opened={opened}
@@ -647,6 +673,15 @@ function PropertiesSection({
       ) : null}
     </section>
   )
+}
+
+/** Le schéma sans ces propriétés (celles que porte un lien vers un référentiel). */
+function withoutProperties(schema: Props, names: Set<string>): Props {
+  const properties = Object.fromEntries(
+    Object.entries((schema.properties ?? {}) as Record<string, unknown>).filter(([name]) => !names.has(name)),
+  )
+  const required = Array.isArray(schema.required) ? schema.required.filter((r) => !names.has(String(r))) : undefined
+  return { ...schema, properties, ...(required ? { required } : {}) }
 }
 
 function relationLabel(r: CartoRelationSide, info: ArchimateTypeInfo | undefined, direction: 'out' | 'in'): string {

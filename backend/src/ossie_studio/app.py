@@ -25,6 +25,9 @@ from ossie_studio.api.cartographie_imports import router as api_cartographie_imp
 from ossie_studio.api.cartographie_models import router as api_cartographie_models_router
 from ossie_studio.api.cartographie_objects import router as api_cartographie_objects_router
 from ossie_studio.api.cartographie_processes import router as api_cartographie_processes_router
+from ossie_studio.api.cartographie_referentiels import (
+    router as api_cartographie_referentiels_router,
+)
 from ossie_studio.api.classification_rules import (
     removals_router as api_classification_removals_router,
 )
@@ -196,6 +199,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_referentiels_router)
     app.include_router(api_cartographie_router)
     app.include_router(api_cartographie_objects_router)
+    app.include_router(api_cartographie_referentiels_router)
     app.include_router(api_cartographie_models_router)
     app.include_router(api_cartographie_processes_router)
     app.include_router(api_referentiel_imports_router)

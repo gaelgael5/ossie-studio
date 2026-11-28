@@ -50,6 +50,7 @@ export function ValuesTab({
   model,
   readOnly,
   onErrorCount,
+  initialQuery = '',
 }: {
   spaceId: string
   branchId: string
@@ -57,6 +58,9 @@ export function ValuesTab({
   model: RefModel
   readOnly: boolean
   onErrorCount: (count: number) => void
+  /** La recherche de départ : le lien « Voir dans le référentiel » d'une fiche
+   * de cartographie y met la valeur (ticket 43478978). */
+  initialQuery?: string
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -71,7 +75,7 @@ export function ValuesTab({
   const [panel, setPanel] = useState<Panel | null>(null)
   const [problems, setProblems] = useState<Map<string, FieldProblems>>(new Map())
   const [problemCount, setProblemCount] = useState(0)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery)
   const [filterProp, setFilterProp] = useState('')
   const [filterValue, setFilterValue] = useState('')
   const [page, setPage] = useState(0)

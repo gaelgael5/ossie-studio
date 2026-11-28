@@ -39,7 +39,10 @@ MAX_FILE_NAME = 200
 # Éléments gardés car utilisés conservés par exécution (au-delà : comptés seulement).
 MAX_KEPT = 500
 # Les nombres du compte rendu repris dans le journal.
-_COUNTS = ("lines", "new", "modified", "unchanged", "deleted", "kept", "kept_in_use", "errors")
+_COUNTS = (
+    "lines", "new", "modified", "unchanged", "deleted", "kept", "kept_in_use", "errors",
+    "tagged", "refused",
+)  # fmt: skip
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import type { ImportTrial, ImportTrialDifference, ImportUsage } from '../apiClient'
+import type { ImportTag, ImportTaggedLine, ImportTrial, ImportTrialDifference, ImportUsage } from '../apiClient'
 import { explainProblem } from './templateHint'
 
 // Compte rendu d'un essai ou d'un import (tickets cda9c43a, a909dc66) : compteurs,
@@ -44,6 +44,56 @@ function Absent({ d, itemPath }: { d: ImportTrialDifference; itemPath?: (ref: st
         </ul>
       ) : null}
     </>
+  )
+}
+
+/** Un tag d'une ligne (ticket 43478978) : « pays : XX absente du référentiel Pays ». */
+export function TagText({ tag }: { tag: ImportTag }) {
+  const { t } = useTranslation()
+  return <>{t('refImportTag', { property: tag.properties.join(' + '), value: tag.value, referentiel: tag.title })}</>
+}
+
+/** Les lignes taguées d'un compte rendu ; `refuse` : les cases « Refuser » (revue
+ * avant l'import), sinon la liste dit lesquelles ont été refusées. */
+export function TaggedLines({
+  lines,
+  refuse,
+}: {
+  lines: ImportTaggedLine[]
+  refuse?: { refused: Set<string>; onToggle: (where: string) => void }
+}) {
+  const { t } = useTranslation()
+  if (lines.length === 0) return null
+  return (
+    <ul className="plain-list small ref-import-tagged" aria-label={t('refImportTaggedList')}>
+      {lines.map((line) => (
+        <li key={line.where} className="row">
+          {refuse ? (
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={refuse.refused.has(line.where)}
+                onChange={() => refuse.onToggle(line.where)}
+                aria-label={t('refImportRefuseLine', { where: line.where, key: line.key })}
+              />
+              {t('refImportRefuse')}
+            </label>
+          ) : line.refused ? (
+            <span className="badge badge-danger">{t('refImportRefusedBadge')}</span>
+          ) : null}
+          <span>
+            <strong>{line.key}</strong> {t('refImportDiffWhere', { where: line.where })}{' '}
+            <span className="muted">({t(`refImportTaggedKind_${line.kind}`)})</span> —{' '}
+            {line.tags.map((tag, i) => (
+              <span key={i}>
+                {i > 0 ? ' · ' : ''}
+                <TagText tag={tag} />
+              </span>
+            ))}
+          </span>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -114,7 +164,10 @@ export function ImportReport({
           <span className="badge badge-warn">{t('refImportKeptInUseBadge', { count: report.kept_in_use })}</span>
         ) : null}
         <span className="badge badge-danger">{t('refImportErrors', { count: report.errors ?? 0 })}</span>
+        {report.tagged ? <span className="badge badge-warn">{t('refImportTagged', { count: report.tagged })}</span> : null}
+        {report.refused ? <span className="badge badge-danger">{t('refImportRefusedCount', { count: report.refused })}</span> : null}
       </div>
+      <TaggedLines lines={report.tagged_lines ?? []} />
       {(report.error_details ?? []).length > 0 ? (
         <ul className="plain-list" aria-label={t('refImportErrorList')}>
           {(report.error_details ?? []).map((e, i) => {

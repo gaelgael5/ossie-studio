@@ -32,6 +32,14 @@ calculée ici seulement (`Cartographie.effective`) et sert partout : « + Relier
 le délégué du diagramme, la validation à l'écriture (écran et MCP) et le
 signalement à la lecture. Un couple d'ArchiMate n'est jamais effacé : il se
 désactive et se réactive.
+
+**Liens vers les référentiels** (ticket 43478978) : le fichier d'extension d'un type
+(`<slug>.extend.yaml`, `referentiel_links`) lie des propriétés à la clé d'un
+référentiel. À la lecture sont signalés un lien cassé (sur le fichier d'extension)
+et un objet dont la valeur manque au référentiel (`property_referentiel_unknown`,
+sur sa fiche). `save_object` (écran, agent) refuse une valeur absente quand elle
+est nouvelle ; un import passe par `save_objects`, qui ne la refuse pas (la ligne
+est taguée avant, et la personne décide).
 """
 
 from __future__ import annotations
@@ -59,9 +67,23 @@ from ossie_studio.cartographie.model import (
     object_path,
     parse_object,
     parse_type,
+    properties_schema,
     property_renames,
     split_ref,
     type_path,
+)
+from ossie_studio.cartographie.referentiel_links import (
+    EXTEND_SUFFIX,
+    KeyIndex,
+    ReferentielInfo,
+    ReferentielLink,
+    absent_problems,
+    check_links,
+    extend_path,
+    parse_extend,
+    read_info,
+    renamed,
+    write_links,
 )
 from ossie_studio.cartographie.rules import allowed_relations
 
@@ -75,6 +97,10 @@ class Cartographie:
     objects: dict[str, tuple[str, CartoObject]] = field(default_factory=dict)
     problems: list[Problem] = field(default_factory=list)
     duplicates: set[str] = field(default_factory=set)
+    # Liens vers les référentiels, par slug de type (fichier d'extension, ticket 43478978).
+    links: dict[str, list[ReferentielLink]] = field(default_factory=dict)
+    # Les référentiels que ces liens visent, lus une fois (titre, clé, tags).
+    referentiels: dict[str, ReferentielInfo] = field(default_factory=dict)
     # Clé seule -> identifiants `type/CLÉ` qui la portent (pour lire une clé seule).
     _keys: dict[str, list[str]] = field(default_factory=dict, init=False, repr=False)
     # Identifiant -> relations qui le désignent (calculé à la demande).
@@ -135,6 +161,14 @@ class Cartographie:
     def objects_of(self, slug: str) -> list[tuple[str, CartoObject]]:
         """Les objets (chemin, objet) d'un type de l'espace."""
         return [(p, o) for p, o in self.objects.values() if o.type == slug]
+
+    def type_properties(self, slug: str, cat: Catalog | None = None) -> dict[str, object]:
+        """Les propriétés d'un objet de ce type : attributs ArchiMate et ajoutées."""
+        ctype = self.types.get(slug)
+        if ctype is None:
+            return {}
+        props = properties_schema(ctype, (cat or catalog()).get(ctype.archimate))["properties"]
+        return dict(props)
 
     def property_usage(self, slug: str) -> dict[str, int]:
         """Pour chaque propriété ajoutée d'un type : le nombre de ses objets qui y
@@ -293,6 +327,24 @@ def read_cartographie(root: Path, cat: Catalog | None = None) -> Cartographie:
         space.problems.extend(check_type(ctype, cat))
     for ctype in space.types.values():
         space.problems.extend(check_relations(space, ctype, cat))
+    for file in sorted(types_dir.glob(f"*{EXTEND_SUFFIX}")) if types_dir.is_dir() else []:
+        rel = file.relative_to(root).as_posix()
+        slug = file.name[: -len(EXTEND_SUFFIX)]
+        if slug not in space.types:
+            space.problems.append(Problem(rel, "type_extend_orphan", slug))
+            continue
+        try:
+            space.links[slug] = parse_extend(file.read_text(encoding="utf-8"))
+        except (CartographieError, UnicodeDecodeError) as exc:
+            space.problems.append(Problem(rel, "type_extend_unreadable", str(exc)))
+    space.referentiels = {
+        link.referentiel: read_info(root, link.referentiel)
+        for links in space.links.values()
+        for link in links
+    }
+    for slug, links in space.links.items():
+        props = space.type_properties(slug, cat)
+        space.problems.extend(check_links(slug, props, links, space.referentiels))
 
     seen: dict[str, list[str]] = {}
     objects_dir = root / OBJECTS_DIR
@@ -334,6 +386,12 @@ def read_cartographie(root: Path, cat: Catalog | None = None) -> Cartographie:
         refused = _relation_not_allowed(space, obj, rel, cat)
         if refused:
             space.problems.append(refused)
+    if space.links:
+        index = KeyIndex(root)
+        for _ref, (rel, obj) in space.objects.items():
+            linked = space.links.get(obj.type)
+            if linked:
+                space.problems.extend(absent_problems(obj, rel, linked, index))
     space.problems = sorted(set(space.problems))
     return space
 
@@ -363,6 +421,7 @@ def save_type(
         raise CartographieError("type_not_found", status=404, slug=ctype.slug)
     if current is not None and current.archimate != ctype.archimate:
         raise CartographieError("type_archimate_frozen", status=409, slug=ctype.slug)
+    links = space.links.get(ctype.slug, [])
     # Une propriété renommée l'est aussi dans les objets du type (ticket
     # 859579bb) : sa valeur passe sous le nouveau nom, au lieu du refus
     # « property_in_use » d'une propriété retirée.
@@ -384,15 +443,53 @@ def save_type(
     problems = check_type(ctype, cat) + check_relations(changed, ctype, cat)
     if problems:
         raise CartographieError("type_invalid", problems=problems)
+    after_links = renamed(links, renames)
     if current is not None:
         _refuse_breaking_objects(space, current, ctype, cat)
         _refuse_breaking_relations(space, changed, ctype.slug, cat)
+        _refuse_breaking_links(root, space, ctype, links, renames, cat)
     target = root / type_path(ctype.slug)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(dump_type(ctype), encoding="utf-8")
     for path, obj in moved.items():
         (root / path).write_text(dump_object(obj), encoding="utf-8")
+    if after_links != links:
+        write_links(root, ctype.slug, after_links)
     return ctype
+
+
+def _refuse_breaking_links(
+    root: Path,
+    space: Cartographie,
+    ctype: CartoType,
+    links: list[ReferentielLink],
+    renames: dict[str, str],
+    cat: Catalog,
+) -> None:
+    """Un lien vers un référentiel suit le renommage d'une propriété (ticket
+    43478978). Retirer une propriété liée est refusé (« property_linked », avec son
+    référentiel) ; changer son type pour un type différent de la clé aussi. Un lien
+    déjà cassé (référentiel disparu) ne bloque rien : il reste signalé."""
+    if not links:
+        return
+    after = renamed(links, renames)
+    new_props = properties_schema(ctype, cat.get(ctype.archimate))["properties"]
+    removed = {
+        prop: link.referentiel
+        for link in after
+        for prop in link.properties
+        if prop not in new_props
+    }
+    if removed:
+        raise CartographieError("property_linked", status=409, slug=ctype.slug, properties=removed)
+    infos = {link.referentiel: read_info(root, link.referentiel) for link in after}
+    old = check_links(ctype.slug, space.type_properties(ctype.slug, cat), links, infos)
+    seen = {(p.code, renames.get(p.field, p.field)) for p in old}
+    worse = [
+        p for p in check_links(ctype.slug, new_props, after, infos) if (p.code, p.field) not in seen
+    ]
+    if worse:
+        raise CartographieError("type_invalid", problems=worse)
 
 
 def _refuse_breaking_objects(
@@ -454,6 +551,27 @@ def delete_type(root: Path, slug: str, cat: Catalog | None = None) -> None:
     if objects:
         raise CartographieError("type_in_use", status=409, slug=slug, objects=objects)
     (root / type_path(slug)).unlink()
+    (root / extend_path(slug)).unlink(missing_ok=True)
+
+
+def save_links(
+    root: Path, slug: str, links: list[ReferentielLink], cat: Catalog | None = None
+) -> list[ReferentielLink]:
+    """Remplace les liens d'un type vers des référentiels (fichier d'extension,
+    ticket 43478978). Chaque lien couvre toute la clé du référentiel, de même type ;
+    une propriété n'est liée qu'une fois. Refus « type_links_invalid » avec les
+    problèmes ; rien n'est écrit. Les objets dont la valeur manque au référentiel ne
+    bloquent pas : ils sont signalés sur leur fiche."""
+    cat = cat or catalog()
+    space = read_cartographie(root, cat)
+    if slug not in space.types:
+        raise CartographieError("type_not_found", status=404, slug=slug)
+    infos = {link.referentiel: read_info(root, link.referentiel) for link in links}
+    problems = check_links(slug, space.type_properties(slug, cat), links, infos)
+    if problems:
+        raise CartographieError("type_links_invalid", problems=problems)
+    write_links(root, slug, links)
+    return links
 
 
 def _canonical_ends(
@@ -496,6 +614,12 @@ def save_object(
     refused = _relation_not_allowed(space, obj, path, cat)
     if refused:
         problems.append(refused)
+    # Une valeur absente du référentiel lié est refusée quand elle est nouvelle
+    # (ticket 43478978) ; celle que l'objet avait déjà reste signalée, pas refusée.
+    links = space.links.get(obj.type)
+    if links:
+        before = existing[1] if existing is not None else None
+        problems += absent_problems(obj, path, links, KeyIndex(root), before)
     if problems:
         raise CartographieError("object_invalid", problems=problems)
     target = root / path
