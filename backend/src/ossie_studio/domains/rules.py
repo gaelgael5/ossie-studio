@@ -15,10 +15,9 @@ l'écriture d'un domaine ; ils passent dans le journal de validation :
   **avertissement**, jamais un blocage — choix de Gael (bug 206d434c : « seulement
   le dire »). Le message dit comment résoudre.
 
-Une ligne par domaine et par nature : la clé d'une ligne du journal est
-`règle:chemin:code`, plusieurs lignes de même code sur un même fichier se
-confondraient (décision acceptée, « préexistant »). Les éléments sont donc
-listés dans les arguments.
+Une ligne par domaine et par nature : les éléments en cause sont listés dans les
+arguments. Le niveau suit les types `domaine`, `dataset`, `relation_dataset` et
+`reference_dataset`, qui déclarent cette règle (ticket d7139b17).
 """
 
 from __future__ import annotations

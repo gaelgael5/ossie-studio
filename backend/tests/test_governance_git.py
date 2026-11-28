@@ -85,7 +85,9 @@ async def test_nom_court_en_double_erreur_bloquante(gov: Rebased) -> None:
     log = (await gov.client.get(f"{gov.space.base}/draft/validation")).json()
     entry = next(e for e in log["entries"] if e["message_code"] == "level_short_name_duplicate")
     assert entry["level"] == "error"
-    assert entry["preexisting"] is True  # présent côté publié : ne bloque pas ce brouillon
+    # Règle d'or (ticket d7139b17) : présent côté publié, il bloque quand même.
+    assert entry["blocking"] is True and "preexisting" not in entry
+    assert entry["document_type"] == "classification"
 
 
 async def test_doublon_introduit_par_le_brouillon_bloque(app: FastAPI, gov: Rebased) -> None:

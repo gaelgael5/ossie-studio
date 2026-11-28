@@ -31,7 +31,6 @@ PREPARATION = {
     "list_impacts",
     "verify_impact",
     "get_validation_log",
-    "accept_validation_warning",
 }
 OBJ = "sources/s/assets/O.schema.yaml"
 OTHER = "sources/s/raw/P.schema.yaml"
@@ -203,10 +202,12 @@ async def test_impacts_verifies_par_l_agent(app: FastAPI, space: ApiSpace) -> No
     assert "impacts_pending" not in await _reasons(app, space)
 
 
-# --- Critère 4 : avertissement accepté, erreur refusée ------------------------------------------
+# --- Règle d'or (ticket d7139b17) : plus d'avertissement accepté ---------------------------------
 
 
-async def test_avertissement_accepte_erreur_refusee(app: FastAPI, space: ApiSpace) -> None:
+async def test_journal_regle_d_or_sans_acceptation(app: FastAPI, space: ApiSpace) -> None:
+    """Un schéma raw cassé informe sans bloquer (critère 2), un asset orphelin aussi ;
+    `accept_validation_warning` a disparu du catalogue (critère 6)."""
     forge_edit(space, {RAW: json.dumps({"title": "User"})})
     await draft_write(
         app,
@@ -216,26 +217,17 @@ async def test_avertissement_accepte_erreur_refusee(app: FastAPI, space: ApiSpac
     )
     await draft_write(app, space, "sources/s/assets/Seul.schema.yaml", {"title": "Seul"})
     log = await _ok(app, "get_validation_log", _ids(space))
-    assert log["blocking"] == 1
-    warning = next(e for e in log["entries"] if e["rule"] == "orphan_asset")
-    error = next(e for e in log["entries"] if e["rule"] == "broken_ref")
-
-    accepted = await _ok(
-        app,
-        "accept_validation_warning",
-        _ids(space, rule="orphan_asset", path=warning["path"], message_code="asset_orphan"),
+    assert log["blocking"] == 0
+    broken = next(e for e in log["entries"] if e["rule"] == "broken_ref")
+    orphan = next(e for e in log["entries"] if e["rule"] == "orphan_asset")
+    assert (broken["level"], broken["blocking"], broken["document_type"]) == (
+        "warning",
+        False,
+        "schema_raw",
     )
-    assert accepted["accepted"] is True
-    log = await _ok(app, "get_validation_log", _ids(space))
-    assert next(e for e in log["entries"] if e["rule"] == "orphan_asset")["accepted"] is True
-
-    refused = await _refusal(
-        app,
-        "accept_validation_warning",
-        _ids(space, rule="broken_ref", path=error["path"], message_code=error["message_code"]),
-    )
-    assert refused == {"error": "validation_error_not_acceptable", "path": error["path"]}
-    assert (await _ok(app, "get_validation_log", _ids(space)))["blocking"] == 1
+    assert (orphan["level"], orphan["blocking"]) == ("warning", False)
+    assert all("accepted" not in e and "preexisting" not in e for e in log["entries"])
+    assert "accept_validation_warning" not in BY_ID
 
 
 # --- Critère 5 : références inconnues, résolution incomplète : refus sans écriture --------------
@@ -272,11 +264,6 @@ async def test_refus_nommes_sans_ecriture(app: FastAPI, space: ApiSpace) -> None
             "verify_impact",
             _ids(space, path="x.schema.yaml"),
             {"error": "impact_not_found", "path": "x.schema.yaml"},
-        ),
-        (
-            "accept_validation_warning",
-            _ids(space, rule="orphan_asset", path="x.schema.yaml", message_code="asset_orphan"),
-            {"error": "warning_not_found", "path": "x.schema.yaml"},
         ),
     ]
     for name, args, expected in cases:
@@ -369,7 +356,7 @@ async def test_annotations(app: FastAPI, space: ApiSpace) -> None:
     for name in ("get_merge_conflicts", "list_impacts", "get_validation_log"):
         assert tools[name].read_only_hint is True, name
     assert tools["resolve_merge"].destructive_hint is True
-    for name in ("auto_merge", "verify_impact", "accept_validation_warning"):
+    for name in ("auto_merge", "verify_impact"):
         assert tools[name].read_only_hint is False, name
         assert tools[name].destructive_hint is False, name
         assert tools[name].idempotent_hint is True, name
@@ -411,18 +398,8 @@ async def test_decisions_de_l_agent_dans_le_message_du_commit(
     await draft_write(app, space, "sources/s/raw/V.schema.yaml", {"v": 2})
     await draft_write(app, space, "sources/s/assets/Orphelin.schema.yaml", {"t": 1})
     await set_credential(app, space)
-    # L'agent vérifie U et accepte l'avertissement ; la personne vérifie V.
+    # L'agent vérifie U ; la personne vérifie V. L'asset orphelin informe sans bloquer.
     await _ok(app, "verify_impact", _ids(space, path="sources/s/assets/U.schema.yaml"))
-    await _ok(
-        app,
-        "accept_validation_warning",
-        _ids(
-            space,
-            rule="orphan_asset",
-            path="sources/s/assets/Orphelin.schema.yaml",
-            message_code="asset_orphan",
-        ),
-    )
     response = await space.client.post(
         f"{space.base}/draft/impacts/verify", json={"path": "sources/s/assets/V.schema.yaml"}
     )
@@ -434,10 +411,7 @@ async def test_decisions_de_l_agent_dans_le_message_du_commit(
     body = _last_message(space)
     assert "Impact vérifié : sources/s/assets/U.schema.yaml (via l'agent claude)" in body
     assert "Impact vérifié : sources/s/assets/V.schema.yaml\n" in body
-    assert (
-        "Avertissement accepté : orphan_asset sources/s/assets/Orphelin.schema.yaml "
-        "(via l'agent claude)" in body
-    )
+    assert "Avertissement accepté" not in body
 
 
 async def test_une_decision_reprise_par_la_personne_n_est_plus_celle_de_l_agent(

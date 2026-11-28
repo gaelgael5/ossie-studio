@@ -137,14 +137,19 @@ async def test_impact_en_attente_bloque(app: FastAPI, sp: ApiSpace) -> None:
     assert "impacts_pending" in await _readiness(sp)
 
 
-async def test_erreur_liee_au_brouillon_bloque_preexistante_non(app: FastAPI, sp: ApiSpace) -> None:
-    forge_edit(sp, {"sources/vieux/manifest.yaml": "slug: [cassé"})
+async def test_regle_d_or_erreur_preexistante_bloque_raw_jamais(
+    app: FastAPI, sp: ApiSpace
+) -> None:
+    """Ticket d7139b17. Critère 2 : un schéma raw cassé ne bloque jamais. Critère 4 : une
+    erreur présente dans la version publiée, dans un fichier que la personne n'a pas
+    touché, bloque quand même sa publication."""
     await draft_write(app, sp, OBJ, {"a": 1})
     await set_credential(app, sp)
-    assert "validation_errors" not in await _readiness(sp)
     await draft_write(
         app, sp, "sources/s/raw/R.schema.yaml", {"properties": {"x": {"$ref": "Nope.schema.yaml"}}}
     )
+    assert "validation_errors" not in await _readiness(sp)
+    forge_edit(sp, {"sources/vieux/manifest.yaml": "slug: [cassé"})
     assert "validation_errors" in await _readiness(sp)
 
 
@@ -188,18 +193,13 @@ async def test_message_contient_les_decisions(app: FastAPI, sp: ApiSpace) -> Non
     await sp.client.post(
         f"{sp.base}/draft/impacts/verify", json={"path": "sources/s/assets/U.schema.yaml"}
     )
-    await sp.client.post(
-        f"{sp.base}/draft/validation/accept",
-        json={
-            "rule": "orphan_asset",
-            "path": "sources/s/assets/Orphelin.schema.yaml",
-            "message_code": "asset_orphan",
-        },
-    )
+    # Un avertissement (asset orphelin) ne bloque pas et ne s'accepte plus (d7139b17).
+    gone = await sp.client.post(f"{sp.base}/draft/validation/accept", json={})
+    assert gone.status_code in (404, 405)
     assert (await _publish(sp, "Avec décisions")).status_code == 200
     body = _log(sp, "%B")
     assert "Impact vérifié : sources/s/assets/U.schema.yaml" in body
-    assert "Avertissement accepté : orphan_asset sources/s/assets/Orphelin.schema.yaml" in body
+    assert "Avertissement accepté" not in body
 
 
 async def test_push_exterieur_autre_objet_reconstruit(

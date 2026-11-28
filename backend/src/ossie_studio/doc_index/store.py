@@ -395,3 +395,27 @@ async def db_view_summary(conn: asyncpg.Connection, key: ViewKey) -> ViewSummary
         row["validated_at"],
         row["validation_error"],
     )
+
+
+async def db_view_problems(
+    conn: asyncpg.Connection, key: ViewKey
+) -> list[tuple[str, dict[str, object]]]:
+    """Les problèmes de chaque fichier de la vue (chemin, problème), par chemin."""
+    rows = await conn.fetch(
+        """
+        SELECT f.path, f.problems
+        FROM doc_index_file f JOIN doc_index_view v ON v.id = f.view_id
+        WHERE v.space_id = $1 AND v.branch_id = $2 AND v.user_id IS NOT DISTINCT FROM $3
+          AND jsonb_array_length(f.problems) > 0
+        ORDER BY f.path
+        """,
+        key.space_id,
+        key.branch_id,
+        key.user_id,
+    )
+    out: list[tuple[str, dict[str, object]]] = []
+    for r in rows:
+        raw = r["problems"]
+        for found in json.loads(raw) if isinstance(raw, str) else raw:
+            out.append((r["path"], found))
+    return out

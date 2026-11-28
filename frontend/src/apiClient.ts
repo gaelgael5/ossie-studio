@@ -161,15 +161,18 @@ export interface ImpactItem {
   verified: boolean
 }
 
+/** Une entrée du journal de validation (ticket d7139b17) : `error` bloque, où qu'elle
+ * soit et même si elle existait avant le brouillon ; `warning` informe seulement. Le
+ * document en cause (type et identité) permet un lien vers lui. */
 export interface ValidationEntry {
   level: 'error' | 'warning'
   path: string
   rule: string
   message_code: string
   args: Record<string, string>
-  preexisting: boolean
-  accepted: boolean
   blocking: boolean
+  document_type?: string | null
+  identity?: Record<string, unknown> | null
 }
 
 export interface DraftSummary {
@@ -2985,11 +2988,6 @@ export const api = {
     apiFetch<{ entries: ValidationEntry[]; blocking: number }>(
       `/api/spaces/${spaceId}/branches/${branchId}/draft/validation`,
     ),
-  acceptWarning: (spaceId: string, branchId: string, entry: ValidationEntry) =>
-    apiFetch<{ accepted: boolean }>(`/api/spaces/${spaceId}/branches/${branchId}/draft/validation/accept`, {
-      method: 'POST',
-      body: JSON.stringify({ rule: entry.rule, path: entry.path, message_code: entry.message_code }),
-    }),
   publishReadiness: (spaceId: string, branchId: string) =>
     apiFetch<{ ok: boolean; reasons: string[]; conflicts: string[] }>(
       `/api/spaces/${spaceId}/branches/${branchId}/draft/readiness`,

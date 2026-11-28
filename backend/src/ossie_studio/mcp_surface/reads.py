@@ -144,6 +144,7 @@ async def get_publish_readiness(ctx: PrimitiveContext, args: BranchArgs) -> dict
     try:
         ready = await publish_readiness(
             ctx.state.pool,
+            ctx.state.validation,
             ctx.conn,
             ctx.state.crypto,
             person_workdir(ctx, user, branch),

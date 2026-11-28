@@ -160,23 +160,11 @@ CATALOG: tuple[Primitive, ...] = (
         access="read",
         capability="spaces:read",
         description=(
-            "Validation log of the branch as the user sees it (with the draft): warnings and "
-            "errors, whether they block publishing, accepted or pre-existing."
+            "Validation log of the branch as the user sees it (with the draft), after an "
+            "up-to-date validation pass: errors (blocking, wherever they are, even if they "
+            "existed before the draft) and warnings (informative), each with its document."
         ),
         person_only=True,
-    ),
-    Primitive(
-        id="accept_validation_warning",
-        domain="drafts",
-        access="write",
-        capability="spaces:read",
-        description=(
-            "Accept a validation warning so it no longer blocks; an error cannot be accepted "
-            "(fix the object). Valid while the object does not change; recorded in the "
-            "publication commit as made by you, the agent."
-        ),
-        person_only=True,
-        idempotent=True,
     ),
     # --- Lire un schéma, quel que soit son domaine (ticket 06ef8679)
     Primitive(

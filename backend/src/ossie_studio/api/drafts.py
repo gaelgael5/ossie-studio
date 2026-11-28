@@ -9,14 +9,14 @@ import uuid
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.api.common import SpacesRead
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
-from ossie_studio.doc_index.queue import PUBLICATION_PAGE, queue_state, request_pass
+from ossie_studio.doc_index.queue import queue_state
 from ossie_studio.doc_index.store import ViewKey, db_view_summary
 from ossie_studio.drafts import preparation
 from ossie_studio.drafts.preparation import changed_upstream
@@ -185,15 +185,9 @@ async def verify_impact(
 # --- Journal de validation -----------------------------------------------------
 
 
-class AcceptBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    rule: str
-    path: str
-    message_code: str
-
-
 @router.get("/validation")
 async def get_validation(
+    request: Request,
     conn: ConnDep,
     crypto: CryptoDep,
     _: SpacesRead,
@@ -201,11 +195,11 @@ async def get_validation(
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
-    # Ouverture ou réaffichage de la page de publication : une passe de validation est
-    # demandée pour le brouillon de la personne (enabler 6b171b74).
-    await request_pass(conn, ViewKey(space_id, branch_id, workdir.user_id), PUBLICATION_PAGE)
+    """Le journal de validation de la branche vue par la personne, lu dans l'index
+    après une passe à jour sur sa vue (la page de publication la demande, enabler
+    6b171b74). Règle d'or (ticket d7139b17) : toute erreur bloque."""
     _draft, log_entries = await preparation.draft_validation(
-        conn, crypto, workdir, space_id, branch_id
+        conn, crypto, workdir, request.app.state.validation, space_id, branch_id
     )
     return {
         "entries": [e.payload() for e in log_entries],
@@ -237,19 +231,3 @@ async def get_validation_queue(
     return out
 
 
-@router.post("/validation/accept")
-async def accept_warning(
-    conn: ConnDep,
-    crypto: CryptoDep,
-    _: SpacesRead,
-    workdir: DraftWorkdirDep,
-    space_id: uuid.UUID,
-    branch_id: uuid.UUID,
-    body: AcceptBody,
-) -> dict[str, object]:
-    """Accepter un avertissement (jamais une erreur) : vaut tant que l'objet ne
-    change plus ; part dans le message du commit."""
-    await preparation.accept_warning(
-        conn, crypto, workdir, space_id, branch_id, body.rule, body.path, body.message_code
-    )
-    return {"accepted": True}

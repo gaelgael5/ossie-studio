@@ -5,8 +5,9 @@ Même service que l'écran et la publication (`drafts/preparation.py`), mêmes
 refus nommés. Réservées à un agent connecté pour une personne : il n'y a de
 brouillon que le sien. Plus strict que l'écran : résoudre un objet qui n'a pas
 bougé côté publié, ou choisir sur une propriété qui n'est pas en conflit, est
-refusé. Les décisions (impact vérifié, avertissement accepté) gardent le nom de
-l'agent ; il apparaît dans le message du commit de publication.
+refusé. Les décisions (impact vérifié) gardent le nom de l'agent ; il apparaît dans
+le message du commit de publication. Le journal de validation suit la règle d'or
+(ticket d7139b17) : rien ne s'y accepte.
 
 Rien ne se publie ici.
 """
@@ -66,12 +67,6 @@ class ResolveMergeArgs(BranchArgs):
 
 class ImpactArgs(BranchArgs):
     path: str = Field(description="The impacted object (from list_impacts).")
-
-
-class WarningArgs(BranchArgs):
-    rule: str = Field(description="Rule of the warning (from get_validation_log).")
-    path: str = Field(description="Object of the warning (from get_validation_log).")
-    message_code: str = Field(description="Message code of the warning (from get_validation_log).")
 
 
 # --- Mécanique commune ------------------------------------------------------------------
@@ -233,7 +228,7 @@ async def get_validation_log(ctx: PrimitiveContext, args: BranchArgs) -> dict[st
     workdir, branch = await _workdir(ctx, args)
     _draft, entries = await _run(
         lambda: preparation.draft_validation(
-            ctx.conn, ctx.state.crypto, workdir, branch.space_id, branch.id
+            ctx.conn, ctx.state.crypto, workdir, ctx.state.validation, branch.space_id, branch.id
         )
     )
     return {
@@ -241,21 +236,3 @@ async def get_validation_log(ctx: PrimitiveContext, args: BranchArgs) -> dict[st
         "entries": [e.payload() for e in entries],
         "blocking": len(blocking(entries)),
     }
-
-
-async def accept_validation_warning(ctx: PrimitiveContext, args: WarningArgs) -> dict[str, Any]:
-    workdir, branch = await _workdir(ctx, args)
-    await _run(
-        lambda: preparation.accept_warning(
-            ctx.conn,
-            ctx.state.crypto,
-            workdir,
-            branch.space_id,
-            branch.id,
-            args.rule,
-            args.path,
-            args.message_code,
-            via=agent_name(ctx),
-        )
-    )
-    return {"view": "draft", "accepted": True}

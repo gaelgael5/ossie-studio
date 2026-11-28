@@ -10,6 +10,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
+# --- Règles de validation déclarées par type de document (ticket d7139b17) --------------------
+
+# Portée d'une règle : le document seul (réutilisable par empreinte), ses références
+# (les identités citées existent dans la vue), ou entre fichiers (unicité, cohérence…).
+Scope = Literal["document", "references", "cross_file"]
+# Niveau : « error » bloque la publication, « warning » informe seulement.
+Level = Literal["error", "warning"]
+
+
+@dataclass(frozen=True)
+class RuleDeclaration:
+    """Une règle de validation pour un type de document : son nom (celui de ses
+    constats), sa portée et son niveau. Le niveau déclaré est le **plus haut** que la
+    règle peut donner pour ce type : `warning` rend informatif ce qu'elle trouve
+    (le raw : « c'est juste de la récupération »), `error` garde son niveau à elle
+    (une règle peut trouver une erreur ou un avertissement)."""
+
+    rule: str
+    scope: Scope
+    level: Level = "error"
+
 
 class DocumentError(Exception):
     """Un refus du registre ou d'un validateur : le code, le champ en cause (un nom

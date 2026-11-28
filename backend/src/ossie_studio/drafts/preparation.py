@@ -12,9 +12,10 @@ Fusion : pour chaque objet du brouillon dont la version publiée a bougé, fusio
 (choix par propriété, ou sort d'un objet supprimé d'un côté). Une fusion
 s'écrit sous le verrou du brouillon.
 
-Décisions (impact vérifié, avertissement accepté) : elles valent tant que les
-objets concernés ne changent plus et partent dans le message du commit ; `via`
-nomme l'agent qui les a prises pour la personne (None : la personne elle-même).
+Décisions (impact vérifié) : elles valent tant que les objets concernés ne changent
+plus et partent dans le message du commit ; `via` nomme l'agent qui les a prises
+pour la personne (None : la personne elle-même). Un avertissement de validation ne
+s'accepte plus (ticket d7139b17) : il informe, une erreur bloque.
 """
 
 from __future__ import annotations
@@ -29,6 +30,8 @@ import yaml
 
 from ossie_studio.api.branches import space_credentials
 from ossie_studio.crypto import CryptoService
+from ossie_studio.doc_index.passes import Validation, ValidationBusy, ValidationFailed
+from ossie_studio.doc_index.store import ViewKey, db_view_problems
 from ossie_studio.drafts.impacts import Impact, compute_impacts, fingerprint
 from ossie_studio.drafts.merge import (
     MISSING,
@@ -49,7 +52,7 @@ from ossie_studio.drafts.store import (
     db_rebase_object,
     db_set_decision,
 )
-from ossie_studio.drafts.validation import LoggedFinding, run_rules, validation_log
+from ossie_studio.drafts.validation import Finding, LoggedFinding
 from ossie_studio.drafts.workdir import DraftWorkdir, ObjectVersions
 from ossie_studio.errors import ApiError
 from ossie_studio.sources.draft_changes import is_collected_raw
@@ -404,48 +407,39 @@ async def draft_validation(
     conn: asyncpg.Connection,
     crypto: CryptoService,
     workdir: DraftWorkdir,
+    validation: Validation,
     space_id: uuid.UUID,
     branch_id: uuid.UUID,
 ) -> tuple[Draft | None, list[LoggedFinding]]:
-    """Journal de la branche vue par la personne. Sans brouillon : celui de la
-    branche publiée (rien n'y est « lié au brouillon »)."""
+    """Journal de la branche vue par la personne (branche publiée + son brouillon ; sans
+    brouillon, la branche publiée). Il se lit dans l'index des documents, après une
+    passe à jour sur sa vue (ticket d7139b17) : chaque problème au niveau que lui donne
+    le type de son document. Règle d'or : toute erreur de la vue bloque, qu'elle soit
+    dans le brouillon ou non."""
     branch = await db_get_branch(conn, branch_id)
     if branch is None or branch.space_id != space_id:
         raise ApiError("branch_not_found", status_code=404)
     draft = await db_get_draft(conn, workdir.user_id, branch_id)
-    space, username, token = await space_credentials(conn, crypto, space_id)
-    args = (space_id, branch.git_ref, space.repo_url, username, token, run_rules)
+    key = ViewKey(space_id, branch_id, workdir.user_id)
     try:
-        published = await workdir.read_branch(*args, published=True)
-        merged = await workdir.read_branch(*args) if draft is not None else published
-    except WorkdirError as exc:
-        raise ApiError(exc.code, status_code=502) from None
-    accepted = await db_decisions(conn, draft.id, "warning_accepted") if draft else {}
-    return draft, validation_log(merged, published, accepted)
-
-
-async def accept_warning(
-    conn: asyncpg.Connection,
-    crypto: CryptoService,
-    workdir: DraftWorkdir,
-    space_id: uuid.UUID,
-    branch_id: uuid.UUID,
-    rule: str,
-    path: str,
-    message_code: str,
-    *,
-    via: str | None = None,
-) -> None:
-    """Accepter un avertissement, jamais une erreur
-    (`validation_error_not_acceptable`) : vaut tant que l'objet ne change plus ;
-    part dans le message du commit."""
-    draft, log_entries = await draft_validation(conn, crypto, workdir, space_id, branch_id)
-    key = f"{rule}:{path}:{message_code}"
-    entry = next((e for e in log_entries if e.finding.key == key), None)
-    if draft is None or entry is None:
-        raise ApiError("warning_not_found", status_code=404, path=path)
-    if entry.finding.level != "warning":
-        raise ApiError("validation_error_not_acceptable", status_code=409, path=path)
-    await db_set_decision(
-        conn, draft.id, "warning_accepted", key, entry.finding.fingerprint, via=via
-    )
+        await validation.ensure(key)
+    except ValidationBusy as exc:
+        raise ApiError("validation_busy", status_code=503, position=exc.position) from None
+    except ValidationFailed:
+        raise ApiError("validation_failed", status_code=502) from None
+    entries = [
+        LoggedFinding(
+            Finding(
+                "error" if found.get("level") == "error" else "warning",
+                path,
+                str(found.get("rule") or ""),
+                str(found.get("code") or ""),
+                {str(k): str(v) for k, v in dict(found.get("args") or {}).items()},  # type: ignore[call-overload]
+            ),
+            found.get("document_type"),  # type: ignore[arg-type]
+            found.get("identity"),  # type: ignore[arg-type]
+        )
+        for path, found in await db_view_problems(conn, key)
+    ]
+    entries.sort(key=lambda e: (not e.blocking, e.finding.path, e.finding.rule))
+    return draft, entries

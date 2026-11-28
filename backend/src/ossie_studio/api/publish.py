@@ -24,8 +24,9 @@ from ossie_studio.connections.service import db_get_connection
 from ossie_studio.credentials.service import STATUS_VALID, resolve_personal_token
 from ossie_studio.crypto import CryptoService
 from ossie_studio.deps import ConnDep, get_crypto, get_draft_workdir
+from ossie_studio.doc_index.passes import Validation
 from ossie_studio.doc_index.queue import PUBLISH, request_pass
-from ossie_studio.doc_index.store import ViewKey
+from ossie_studio.doc_index.store import ViewKey, db_view_summary
 from ossie_studio.drafts.preparation import (
     auto_merge,
     draft_impacts,
@@ -109,6 +110,7 @@ async def _credential_reason(
 
 async def publish_readiness(
     pool: asyncpg.Pool,
+    validation: Validation,
     conn: asyncpg.Connection,
     crypto: CryptoService,
     workdir: DraftWorkdir,
@@ -130,9 +132,16 @@ async def publish_readiness(
     _d2, _o, impacts = await draft_impacts(conn, crypto, workdir, space_id, branch_id)
     if any(not i.verified for i in impacts):
         ready.reasons.append("impacts_pending")
-    _d3, log_entries = await draft_validation(conn, crypto, workdir, space_id, branch_id)
+    # Règle d'or (ticket d7139b17) : toute erreur de la vue bloque, et rien ne se
+    # publie tant que la vue a des fichiers à valider ou n'a pas été comparée au disque.
+    _d3, log_entries = await draft_validation(
+        conn, crypto, workdir, validation, space_id, branch_id
+    )
     if blocking(log_entries):
         ready.reasons.append("validation_errors")
+    summary = await db_view_summary(conn, ViewKey(space_id, branch_id, workdir.user_id))
+    if summary is None or not summary.compared or summary.to_validate:
+        ready.reasons.append("validation_pending")
     space = await conn.fetchrow("SELECT connection_id FROM git_spaces WHERE id = $1", space_id)
     reason = await _credential_reason(conn, user, space["connection_id"])
     if reason:
@@ -154,7 +163,14 @@ async def get_readiness(
     branch_id: uuid.UUID,
 ) -> dict[str, object]:
     ready = await publish_readiness(
-        request.app.state.pool, conn, crypto, workdir, user, space_id, branch_id
+        request.app.state.pool,
+        request.app.state.validation,
+        conn,
+        crypto,
+        workdir,
+        user,
+        space_id,
+        branch_id,
     )
     return {"ok": ready.ok, "reasons": ready.reasons, "conflicts": ready.conflicts}
 
@@ -180,15 +196,11 @@ def _decision_line(label: str, subject: str, agent: str | None) -> str:
     return f"{label} : {subject}" + (f" (via l'agent {agent})" if agent else "")
 
 
-def _message(
-    comment: str,
-    verified: list[tuple[str, str | None]],
-    accepted: list[tuple[str, str | None]],
-) -> str:
-    """Message du commit. `verified` / `accepted` : (objet, agent ou None)."""
+def _message(comment: str, verified: list[tuple[str, str | None]]) -> str:
+    """Message du commit. `verified` : (objet, agent ou None). Un avertissement ne
+    s'accepte plus (ticket d7139b17) : il n'y figure pas."""
     lines = [f"{_COMMIT_PREFIX}{comment.strip()}"]
     decisions = [_decision_line("Impact vérifié", p, a) for p, a in verified]
-    decisions += [_decision_line("Avertissement accepté", w, a) for w, a in accepted]
     if decisions:
         lines += ["", *decisions]
     return "\n".join(lines) + "\n"
@@ -250,7 +262,14 @@ async def _publish_locked(
         raise ApiError("branch_not_found", status_code=404)
     await _automerge(conn, crypto, workdir, space_id, branch_id, branch.git_ref)
     ready = await publish_readiness(
-        request.app.state.pool, conn, crypto, workdir, user, space_id, branch_id
+        request.app.state.pool,
+        request.app.state.validation,
+        conn,
+        crypto,
+        workdir,
+        user,
+        space_id,
+        branch_id,
     )
     # Le verrou est le nôtre : « publication en cours » ne bloque pas ici.
     reasons = [r for r in ready.reasons if r != "publish_in_progress"]
@@ -260,22 +279,14 @@ async def _publish_locked(
     assert draft is not None
     objects = await db_list_objects(conn, draft.id)
     _d, _o, impacts = await draft_impacts(conn, crypto, workdir, space_id, branch_id)
-    _d2, log_entries = await draft_validation(conn, crypto, workdir, space_id, branch_id)
     space, read_username, read_token = await space_credentials(conn, crypto, space_id)
     connection = await db_get_connection(conn, space.connection_id)
     token = await resolve_personal_token(conn, crypto, user.id, space.connection_id)
     if connection is None or token is None:
         raise ApiError("publish_not_ready", status_code=409, reasons=["credential_not_valid"])
     impact_agents = await db_decision_agents(conn, draft.id, "impact_verified")
-    warning_agents = await db_decision_agents(conn, draft.id, "warning_accepted")
     message = _message(
-        comment,
-        [(i.path, impact_agents.get(i.path)) for i in impacts if i.verified],
-        [
-            (f"{e.finding.rule} {e.finding.path}", warning_agents.get(e.finding.key))
-            for e in log_entries
-            if e.accepted
-        ],
+        comment, [(i.path, impact_agents.get(i.path)) for i in impacts if i.verified]
     )
     try:
         sha = await workdir.manager.push_objects(

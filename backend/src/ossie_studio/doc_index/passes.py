@@ -10,10 +10,8 @@ Ce que fait une passe :
 3. poser l'état de chaque fichier : `valide` ou `en_erreur`, avec ses problèmes ;
 4. publier sa progression au fil de l'eau (`queue.report_progress`).
 
-Les règles : celles de la publication d'aujourd'hui (`drafts.validation`, gouvernance
-et domaines comprises), lancées sur la vue ; le découpage par type de document et la
-règle d'or sont l'objet du ticket « Règles de validation par type de document »
-(`document_problems` est son point d'entrée pour le document seul).
+Les règles : celles que chaque type de document déclare dans le registre, appliquées
+par `rules.py` (ticket d7139b17) : document seul, références, règles entre fichiers.
 
 Une passe qui échoue libère la file, marque la vue comme non validée et l'écrit dans
 le journal d'audit (auteur « system ») ; la demande suivante démarre.
@@ -37,6 +35,13 @@ from ossie_studio.config import Settings
 from ossie_studio.connections.service import db_get_connection, resolve_connection_token
 from ossie_studio.crypto import CryptoService
 from ossie_studio.doc_index import queue, store
+from ossie_studio.doc_index.rules import (
+    RULES_VERSION,
+    document_findings,
+    problem,
+    reference_findings,
+    view_rules,
+)
 from ossie_studio.doc_index.service import blob_reader, compare_view, tree_listing
 from ossie_studio.doc_index.store import EN_ERREUR, VALIDE, View, ViewKey
 from ossie_studio.drafts.store import git_blob_sha
@@ -49,31 +54,29 @@ from ossie_studio.spaces.workdir import WorkdirManager
 
 log = structlog.get_logger(__name__)
 
-# Version des règles du document seul : la changer revalide tous les contenus.
-RULES_VERSION = 1
 # Une progression publiée tous les N fichiers.
 PROGRESS_EVERY = 25
 # Le travailleur regarde la file toutes les N secondes quand elle est vide.
 POLL_SECONDS = 2.0
+# Attendre une passe (`Validation.ensure`) : on regarde la file toutes les N secondes,
+# au plus WAIT_SECONDS.
+POLL_WAIT_SECONDS = 0.2
+WAIT_SECONDS = 300.0
+
+
+class ValidationBusy(Exception):
+    """La passe attendue n'a pas eu son tour à temps (position dans la file)."""
+
+    def __init__(self, position: int) -> None:
+        super().__init__(f"position {position}")
+        self.position = position
+
+
+class ValidationFailed(Exception):
+    """La passe de la vue a échoué ; la vue n'est pas validée."""
 
 Problem = dict[str, object]
 Progress = Callable[[int, int], Awaitable[None]]
-
-
-def document_problems(path: str, data: bytes) -> list[Problem]:
-    """Les problèmes du document seul (ticket des règles). Aucun pour l'instant : les
-    règles d'aujourd'hui se lancent sur la vue entière."""
-    del path, data
-    return []
-
-
-def finding_problem(finding: Finding) -> Problem:
-    return {
-        "level": finding.level,
-        "rule": finding.rule,
-        "code": finding.message_code,
-        "args": dict(finding.args),
-    }
 
 
 def _blocking(problems: list[Problem]) -> bool:
@@ -105,14 +108,19 @@ async def validate_view(
             file = root / path
             data = file.read_bytes() if file.is_file() else b""
             if git_blob_sha(data) == row.blob:
-                problems = document_problems(path, data)
+                problems = [
+                    problem(f, path, row.documents)
+                    for f in document_findings(path, data, row.documents)
+                ]
                 await store.db_set_document_result(conn, row.content_id, problems, RULES_VERSION)
                 results[row.content_id] = (problems, RULES_VERSION)
         if done % PROGRESS_EVERY == 0 or done == total:
             await progress(done, total)
     by_path: dict[str, list[Problem]] = {}
-    for finding in findings:
-        by_path.setdefault(finding.path, []).append(finding_problem(finding))
+    for finding in [*findings, *reference_findings(files)]:
+        row_or_none = files.get(finding.path)
+        documents = row_or_none.documents if row_or_none is not None else []
+        by_path.setdefault(finding.path, []).append(problem(finding, finding.path, documents))
     statuses: dict[str, tuple[str, list[Problem]]] = {}
     errors = 0
     for path, row in files.items():
@@ -170,7 +178,7 @@ class Validation:
                     listing[path] = git_blob_sha(content)
             async with self.pool.acquire() as conn:
                 await compare_view(conn, key, head, listing, blob_reader(root, env), known)
-            findings = await asyncio.to_thread(run_rules, root)
+            findings = await asyncio.to_thread(run_rules, root, view_rules())
             async with self.pool.acquire() as conn, conn.transaction():
                 view = await store.db_ensure_view(conn, key)
                 return await validate_view(conn, view, root, findings, progress)
@@ -238,6 +246,31 @@ class Validation:
                     },
                 ),
             )
+
+    async def ensure(
+        self, key: ViewKey, trigger: str = queue.PUBLICATION_PAGE, wait: float = WAIT_SECONDS
+    ) -> None:
+        """Une passe à jour sur la vue `key`, avant d'en lire le journal (page de
+        publication, agent, conditions de publication). La demande passe par la file :
+        une seule passe à la fois ; en attendant son tour, on fait celles qui
+        précèdent (le travailleur de fond fait de même). Lève ValidationFailed si la
+        passe de la vue échoue, ValidationBusy si l'attente dépasse `wait` secondes."""
+        async with self.pool.acquire() as conn:
+            await queue.request_pass(conn, key, trigger)
+        deadline = time.monotonic() + wait
+        while True:
+            async with self.pool.acquire() as conn:
+                state = await queue.queue_state(conn)
+            if state.position(key) is None:
+                break
+            if await self.run_next() is None:
+                if time.monotonic() > deadline:
+                    raise ValidationBusy(state.position(key) or 0)
+                await asyncio.sleep(POLL_WAIT_SECONDS)
+        async with self.pool.acquire() as conn:
+            summary = await store.db_view_summary(conn, key)
+        if summary is None or summary.validation_error:
+            raise ValidationFailed(summary.validation_error if summary else "")
 
     async def request_periodic(self) -> int:
         """Demande une passe pour chaque vue qui a des fichiers à valider ; rend le

@@ -183,48 +183,37 @@ async def test_verifier_un_impact_inconnu_404(app: FastAPI, sp: ApiSpace) -> Non
 # --- Journal de validation ----------------------------------------------------
 
 
-async def test_journal_erreur_liee_au_brouillon_et_avertissement(
-    app: FastAPI, sp: ApiSpace
-) -> None:
+async def test_journal_par_type_de_document(app: FastAPI, sp: ApiSpace) -> None:
+    """Ticket d7139b17 : le niveau dépend du type de document. Un `$ref` cassé bloque
+    sur un asset, informe sur un raw ; un asset sans son raw informe."""
     forge_edit(sp, {RAW: json.dumps({"title": "User"})})
-    # Le brouillon supprime la cible d'un $ref et laisse un asset sans son raw.
     await _draft_write(
         app,
         sp,
         "sources/s/raw/Order.schema.yaml",
         {"properties": {"u": {"$ref": "Absent.schema.yaml"}}},
     )
-    await _draft_write(app, sp, "sources/s/assets/Seul.schema.yaml", {"title": "Seul"})
-    log = (await sp.client.get(f"{sp.base}/draft/validation")).json()
-    rules = {(e["rule"], e["level"], e["blocking"]) for e in log["entries"]}
-    assert ("broken_ref", "error", True) in rules
-    assert ("orphan_asset", "warning", False) in rules
-    assert log["blocking"] == 1
-    warning = next(e for e in log["entries"] if e["rule"] == "orphan_asset")
-    ok = await sp.client.post(
-        f"{sp.base}/draft/validation/accept",
-        json={"rule": "orphan_asset", "path": warning["path"], "message_code": "asset_orphan"},
-    )
-    assert ok.status_code == 200, ok.text
-    log = (await sp.client.get(f"{sp.base}/draft/validation")).json()
-    assert next(e for e in log["entries"] if e["rule"] == "orphan_asset")["accepted"] is True
-
-
-async def test_accepter_une_erreur_refuse(app: FastAPI, sp: ApiSpace) -> None:
     await _draft_write(
-        app, sp, "sources/s/raw/Order.schema.yaml", {"properties": {"u": {"$ref": "A.schema.yaml"}}}
+        app,
+        sp,
+        "sources/s/assets/Seul.schema.yaml",
+        {"title": "Seul", "properties": {"u": {"$ref": "Absent.schema.yaml"}}},
     )
+    log = (await sp.client.get(f"{sp.base}/draft/validation")).json()
+    rules = {(e["rule"], e["document_type"], e["level"], e["blocking"]) for e in log["entries"]}
+    assert ("broken_ref", "schema_raw", "warning", False) in rules
+    assert ("broken_ref", "schema_asset", "error", True) in rules
+    assert ("orphan_asset", "schema_asset", "warning", False) in rules
+    assert log["blocking"] == 1
+
+
+async def test_plus_d_acceptation(app: FastAPI, sp: ApiSpace) -> None:
+    """Un avertissement ne s'accepte plus (ticket d7139b17) : la route a disparu."""
     response = await sp.client.post(
         f"{sp.base}/draft/validation/accept",
-        json={
-            "rule": "broken_ref",
-            "path": "sources/s/raw/Order.schema.yaml",
-            "message_code": "ref_broken",
-        },
+        json={"rule": "orphan_asset", "path": "x.schema.yaml", "message_code": "asset_orphan"},
     )
-    # Refus dédié : une erreur se corrige, elle ne s'accepte pas.
-    assert response.status_code == 409
-    assert response.json()["error"] == "validation_error_not_acceptable"
+    assert response.status_code in (404, 405)
 
 
 COLLECTED = "sources/s/raw/R.schema.yaml"

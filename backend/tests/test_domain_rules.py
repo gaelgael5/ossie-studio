@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ossie_studio.domains.documents import AssetRef, Dataset, Domain, DomainField, write_domain
 from ossie_studio.domains.rules import DomainRule
-from ossie_studio.drafts.validation import blocking, run_rules, validation_log
+from ossie_studio.drafts.validation import LoggedFinding, blocking, run_rules
 
 
 def _dataset(name: str) -> Dataset:
@@ -44,9 +44,8 @@ def test_assets_absents_un_avertissement_qui_les_nomme(tmp_path: Path) -> None:
         "count": "1",
         "assets": "colis/boxes.schema.yaml",
     }
-    # Avertissement : ne bloque pas la publication, s'accepte.
-    log = validation_log([finding], [], {})
-    assert blocking(log) == []
+    # Avertissement : informe, ne bloque jamais la publication (ticket d7139b17).
+    assert blocking([LoggedFinding(finding)]) == []
 
 
 def test_acceptation_retombe_si_un_autre_asset_disparait(tmp_path: Path) -> None:
@@ -75,7 +74,7 @@ def test_domaine_illisible_erreur_bloquante(tmp_path: Path) -> None:
     (tmp_path / "domaines/pudo.extend.yaml").write_text("datasets: [pas un objet\n")
     findings = run_rules(tmp_path, [DomainRule()])
     assert [(f.level, f.message_code) for f in findings] == [("error", "domain_unreadable")]
-    assert len(blocking(validation_log(findings, [], {}))) == 1
+    assert len(blocking([LoggedFinding(f) for f in findings])) == 1
 
 
 def test_parseable_lit_cartographie_referentiels_domaines(tmp_path: Path) -> None:

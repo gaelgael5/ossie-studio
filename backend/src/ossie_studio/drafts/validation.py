@@ -1,13 +1,14 @@
 """Tests de validation du travail d'un espace, et leur journal.
 
-Décision (feature « Tests de validation et journal ») : des règles tournent sur
-la vue fusionnée (branche publiée + brouillon) et produisent des entrées de
-niveau **erreur** ou **avertissement**. Une erreur liée au brouillon bloque la
-publication ; une erreur **préexistante** (déjà là côté publié) ne bloque pas,
-sinon une erreur ancienne bloquerait tout le monde. Un avertissement peut être
-accepté (la décision part dans le message du commit). Le journal se recalcule
-depuis le contenu : il n'est pas stocké dans Git. Liste de règles extensible :
-la gouvernance dans Git y ajoute ses contraintes d'unicité."""
+Des règles tournent sur la vue fusionnée (branche publiée + brouillon) et produisent
+des entrées de niveau **erreur** (bloquant) ou **avertissement** (informatif). Depuis
+le ticket d7139b17, elles sont déclarées par type de document et appliquées par les
+passes de validation de l'index (`doc_index/rules.py`) ; le journal se lit dans
+l'index. **Règle d'or** (Gael) : « tu ne peux pousser que des choses valides et
+conformes » — une erreur bloque même si elle existait avant le brouillon (« sinon
+personne ne corrige les problèmes ») ; un avertissement ne s'accepte plus, il ne
+bloque jamais. Liste de règles extensible : la gouvernance, les domaines, la
+cartographie et les référentiels y ajoutent les leurs."""
 
 from __future__ import annotations
 
@@ -76,23 +77,38 @@ class ParseableRule:
     def check(self, view: Path) -> list[Finding]:
         out: list[Finding] = []
         for file in _work_files(view):
-            if file.suffix not in (".json", ".yaml", ".yml"):
-                continue
-            if ".exemple." in file.name:
-                # Fichier d'exemple d'un import (`<slug>.exemple.json`…) : donnée
-                # brute déposée par l'utilisateur, pas un document de l'application ;
-                # il peut ne pas être du JSON (test des référentiels).
-                continue
             try:
-                text = file.read_text(encoding="utf-8")
-                if file.suffix == ".json":
-                    json.loads(text)
-                else:
-                    yaml.safe_load(text)
-            except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError):
-                rel = file.relative_to(view).as_posix()
-                out.append(Finding("error", rel, self.name, "file_unreadable", {}, _digest(file)))
+                data = file.read_bytes()
+            except OSError:
+                data = b"\xff"
+            found = self.check_file(file.relative_to(view).as_posix(), data)
+            if found is not None:
+                out.append(found)
         return out
+
+    def check_file(self, rel: str, data: bytes) -> Finding | None:
+        """Le constat d'un fichier seul, par son chemin et son contenu (la même règle,
+        réutilisable par empreinte : ticket d7139b17)."""
+        if not rel.startswith(tuple(f"{f}/" for f in _WORK_FOLDERS)):
+            return None
+        suffix = posixpath.splitext(rel)[1]
+        if suffix not in (".json", ".yaml", ".yml"):
+            return None
+        if ".exemple." in posixpath.basename(rel):
+            # Fichier d'exemple d'un import (`<slug>.exemple.json`…) : donnée
+            # brute déposée par l'utilisateur, pas un document de l'application ;
+            # il peut ne pas être du JSON (test des référentiels).
+            return None
+        try:
+            text = data.decode("utf-8")
+            if suffix == ".json":
+                json.loads(text)
+            else:
+                yaml.safe_load(text)
+        except (UnicodeDecodeError, ValueError, yaml.YAMLError):
+            digest = hashlib.sha256(data).hexdigest()
+            return Finding("error", rel, self.name, "file_unreadable", {}, digest)
+        return None
 
 
 class SourceManifestRule:
@@ -187,13 +203,18 @@ def run_rules(view: Path, rules: list[ValidationRule] | None = None) -> list[Fin
 
 @dataclass(frozen=True)
 class LoggedFinding:
+    """Une entrée du journal de validation d'une vue (ticket d7139b17) : le constat, au
+    niveau que lui donne le type de son document, et ce document (pour un lien vers
+    lui). Règle d'or : une erreur bloque, qu'elle soit dans le brouillon ou non, qu'elle
+    ait existé avant ou non ; un avertissement informe et ne bloque jamais."""
+
     finding: Finding
-    preexisting: bool
-    accepted: bool
+    document_type: str | None = None
+    identity: dict[str, object] | None = None
 
     @property
     def blocking(self) -> bool:
-        return self.finding.level == "error" and not self.preexisting
+        return self.finding.level == "error"
 
     def payload(self) -> dict[str, object]:
         f = self.finding
@@ -203,27 +224,10 @@ class LoggedFinding:
             "rule": f.rule,
             "message_code": f.message_code,
             "args": f.args,
-            "preexisting": self.preexisting,
-            "accepted": self.accepted,
             "blocking": self.blocking,
+            "document_type": self.document_type,
+            "identity": self.identity,
         }
-
-
-def validation_log(
-    merged: list[Finding], published: list[Finding], accepted: dict[str, str]
-) -> list[LoggedFinding]:
-    """Journal du brouillon : chaque entrée de la vue fusionnée, marquée
-    préexistante si la même (règle, objet, message) existe côté publié, et
-    acceptée si l'avertissement a été accepté sur ce même contenu."""
-    before = {f.key for f in published}
-    return [
-        LoggedFinding(
-            finding=f,
-            preexisting=f.key in before,
-            accepted=f.level == "warning" and accepted.get(f.key) == f.fingerprint,
-        )
-        for f in merged
-    ]
 
 
 def blocking(log: list[LoggedFinding]) -> list[LoggedFinding]:

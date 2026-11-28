@@ -106,3 +106,52 @@ Un enregistrement isolé ne lance pas de passe : il marque le fichier `a_valider
 sur total), le nombre de demandes en attente, la position du brouillon de la personne
 et de la branche publiée, et leur état dans l'index (fichiers, à valider, en erreur,
 dernière passe réussie).
+
+## Règles de validation par type de document, et règle d'or (ticket d7139b17)
+
+Gael : « La validation dépend en premier du type de document. On valide le document,
+les références et les règles entre fichiers. » Code : `doc_index/rules.py`, déclarations
+dans le registre (`mcp_surface/document_types.py`, champ `validation`).
+
+- **Déclaration** : chaque type de document liste ses règles (`RuleDeclaration` : nom,
+  portée `document` / `references` / `cross_file`, niveau `error` bloquant ou
+  `warning` informatif). Ajouter une règle revient à la déclarer ici, sans toucher à
+  la publication.
+- **Niveau** : le niveau déclaré est le plus haut que la règle peut donner pour ce
+  type. Un fichier raw (`sources/<source>/raw/…`) ne bloque jamais, qu'il ait un type
+  ou non. Un fichier hors registre (déclaration d'import, extension d'un type…) garde
+  le niveau de la règle.
+- **Document seul** : fichier lisible (`parseable`, celui d'avant, appelé fichier par
+  fichier), description d'un dataset (`dataset_description`). Réutilisé pour la même
+  empreinte et la même version des règles (`RULES_VERSION`).
+- **Références** (`references`) : chaque identité citée existe dans la vue (clés de
+  l'index). Une relation qui cite un objet supprimé est en erreur, avec un lien vers
+  la relation.
+- **Entre fichiers** : les règles d'avant, mêmes constats (`source_manifest`,
+  `broken_ref`, `orphan_asset`, `governance`, `domain`), plus la cartographie (`carto` :
+  schéma du type, relation permise par les règles effectives, clés…) et les
+  référentiels (`referentiel` : modèle, valeurs).
+
+| Type de document | Règles |
+|---|---|
+| tous les types écrits | `parseable` ; `references` là où ils citent |
+| `carto_type`, `carto_objet` | `carto` |
+| `dataset` | `dataset_description`, `domain` |
+| `domaine`, `relation_dataset`, `reference_dataset` | `domain` |
+| `tag`, `classification`, `certification`, `regle_tag`, `regle_classification` | `governance` |
+| `source`, `regles_tri` | `source_manifest` |
+| `referentiel_modele`, `referentiel_valeur` | `referentiel` |
+| `schema_asset` | `broken_ref` (bloquant), `orphan_asset` (informatif) |
+| `schema_raw`, `extension_raw`, `point_entree` | informatif seulement |
+
+**Règle d'or** (Gael) : « tu ne peux pousser que des choses valides et conformes ».
+- Le journal de validation (page de publication, `get_validation_log`, conditions de
+  publication) se lit dans l'index, après une passe à jour sur la vue de la personne
+  (`Validation.ensure`, par la file).
+- Une erreur bloque, qu'elle soit dans le brouillon ou non, qu'elle ait existé avant
+  ou non (`validation_errors`). Rien ne se publie tant que la vue a des fichiers à
+  valider ou n'a pas été comparée (`validation_pending`). Un avertissement ne bloque
+  jamais.
+- Supprimés : l'erreur « préexistante » qui ne bloquait pas, l'acceptation d'un
+  avertissement (route, primitive `accept_validation_warning`, ligne du commit ;
+  migration `0056`).

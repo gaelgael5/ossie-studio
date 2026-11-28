@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ossie_studio.drafts.validation import blocking, run_rules, validation_log
+from ossie_studio.drafts.validation import LoggedFinding, blocking, run_rules
 
 
 def _put(view: Path, rel: str, text: str) -> None:
@@ -64,26 +64,18 @@ def test_contenu_sain_aucune_entree(tmp_path: Path) -> None:
     assert run_rules(tmp_path) == []
 
 
-def test_erreur_preexistante_non_bloquante(tmp_path: Path) -> None:
-    published = tmp_path / "publie"
-    merged = tmp_path / "fusion"
-    for view in (published, merged):
-        _put(view, "sources/vieux/manifest.yaml", "slug: [cassé")
+def test_regle_d_or_une_erreur_preexistante_bloque(tmp_path: Path) -> None:
+    """Ticket d7139b17 : une erreur déjà présente côté publié bloque aussi (« sinon
+    personne ne corrige les problèmes ») ; un avertissement ne bloque jamais et ne
+    s'accepte plus."""
+    _put(tmp_path, "sources/vieux/manifest.yaml", "slug: [cassé")
     _put(
-        merged,
+        tmp_path,
         "sources/s/raw/Order.schema.yaml",
         json.dumps({"properties": {"u": {"$ref": "X.schema.yaml"}}}),
     )
-    log = validation_log(run_rules(merged), run_rules(published), {})
-    states = {(e.finding.rule, e.preexisting, e.blocking) for e in log}
-    assert states == {("parseable", True, False), ("broken_ref", False, True)}
-    assert [e.finding.rule for e in blocking(log)] == ["broken_ref"]
-
-
-def test_avertissement_accepte_puis_caduc_si_l_objet_change(tmp_path: Path) -> None:
     _put(tmp_path, "sources/s/assets/Seul.schema.yaml", "{}")
-    first = run_rules(tmp_path)
-    accepted = {first[0].key: first[0].fingerprint}
-    assert validation_log(first, [], accepted)[0].accepted is True
-    _put(tmp_path, "sources/s/assets/Seul.schema.yaml", '{"x": 1}')
-    assert validation_log(run_rules(tmp_path), [], accepted)[0].accepted is False
+    log = [LoggedFinding(f) for f in run_rules(tmp_path)]
+    assert sorted(e.finding.rule for e in blocking(log)) == ["broken_ref", "parseable"]
+    assert {e.finding.rule for e in log if not e.blocking} == {"orphan_asset"}
+    assert all("accepted" not in e.payload() and "preexisting" not in e.payload() for e in log)

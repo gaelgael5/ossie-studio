@@ -57,6 +57,7 @@ from ossie_studio.mcp_surface.document_type_base import (
     Lister,
     ListFilter,
     Location,
+    RuleDeclaration,
     Store,
 )
 from ossie_studio.parsers.application import extend_file, key_of
@@ -121,6 +122,9 @@ class DocumentType:
     # valeur de ce champ (le type d'un objet → le document carto_type de ce slug).
     typed_by: str | None = None
     schema_document_type: str | None = None
+    # Les règles de validation du type de document (ticket d7139b17) : ajouter une règle
+    # revient à la déclarer ici, sans toucher à la publication (`doc_index/rules.py`).
+    validation: tuple[RuleDeclaration, ...] = ()
 
     def locate(
         self, root: Path | None, identity: Mapping[str, Any], path: str | None = None
@@ -443,9 +447,26 @@ _SLUG = "lowercase letters, digits and dashes"
 _SOURCE_SLUG = "Slug of the source (list_documents, document type 'source')."
 _KEY = "uppercase letters, digits and dashes"
 
+
+# --- Règles de validation par type de document (ticket d7139b17) -------------------------------
+# Gael : « La validation dépend en premier du type de document. On valide le document,
+# les références et les règles entre fichiers. » Le moteur est `doc_index/rules.py`.
+_READABLE = RuleDeclaration("parseable", "document")
+_REFERENCES = RuleDeclaration("references", "references")
+# Le raw : « pas de contrainte, puisque c'est juste de la récupération » (au plus une
+# information).
+_RAW_READABLE = RuleDeclaration("parseable", "document", "warning")
+_RAW_REFERENCES = RuleDeclaration("references", "references", "warning")
+_CARTO = RuleDeclaration("carto", "cross_file")
+_GOVERNANCE = RuleDeclaration("governance", "cross_file")
+_DOMAIN = RuleDeclaration("domain", "cross_file")
+_MANIFEST = RuleDeclaration("source_manifest", "cross_file")
+_REFERENTIEL = RuleDeclaration("referentiel", "cross_file")
+
 DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     DocumentType(
         name="carto_type",
+        validation=(_READABLE, _CARTO, _REFERENCES),
         description="A type of the map: its ArchiMate type and its added properties.",
         label="type de cartographie",
         identity=(IdentityField("slug", "Slug of the type.", f"{_SLUG}, e.g. 'application'"),),
@@ -460,6 +481,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="carto_objet",
+        validation=(_READABLE, _CARTO, _REFERENCES),
         description=(
             "An object of the map, or a relationship (an object of a relationship type, "
             "with source and cible)."
@@ -484,6 +506,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="carto_modele",
+        validation=(_READABLE, _REFERENCES),
         description="A model of the map: the objects it keeps and its views.",
         label="modèle de cartographie",
         identity=(IdentityField("slug", "Slug of the model.", _SLUG),),
@@ -499,6 +522,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="carto_graphique",
+        validation=(_READABLE,),
         description="The drawing of a model: positions and sizes per view.",
         label="graphique d'un modèle",
         identity=(IdentityField("slug", "Slug of the model.", _SLUG),),
@@ -512,6 +536,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="carto_regles",
+        validation=(_READABLE,),
         description="A rules file: how the types of the space translate to ArchiMate.",
         label="règles de cartographie",
         identity=(IdentityField("slug", "Slug of the rules file.", f"{_SLUG}, e.g. 'standard'"),),
@@ -525,6 +550,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="processus",
+        validation=(_REFERENCES,),
         description=(
             "A BPMN 2.0 process (XML, diagram included) detailing a business process of the map."
         ),
@@ -545,6 +571,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="referentiel_modele",
+        validation=(_READABLE, _REFERENTIEL),
         description="The model (JSON Schema) of a reference list.",
         label="modèle de référentiel",
         identity=(IdentityField("referentiel", "Slug of the reference list.", _SLUG),),
@@ -558,6 +585,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="referentiel_valeur",
+        validation=(_READABLE, _REFERENTIEL),
         description=(
             "One value of a reference list, designated by its key (never the whole values file)."
         ),
@@ -583,6 +611,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="tag",
+        validation=(_READABLE, _GOVERNANCE),
         description="A governance tag (hierarchy by '/').",
         label="tag",
         identity=(IdentityField("id", "Id of the tag.", "segments [a-z0-9_-] joined by '/'"),),
@@ -597,6 +626,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="classification",
+        validation=(_READABLE, _GOVERNANCE),
         description="A classification scheme with its ordered levels.",
         label="classification",
         identity=(IdentityField("id", "Id of the classification.", "a safe name"),),
@@ -611,6 +641,7 @@ DOCUMENT_TYPES: tuple[DocumentType, ...] = (
     ),
     DocumentType(
         name="certification",
+        validation=(_READABLE, _GOVERNANCE),
         description="A certification that can be granted to assets.",
         label="certification",
         identity=(IdentityField("slug", "Slug of the certification.", f"{_SLUG}, e.g. 'or'"),),
@@ -672,6 +703,7 @@ DOCUMENT_TYPES = (
     *DOCUMENT_TYPES,
     DocumentType(
         name="regle_tag",
+        validation=(_READABLE, _GOVERNANCE),
         description=(
             "A tag rule: puts governed tags on raw objects from what the code says of them. "
             "Native rules (provided by Ossie) are listed too: only 'enabled' changes."
@@ -689,6 +721,7 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="regle_classification",
+        validation=(_READABLE, _GOVERNANCE),
         description=(
             "A classification rule: gives a classification level to fields or objects. "
             "Native rules (provided by Ossie) are listed too: only 'enabled' changes."
@@ -708,6 +741,7 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="regles_tri",
+        validation=(_READABLE, _MANIFEST),
         description=(
             "The sorting rules of a source (they set noise aside in the curation): the "
             "whole list, in the source's manifest. Nothing else of the manifest is touched."
@@ -724,6 +758,7 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="profil_relation",
+        validation=(_READABLE,),
         description=(
             "A relation profile: naming conventions that give the virtual relations of SQL "
             "sources without declared foreign keys (e.g. ACCOUNT_HK points to "
@@ -757,6 +792,7 @@ DOCUMENT_TYPES = (
     *DOCUMENT_TYPES,
     DocumentType(
         name="domaine",
+        validation=(_READABLE, _DOMAIN),
         description=(
             "A domain: an Ossie semantic model (its datasets, relationships and references "
             "are document types of their own). Its label and description."
@@ -775,6 +811,12 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="dataset",
+        validation=(
+            _READABLE,
+            _DOMAIN,
+            RuleDeclaration("dataset_description", "document"),
+            _REFERENCES,
+        ),
         description=(
             "A dataset of a domain: its Ossie 0.1.1 part (as the Ossie document writes it) "
             "and its extension part. Ossie stores it in the right file."
@@ -792,6 +834,7 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="relation_dataset",
+        validation=(_READABLE, _DOMAIN, _REFERENCES),
         description=(
             "An Ossie relationship (foreign key) between two datasets of a domain, "
             "consultable both or virtual both."
@@ -810,6 +853,7 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="reference_dataset",
+        validation=(_READABLE, _DOMAIN, _REFERENCES),
         description=(
             "An object link between two datasets without key columns (a property pointing "
             "to another object): an extension, Ossie 0.1.1 cannot express it."
@@ -839,6 +883,7 @@ DOCUMENT_TYPES = (
     *DOCUMENT_TYPES,
     DocumentType(
         name="source",
+        validation=(_READABLE, _MANIFEST),
         description=(
             "A data source declared in the space: its manifest (label, type, connection name, "
             "parameters, relation profiles, sorting rules). Read-only: produced by "
@@ -860,6 +905,7 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="contrat",
+        validation=(_READABLE,),
         description=(
             "An OpenAPI contract deposited on an OpenAPI source, one per version: its content "
             "as deposited. Read-only: produced by deposit_contract and remove_contract."
@@ -881,6 +927,7 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="schema_raw",
+        validation=(_RAW_READABLE, RuleDeclaration("broken_ref", "cross_file", "warning")),
         description=(
             "A raw schema collected from a source (one per object: table, entity, API "
             "schema). Read-only: produced by collect_source."
@@ -901,6 +948,7 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="extension_raw",
+        validation=(_RAW_READABLE, _RAW_REFERENCES),
         description=(
             "The extension of a raw object, written by the parser next to its schema: the "
             "methods of a class, the free functions of a module, their entry points (HTTP "
@@ -922,6 +970,7 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="point_entree",
+        validation=(_RAW_READABLE,),
         description=(
             "An entry point of the code: an HTTP route (verb and route), a background task or "
             "a message consumer, with the method and the class or module that carries it, its "
@@ -960,6 +1009,11 @@ DOCUMENT_TYPES = (
     ),
     DocumentType(
         name="schema_asset",
+        validation=(
+            _READABLE,
+            RuleDeclaration("broken_ref", "cross_file"),
+            RuleDeclaration("orphan_asset", "cross_file", "warning"),
+        ),
         description=(
             "The schema of an asset retained from a raw object for the semantic layer. "
             "Read-only: produced by retain_asset, enrich_asset and refresh_assets."
