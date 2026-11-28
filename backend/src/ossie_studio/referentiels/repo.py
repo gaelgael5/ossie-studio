@@ -17,13 +17,15 @@ from ossie_studio.imports import files
 from ossie_studio.imports.declaration import Import, ImportDeclaration
 from ossie_studio.imports.errors import ImportsError
 from ossie_studio.referentiels.errors import ReferentielError
-from ossie_studio.referentiels.model import dump_model, load_model, validate_model
+from ossie_studio.referentiels.model import dump_model, load_model, model_key, validate_model
 from ossie_studio.referentiels.values import (
     dump_values,
+    key_of,
     load_values,
     sorted_values,
     validate_values,
 )
+from ossie_studio.roundtrip import write_document
 from ossie_studio.slugs import is_valid_slug
 
 REFERENTIELS_DIR = "referentiels"
@@ -115,12 +117,6 @@ def read_referentiel(root: Path, name: str) -> Referentiel:
 # --- Écriture -----------------------------------------------------------------------------
 
 
-def _write_text(root: Path, rel: str, text: str) -> None:
-    target = root / rel
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(text, encoding="utf-8")
-
-
 def write_referentiel(
     root: Path,
     name: str,
@@ -140,8 +136,17 @@ def write_referentiel(
         raise ReferentielError("referentiel_name_taken", 409, name=name)
     if not create and not exists:
         raise ReferentielError("referentiel_not_found", 404, name=name)
-    _write_text(root, model_path(name), dump_model(checked_model))
-    _write_text(root, values_path(name), dump_values(checked_model, checked_values))
+    # Aller-retour (14bb8eb8) : modèle et valeurs écrits sur le texte existant.
+    # Valeurs rapprochées par leur clé : l'ordre du fichier est gardé, une
+    # nouvelle valeur va à sa place dans l'ordre des clés (Gael, 28/11).
+    key = model_key(checked_model)
+    write_document(root / model_path(name), checked_model, dump_model)
+    write_document(
+        root / values_path(name),
+        sorted_values(checked_model, checked_values),
+        lambda values: dump_values(checked_model, values),
+        identity=lambda value: key_of(value, key) if isinstance(value, dict) else None,
+    )
     return Referentiel(
         name,
         checked_model,

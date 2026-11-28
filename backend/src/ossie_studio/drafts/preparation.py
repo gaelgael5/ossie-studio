@@ -222,7 +222,9 @@ def resolved_content(
         for conflict in merged.conflicts:
             value = _choice(resolutions[conflict.pointer], conflict)
             document = set_pointer(document, conflict.pointer, value)
-        return serialize(path, document)
+        # Les choix s'écrivent sur le résultat proposé (lui-même écrit sur le
+        # brouillon) : seules les lignes tranchées changent (14bb8eb8).
+        return serialize(path, document, like=merged.result)
     return merged.result
 
 
