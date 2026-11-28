@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ImportsTab } from './ImportsTab'
 import { referentielImports } from '../apiClient'
+import { UnsavedProvider } from '../referentiels/unsaved'
 
 // L'éditeur de Miles (Web Component servi par le serveur) est doublé par un champ,
 // comme dans Miles : la gouttière et le composant ont leurs propres tests.
@@ -145,7 +146,9 @@ function setup(
   )
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <ImportsTab spaceId="s1" branchId="b1" name="delais" imports={referentielImports('s1', 'b1', 'delais')} readOnly={options.readOnly ?? false} />
+      <UnsavedProvider>
+        <ImportsTab spaceId="s1" branchId="b1" name="delais" imports={referentielImports('s1', 'b1', 'delais')} readOnly={options.readOnly ?? false} />
+      </UnsavedProvider>
     </QueryClientProvider>,
   )
   return calls
@@ -419,6 +422,43 @@ describe('Imports — colonnes et modèle (ticket 221d832b)', () => {
     expect(JSON.parse(String(post.body))).toEqual({ column: 'Delai' })
   })
 
+  it('« Ajouter au modèle » en file : un 2e clic sans attendre, envoyés un par un (ticket 1ad8c077)', async () => {
+    const calls = setup()
+    // Deux colonnes sans propriété, et un ajout qui ne répond qu'à la demande.
+    const original = globalThis.fetch as unknown as (path: string, init?: RequestInit) => Promise<Response>
+    const answers: (() => void)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string, init?: RequestInit) => {
+        const response = await original(path, init)
+        if (path === `${BASE}/transporteur/apercu`) {
+          const body = JSON.parse(await response.text())
+          body.comparison = body.comparison.map((c: { column: string }) => (c.column === 'Mode' ? { ...c, property: null } : c))
+          body.properties = ['pays', 'duree']
+          return { ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(body)) } as unknown as Response
+        }
+        if (path === `${BASE}/transporteur/proprietes`) await new Promise<void>((done) => answers.push(done))
+        return response
+      }),
+    )
+    const user = userEvent.setup()
+    const table = await screen.findByRole('table', { name: 'Colonnes du fichier et propriétés du modèle' })
+    const delai = await within(table).findByRole('button', { name: 'Ajouter la colonne Delai au modèle' })
+    const mode = await within(table).findByRole('button', { name: 'Ajouter la colonne Mode au modèle' })
+    await user.click(delai)
+    expect(delai).toBeDisabled()
+    expect(delai).toHaveTextContent('Ajout en cours… (delai)')
+    expect(mode).toBeEnabled()
+    await user.click(mode)
+    const posts = () => calls.filter((c) => c.path === `${BASE}/transporteur/proprietes`).map((c) => JSON.parse(String(c.body)).column)
+    await waitFor(() => expect(answers).toHaveLength(1))
+    expect(posts()).toEqual(['Delai'])
+    answers[0]()
+    await waitFor(() => expect(answers).toHaveLength(2))
+    expect(posts()).toEqual(['Delai', 'Mode'])
+    answers[1]()
+  })
+
   it('sans le droit de modifier : la liste sans bouton', async () => {
     setup({ readOnly: true })
     const table = await screen.findByRole('table', { name: 'Colonnes du fichier et propriétés du modèle' })
@@ -481,3 +521,50 @@ describe('Imports — « Résoudre le template » (ticket 0598c41b)', () => {
 
 })
 
+describe('Imports — ouvrir un autre import avec des modifications en attente (bug 9cf80cdb)', () => {
+  const OTHER = { ...DETAIL, slug: 'autre', label: 'Autre', example_size: 0 }
+
+  it('template modifié : la fenêtre le demande ; Rester garde le texte', async () => {
+    setup({ imports: [DETAIL, OTHER] })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: '3. Template JSLT' }))
+    await user.type(screen.getByLabelText('Template JSLT'), 'x')
+    await user.click(screen.getByRole('button', { name: 'Autre' }))
+    expect(screen.getByRole('dialog', { name: 'Modifications non enregistrées' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Rester' }))
+    expect(screen.getByRole('heading', { name: 'Transporteur' })).toBeInTheDocument()
+    expect((screen.getByLabelText('Template JSLT') as HTMLTextAreaElement).value.endsWith('x')).toBe(true)
+  })
+
+  it('Continuer sans enregistrer : l’autre import s’ouvre, rien n’est envoyé', async () => {
+    const calls = setup({ imports: [DETAIL, OTHER] })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: '3. Template JSLT' }))
+    await user.type(screen.getByLabelText('Template JSLT'), 'x')
+    await user.click(screen.getByRole('button', { name: 'Autre' }))
+    await user.click(screen.getByRole('button', { name: 'Continuer sans enregistrer' }))
+    // La doublure rend le libellé de DETAIL : l'import ouvert se reconnaît à son slug.
+    expect(await screen.findByText('autre')).toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'PUT' && c.path.endsWith('/template'))).toBe(false)
+  })
+
+  it('Enregistrer et continuer : le template est enregistré, puis l’autre import s’ouvre', async () => {
+    const calls = setup({ imports: [DETAIL, OTHER] })
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('tab', { name: '3. Template JSLT' }))
+    await user.type(screen.getByLabelText('Template JSLT'), 'x')
+    await user.click(screen.getByRole('button', { name: 'Autre' }))
+    await user.click(screen.getByRole('button', { name: 'Enregistrer et continuer' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.path === `${BASE}/transporteur/template`)).toBe(true))
+    // La doublure rend le libellé de DETAIL : l'import ouvert se reconnaît à son slug.
+    expect(await screen.findByText('autre')).toBeInTheDocument()
+  })
+
+  it('sans modification : l’autre import s’ouvre directement', async () => {
+    setup({ imports: [DETAIL, OTHER] })
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Autre' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // La doublure rend le libellé de DETAIL : l'import ouvert se reconnaît à son slug.
+    expect(await screen.findByText('autre')).toBeInTheDocument()
+  })
+})

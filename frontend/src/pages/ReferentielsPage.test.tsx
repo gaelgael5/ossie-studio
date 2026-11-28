@@ -252,3 +252,50 @@ describe('Référentiels — liste filtrable, valeurs et paramétrage (ticket aa
     expect(screen.queryByRole('link', { name: 'Paramétrer Délais' })).not.toBeInTheDocument()
   })
 })
+
+describe('Référentiels — aller sur Imports avec un modèle non enregistré (bug 9cf80cdb)', () => {
+  const modify = async () => {
+    expect(await screen.findByText('referentiels/delais/modele.schema.yaml', { exact: false })).toBeInTheDocument()
+    await userEvent.setup().click(within(screen.getByRole('region', { name: 'Clé' })).getByRole('button', { name: 'Descendre pays' }))
+  }
+
+  it('la fenêtre le demande ; Rester garde l’onglet Modèle et la modification', async () => {
+    setup('/referentiels/delais/parametrage')
+    await modify()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: /Imports/ }))
+    expect(screen.getByRole('dialog', { name: 'Modifications non enregistrées' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Rester' }))
+    expect(screen.getByRole('tab', { name: /Modèle/ })).toHaveAttribute('aria-selected', 'true')
+    expect((screen.getByLabelText('YAML') as HTMLTextAreaElement).value).toMatch(/x-key:\n {2}- mode\n {2}- pays/)
+  })
+
+  it('Enregistrer et continuer : le modèle est enregistré, puis Imports s’ouvre', async () => {
+    const calls = setup('/referentiels/delais/parametrage')
+    await modify()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: /Imports/ }))
+    await user.click(screen.getByRole('button', { name: 'Enregistrer et continuer' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true))
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Imports/ })).toHaveAttribute('aria-selected', 'true'))
+  })
+
+  it('Continuer sans enregistrer : le modèle revient à la version enregistrée', async () => {
+    const calls = setup('/referentiels/delais/parametrage')
+    await modify()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('tab', { name: /Imports/ }))
+    await user.click(screen.getByRole('button', { name: 'Continuer sans enregistrer' }))
+    expect(screen.getByRole('tab', { name: /Imports/ })).toHaveAttribute('aria-selected', 'true')
+    expect(calls.some((c) => c.method === 'PUT')).toBe(false)
+    await user.click(screen.getByRole('tab', { name: /Modèle/ }))
+    expect((screen.getByLabelText('YAML') as HTMLTextAreaElement).value).toMatch(/x-key:\n {2}- pays\n {2}- mode/)
+  })
+
+  it('l’Historique ne dépend pas du modèle non enregistré : pas de fenêtre', async () => {
+    setup('/referentiels/delais/parametrage')
+    await modify()
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Historique' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
