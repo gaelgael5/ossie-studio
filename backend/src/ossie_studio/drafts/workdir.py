@@ -19,7 +19,15 @@ from typing import TypeVar
 import asyncpg
 import structlog
 
+from ossie_studio.doc_index.service import (
+    Comparison,
+    compare_draft,
+    compare_published,
+    record_draft_write,
+)
+from ossie_studio.doc_index.store import ViewKey
 from ossie_studio.drafts.store import (
+    DraftChange,
     DraftObject,
     DraftObjectTooLargeError,
     DraftPathError,
@@ -242,6 +250,7 @@ class DraftWorkdir:
                     head_commit=ctx.head,
                     changes=changes,
                 )
+                await self._index(conn, space_id, ctx, before, changes)
                 if draft is None:
                     return True, DraftState(draft_id=None, revision=0, objects=[])
                 objects = await db_list_objects(conn, draft.id)
@@ -251,7 +260,74 @@ class DraftWorkdir:
             raise WorkdirError("draft_object_too_large") from None
         return True, DraftState(draft_id=draft.id, revision=draft.revision, objects=objects)
 
+    async def _index(
+        self,
+        conn: asyncpg.Connection,
+        space_id: uuid.UUID,
+        ctx: ViewContext,
+        before: DraftState,
+        changes: list[DraftChange],
+    ) -> None:
+        """L'index des documents (enabler 15863091) suit chaque enregistrement, par
+        n'importe quel écrivain (écran, agent, import, collecte) : c'est le seul point
+        où les services écrivent dans le brouillon. Les fichiers dont le contenu a
+        changé prennent leur nouvelle empreinte et passent `a_valider`, comme ceux qui
+        les citent. Un cache : son échec est journalisé, jamais celui de l'écriture."""
+        previous = {o.path: o for o in before.objects}
+        current = {c.path: c for c in changes}
+        writes: dict[str, bytes | None] = {}
+        for path in previous.keys() | current.keys():
+            old, new = previous.get(path), current.get(path)
+            if new is not None:
+                if old is None or old.content != new.content:
+                    writes[path] = new.content
+            elif old is not None:
+                # Retour à la version publiée : son contenu est celui de la tête.
+                writes[path] = await _blob_bytes(ctx.path, ctx.env, old.base_blob)
+        if not writes:
+            return
+        key = ViewKey(space_id, self.branch_id, self.user_id)
+        overrides = {c.path: c.content for c in changes}
+        try:
+            async with conn.transaction():
+                await record_draft_write(conn, key, ctx.head, writes, overrides)
+        except Exception:  # un cache ne fait jamais échouer une écriture
+            log.exception("doc_index_write_failed", space_id=str(space_id))
+
     # --- Lectures ------------------------------------------------------------
+
+    async def compare_index(
+        self,
+        space_id: uuid.UUID,
+        slug: str,
+        repo_url: str,
+        username: str,
+        token: str | None,
+    ) -> tuple[Comparison, Comparison]:
+        """Compare à Git, dans l'index des documents (enabler 15863091), la vue publiée
+        de la branche puis celle du brouillon de la personne : un fichier nouveau ou
+        changé est indexé et passe `a_valider`, un fichier disparu est retiré ; ceux
+        qui les citent passent `a_valider`. Rend (publiée, brouillon)."""
+
+        async def fn(ctx: ViewContext) -> tuple[tuple[Comparison, Comparison], None]:
+            state = await self._state()
+            overrides = {o.path: o.content for o in state.objects}
+            key = ViewKey(space_id, self.branch_id, self.user_id)
+            async with self._db() as conn, conn.transaction():
+                published = await compare_published(conn, key, ctx.path, ctx.env, ctx.head)
+                draft = await compare_draft(conn, key, ctx.path, ctx.env, ctx.head, overrides)
+            return (published, draft), None
+
+        return await self._views.run(
+            space_id=space_id,
+            slug=slug,
+            repo_url=repo_url,
+            username=username,
+            token=token,
+            user_id=self.user_id,
+            load=self._state,
+            fn=fn,
+        )
 
     async def read_branch(
         self,
