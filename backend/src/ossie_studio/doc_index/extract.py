@@ -23,6 +23,11 @@ validation le dira, ticket des règles). Un fichier que rien ne reconnaît non p
 `INDEXER_VERSION` : à augmenter quand l'extraction change ; un contenu indexé par une
 version plus ancienne est réindexé.
 
+**Faits** (ticket 4618ee38) : pour un fichier de `sources/<source>/`, l'index garde
+aussi ce que l'Explorateur et la curation en lisent (`sources/raw_facts.py`) ; les
+listes de schémas raw, d'assets, d'extensions et de points d'entrée se calculent sans
+relire les fichiers.
+
 **Cartographie** (ticket 06171fd3, la recherche passe par l'index) : un type et un objet
 sont aussi lus par le service de la cartographie (`parse_type`, `parse_object`), aux
 mêmes chemins que `read_cartographie` ; leurs champs gardent ce qu'il en lit
@@ -44,7 +49,7 @@ from ossie_studio.cartographie.model import parse_object, parse_type
 from ossie_studio.cartographie.summary import excerpt, shown_properties
 from ossie_studio.parsers.conventions import SchemaReadError, load_schema
 
-INDEXER_VERSION = 3
+INDEXER_VERSION = 4
 
 ANY_TYPE = "*"
 
@@ -70,6 +75,9 @@ class IndexedFile:
     documents: list[IndexedDocument] = field(default_factory=list)
     keys: list[str] = field(default_factory=list)
     refs: list[str] = field(default_factory=list)
+    # Les faits d'un fichier de `sources/<source>/` que lisent l'Explorateur et la
+    # curation (`sources/raw_facts.py`, ticket 4618ee38) ; None pour les autres.
+    facts: dict[str, Any] | None = None
 
 
 def path_key(path: str) -> str:
@@ -452,4 +460,8 @@ def index_file(path: str, data: bytes) -> IndexedFile:
             break
     keys = [path_key(path), *found.keys]
     refs = [r for r in dict.fromkeys(found.refs) if r not in keys]
-    return IndexedFile(found.documents, list(dict.fromkeys(keys)), refs)
+    # Import local : les faits viennent des services des sources, qui importent
+    # eux-mêmes des modules proches de l'index.
+    from ossie_studio.sources.raw_facts import file_facts
+
+    return IndexedFile(found.documents, list(dict.fromkeys(keys)), refs, file_facts(path, data))

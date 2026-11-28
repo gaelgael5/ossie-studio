@@ -11,7 +11,7 @@ sans table de correspondance) ; la partie **structurelle** vient du brut, le
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -167,9 +167,23 @@ def list_curation(
         assets_dir = safe_assets_path(workdir, slug)
     except ValueError:
         return []
+    return curation_objects(
+        _read_json_dir(raw_dir), read_asset_dir(assets_dir), rules, show_excluded
+    )
+
+
+def curation_objects(
+    raws: Mapping[str, dict[str, Any]],
+    assets: Mapping[str, dict[str, Any]],
+    rules: Sequence[TriRule] = (),
+    show_excluded: bool = False,
+) -> list[CurationObject]:
+    """Les objets de la curation, depuis les schémas lisibles de `raw/` et les assets
+    (joints à leur `.extend.yaml`), par nom de fichier : lus dans les fichiers
+    (`list_curation`) ou dans l'index des documents (ticket 4618ee38). Il suffit de
+    ce que lisent l'état de rétention et les règles de tri (titre, `$id`, nature,
+    `x-source`, noms des propriétés)."""
     rule_list = list(rules)
-    raws = _read_json_dir(raw_dir)
-    assets = read_asset_dir(assets_dir)
     objects: list[CurationObject] = []
     for name, raw in sorted(raws.items()):
         retained = _retained_state(raw, assets.get(name))

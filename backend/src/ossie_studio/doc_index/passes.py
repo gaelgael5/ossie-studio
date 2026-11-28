@@ -75,6 +75,7 @@ class ValidationBusy(Exception):
 class ValidationFailed(Exception):
     """La passe de la vue a échoué ; la vue n'est pas validée."""
 
+
 Problem = dict[str, object]
 Progress = Callable[[int, int], Awaitable[None]]
 
@@ -217,9 +218,7 @@ class Validation:
             findings = await asyncio.to_thread(run_rules, root, view_rules())
             async with self.pool.acquire() as conn, conn.transaction():
                 view = await store.db_ensure_view(conn, key)
-                result = await validate_view(
-                    conn, view, root, findings, progress, request.trigger
-                )
+                result = await validate_view(conn, view, root, findings, progress, request.trigger)
             _FULL_PASS_DONE.add(key)
             return result
 

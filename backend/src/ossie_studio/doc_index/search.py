@@ -49,9 +49,12 @@ def _path_order(path: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class Snapshot:
-    """Les documents de quelques types dans une vue, dans l'ordre des chemins."""
+    """Les documents de quelques types dans une vue, dans l'ordre des chemins ; et,
+    si demandé, les fichiers sous un préfixe avec leurs faits (chemin → empreinte,
+    faits ; ticket 4618ee38)."""
 
     docs: tuple[IndexedDoc, ...] = ()
+    files: Mapping[str, tuple[str, dict[str, Any] | None]] = field(default_factory=dict)
 
     def of(self, document_type: str) -> list[IndexedDoc]:
         return [d for d in self.docs if d.document_type == document_type]
@@ -72,13 +75,37 @@ async def _view_id(conn: asyncpg.Connection, key: ViewKey) -> int | None:
     return found
 
 
+async def facts_under(
+    conn: asyncpg.Connection, view_id: int, prefix: str
+) -> dict[str, tuple[str, dict[str, Any] | None]]:
+    """Les fichiers de la vue sous `prefix`, avec leur empreinte et leurs faits."""
+    rows = await conn.fetch(
+        """
+        SELECT f.path, c.blob, c.facts
+        FROM doc_index_file f JOIN doc_index_content c ON c.id = f.content_id
+        WHERE f.view_id = $1 AND starts_with(f.path, $2)
+        """,
+        view_id,
+        prefix,
+    )
+    return {r["path"]: (r["blob"], _json(r["facts"])) for r in rows}
+
+
 async def snapshot(
-    conn: asyncpg.Connection, key: ViewKey, document_types: Iterable[str]
+    conn: asyncpg.Connection,
+    key: ViewKey,
+    document_types: Iterable[str],
+    facts_prefix: str | None = None,
 ) -> Snapshot:
-    """Les documents des types demandés dans la vue `key`."""
+    """Les documents des types demandés dans la vue `key` ; avec `facts_prefix`, les
+    fichiers sous ce préfixe et leurs faits."""
     view_id = await _view_id(conn, key)
     if view_id is None:
         return Snapshot()
+    files = await facts_under(conn, view_id, facts_prefix) if facts_prefix else {}
+    wanted = sorted(set(document_types))
+    if not wanted:
+        return Snapshot((), files)
     rows = await conn.fetch(
         """
         SELECT f.path, c.blob, d.doc
@@ -88,7 +115,7 @@ async def snapshot(
         WHERE f.view_id = $1 AND d.doc->>'document_type' = ANY($2::text[])
         """,
         view_id,
-        sorted(set(document_types)),
+        wanted,
     )
     docs = []
     for r in rows:
@@ -104,7 +131,7 @@ async def snapshot(
             )
         )
     docs.sort(key=lambda d: _path_order(d.path))
-    return Snapshot(tuple(docs))
+    return Snapshot(tuple(docs), files)
 
 
 async def _files(

@@ -323,7 +323,9 @@ async def list_documents(ctx: PrimitiveContext, args: ListDocumentsArgs) -> dict
         # La recherche passe par l'index (ticket 06171fd3) : sans parcourir le dépôt.
         index_lister = doc_type.index_lister
         key = await bv.indexed_view()
-        snap = await search.snapshot(ctx.conn, key, doc_type.index_types)
+        snap = await search.snapshot(
+            ctx.conn, key, doc_type.index_types, facts_prefix=doc_type.index_facts
+        )
         try:
             items = index_lister(snap, query)
         except DOMAIN_ERRORS as exc:

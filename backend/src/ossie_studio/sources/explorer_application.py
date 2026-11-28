@@ -162,13 +162,19 @@ def module_files(entries: SourceEntries, module_file: str) -> list[str]:
 
 
 def module_detail(
-    entries: SourceEntries, module_file: str, read: Callable[[str], str | None]
+    entries: SourceEntries,
+    module_file: str,
+    read: Callable[[str], str | None],
+    load: Callable[[str], dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """L'aperçu d'un module : fichier de projet, nature, cibles, dépendances dans
     les deux sens, points d'entrée (verbe, route, méthode, état au contrat),
     fonctions propres du module (dont procédures et fonctions SQL) et méthodes
     publiques groupées par classe. `read` : contenu d'un fichier de
-    `raw/` (None s'il n'existe pas). None si le module est inconnu."""
+    `raw/` (None s'il n'existe pas). `load` : le `.extend.yaml` déjà lu (nom →
+    document), à la place de `read` (l'index des documents, ticket 4618ee38). None
+    si le module est inconnu."""
+    docs: Callable[[str], dict[str, Any]] = load or (lambda name: _load(read(name)))
     view = application_view(entries)
     module = next((m for m in view["modules"] if m["file"] == module_file), None)
     if module is None:
@@ -179,7 +185,7 @@ def module_detail(
     classes: list[dict[str, Any]] = []
     # Fonctions propres du module (minimal API, procédures et fonctions SQL…).
     functions: list[dict[str, Any]] = []
-    for function in _load(read(extend_file(key_of(module_file)))).get("functions") or []:
+    for function in docs(extend_file(key_of(module_file))).get("functions") or []:
         if not isinstance(function, dict):
             continue
         point = function.get("entryPoint")
@@ -195,7 +201,7 @@ def module_detail(
             entry["source"] = function.get("source")
             entry_points.append(entry)
     for obj in sorted(members, key=lambda o: o.title.casefold()):
-        doc = _load(read(extend_file(key_of(obj.file))))
+        doc = docs(extend_file(key_of(obj.file)))
         if not doc:
             continue
         own_point = doc.get("entryPoint")

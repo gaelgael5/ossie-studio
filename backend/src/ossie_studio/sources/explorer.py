@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 import subprocess
 import threading
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -42,7 +42,12 @@ from ossie_studio.parsers.conventions import (
 )
 from ossie_studio.parsers.markdown import DOCS_INDEX, parse_docs_index
 from ossie_studio.parsers.openapi_full import CONTRACTS_INDEX, parse_contracts_index
-from ossie_studio.sources.collect_core import RAW_DIR, TECH_MANIFEST_NAME, parse_tech_manifest
+from ossie_studio.sources.collect_core import (
+    RAW_DIR,
+    TECH_MANIFEST_NAME,
+    TechManifest,
+    parse_tech_manifest,
+)
 from ossie_studio.sources.manifest import ManifestError, parse_manifest
 from ossie_studio.sources.paths import (
     ASSETS_DIR,
@@ -136,6 +141,11 @@ def view_anchors(path: Path) -> tuple[tuple[str, str, str], ...]:
         text = path.read_text(encoding="utf-8") if path.is_file() else None
     except (OSError, UnicodeDecodeError):
         return ()
+    return anchors_of(text)
+
+
+def anchors_of(text: str | None) -> tuple[tuple[str, str, str], ...]:
+    """Les ancres choisies d'un `.view.yaml` donné par son texte (None : aucune)."""
     return tuple(
         (target, anchor_text(link.get("from")), anchor_text(link.get("to")))
         for target, link in custom_links(text).items()
@@ -511,11 +521,6 @@ def _view_name(schema_name: str) -> str:
     return f"{schema_name[: -len(SCHEMA_SUFFIX)]}.view.yaml"
 
 
-def _with_anchors(module: ModuleFacts | None, view: Path) -> ModuleFacts | None:
-    """Les faits d'un module complétés des ancres de son `.view.yaml`."""
-    return replace(module, anchors=view_anchors(view)) if module else None
-
-
 def extend_counts(path: Path) -> FunctionCounts:
     """Compteurs du `.extend.yaml` d'un objet (absent : zéro), relus seulement
     si le fichier a changé."""
@@ -668,11 +673,14 @@ def published_raw_blobs(workdir: Path, slug: str, base_sha: str | None) -> dict[
 
 
 @dataclass(frozen=True)
-class _SourceMeta:
+class SourceMeta:
     label: str
     type: str
     database: str
     rules: list[dict[str, Any]]
+
+
+_SourceMeta = SourceMeta
 
 
 def _read_source_meta(source_dir: Path, slug: str) -> _SourceMeta:
@@ -681,6 +689,11 @@ def _read_source_meta(source_dir: Path, slug: str) -> _SourceMeta:
         text = manifest_file.read_text(encoding="utf-8")
     except OSError:
         return _SourceMeta(slug, "", "", [])
+    return source_meta(text, slug)
+
+
+def source_meta(text: str, slug: str) -> SourceMeta:
+    """Ce que l'explorateur lit du manifeste d'une source, donné par son texte."""
     try:
         manifest = parse_manifest(text)
     except ManifestError:
@@ -717,16 +730,41 @@ def _lenient_meta(text: str, slug: str) -> _SourceMeta:
 def _tech_origins(raw_dir: Path) -> dict[str, tuple[str, str, str, str]]:
     """Schéma → (fichier d'origine, parseur, checksum, branche), d'après les manifestes techniques
     de `raw/` (`manifest.yaml` et un `manifest-<parseur>.yaml` par plugin)."""
-    out: dict[str, tuple[str, str, str, str]] = {}
-    index_files = sorted(raw_dir.glob("manifest*.yaml"))
-    for index_file in index_files:
+    manifests = []
+    for index_file in sorted(raw_dir.glob("manifest*.yaml")):
         try:
-            tech = parse_tech_manifest(index_file.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError, KeyError, TypeError, AttributeError):
+            text = index_file.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        manifests.append((index_file.name, read_tech_manifest(text)))
+    return tech_origins(manifests)
+
+
+def is_tech_manifest_name(name: str) -> bool:
+    """Un manifeste technique de `raw/` (`manifest.yaml`, `manifest-<parseur>.yaml`)."""
+    return name.startswith("manifest") and name.endswith(".yaml") and "/" not in name
+
+
+def read_tech_manifest(text: str) -> TechManifest | None:
+    """Le manifeste technique d'un texte ; None s'il est illisible."""
+    try:
+        return parse_tech_manifest(text)
+    except (yaml.YAMLError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def tech_origins(
+    manifests: Iterable[tuple[str, TechManifest | None]],
+) -> dict[str, tuple[str, str, str, str]]:
+    """Schéma → (fichier d'origine, parseur, checksum, branche), d'après les manifestes
+    techniques donnés par (nom de fichier, manifeste lu), dans l'ordre des noms."""
+    out: dict[str, tuple[str, str, str, str]] = {}
+    for name, tech in manifests:
+        if tech is None:
             continue
         default_parser = ""
-        if index_file.name != TECH_MANIFEST_NAME:
-            default_parser = index_file.name.removeprefix("manifest-").removesuffix(".yaml")
+        if name != TECH_MANIFEST_NAME:
+            default_parser = name.removeprefix("manifest-").removesuffix(".yaml")
         for source, entry in sorted(tech.entries.items()):
             for dest in entry.destinations:
                 out.setdefault(
@@ -740,8 +778,17 @@ def _read_docs(raw_dir: Path) -> list[ExplorerDocument]:
     if not index_file.is_file():
         return []
     try:
-        entries = parse_docs_index(index_file.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+        text = index_file.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return docs_of(text)
+
+
+def docs_of(text: str) -> list[ExplorerDocument]:
+    """Les documents de `raw/docs/`, d'après l'index des documents (son texte)."""
+    try:
+        entries = parse_docs_index(text)
+    except yaml.YAMLError:
         return []
     return [
         ExplorerDocument(
@@ -759,9 +806,15 @@ def _read_contracts(raw_dir: Path) -> list[ExplorerContract]:
     if not index_file.is_file():
         return []
     try:
-        entries = parse_contracts_index(index_file.read_text(encoding="utf-8"))
+        text = index_file.read_text(encoding="utf-8")
     except OSError:
         return []
+    return contracts_of(text)
+
+
+def contracts_of(text: str) -> list[ExplorerContract]:
+    """Les copies de contrats de `raw/contracts/`, d'après leur index (son texte)."""
+    entries = parse_contracts_index(text)
     return [
         ExplorerContract(e.path, e.source, e.title, e.version, e.operations)
         for e in sorted(entries.values(), key=lambda c: c.path)
@@ -978,6 +1031,27 @@ class SourceEntries:
         )
 
 
+@dataclass(frozen=True)
+class RawLayer:
+    """Ce que les entrées d'une source lisent de son `raw/` et de son `assets/`, d'où
+    que ça vienne : des fichiers (`collect_source_entries`) ou de l'index des documents
+    (`sources/raw_facts.py`, ticket 4618ee38). Les deux passent par
+    `build_source_entries` : mêmes règles, même résultat."""
+
+    # Les schémas de `raw/` (nom de fichier, résumé), dans l'ordre des noms.
+    schemas: list[tuple[str, SchemaSummary]]
+    origins: dict[str, tuple[str, str, str, str]]
+    # Les noms de fichiers de `assets/` (badge « retenu »).
+    retained: set[str]
+    # Le schéma complet (au moins ce que lisent les règles de tri), par nom.
+    full_schema: Callable[[str], dict[str, Any]]
+    # Les ancres du `.view.yaml` d'un schéma, et les compteurs de son `.extend.yaml`.
+    anchors: Callable[[str], tuple[tuple[str, str, str], ...]]
+    functions: Callable[[str], FunctionCounts]
+    documents: list[ExplorerDocument]
+    contracts: list[ExplorerContract]
+
+
 def collect_source_entries(
     workdir: Path, slug: str, *, published_base: str | None = None
 ) -> SourceEntries:
@@ -988,36 +1062,58 @@ def collect_source_entries(
     meta = _read_source_meta(source_dir, slug)
     raw_dir = source_dir / RAW_DIR
     if not raw_dir.is_dir():
-        return SourceEntries(slug, meta.label, meta.type, meta.database, False, [], [])
-
-    origins = _tech_origins(raw_dir)
+        return build_source_entries(slug, meta, None)
     assets_dir = source_dir / ASSETS_DIR
-    retained = (
-        {p.name for p in assets_dir.iterdir() if p.is_file()} if assets_dir.is_dir() else set()
+    layer = RawLayer(
+        schemas=[
+            (path.name, schema_summary(path))
+            for path in sorted(raw_dir.iterdir())
+            if path.is_file() and is_schema_name(path.name)
+        ],
+        origins=_tech_origins(raw_dir),
+        retained=(
+            {p.name for p in assets_dir.iterdir() if p.is_file()} if assets_dir.is_dir() else set()
+        ),
+        full_schema=lambda name: _full_schema(raw_dir / name),
+        anchors=lambda name: view_anchors(raw_dir / _view_name(name)),
+        functions=lambda name: extend_counts(raw_dir / _extend_name(name)),
+        documents=_read_docs(raw_dir),
+        contracts=_read_contracts(raw_dir),
     )
-    base_blobs = published_raw_blobs(workdir, slug, published_base)
-    rules: list[TriRule] = compile_rules(meta.rules) if meta.rules else []
+    return build_source_entries(
+        slug, meta, layer, published_raw_blobs(workdir, slug, published_base)
+    )
 
+
+def build_source_entries(
+    slug: str,
+    meta: SourceMeta,
+    layer: RawLayer | None,
+    base_blobs: dict[str, str] | None = None,
+) -> SourceEntries:
+    """Les entrées d'une source, depuis ce qu'on a lu de sa couche raw (`layer` None :
+    pas de `raw/`, source jamais collectée). `base_blobs` : les schémas de la tête
+    publiée (nom → blob), base des badges « nouveau » / « modifié » ; None : aucun."""
+    if layer is None:
+        return SourceEntries(slug, meta.label, meta.type, meta.database, False, [], [])
+    rules: list[TriRule] = compile_rules(meta.rules) if meta.rules else []
     objects: list[ExplorerObject] = []
-    for path in sorted(raw_dir.iterdir()):
-        if not (path.is_file() and is_schema_name(path.name)):
-            continue
-        summary = schema_summary(path)
-        origin, parser, checksum, branch = origins.get(path.name, ("", "", "", ""))
+    for name, summary in layer.schemas:
+        origin, parser, checksum, branch = layer.origins.get(name, ("", "", "", ""))
         if not origin and summary.origins:
             origin = summary.origins[0]
         badges: list[str] = []
-        if path.name in retained:
+        if name in layer.retained:
             badges.append(BADGE_RETAINED)
         if base_blobs is not None:
-            known = base_blobs.get(path.name)
+            known = base_blobs.get(name)
             if known is None:
                 badges.append(BADGE_NEW)
             elif known != summary.blob:
                 badges.append(BADGE_MODIFIED)
         excluded_by = ""
         if rules and not summary.error:
-            rule = object_excluded(_full_schema(path), rules)
+            rule = object_excluded(layer.full_schema(name), rules)
             if rule is not None:
                 badges.append(BADGE_EXCLUDED)
                 excluded_by = rule_label(rule)
@@ -1025,8 +1121,8 @@ def collect_source_entries(
             badges.append(BADGE_ERROR)
         objects.append(
             ExplorerObject(
-                file=path.name,
-                title=summary.title or path.stem,
+                file=name,
+                title=summary.title or Path(name).stem,
                 kind=summary.kind or "object",
                 fields=summary.fields,
                 origin=origin,
@@ -1043,8 +1139,10 @@ def collect_source_entries(
                 top_fields=summary.top_fields,
                 namespace=summary.namespace,
                 facts=ObjectFacts(summary.annotations, summary.field_names, summary.field_types),
-                module=_with_anchors(summary.module, raw_dir / _view_name(path.name)),
-                functions=extend_counts(raw_dir / _extend_name(path.name)),
+                module=(
+                    replace(summary.module, anchors=layer.anchors(name)) if summary.module else None
+                ),
+                functions=layer.functions(name),
             )
         )
     return SourceEntries(
@@ -1054,8 +1152,8 @@ def collect_source_entries(
         meta.database,
         True,
         objects,
-        _read_docs(raw_dir),
-        _read_contracts(raw_dir),
+        layer.documents,
+        layer.contracts,
     )
 
 

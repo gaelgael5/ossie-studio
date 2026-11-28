@@ -131,6 +131,9 @@ class DocumentType:
     # qu'elle lit dans l'index.
     index_lister: IndexLister | None = None
     index_types: tuple[str, ...] = ()
+    # Le préfixe des fichiers dont la liste lit les faits dans l'index (ticket
+    # 4618ee38) : `sources/` pour les schémas raw, assets, extensions, points d'entrée.
+    index_facts: str | None = None
 
     def locate(
         self, root: Path | None, identity: Mapping[str, Any], path: str | None = None
@@ -951,6 +954,8 @@ DOCUMENT_TYPES = (
         locator=_schema_file("schema_raw", RAW_DIR),
         store=stores.ReadOnlyStore("schéma raw", ("collect_source",)),
         lister=lists.raw_schemas,
+        index_lister=lists.raw_schemas_indexed,
+        index_facts="sources/",
         list_filters=(lists.RAW_KIND, lists.RAW_MODULE),
         writable=False,
         produced_by=("collect_source",),
@@ -974,6 +979,8 @@ DOCUMENT_TYPES = (
         locator=_raw_extension,
         store=stores.ReadOnlyStore("extension raw", ("collect_source",)),
         lister=lists.raw_extensions,
+        index_lister=lists.raw_extensions_indexed,
+        index_facts="sources/",
         list_filters=(lists.RAW_MODULE,),
         writable=False,
         produced_by=("collect_source",),
@@ -1013,6 +1020,8 @@ DOCUMENT_TYPES = (
         locator=_entry_point,
         store=lists.EntryPointStore("point d'entrée", ("collect_source",)),
         lister=lists.entry_points,
+        index_lister=lists.entry_points_indexed,
+        index_facts="sources/",
         list_filters=(lists.ENTRY_MODULE, lists.ENTRY_CONTRACT, lists.ENTRY_KIND),
         writable=False,
         produced_by=("collect_source",),
@@ -1039,6 +1048,8 @@ DOCUMENT_TYPES = (
             "schéma d'asset", ("retain_asset", "enrich_asset", "refresh_assets")
         ),
         lister=lists.asset_schemas,
+        index_lister=lists.asset_schemas_indexed,
+        index_facts="sources/",
         writable=False,
         produced_by=("retain_asset", "enrich_asset", "refresh_assets"),
         is_schema=True,

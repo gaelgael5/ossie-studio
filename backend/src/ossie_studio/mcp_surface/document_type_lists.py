@@ -14,6 +14,7 @@ recherche texte, la pagination et les versions sont communes (`document_reads`).
 from __future__ import annotations
 
 import sys
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -75,8 +76,13 @@ from ossie_studio.referentiels.values import key_of
 from ossie_studio.sources.asset_files import extend_name
 from ossie_studio.sources.collect_core import RAW_DIR
 from ossie_studio.sources.contracts import read_contracts_view
-from ossie_studio.sources.curation import list_curation, read_tri_rules, read_tri_rules_raw
-from ossie_studio.sources.explorer import collect_source_entries
+from ossie_studio.sources.curation import (
+    CurationObject,
+    list_curation,
+    read_tri_rules,
+    read_tri_rules_raw,
+)
+from ossie_studio.sources.explorer import SourceEntries, collect_source_entries
 from ossie_studio.sources.explorer_application import (
     application_view,
     members_by_module,
@@ -90,7 +96,9 @@ from ossie_studio.sources.paths import (
     is_valid_source_slug,
     source_rel_dir,
 )
+from ossie_studio.sources.raw_facts import IndexedSource, IndexedSources
 from ossie_studio.sources.service import read_sources_tree
+from ossie_studio.sources.tri import TriRule
 
 # --- Les filtres déclarés -----------------------------------------------------------------
 
@@ -483,7 +491,7 @@ def contracts(root: Path, query: ListQuery) -> list[Item]:
     """Ce que rendait `list_contracts` : chaque version déposée d'un contrat OpenAPI,
     ses faits de dépôt (index `contrats.yaml`) et si la collecte l'a pris."""
     out = []
-    for source in _sources(root, query):
+    for source in _sources(_FileSources(root), query):
         base = f"{source_rel_dir(source)}/{CONTRATS_DIR}"
         for view in read_contracts_view(root, source):
             entry = view.entry
@@ -507,10 +515,71 @@ def contracts(root: Path, query: ListQuery) -> list[Item]:
 # --- Schémas raw et d'assets, en lecture seule (ticket 56f3784a) --------------------------
 
 
-def _sources(root: Path, query: ListQuery) -> list[str]:
+class _FileSources:
+    """Les sources d'une vue, lues dans les fichiers."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def slugs(self) -> list[str]:
+        return [entry.slug for entry in read_sources_tree(self.root)]
+
+    def curation(self, source: str, rules: Any, show_excluded: bool) -> list[CurationObject]:
+        return list_curation(self.root, source, rules, show_excluded)
+
+    def tri_rules(self, source: str) -> list[TriRule]:
+        return read_tri_rules(self.root, source)
+
+    def application(self, source: str) -> _Application:
+        return _Application.read(self.root, source)
+
+    def extension(self, path: str) -> dict[str, Any] | None:
+        file = self.root / path
+        return _functions_summary(file) if file.is_file() else None
+
+    def version(self, path: str) -> str | None:
+        return None  # celle du fichier, calculée par la liste
+
+
+class _IndexSources:
+    """Les sources d'une vue, lues dans l'index des documents (ticket 4618ee38) : les
+    mêmes règles, nourries par les faits que l'index garde de chaque fichier."""
+
+    def __init__(self, snap: Snapshot) -> None:
+        self.files = snap.files
+        self.sources = IndexedSources(snap.files)
+
+    def slugs(self) -> list[str]:
+        return self.sources.slugs()
+
+    def curation(self, source: str, rules: Any, show_excluded: bool) -> list[CurationObject]:
+        return self.sources.source(source).curation(list(rules), show_excluded)
+
+    def tri_rules(self, source: str) -> list[TriRule]:
+        return self.sources.source(source).tri_rules()
+
+    def application(self, source: str) -> _Application:
+        return _Application.indexed(self.sources.source(source))
+
+    def extension(self, path: str) -> dict[str, Any] | None:
+        found = self.files.get(path)
+        if found is None:
+            return None
+        facts = (found[1] or {}).get("raw_extend") or {}
+        return dict(facts.get("summary") or {"readable": False})
+
+    def version(self, path: str) -> str | None:
+        found = self.files.get(path)
+        return found[0] if found is not None else None
+
+
+_Provider = _FileSources | _IndexSources
+
+
+def _sources(provider: _Provider, query: ListQuery) -> list[str]:
     """La source demandée (refus nommé si elle n'existe pas), ou toutes."""
     wanted = query.identity.get("source")
-    known = [entry.slug for entry in read_sources_tree(root)]
+    known = provider.slugs()
     if wanted is None:
         return known
     if wanted not in known:
@@ -529,10 +598,19 @@ class _Application:
     de l'Explorateur (même lecture de raw, mêmes règles) : ce que rendait
     `list_modules` pour chaque module, et les objets qui appartiennent à chacun."""
 
-    def __init__(self, root: Path, source: str) -> None:
-        view = application_view(entries := collect_source_entries(root, source))
+    def __init__(
+        self,
+        source: str,
+        entries: SourceEntries,
+        read: Callable[[str], str | None] | None = None,
+        load: Callable[[str], dict[str, Any]] | None = None,
+    ) -> None:
+        view = application_view(entries)
         modules: list[dict[str, Any]] = view["modules"]
-        self.root, self.source, self.entries, self.modules = root, source, entries, modules
+        self.source, self.entries, self.modules = source, entries, modules
+        # Les `.extend.yaml` de `raw/` : leur texte (fichiers) ou déjà lus (index).
+        self._read = read or (lambda _name: None)
+        self._load = load
         by_id = {m["id"]: m for m in modules}
         members = members_by_module(entries)
 
@@ -563,6 +641,22 @@ class _Application:
         self.members = {m["file"]: {o.file for o in members[m["id"]]} for m in modules}
         self.titles = {m["title"].casefold(): m["file"] for m in modules}
 
+    @classmethod
+    def read(cls, root: Path, source: str) -> _Application:
+        """La cartographie applicative d'une source, lue dans les fichiers."""
+        raw = root / source_rel_dir(source) / RAW_DIR
+
+        def text(name: str) -> str | None:
+            file = raw / name
+            return file.read_text(encoding="utf-8") if file.is_file() else None
+
+        return cls(source, collect_source_entries(root, source), read=text)
+
+    @classmethod
+    def indexed(cls, source: IndexedSource) -> _Application:
+        """La cartographie applicative d'une source, lue dans l'index des documents."""
+        return cls(source.slug, source.entries(), load=source.extension_document)
+
     def members_of(self, source: str, wanted: str) -> set[str]:
         """Les objets d'un module, désigné par son nom de schéma ou son titre."""
         return self.members[self.module_name(source, wanted)]
@@ -584,15 +678,9 @@ class _Application:
     def entry_points(self) -> list[tuple[dict[str, str], dict[str, Any]]]:
         """Les points d'entrée de chaque module, comme l'aperçu d'un module de la vue
         « Application » (`module_detail`) : (identité, contenu)."""
-        raw = self.root / source_rel_dir(self.source) / RAW_DIR
-
-        def read(name: str) -> str | None:
-            file = raw / name
-            return file.read_text(encoding="utf-8") if file.is_file() else None
-
         out = []
         for module in self.modules:
-            detail = module_detail(self.entries, module["file"], read) or {}
+            detail = module_detail(self.entries, module["file"], self._read, self._load) or {}
             out += [_entry_point(p, module) for p in detail.get("entry_points", [])]
         return out
 
@@ -632,12 +720,21 @@ def _extension_path(source: str, owner: str) -> str:
 def entry_points(root: Path, query: ListQuery) -> list[Item]:
     """Ce que rendait `list_entry_points` (ticket 15c43ed1) : les points d'entrée d'une
     source, filtrables par module, par état au contrat et par nature."""
+    return _entry_points(_FileSources(root), query)
+
+
+def entry_points_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    """`entry_points`, tirée de l'index des documents (ticket 4618ee38)."""
+    return _entry_points(_IndexSources(snap), query)
+
+
+def _entry_points(provider: _Provider, query: ListQuery) -> list[Item]:
     wanted_module = _module_filter(query)
     status = _given(query, "contract_status")
     nature = _given(query, "kind")
     out = []
-    for source in _sources(root, query):
-        app = _Application(root, source)
+    for source in _sources(provider, query):
+        app = provider.application(source)
         module = app.module_name(source, wanted_module) if wanted_module else None
         for identity, content in app.entry_points():
             if module is not None and content["module_name"] != module:
@@ -669,7 +766,7 @@ class EntryPointStore(ReadOnlyStore):
 
     def read(self, root: Path, location: Location) -> Document | None:
         source = str(location.identity["source"])
-        for identity, content in _Application(root, source).entry_points():
+        for identity, content in _Application.read(root, source).entry_points():
             if {"source": source, **identity} == dict(location.identity):
                 return Document(content, value_version(content), location.path or "")
         return None
@@ -690,14 +787,23 @@ def raw_schemas(root: Path, query: ListQuery) -> list[Item]:
     """Ce que rendait `list_raw_schemas` : chaque schéma collecté, son nombre de champs
     et s'il est retenu en asset. Un module porte en plus ce que rendait `list_modules`
     (ticket dcc52af7) ; filtres `kind` (nature de l'objet) et `module` (ses objets)."""
+    return _raw_schemas(_FileSources(root), query)
+
+
+def raw_schemas_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    """`raw_schemas`, tirée de l'index des documents (ticket 4618ee38)."""
+    return _raw_schemas(_IndexSources(snap), query)
+
+
+def _raw_schemas(provider: _Provider, query: ListQuery) -> list[Item]:
     wanted_kind = _given(query, "kind")
     wanted_module = _module_filter(query)
     out = []
-    for source in _sources(root, query):
+    for source in _sources(provider, query):
         directory = source_rel_dir(source)
-        objects = [o for o in list_curation(root, source, (), True) if not o.orphan]
+        objects = [o for o in provider.curation(source, (), True) if not o.orphan]
         needed = wanted_module is not None or any(o.kind == MODULE_KIND for o in objects)
-        app = _Application(root, source) if needed else None
+        app = provider.application(source) if needed else None
         members = app.members_of(source, wanted_module) if app and wanted_module else None
         for obj in objects:
             if wanted_kind is not None and obj.kind != wanted_kind:
@@ -706,12 +812,14 @@ def raw_schemas(root: Path, query: ListQuery) -> list[Item]:
                 continue
             summary = {"title": obj.title, "kind": obj.kind, "fields": obj.fields}
             module = app.summaries.get(obj.path, {}) if app else {}
+            path = f"{directory}/{RAW_DIR}/{obj.path}"
             out.append(
                 Item(
                     {"source": source, "name": obj.path},
                     obj.title or obj.path,
-                    f"{directory}/{RAW_DIR}/{obj.path}",
+                    path,
                     {**summary, "retained": obj.retained, **module},
+                    version=provider.version(path),
                 )
             )
     return out
@@ -735,13 +843,22 @@ def raw_extensions(root: Path, query: ListQuery) -> list[Item]:
     """Les objets raw qui ont une extension (`<clé>.extend.yaml` : méthodes d'une classe,
     fonctions libres d'un module), ce que lisait `get_functions` (ticket 2c069134).
     Filtre `module` : les objets d'un module (la règle de l'Explorateur)."""
+    return _raw_extensions(_FileSources(root), query)
+
+
+def raw_extensions_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    """`raw_extensions`, tirée de l'index des documents (ticket 4618ee38)."""
+    return _raw_extensions(_IndexSources(snap), query)
+
+
+def _raw_extensions(provider: _Provider, query: ListQuery) -> list[Item]:
     wanted_module = _module_filter(query)
     out = []
-    for source in _sources(root, query):
+    for source in _sources(provider, query):
         directory = f"{source_rel_dir(source)}/{RAW_DIR}"
-        objects = [o for o in list_curation(root, source, (), True) if not o.orphan]
+        objects = [o for o in provider.curation(source, (), True) if not o.orphan]
         members = (
-            _Application(root, source).members_of(source, wanted_module)
+            provider.application(source).members_of(source, wanted_module)
             if (wanted_module is not None)
             else None
         )
@@ -749,15 +866,16 @@ def raw_extensions(root: Path, query: ListQuery) -> list[Item]:
             if members is not None and obj.path not in members:
                 continue
             extension = f"{directory}/{extend_file(raw_key_of(obj.path))}"
-            file = root / extension
-            if not file.is_file():
+            summary = provider.extension(extension)
+            if summary is None:
                 continue
             out.append(
                 Item(
                     {"source": source, "name": obj.path},
                     obj.title or obj.path,
                     extension,
-                    {"title": obj.title, "kind": obj.kind, **_functions_summary(file)},
+                    {"title": obj.title, "kind": obj.kind, **summary},
+                    version=provider.version(extension),
                 )
             )
     return out
@@ -766,10 +884,19 @@ def raw_extensions(root: Path, query: ListQuery) -> list[Item]:
 def asset_schemas(root: Path, query: ListQuery) -> list[Item]:
     """Ce que rendait `list_assets` : chaque asset retenu, orphelin ou non (son raw a
     disparu), et la règle de tri qui l'écarte."""
+    return _asset_schemas(_FileSources(root), query)
+
+
+def asset_schemas_indexed(snap: Snapshot, query: ListQuery) -> list[Item]:
+    """`asset_schemas`, tirée de l'index des documents (ticket 4618ee38)."""
+    return _asset_schemas(_IndexSources(snap), query)
+
+
+def _asset_schemas(provider: _Provider, query: ListQuery) -> list[Item]:
     out = []
-    for source in _sources(root, query):
+    for source in _sources(provider, query):
         directory = source_rel_dir(source)
-        for obj in list_curation(root, source, read_tri_rules(root, source), True):
+        for obj in provider.curation(source, provider.tri_rules(source), True):
             if obj.retained == "none":
                 continue
             base = f"{directory}/{ASSETS_DIR}"
@@ -787,6 +914,7 @@ def asset_schemas(root: Path, query: ListQuery) -> list[Item]:
                     obj.title or obj.path,
                     f"{base}/{obj.path}",
                     summary,
+                    version=provider.version(f"{base}/{obj.path}"),
                     # Le travail humain sur l'asset (non publié s'il l'est).
                     related=(f"{base}/{extend_name(obj.path)}",),
                 )
@@ -856,7 +984,7 @@ def classification_rule_items(root: Path, query: ListQuery) -> list[Item]:
 def tri_rules(root: Path, query: ListQuery) -> list[Item]:
     """Les règles de tri de chaque source (la section `triage` de son manifeste)."""
     out = []
-    for source in _sources(root, query):
+    for source in _sources(_FileSources(root), query):
         rules = read_tri_rules_raw(root, source)
         out.append(
             Item(

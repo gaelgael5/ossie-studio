@@ -160,13 +160,14 @@ async def db_put_content(
     content_id = await conn.fetchval(
         """
         INSERT INTO doc_index_content
-            (space_id, path, blob, indexer_version, documents, keys, refs)
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+            (space_id, path, blob, indexer_version, documents, keys, refs, facts)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8::jsonb)
         ON CONFLICT (space_id, path, blob) DO UPDATE SET
             indexer_version = EXCLUDED.indexer_version,
             documents = EXCLUDED.documents,
             keys = EXCLUDED.keys,
             refs = EXCLUDED.refs,
+            facts = EXCLUDED.facts,
             problems = NULL,
             rules_version = NULL,
             indexed_at = now()
@@ -181,6 +182,7 @@ async def db_put_content(
         [d.payload() for d in indexed.documents],
         indexed.keys,
         indexed.refs,
+        indexed.facts,
     )
     assert isinstance(content_id, int)
     return content_id
