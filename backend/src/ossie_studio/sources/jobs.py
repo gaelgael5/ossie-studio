@@ -22,6 +22,7 @@ import structlog
 
 from ossie_studio.errors import ApiError
 from ossie_studio.sources.progress import CollectProgress
+from ossie_studio.sources.source_error import SourceError
 
 log = structlog.get_logger(__name__)
 
@@ -82,6 +83,9 @@ class CollectJobs:
             job.state = DONE
         except ApiError as exc:
             job.error = {"error": exc.code, "error_args": exc.args_dict, "status": exc.status_code}
+            job.state = FAILED
+        except SourceError as exc:
+            job.error = {"error": exc.code, "error_args": exc.args_dict, "status": exc.status}
             job.state = FAILED
         except Exception:
             log.exception("collect_job_crashed")
